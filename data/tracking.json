@@ -1,0 +1,89 @@
+{
+  "sessions": {
+    "sess_2025-10-13_dev-noag15m46mo-mgpllc19": {
+      "id": "sess_2025-10-13_dev-noag15m46mo-mgpllc19",
+      "createdAt": 1760388075057,
+      "active": false,
+      "history": [
+        {
+          "lat": 0,
+          "lng": 0,
+          "ts": 1760388075057
+        },
+        {
+          "lat": 0,
+          "lng": 0,
+          "ts": 1760388903646
+        }
+      ],
+      "orders": [],
+      "last": {
+        "lat": 0,
+        "lng": 0,
+        "ts": 1760388903646
+      }
+    },
+    "sess_2025-10-13_dev-mrdminy4r7l-mgplobwb": {
+      "id": "sess_2025-10-13_dev-mrdminy4r7l-mgplobwb",
+      "createdAt": 1760388195881,
+      "active": true,
+      "history": [
+        {
+          "lat": 52.5758545,
+          "lng": 13.2933664,
+          "ts": 1760388195881
+        },
+        {
+          "lat": 52.5758545,
+          "lng": 13.2933664,
+          "ts": 1760388197573
+        }
+      ],
+      "orders": [
+        "WUZV2M"
+      ],
+      "last": {
+        "lat": 52.5758545,
+        "lng": 13.2933664,
+        "ts": 1760388197573
+      },
+      "driverId": "dev-mrdminy4r7l-mgplobwb"
+    },
+    "sess_2025-10-14_dev-noag15m46mo-mgpllc19": {
+      "id": "sess_2025-10-14_dev-noag15m46mo-mgpllc19",
+      "createdAt": 1760395703650,
+      "active": false,
+      "history": [
+        {
+          "lat": 0,
+          "lng": 0,
+          "ts": 1760395703650
+        },
+        {
+          "lat": 0,
+          "lng": 0,
+          "ts": 1760399681494
+        },
+        {
+          "lat": 0,
+          "lng": 0,
+          "ts": 1760400449039
+        },
+        {
+          "lat": 0,
+          "lng": 0,
+          "ts": 1760400488669
+        }
+      ],
+      "orders": [],
+      "last": {
+        "lat": 0,
+        "lng": 0,
+        "ts": 1760400488669
+      }
+    }
+  },
+  "orderToSession": {
+    "WUZV2M": "sess_2025-10-13_dev-mrdminy4r7l-mgplobwb"
+  }
+}

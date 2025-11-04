@@ -1,0 +1,320 @@
+/* app/globals.css */
+
+/* Tailwind-Schichten */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ===== Grundfarben / Design-Variablen ===== */
+:root{ --bg:#1b1713; --text:#f5efe6; --neon:#39FF14; }
+html,body{ background:var(--bg); color:var(--text); margin:0; padding:0 }
+
+/* >>> Mobilde yatay kaymayı tamamen KAPAT (app hissi) <<< */
+html, body{
+  overflow-x: hidden;                    /* sağa-sola kaymayı engelle */
+  overscroll-behavior-x: none;           /* iOS “bounce” yok */
+  touch-action: pan-y;                   /* sadece dikey scroll */
+  -webkit-text-size-adjust: 100%;        /* iOS yazı büyütme sapıtmasın */
+}
+
+/* (İsteğe bağlı kullanırsın) Dar sabit görünüm için kabuk — component’te class vererek kullan */
+/* .app-shell { max-width: 520px; width: 100%; margin-inline: auto; padding-inline: 1rem; } */
+
+/* Besseres Touch-Verhalten mobil */
+a,button{ -webkit-tap-highlight-color: transparent; }
+
+/* Zugänglichkeits-Helfer */
+.sr-only{
+  position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
+  clip:rect(0,0,0,0);white-space:nowrap;border:0;
+}
+/* Fokus-Ring für Komponenten */
+.focus-ring:focus-visible{ outline:none; box-shadow:0 0 0 3px rgba(245,158,11,.35); }
+
+/* ===== Realistische Flammen (Video) ===== */
+.flame-video-wrap{
+  position:fixed; left:0; right:0; bottom:0;
+  height:56vh; min-height:280px; z-index:0; pointer-events:none;
+  background:
+    radial-gradient(85% 160% at 15% 100%, rgba(255,90,28,.75) 0%, transparent 74%),
+    radial-gradient(95% 170% at 50% 100%, rgba(255,205,70,.82) 0%, transparent 78%),
+    radial-gradient(85% 160% at 85% 100%, rgba(255,120,30,.75) 0%, transparent 74%);
+}
+.flame-video{
+  position:absolute; inset:0; width:100%; height:100%; object-fit:cover;
+  mix-blend-mode:screen;
+  filter: saturate(1.25) brightness(1.18) contrast(1.05);
+}
+.flame-mask{
+  position:absolute; inset:0;
+  -webkit-mask-image: linear-gradient(to top, black 58%, rgba(0,0,0,.6) 78%, transparent 100%);
+          mask-image: linear-gradient(to top, black 58%, rgba(0,0,0,.6) 78%, transparent 100%);
+  background: linear-gradient(to top, rgba(0,0,0,0) 0%, rgba(0,0,0,.18) 55%, rgba(0,0,0,.38) 100%);
+}
+.flame-smoke{
+  position:absolute; inset:0; top:auto; height:55%;
+  pointer-events:none; mix-blend-mode:soft-light;
+  background:
+    radial-gradient(40% 18% at 28% 72%, rgba(130,130,145,.18), rgba(0,0,0,0) 70%),
+    radial-gradient(38% 16% at 72% 66%, rgba(125,125,140,.16), rgba(0,0,0,0) 70%);
+  filter: blur(16px);
+  animation: smokeDrift 14s ease-in-out infinite;
+}
+@keyframes smokeDrift{
+  0%{ transform:translateY(0) } 50%{ transform:translateY(-14px) } 100%{ transform:translateY(0) }
+}
+
+/* ===== Themenvariante (optional) ===== */
+.theme-vegan{
+  /* Beispiel: Variablen überschreiben */
+  --neon:#57ff87;
+}
+
+/* ===== Komponenten-Helfer ===== */
+@layer components {
+  /* Primärer Aktions-Button */
+  .bb-btn{
+    @apply inline-flex items-center justify-center rounded-full px-9 py-4 md:px-10 md:py-5
+    text-base md:text-lg font-semibold tracking-wide transition;
+    color: var(--text);
+    background:
+      linear-gradient(to bottom, rgba(255,210,120,.16), rgba(255,160,60,.08)),
+      radial-gradient(120% 120% at 50% 0%, rgba(255,180,70,.18), rgba(0,0,0,0) 60%);
+    border: 1px solid rgba(255,190,90,.42);
+    box-shadow:
+      0 10px 36px rgba(255,155,55,.16),
+      inset 0 2px 0 rgba(255,230,160,.30),
+      inset 0 -2px 10px rgba(0,0,0,.25);
+    backdrop-filter: blur(2px);
+  }
+  .bb-btn:hover{ transform: translateY(-1px); box-shadow: 0 14px 48px rgba(255,170,70,.24), inset 0 2px 0 rgba(255,235,180,.4), inset 0 -2px 12px rgba(0,0,0,.28); }
+  .bb-btn:active{ transform: translateY(0); }
+
+  /* NAV-Pills */
+  .nav-pill{
+    @apply inline-flex items-center rounded-full px-4 py-2 text-sm font-semibold border transition;
+    background: linear-gradient(to bottom, rgba(45,45,45,.9), rgba(25,25,25,.9));
+    color: #f4f0e6; border-color: rgba(255,255,255,.08);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.06);
+  }
+  .nav-pill:hover{
+    background: linear-gradient(to bottom, rgba(60,60,60,.95), rgba(32,32,32,.95));
+    box-shadow: 0 6px 18px rgba(0,0,0,.25), inset 0 1px 0 rgba(255,255,255,.08);
+  }
+  .nav-pill:focus-visible{ outline:none; box-shadow:0 0 0 3px rgba(245,158,11,.35); }
+
+  .nav-pill--active{
+    color: #111; background: linear-gradient( to bottom, #ffa94d, #ff8a1a );
+    border-color: #ffb366; box-shadow: 0 8px 22px rgba(255,140,40,.35), inset 0 1px 0 rgba(255,235,180,.8);
+  }
+  .nav-pill--vegan{
+    color: #0a1a0a; background: linear-gradient( to bottom, #57ff87, #20d566 );
+    border-color: #86ffb0; box-shadow: 0 8px 22px rgba(50,220,120,.35), inset 0 1px 0 rgba(235,255,240,.9);
+  }
+  .nav-pill--vegan.nav-pill--active{
+    color:#0a1a0a;
+    background: linear-gradient( to bottom, #57ff87, #20d566 );
+    border-color:#86ffb0;
+    box-shadow: 0 8px 22px rgba(50,220,120,.35), inset 0 1px 0 rgba(235,255,240,.9);
+  }
+  .nav-pill--cart{ @apply font-semibold; }
+
+  /* Kleine Options-Pills (Extras etc.) */
+  .pill{
+    @apply inline-flex items-center rounded-full px-4 py-2 text-sm font-medium
+           bg-stone-800/70 text-stone-100 border border-stone-700/60
+           hover:bg-stone-800 transition;
+  }
+  .pill.active{ @apply bg-orange-500 text-black border-orange-400; }
+  .pill.vegan{ @apply bg-emerald-500 text-black border-emerald-400; }
+
+  /* Karten-CTA */
+  .card-cta{
+    @apply inline-flex items-center justify-center rounded-full px-5 py-2.5 font-semibold
+           text-black border transition;
+    background: linear-gradient( to bottom, #ffa94d, #ff8a1a );
+    border-color: #ffb366;
+    box-shadow: 0 10px 24px rgba(255,140,40,.25), inset 0 1px 0 rgba(255,235,180,.85);
+  }
+  .card-cta:hover{ transform: translateY(-1px); box-shadow: 0 14px 30px rgba(255,160,60,.35), inset 0 1px 0 rgba(255,240,200,.95); }
+  .card-cta--lg{ @apply text-base py-3 px-6; }
+  .card-cta[disabled],
+  .card-cta:disabled{ opacity:.55; cursor:not-allowed; transform:none; }
+
+  /* Mengen-Buttons */
+  .qty{
+    @apply inline-flex items-center justify-center rounded-full px-3 py-1.5
+           bg-stone-800/70 text-stone-100 border border-stone-700/60;
+  }
+  .qty:focus-visible{ outline:none; box-shadow:0 0 0 3px rgba(245,158,11,.35); }
+
+  /* Karten-Container */
+  .card{ @apply rounded-2xl border border-stone-700/60 bg-stone-900/60 p-4; }
+
+  /* Tap-Feedback für Social-Links im Footer */
+  .flash-btn{ transition: transform .15s ease, background .15s ease, opacity .15s ease; will-change: transform; }
+  .flash-btn:active{ transform: scale(0.98); }
+
+  /* Optional: Ghost-Button, an vielen Stellen genutzt */
+  .btn-ghost{
+    @apply inline-flex items-center rounded-full px-3 py-1.5 text-sm bg-stone-800/60 border border-stone-700/60 hover:bg-stone-800 transition;
+    color:#e7e5e4;
+  }
+}
+
+/* Moderner Switch (Toggle) – nutzt .focus-ring in Komponenten */
+input[type="checkbox"]{
+  appearance:none; -webkit-appearance:none; width:42px; height:24px; border-radius:9999px;
+  background: rgba(68,64,60,.6); border:1px solid rgba(120,113,108,.6);
+  position:relative; outline:none; transition: background .15s ease, border-color .15s ease, box-shadow .15s ease;
+  vertical-align:middle; cursor:pointer;
+}
+input[type="checkbox"]::after{
+  content:""; position:absolute; top:2px; left:2px; width:20px; height:20px; border-radius:9999px;
+  background:#fff; transition: transform .15s ease, background .15s ease; will-change: transform;
+}
+input[type="checkbox"]:checked{ background:#f59e0b; border-color:#fbbf24; }
+input[type="checkbox"]:checked::after{ transform: translateX(18px); }
+input[type="checkbox"]:disabled{ opacity:.55; cursor:not-allowed; }
+input[type="checkbox"]:focus-visible{ box-shadow:0 0 0 3px rgba(245,158,11,.35); }
+.switch--sm{ width:34px !important; height:20px !important; }
+.switch--sm::after{ width:16px !important; height:16px !important; }
+.switch--sm:checked::after{ transform: translateX(14px) !important; }
+.switch--lg{ width:54px !important; height:30px !important; }
+.switch--lg::after{ width:26px !important; height:26px !important; top:2px; left:2px; }
+.switch--lg:checked::after{ transform: translateX(24px) !important; }
+
+/* === Einheitliches Karten-/Grid-Layout (GLOBAL) ===
+   Ziel: CTA-Buttons in ALLEN Karten (Extras/Drinks/Sauces/Burger) exakt bündig halten,
+   ohne dass die Karten künstlich auf die Höhe der Warenkorb-Spalte gestreckt werden. */
+.grid-cards{
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(260px,1fr));
+  gap:16px;
+  align-items:start;            /* WICHTIG: nicht 'stretch' */
+}
+
+/* Jede Kachel als Flex-Container */
+.grid-cards > .menu-card{
+  display:flex;                 /* keine feste Höhe! */
+}
+
+/* Karten-Skelett: nie height:100%, sondern inhaltshoch + definierte Mindesthöhe */
+.grid-cards > .menu-card > .card,
+.grid-cards > .menu-card > .product-card{
+  display:flex;
+  flex-direction:column;
+  height:auto !important;       /* überschreibt evtl. alte 100%-Regeln */
+  min-height:320px;             /* bei Bedarf 300–360 anpassen */
+}
+
+/* Inhalt dehnt sich, CTA bleibt unten */
+.grid-cards > .menu-card .product-card__body{
+  flex:1 1 auto;
+  display:flex;
+  flex-direction:column;
+}
+.grid-cards > .menu-card .product-card__cta{
+  margin-top:auto;
+}
+
+/* Bildfläche mit festem Seitenverhältnis */
+.grid-cards > .menu-card .cover,
+.grid-cards > .menu-card [data-media]{
+  aspect-ratio:16/10;
+  width:100%;
+  border-radius:12px;
+  overflow:hidden;
+}
+
+/* Zweizeilige Beschreibung (stabile Kartenhöhe) */
+.grid-cards > .menu-card .line-clamp-2,
+.grid-cards > .menu-card [data-desc]{
+  display:-webkit-box;
+  -webkit-line-clamp:2;
+  -webkit-box-orient:vertical;
+  overflow:hidden;
+}
+
+/* Alte globale Regeln, die Konflikte verursachen können – NICHT verwenden:
+   .grid-cards > .menu-card{ height:100%; }
+   .card{ min-height:420px; }        <- entfernt
+   .grid-cards{ align-items:stretch; } <- entfernt
+   .card .footer{ margin-top:auto; }  <- stattdessen .product-card__cta oben nutzen
+   .cover{ aspect-ratio:16/10; }      <- jetzt im Kontext der Grid-Karten geregelt
+*/
+
+
+/* === Mobile helpers (minimal-diff) === */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* Product card layout: keep CTA at bottom and unify min-height (mobile-first) */
+.card.product-card, .product-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 360px;
+}
+.product-card__body { display: flex; flex-direction: column; }
+.product-card__cta { margin-top: auto; }
+
+/* iOS safe-area paddings (opt-in via utility classes we used) */
+:root { --bb-safe-bottom: env(safe-area-inset-bottom); --bb-safe-top: env(safe-area-inset-top); }
+
+/* (İsteğe bağlı) Sticky header için hazır sınıf — component’te kullanabilirsin */
+.bb-sticky-header{
+  position: sticky;
+  top: var(--bb-safe-top);
+  z-index: 40;
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  background: color-mix(in oklab, #0b0b0b 75%, transparent);
+}
+
+/* === Yatay sekme şeridi (NavBar) için kaydırma + fade + akıllı oklar === */
+.bb-tabs-scroll{
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+}
+.bb-tabs-scroll::-webkit-scrollbar{ display: none; }
+
+/* kenarlarda yumuşak fade */
+.bb-tabs-mask{
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    black 24px,
+    black calc(100% - 24px),
+    transparent 100%
+  );
+          mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    black 24px,
+    black calc(100% - 24px),
+    transparent 100%
+  );
+}
+
+/* akıllı oklar (sadece mobilde görünür) */
+.bb-tab-arrow{
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 32px; height: 32px;
+  border-radius: 9999px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(28,25,23,.85);
+  border: 1px solid rgba(120,113,108,.6);
+  box-shadow: 0 4px 12px rgba(0,0,0,.35);
+  backdrop-filter: blur(4px);
+  color: #f4f0e6;
+  z-index: 10;
+}
+.bb-tab-arrow--left{ left: 4px; }
+.bb-tab-arrow--right{ right: 4px; }
+@media (min-width: 640px){
+  .bb-tab-arrow{ display: none; } /* oklar sadece mobilde */
+}

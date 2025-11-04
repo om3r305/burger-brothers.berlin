@@ -1,0 +1,13 @@
+{
+  "name": "Burger Brothers • Admin",
+  "short_name": "Admin",
+  "id": "/admin/",
+  "start_url": "/admin",
+  "scope": "/admin/",
+  "display": "standalone",
+  "background_color": "#0b0f14",
+  "theme_color": "#0b0f14",
+  "icons": [
+    { "src": "/icon-kurier-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

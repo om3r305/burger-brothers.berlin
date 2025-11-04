@@ -1,0 +1,61 @@
+{
+  "features": { "bubbleTea": { "enabled": true }, "donuts": { "enabled": true } },
+  "tracking": { "enabled": true, "showEtaClock": true },
+  "hours": {
+    "allowPreorder": true,
+    "slotMinutes": 15,
+    "slotMinutesDelivery": 15,
+    "slotMinutesPickup": 15,
+    "daysAhead": 0,
+    "avgPickupMinutes": 10,
+    "avgDeliveryMinutes": 35,
+    "tz": "Europe/Berlin",
+    "timezone": "Europe/Berlin",
+    "newGraceMinutes": 5,
+    "autoDoneWhenEtaUp": true
+  },
+  "statusColors": {
+    "eingegangen": "#60a5fa",
+    "zubereitung": "#f59e0b",
+    "abholbereit": "#34d399",
+    "unterwegs": "#a78bfa",
+    "abgeschlossen": "#9ca3af"
+  },
+  "modeColors": { "pickup": "#10b981", "delivery": "#f59e0b" },
+  "telegram": { "enabled": false },
+  "lifa": { "active": true, "discountRate": 0.1 },
+  "apollon": { "active": true, "discountRate": 0.05 },
+  "delivery": { "plzMin": {}, "surcharges": {} },
+  "freebies": { "enabled": false, "category": "sauces", "mode": "both", "tiers": [] },
+  "coupons": [],
+  "announcements": { "enabled": false, "items": [] },
+  "printing": {
+    "paper": "A4",
+    "showBarcode": true,
+    "showQR": true,
+    "groupingOrder": [],
+    "qrPayload": { "includeOrderId": true, "includeCustomerName": false, "includePhone": false, "includeAddress": true }
+  },
+  "tv": {
+    "autoRefreshSeconds": 5,
+    "hideSensitive": true,
+    "sounds": {
+      "apollonEnabled": true, "apollonUrl": "/sounds/apollo.mp3",
+      "lifaEnabled": true, "lifaUrl": "/sounds/lifa.mp3",
+      "volume": 1
+    },
+    "allowDurationAdjust": true,
+    "durationStepMinutes": 5,
+    "durationMaxMinutes": 60,
+    "allowCancel": true,
+    "confirmCancel": true
+  },
+  "security": {
+    "requirePinForQR": true,
+    "driverPin": "123456",
+    "qrAccessTTLMinutes": 120,
+    "drivers": [{ "id": "ali", "name": "Ali", "active": true }],
+    "trustedDevices": {},
+    "tvPin": "19051905"
+  }
+}

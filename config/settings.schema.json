@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Burger Settings",
+  "type": "object",
+  "properties": {
+    "features": {
+      "type": "object",
+      "properties": {
+        "bubbleTea": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Bubble Tea Kategorien anzeigen"
+            }
+          }
+        },
+        "donuts": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Donuts Kategorien anzeigen"
+            }
+          }
+        }
+      }
+    },
+    "hours": {
+      "type": "object",
+      "properties": {
+        "allowPreorder": {
+          "type": "boolean"
+        },
+        "slotMinutes": {
+          "type": "integer",
+          "minimum": 5,
+          "description": "Slot-L\u00e4nge in Minuten"
+        },
+        "daysAhead": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "avgPickupMinutes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "avgDeliveryMinutes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "tz": {
+          "type": "string",
+          "description": "IANA TZ, z.B. Europe/Berlin",
+          "examples": [
+            "Europe/Berlin"
+          ]
+        }
+      }
+    },
+    "validation": {
+      "type": "object",
+      "properties": {
+        "phoneDigits": {
+          "type": "integer",
+          "minimum": 6,
+          "maximum": 15,
+          "description": "Telefonnummer Ziffer say\u0131s\u0131"
+        }
+      }
+    },
+    "theme": {
+      "type": "object",
+      "properties": {
+        "colorScheme": {
+          "type": "string",
+          "enum": [
+            "light",
+            "dark",
+            "system"
+          ],
+          "description": "Farbschema"
+        },
+        "badges": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Kopf alan\u0131nda k\u00fc\u00e7\u00fck etiketler"
+        }
+      }
+    }
+  }
+}

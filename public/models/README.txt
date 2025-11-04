@@ -1,0 +1,1 @@
+Place burger-signature.glb here for real 3D model.

@@ -1,0 +1,274 @@
+// prisma/schema.prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL") // file:./data/burger.db
+}
+
+/**
+ * ─────────── Hesap & Yetki ───────────
+ */
+model Tenant {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users              User[]
+  settings           Settings?
+  categories         Category[]
+  products           Product[]
+  ProductOptionGroup ProductOptionGroup[]
+  Price              Price[]
+  DeliveryZone       DeliveryZone[]
+  FeeRule            FeeRule[]
+  Order              Order[]
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  password  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id])
+
+  roles UserRole[]
+}
+
+model Role {
+  id    String     @id @default(cuid())
+  name  String     @unique
+  users UserRole[]
+}
+
+model UserRole {
+  userId String
+  roleId String
+
+  user User @relation(fields: [userId], references: [id])
+  role Role @relation(fields: [roleId], references: [id])
+
+  @@id([userId, roleId])
+}
+
+/**
+ * ─────────── Menü & Ürün ───────────
+ */
+model Category {
+  id        String   @id @default(cuid())
+  tenantId  String
+  name      String
+  slug      String
+  sort      Int      @default(0)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id])
+  products Product[]
+
+  @@unique([tenantId, slug])
+}
+
+model Product {
+  id         String   @id @default(cuid())
+  tenantId   String
+  categoryId String?
+  name       String
+  slug       String
+  desc       String?
+  imageUrl   String?
+  taxRate    Float    @default(0.07)
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id])
+  category Category? @relation(fields: [categoryId], references: [id]) // opsiyonel
+
+  options ProductOptionGroup[]
+  prices  Price[]
+
+  @@unique([tenantId, slug])
+}
+
+model ProductOptionGroup {
+  id        String @id @default(cuid())
+  tenantId  String
+  productId String
+  name      String
+  min       Int    @default(0)
+  max       Int    @default(1)
+  sort      Int    @default(0)
+
+  tenant  Tenant          @relation(fields: [tenantId], references: [id])
+  product Product         @relation(fields: [productId], references: [id])
+  options ProductOption[]
+}
+
+model ProductOption {
+  id        String @id @default(cuid())
+  groupId   String
+  name      String
+  priceDiff Float  @default(0)
+  sort      Int    @default(0)
+
+  group ProductOptionGroup @relation(fields: [groupId], references: [id])
+}
+
+model Price {
+  id        String    @id @default(cuid())
+  tenantId  String
+  productId String
+  currency  String    @default("EUR")
+  amount    Float
+  validFrom DateTime  @default(now())
+  validTo   DateTime?
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id])
+  product Product @relation(fields: [productId], references: [id])
+
+  @@index([tenantId, productId])
+}
+
+/**
+ * ─────────── Ayarlar & Kural ───────────
+ */
+model Settings {
+  id        String   @id @default(cuid())
+  tenantId  String   @unique
+  data      Json
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+}
+
+model DeliveryZone {
+  id        String   @id @default(cuid())
+  tenantId  String
+  name      String
+  geojson   Json
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+}
+
+model FeeRule {
+  id          String   @id @default(cuid())
+  tenantId    String
+  minSubtotal Float    @default(0)
+  fee         Float    @default(0)
+  description String?
+  createdAt   DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+}
+
+/**
+ * ─────────── Sipariş ───────────
+ */
+model Order {
+  id               String    @id
+  tenantId         String
+  status           String
+  mode             String
+  ts               DateTime  @default(now())
+  planned          String?
+  customer         Json?
+  pricing          Json?
+  fees             Json?
+  meta             Json?
+  driver           Json?
+  outForDeliveryAt DateTime?
+  claimedAt        DateTime?
+
+  items OrderItem[]
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+}
+
+model OrderItem {
+  id      String  @id @default(cuid())
+  orderId String
+  name    String
+  price   Float
+  qty     Int     @default(1)
+  note    String?
+  add     Json?
+  rm      Json?
+
+  order Order @relation(fields: [orderId], references: [id])
+}
+
+model Payment {
+  id        String   @id @default(cuid())
+  orderId   String
+  method    String
+  amount    Float
+  ref       String?
+  createdAt DateTime @default(now())
+}
+
+/**
+ * ─────────── Log ───────────
+ */
+model AuditLog {
+  id             String   @id @default(cuid())
+  tenantId       String
+  userId         String?
+  action         String
+  entity         String?
+  entityId       String?
+  before         Json?
+  after          Json?
+  at             DateTime @default(now())
+  idempotencyKey String?  @unique
+}
+
+/**
+ * ─────────── Brian ───────────
+ */
+model BrianLearnLog {
+  id         String   @id @default(cuid())
+  occurredAt DateTime
+  mode       String
+  host       String?
+  ip         String?
+  ua         String?
+  streets    Json
+}
+
+model BrianMeta {
+  id           String    @id @default("singleton")
+  firstLearnAt DateTime?
+  updatedAt    DateTime?
+  windowDays   Int       @default(60)
+  thresholds   Json?
+}
+
+model BrianPair {
+  id           String  @id @default(cuid())
+  a            String
+  b            String
+  support      Float
+  lift         Float
+  confidenceLB Float
+  negative     Boolean @default(false)
+}
+
+model BrianCluster {
+  id      String  @id
+  color   String?
+  streets Json
+}

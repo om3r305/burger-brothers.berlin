@@ -1,0 +1,6 @@
+Burger Brothers Berlin — Production Prep Notes
+- Target domain: https://www.burger-brothers.berlin
+- Replaced localhost/127.x/192.x/staging/test URLs where found.
+- Added public/manifest.webmanifest, public/sw.js, public/robots.txt.
+- Added /qr (public/qr/index.html) with 'Website öffnen' and 'Zum Home-Bildschirm hinzufügen' flow.
+- No business logic was changed.

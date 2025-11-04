@@ -1,0 +1,2 @@
+import { siteConfig } from "@/config/site.config";
+export default function WhatsAppFAB(){const num=siteConfig.contact.whatsappNumber.replace(/[^\d]/g,"");const href=`https://wa.me/${num}?text=${encodeURIComponent(siteConfig.contact.whatsappDefaultMessage)}`;return(<a href={href} target="_blank" rel="noreferrer" className="fixed bottom-5 right-5 z-50 inline-flex items-center gap-2 rounded-full bg-emerald-600 px-5 py-3 text-white shadow-xl transition hover:scale-105 focus:ring-2 focus:ring-emerald-300">WhatsApp</a>)}
