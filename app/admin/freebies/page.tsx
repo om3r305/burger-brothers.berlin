@@ -1,23 +1,30 @@
+// app/admin/freebies/page.tsx
 "use client";
 
-import AdminSidebar from "@/components/admin/Sidebar"; // Dikkat: S büyük!
-import Toggle from "@/components/ui/Toggle";            // Dikkat: T büyük!
+import AdminSidebar from "@/components/admin/Sidebar";
+import Toggle from "@/components/ui/Toggle";
 import { useSettings } from "@/lib/useSettings";
-import { Category } from "@/components/types";
 
-const CATS: Category[] = ["burger", "vegan", "extras", "sauces", "drinks", "hotdogs"];
+// Freebies category sadece bu iki değer olabilir (lib/settings.ts ile bire bir)
+const FREEBIE_TARGETS = ["sauces", "drinks"] as const;
+type FreebieTarget = (typeof FREEBIE_TARGETS)[number];
 
 /** Boş/eksik durumlarda güvenli default */
-const FB_DEFAULT = { enabled: false, category: "sauces" as const, mode: "both" as const, tiers: [] as {minTotal:number; freeSauces:number}[] };
+const FB_DEFAULT = {
+  enabled: false,
+  category: "sauces" as FreebieTarget,
+  mode: "both" as const,
+  tiers: [] as { minTotal: number; freeSauces: number }[],
+};
 
 export default function AdminFreebiesPage() {
   const { settings, setSettings, loaded } = useSettings();
   if (!loaded) return <main className="p-6">Lädt…</main>;
 
-  const fb = settings.freebies ?? FB_DEFAULT;
+  const fb = (settings.freebies ?? FB_DEFAULT) as typeof FB_DEFAULT;
 
   /** Ayar yazarken freebies alanı yoksa otomatik oluşturur */
-  const updateFb = (patch: Partial<typeof fb>) =>
+  const updateFb = (patch: Partial<typeof FB_DEFAULT>) =>
     setSettings((s) => ({
       ...s,
       freebies: { ...(s.freebies ?? FB_DEFAULT), ...patch },
@@ -26,6 +33,7 @@ export default function AdminFreebiesPage() {
   return (
     <main className="mx-auto max-w-7xl p-6 grid gap-6 lg:grid-cols-[260px_1fr]">
       <AdminSidebar />
+
       <section className="card">
         <div className="mb-3 text-lg font-semibold">Ücretsiz Sos Kuralı</div>
 
@@ -42,8 +50,8 @@ export default function AdminFreebiesPage() {
               value={String(getTierMinTotal(fb) ?? 0)}
               onChange={(e) => {
                 const val = Number(e.target.value || 0);
-                // Tek kademeli basit kural: minTotal + 1 adet ücretsiz sos
-                updateFb({ tiers: [{ minTotal: val, freeSauces: 1 }] });
+                // Tek kademeli basit kural: minTotal + N adet ücretsiz sos
+                updateFb({ tiers: [{ minTotal: val, freeSauces: getTierFreeCount(fb) ?? 1 }] });
               }}
               className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2 outline-none"
             />
@@ -66,12 +74,12 @@ export default function AdminFreebiesPage() {
           <Field label="Hedef kategori">
             <select
               value={fb.category}
-              onChange={(e) => updateFb({ category: e.target.value as Category })}
+              onChange={(e) => updateFb({ category: e.target.value as FreebieTarget })}
               className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2 outline-none"
             >
-              {CATS.map((c) => (
-                <option key={c} value={c}>
-                  {c}
+              {FREEBIE_TARGETS.map((t) => (
+                <option key={t} value={t}>
+                  {t}
                 </option>
               ))}
             </select>
