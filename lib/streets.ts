@@ -216,3 +216,111 @@ const StreetsAPI = {
   importFromJSONString,
 };
 export default StreetsAPI;
+
+/* ───────────────────────────────────────────
+ * COMPAT LAYER — admin/addresses/page.tsx için
+ * (mevcut API’yı bozmadan eski isimleri sağlar)
+ * ─────────────────────────────────────────── */
+
+export function readStreetDB(): StreetDB {
+  return getStreetDB();
+}
+
+export function writeStreetDB(db: StreetDB): StreetDB {
+  setStreetDB(db);
+  return getStreetDB();
+}
+
+export function filterStreets(plz: string, q: string): string[] {
+  return searchStreets(plz, q);
+}
+
+export function replacePLZ(plz: string, streets: string[]): StreetDB {
+  const code = plz5(plz);
+  if (code.length !== 5) return getStreetDB();
+
+  const cur = { ...getStreetDB() };
+  const cleaned = Array.from(
+    new Set((streets || [])
+      .map((s) => beautify(String(s)))
+      .filter(isLikelyStreetName))
+  ).sort((a, b) => a.localeCompare(b, "de"));
+
+  cur[code] = cleaned;
+  setStreetDB(cur);
+  return cur;
+}
+
+export function upsertPLZ(plz: string, add: string[]): StreetDB {
+  const code = plz5(plz);
+  if (code.length !== 5) return getStreetDB();
+
+  const cur = { ...getStreetDB() };
+  const base = new Set(cur[code] || []);
+  for (const s of add || []) {
+    const v = beautify(String(s));
+    if (isLikelyStreetName(v)) base.add(v);
+  }
+  cur[code] = Array.from(base).sort((a, b) => a.localeCompare(b, "de"));
+  setStreetDB(cur);
+  return cur;
+}
+
+export function removePLZ(plz: string): StreetDB {
+  const code = plz5(plz);
+  if (!code) return getStreetDB();
+  const cur = { ...getStreetDB() };
+  delete cur[code];
+  setStreetDB(cur);
+  return cur;
+}
+
+/** CSV import/export — admin ekranının beklediği imzalar */
+export function importCSVToPLZ(csv: string): StreetDB | string[] {
+  const text = String(csv || "").replace(/\r/g, "");
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  if (lines.length === 0) return [];
+
+  // Ayırıcıyı satır bazında belirle
+  const splitSmart = (s: string) => {
+    const semi = s.split(";");
+    const comma = s.split(",");
+    return semi.length >= comma.length ? semi : comma;
+  };
+
+  // Kolon sayısını tahmin et
+  const firstCols = splitSmart(lines[0]).length;
+
+  if (firstCols < 2) {
+    // Tek kolon: sokak listesi döndür (seçili PLZ ile replacePLZ kullanılacak)
+    const only = Array.from(
+      new Set(lines.map((l) => beautify(splitSmart(l)[0] || "")).filter(isLikelyStreetName))
+    ).sort((a, b) => a.localeCompare(b, "de"));
+    return only;
+  }
+
+  // Çok kolon: (plz, street) → tüm DB’yi yaz ve döndür
+  const next: StreetDB = {};
+  for (const l of lines) {
+    const cols = splitSmart(l).map((c) => c.trim());
+    const code = plz5(cols[0] || "");
+    const street = beautify(cols[1] || "");
+    if (code.length !== 5 || !isLikelyStreetName(street)) continue;
+    if (!next[code]) next[code] = [];
+    next[code].push(street);
+  }
+  setStreetDB(next);
+  return getStreetDB();
+}
+
+export function exportCSV(db: StreetDB): string {
+  const safe = Object.keys(db || {}).length ? db : getStreetDB();
+  const rows: string[] = ["plz;street"];
+  for (const code of Object.keys(safe).sort()) {
+    for (const s of safe[code]) {
+      const cell = s.includes(";") || s.includes(",") ? `"${s.replace(/"/g, '""')}"` : s;
+      rows.push(`${code};${cell}`);
+    }
+  }
+  return rows.join("\n");
+}
