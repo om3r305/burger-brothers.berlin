@@ -5,25 +5,34 @@ import { generateOrderId } from "@/lib/order-id";
 import { getServerSettings } from "@/lib/server/settings";
 import { sendTelegramNewOrder } from "@/lib/telegram";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+type OrderMode = "pickup" | "delivery";
+
 export async function POST(req: Request) {
   try {
     const { order, notify } = await req.json();
 
     const settings = getServerSettings();
     const id = generateOrderId(settings.orders?.idLength || 6);
+
     const avgPickup = settings.hours?.avgPickupMinutes ?? 15;
     const avgDelivery = settings.hours?.avgDeliveryMinutes ?? 35;
-    const etaMin = order?.mode === "pickup" ? avgPickup : avgDelivery;
+
+    // ← tipi kesinleştir (TS için)
+    const mode: OrderMode = order?.mode === "pickup" ? "pickup" : "delivery";
+    const etaMin = mode === "pickup" ? avgPickup : avgDelivery;
 
     const source: "lieferando" | "apollo" | "web" =
-      (order?.source === "lieferando" || order?.source === "apollo") ? order.source : "web";
+      order?.source === "lieferando" || order?.source === "apollo" ? order.source : "web";
 
     const stored: StoredOrder = {
       id,
       status: "received",
       createdAt: Date.now(),
       etaMin,
-      mode: order?.mode === "pickup" ? "pickup" : "delivery",
+      mode, // ← burada da aynı kesin tip
       channel: source as any,
       order,
     };
@@ -33,7 +42,7 @@ export async function POST(req: Request) {
     if (notify) {
       await sendTelegramNewOrder({
         id,
-        mode: stored.mode,
+        mode, // ← stored.mode yerine kesin tip
         items: (order?.items || []).map((ci: any) => ({
           name: ci?.name || "Artikel",
           qty: ci?.qty || 1,
