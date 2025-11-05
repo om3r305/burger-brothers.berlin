@@ -26,8 +26,8 @@ type Product = {
   name: string;
   price: number;
   category: LocalCategory | string;
-  imageUrl?: string | null;     // ← null gelebiliyor, tipte izin verdik
-  description?: string | null;  // ← aynısı
+  imageUrl?: string | null;
+  description?: string | null;
   active?: boolean;
   startAt?: string;
   endAt?: string;
@@ -163,13 +163,12 @@ export default function BubbleTeaPage() {
     router.push(`/menu?cat=${encodeURIComponent(k)}`);
   };
 
-  // Kampanya modu (TS kesin)
-  const mode: "pickup" | "delivery" = (() => {
-    try {
-      const m = localStorage.getItem("bb_order_mode");
-      return m === "pickup" ? "pickup" : "delivery";
-    } catch { return "delivery"; }
-  })();
+  // Kampanya modu (basit & kesin tip)
+  let mode: "pickup" | "delivery" = "delivery";
+  try {
+    const m = localStorage.getItem("bb_order_mode");
+    if (m === "pickup") mode = "pickup";
+  } catch {}
 
   return (
     <main className="mx-auto max-w-7xl p-6">
@@ -232,8 +231,8 @@ export default function BubbleTeaPage() {
                     sku={s.id}
                     name={s.name}
                     price={applied?.final ?? s.price}
-                    image={s.imageUrl ?? undefined}         {/* ← null → undefined */}
-                    description={s.description ?? undefined} {/* ← null → undefined */}
+                    image={s.imageUrl ?? undefined}
+                    description={s.description ?? undefined}
                     campaignLabel={applied?.badge}
                     outOfStock={out}
                     category="bubbletea"
