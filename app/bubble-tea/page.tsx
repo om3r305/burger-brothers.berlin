@@ -18,22 +18,16 @@ const EDGE = 12;
 const SWEET = 0.35;
 
 type LocalCategory =
-  | "burger"
-  | "vegan"
-  | "extras"
-  | "sauces"
-  | "drinks"
-  | "hotdogs"
-  | "donuts"
-  | "bubbletea";
+  | "burger" | "vegan" | "extras" | "sauces" | "drinks"
+  | "hotdogs" | "donuts" | "bubbletea";
 
 type Product = {
   id: string;
   name: string;
   price: number;
   category: LocalCategory | string;
-  imageUrl?: string;
-  description?: string;
+  imageUrl?: string | null;     // ← null gelebiliyor, tipte izin verdik
+  description?: string | null;  // ← aynısı
   active?: boolean;
   startAt?: string;
   endAt?: string;
@@ -77,19 +71,14 @@ export default function BubbleTeaPage() {
   }, []);
 
   useEffect(() => {
-    try {
-      setCampaigns(loadNormalizedCampaigns());
-    } catch {
-      setCampaigns([]);
-    }
+    try { setCampaigns(loadNormalizedCampaigns()); }
+    catch { setCampaigns([]); }
   }, []);
 
   const teas = useMemo(
     () =>
       products
-        .filter(
-          (p) => String(p.category).toLowerCase().replace(/\s+/g, "") === "bubbletea",
-        )
+        .filter((p) => String(p.category).toLowerCase().replace(/\s+/g, "") === "bubbletea")
         .sort((a, b) => a.name.localeCompare(b.name)),
     [products],
   );
@@ -134,9 +123,7 @@ export default function BubbleTeaPage() {
     updateArrows();
     const onScroll = () => {
       updateArrows();
-      try {
-        sessionStorage.setItem(SCROLL_KEY, String(rail.scrollLeft));
-      } catch {}
+      try { sessionStorage.setItem(SCROLL_KEY, String(rail.scrollLeft)); } catch {}
     };
     rail.addEventListener("scroll", onScroll, { passive: true });
     const ro = new ResizeObserver(updateArrows);
@@ -147,10 +134,8 @@ export default function BubbleTeaPage() {
     };
   }, []);
 
-  // tıklamada tatlı noktaya taşı
   useEffect(() => {
-    const rail = railRef.current;
-    if (!rail) return;
+    const rail = railRef.current; if (!rail) return;
     const onClick = (e: Event) => {
       const t = e.target as HTMLElement;
       const pill = t.closest(".nav-pill") as HTMLElement | null;
@@ -178,14 +163,12 @@ export default function BubbleTeaPage() {
     router.push(`/menu?cat=${encodeURIComponent(k)}`);
   };
 
-  // ---- MODE: "pickup" | "delivery" (TS için kesinleştir)
+  // Kampanya modu (TS kesin)
   const mode: "pickup" | "delivery" = (() => {
     try {
       const m = localStorage.getItem("bb_order_mode");
       return m === "pickup" ? "pickup" : "delivery";
-    } catch {
-      return "delivery";
-    }
+    } catch { return "delivery"; }
   })();
 
   return (
@@ -212,26 +195,17 @@ export default function BubbleTeaPage() {
               aria-label="Tabs nach links"
               className="bb-tabs-scroll__btn bb-tabs-scroll__btn--left"
               onClick={() => nudge("left")}
-            >
-              ‹
-            </button>
+            >‹</button>
           )}
           <div ref={railRef} className="bb-tabs-scroll__rail whitespace-nowrap">
-            <NavBar
-              variant="menu"
-              tab={"bubbletea" as any}
-              onTabChange={handleTabChange as any}
-              showLocationCaption={false}
-            />
+            <NavBar variant="menu" tab={"bubbletea" as any} onTabChange={handleTabChange as any} showLocationCaption={false} />
           </div>
           {canRight && (
             <button
               aria-label="Tabs nach rechts"
               className="bb-tabs-scroll__btn bb-tabs-scroll__btn--right"
               onClick={() => nudge("right")}
-            >
-              ›
-            </button>
+            >›</button>
           )}
         </div>
       </div>
@@ -249,7 +223,7 @@ export default function BubbleTeaPage() {
               const applied = priceWithCampaign(
                 { id: s.id, name: s.name, price: s.price, category: "bubbletea" as unknown as Category },
                 campaigns,
-                mode, // ← "both" yerine kesin tip
+                mode
               );
               const out = !isAvailable(s);
               return (
@@ -258,8 +232,8 @@ export default function BubbleTeaPage() {
                     sku={s.id}
                     name={s.name}
                     price={applied?.final ?? s.price}
-                    image={s.imageUrl}
-                    description={s.description}
+                    image={s.imageUrl ?? undefined}         {/* ← null → undefined */}
+                    description={s.description ?? undefined} {/* ← null → undefined */}
                     campaignLabel={applied?.badge}
                     outOfStock={out}
                     category="bubbletea"
@@ -278,78 +252,19 @@ export default function BubbleTeaPage() {
       <CartSummaryMobile />
 
       <style jsx global>{`
-        .bb-tabs-scroll {
-          position: relative;
-        }
-        .bb-tabs-scroll__rail {
-          overflow-x: auto;
-          scrollbar-width: none;
-          -webkit-overflow-scrolling: touch;
-          overscroll-behavior-x: contain;
-          scroll-behavior: auto;
-        }
-        .bb-tabs-scroll__rail::-webkit-scrollbar {
-          display: none;
-        }
-        .bb-tabs-scroll__btn {
-          position: absolute;
-          top: 50%;
-          transform: translateY(-50%);
-          width: 36px;
-          height: 36px;
-          border-radius: 9999px;
-          display: grid;
-          place-items: center;
-          background: rgba(32, 32, 32, 0.85);
-          color: #e7e5e4;
-          border: 1px solid rgba(120, 113, 108, 0.5);
-          box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
-          z-index: 10;
-        }
-        .bb-tabs-scroll__btn--left {
-          left: 0.25rem;
-        }
-        .bb-tabs-scroll__btn--right {
-          right: 0.25rem;
-        }
-
-        .grid-cards {
-          display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-          gap: 16px;
-          align-items: start;
-        }
-        .grid-cards > .menu-card {
-          display: flex;
-        }
-        .grid-cards > .menu-card > .card,
-        .grid-cards > .menu-card > .product-card {
-          display: flex;
-          flex-direction: column;
-          height: auto;
-          min-height: 320px;
-        }
-        .grid-cards > .menu-card .product-card__body {
-          flex: 1 1 auto;
-          display: flex;
-          flex-direction: column;
-        }
-        .grid-cards > .menu-card .product-card__cta {
-          margin-top: auto;
-        }
-        .grid-cards > .menu-card .cover,
-        .grid-cards > .menu-card [data-media] {
-          aspect-ratio: 16/10;
-          width: 100%;
-          border-radius: 12px;
-          overflow: hidden;
-        }
-        .grid-cards > .menu-card [data-desc] {
-          display: -webkit-box;
-          -webkit-line-clamp: 2;
-          -webkit-box-orient: vertical;
-          overflow: hidden;
-        }
+        .bb-tabs-scroll { position: relative; }
+        .bb-tabs-scroll__rail { overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; scroll-behavior: auto; }
+        .bb-tabs-scroll__rail::-webkit-scrollbar { display: none; }
+        .bb-tabs-scroll__btn { position: absolute; top: 50%; transform: translateY(-50%); width: 36px; height: 36px; border-radius: 9999px; display: grid; place-items: center; background: rgba(32,32,32,.85); color: #e7e5e4; border: 1px solid rgba(120,113,108,.5); box-shadow: 0 6px 18px rgba(0,0,0,.22); z-index: 10; }
+        .bb-tabs-scroll__btn--left { left: .25rem; }
+        .bb-tabs-scroll__btn--right { right: .25rem; }
+        .grid-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; align-items: start; }
+        .grid-cards > .menu-card { display: flex; }
+        .grid-cards > .menu-card > .card, .grid-cards > .menu-card > .product-card { display: flex; flex-direction: column; height: auto; min-height: 320px; }
+        .grid-cards > .menu-card .product-card__body { flex: 1 1 auto; display: flex; flex-direction: column; }
+        .grid-cards > .menu-card .product-card__cta { margin-top: auto; }
+        .grid-cards > .menu-card .cover, .grid-cards > .menu-card [data-media] { aspect-ratio: 16/10; width: 100%; border-radius: 12px; overflow: hidden; }
+        .grid-cards > .menu-card [data-desc] { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
       `}</style>
     </main>
   );
