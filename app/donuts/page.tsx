@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, useLayoutEffect } from "react";
 import { useRouter } from "next/navigation";
 import CartSummary, { CartSummaryMobile } from "@/components/CartSummary";
-import SauceCard from "@/components/sauces/SauceCard"; // Generic kart
+import SauceCard from "@/components/sauces/SauceCard";
 import NavBar from "@/components/NavBar";
 
 import { useCart } from "@/components/store";
@@ -14,7 +14,7 @@ import { loadNormalizedCampaigns } from "@/lib/campaigns-compat";
 import { priceWithCampaign, type Campaign, type Category } from "@/lib/catalog";
 
 const LS_PRODUCTS = "bb_products_v1";
-const SS_TABS_X = "bb_tabs_scroll_x_v1"; // sekme rayı kaydı
+const SS_TABS_X = "bb_tabs_scroll_x_v1";
 
 type LocalCategory =
   | "burger"
@@ -51,15 +51,12 @@ function isAvailable(p: Product): boolean {
 
 export default function DonutsPage() {
   const router = useRouter();
-
-  // Sepet modu (kampanya uygulamada gerekli)
   const orderMode = useCart((s: any) => s.orderMode) as "pickup" | "delivery";
 
   const [products, setProducts] = useState<Product[]>([]);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loaded, setLoaded] = useState(false);
 
-  // ürünler
   useEffect(() => {
     try {
       const raw = localStorage.getItem(LS_PRODUCTS);
@@ -72,7 +69,6 @@ export default function DonutsPage() {
     }
   }, []);
 
-  // kampanyalar
   useEffect(() => {
     try {
       setCampaigns(loadNormalizedCampaigns());
@@ -81,7 +77,6 @@ export default function DonutsPage() {
     }
   }, []);
 
-  // sadece donuts – varsa order’a göre, yoksa ada göre
   const donuts = useMemo(
     () =>
       products
@@ -95,7 +90,6 @@ export default function DonutsPage() {
     [products]
   );
 
-  /* ------- Üst sekme rayı ------- */
   const railRef = useRef<HTMLDivElement | null>(null);
   const [canLeft, setCanLeft] = useState(false);
   const [canRight, setCanRight] = useState(false);
@@ -244,7 +238,6 @@ export default function DonutsPage() {
             </div>
           ) : (
             donuts.map((s) => {
-              // kampanya: sepet moduna göre
               const applied = priceWithCampaign(
                 { id: s.id, name: s.name, price: s.price, category: "donuts" as Category },
                 campaigns,
@@ -259,7 +252,7 @@ export default function DonutsPage() {
                     price={applied?.final ?? s.price}
                     image={s.imageUrl}
                     description={s.description}
-                    campaignLabel={applied?.badge ?? undefined} {/* ← null → undefined */}
+                    campaignLabel={applied?.badge ?? undefined}
                     outOfStock={out}
                     category="donuts"
                   />
@@ -276,7 +269,7 @@ export default function DonutsPage() {
 
       <CartSummaryMobile />
 
-      {/* styles (Sauces ile aynı) */}
+      {/* styles */}
       <style jsx global>{`
         .bb-tabs-scroll { position: relative; }
         .bb-tabs-scroll__rail {
