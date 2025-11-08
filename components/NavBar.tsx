@@ -8,56 +8,60 @@ import { useCart } from "@/components/store";
 
 type Variant = "menu" | "plain";
 
-/* ───────── feature flags (donuts / bubbleTea) ───────── */
+/* ——— Feature flags (donuts / bubbleTea) ——— */
 const LS_SETTINGS = "bb_settings_v6";
-
 function readFeatureEnabled(key: "donuts" | "bubbleTea"): boolean {
   try {
     const raw = localStorage.getItem(LS_SETTINGS);
-    if (!raw) return true; // default: visible
+    if (!raw) return true;
     const s = JSON.parse(raw);
     return !!s?.features?.[key]?.enabled;
-  } catch {
-    return true;
-  }
+  } catch { return true; }
 }
-
 function useFeatureFlags() {
-  const [donutsOn, setDonutsOn] = useState<boolean>(true);
-  const [btOn, setBtOn] = useState<boolean>(true);
-
+  const [donutsOn, setDonutsOn] = useState(true);
+  const [btOn, setBtOn] = useState(true);
   useEffect(() => {
     const sync = () => {
       setDonutsOn(readFeatureEnabled("donuts"));
       setBtOn(readFeatureEnabled("bubbleTea"));
     };
     sync();
-
-    const onStorage = (e: StorageEvent) => {
-      if (!e.key || e.key === LS_SETTINGS) sync();
-    };
+    const onStorage = (e: StorageEvent) => { if (!e.key || e.key === LS_SETTINGS) sync(); };
     const onCustom = () => sync();
-
     window.addEventListener("storage", onStorage);
     window.addEventListener("bb_settings_changed" as any, onCustom);
-
     return () => {
       window.removeEventListener("storage", onStorage);
       window.removeEventListener("bb_settings_changed" as any, onCustom);
     };
   }, []);
-
   return { donutsOn, btOn };
 }
 
-/* ───────── component ───────── */
+/* ——— Props ——— */
+type TabItem = { key: string; label: string };
+
 export default function NavBar(props: {
   variant: Variant;
-  tab?: "burger" | "vegan";
-  onTabChange?: (t: "burger" | "vegan") => void;
+  /** Aktif tab anahtarı (örn. 'burger', 'drinks'...) */
+  tab?: string;
+  /** Sekme değiştirici (sadece variant='menu' ve butonlu sekmelerde kullanılır) */
+  onTabChange?: (t: string) => void;
   showLocationCaption?: boolean;
+  /** Opsiyonel sekme listesi: verilirse butonlu sekme şeridi render edilir */
+  tabs?: TabItem[];
+  className?: string;
 }) {
-  const { variant, tab = "burger", onTabChange } = props;
+  const {
+    variant,
+    tab = "burger",
+    onTabChange,
+    showLocationCaption = true,
+    tabs,
+    className = "",
+  } = props;
+
   const pathname = usePathname();
   const search = useSearchParams();
   const { donutsOn, btOn } = useFeatureFlags();
@@ -65,7 +69,7 @@ export default function NavBar(props: {
   const pill = (href: string, extra = "") =>
     `nav-pill${pathname === href ? " nav-pill--active" : ""}${extra ? " " + extra : ""}`;
 
-  // cart pill
+  // Cart pill
   const NavCartPill = () => {
     const items = useCart((s: any) => s.items);
     const computePricing = useCart((s: any) => s.computePricing);
@@ -101,11 +105,9 @@ export default function NavBar(props: {
     );
   };
 
+  // Buton sekme bileşeni (menu varyantında kullanılır)
   const TabBtn = ({
-    active,
-    vegan,
-    children,
-    onClick,
+    active, vegan, children, onClick,
   }: {
     active?: boolean;
     vegan?: boolean;
@@ -114,9 +116,7 @@ export default function NavBar(props: {
   }) => (
     <button
       type="button"
-      className={`nav-pill ${active ? "nav-pill--active" : ""} ${
-        vegan && active ? "nav-pill--vegan" : ""
-      }`}
+      className={`nav-pill ${active ? "nav-pill--active" : ""} ${vegan && active ? "nav-pill--vegan" : ""}`}
       onClick={onClick}
       aria-current={active ? "page" : undefined}
     >
@@ -127,51 +127,50 @@ export default function NavBar(props: {
   const isVeganActivePlain = pathname === "/menu" && search?.get("tab") === "vegan";
 
   return (
-    <nav className="flex items-center gap-2">
+    <nav className={`flex items-center gap-2 ${className}`}>
       {variant === "menu" ? (
-        <>
-          {/* Burger tab / link */}
-          {pathname === "/menu" ? (
-            <TabBtn active={tab === "burger"} onClick={() => onTabChange?.("burger")}>
-              Burger
-            </TabBtn>
-          ) : (
+        // Eğer props.tabs verildiyse: butonlu sekme şeridi (page.tsx ile uyumlu)
+        Array.isArray(tabs) && tabs.length > 0 ? (
+          <>
+            {tabs.map((t) => (
+              <TabBtn
+                key={t.key}
+                active={String(tab) === String(t.key)}
+                vegan={String(t.key) === "vegan"}
+                onClick={() => onTabChange?.(t.key)}
+              >
+                {String(t.key) === "vegan" ? <><span className="mr-1" aria-hidden>🌿</span>{t.label}</> : t.label}
+              </TabBtn>
+            ))}
+            <NavCartPill />
+          </>
+        ) : (
+          // Aksi halde: eski link bazlı navbar (geri uyumluluk)
+          <>
             <Link href="/menu" className={pill("/menu")}>Burger</Link>
-          )}
-
-          {/* Vegan – sadece /menu ve aktifken yeşil */}
-          {pathname === "/menu" ? (
-            <TabBtn active={tab === "vegan"} vegan onClick={() => onTabChange?.("vegan")}>
-              <span className="mr-1" aria-hidden>🌿</span>
-              Vegan / Vegetarisch
-            </TabBtn>
-          ) : (
             <Link
               href={{ pathname: "/menu", query: { tab: "vegan" } }}
-              className="nav-pill" /* nötr görünüm: diğer sayfalarda yeşil değil */
+              className={`nav-pill${isVeganActivePlain ? " nav-pill--active nav-pill--vegan" : ""}`}
               aria-label="Vegan / Vegetarisch"
+              aria-current={isVeganActivePlain ? "page" : undefined}
             >
               <span className="mr-1" aria-hidden>🌿</span>
               Vegan / Vegetarisch
             </Link>
-          )}
-
-          {/* Diğer kategoriler */}
-          <Link href="/extras"  className={pill("/extras")}>Extras</Link>
-          <Link href="/drinks"  className={pill("/drinks")}>Getränke</Link>
-          <Link href="/sauces"  className={pill("/sauces")}>Soßen</Link>
-          <Link href="/hotdogs" className={pill("/hotdogs")}>Hot Dogs</Link>
-          {donutsOn && <Link href="/donuts" className={pill("/donuts")}>Donuts</Link>}
-          {btOn && <Link href="/bubble-tea" className={pill("/bubble-tea")}>Bubble Tea</Link>}
-
-          <NavCartPill />
-        </>
+            <Link href="/extras"  className={pill("/extras")}>Extras</Link>
+            <Link href="/drinks"  className={pill("/drinks")}>Getränke</Link>
+            <Link href="/sauces"  className={pill("/sauces")}>Soßen</Link>
+            <Link href="/hotdogs" className={pill("/hotdogs")}>Hot Dogs</Link>
+            {donutsOn && <Link href="/donuts" className={pill("/donuts")}>Donuts</Link>}
+            {btOn && <Link href="/bubble-tea" className={pill("/bubble-tea")}>Bubble Tea</Link>}
+            <NavCartPill />
+          </>
+        )
       ) : (
+        // plain varyantı: her sayfada linkler
         <>
-          {/* plain: her sayfada linkler */}
+          {showLocationCaption && <span className="text-xs opacity-70 mr-1">Berlin Tegel</span>}
           <Link href="/menu" className={pill("/menu")}>Burger</Link>
-
-          {/* Vegan – sadece /menu?tab=vegan iken yeşil + aktif */}
           <Link
             href={{ pathname: "/menu", query: { tab: "vegan" } }}
             className={`nav-pill${isVeganActivePlain ? " nav-pill--active nav-pill--vegan" : ""}`}
@@ -181,14 +180,12 @@ export default function NavBar(props: {
             <span className="mr-1" aria-hidden>🌿</span>
             Vegan / Vegetarisch
           </Link>
-
           <Link href="/extras"  className={pill("/extras")}>Extras</Link>
           <Link href="/drinks"  className={pill("/drinks")}>Getränke</Link>
           <Link href="/sauces"  className={pill("/sauces")}>Soßen</Link>
           <Link href="/hotdogs" className={pill("/hotdogs")}>Hot Dogs</Link>
           {donutsOn && <Link href="/donuts" className={pill("/donuts")}>Donuts</Link>}
           {btOn && <Link href="/bubble-tea" className={pill("/bubble-tea")}>Bubble Tea</Link>}
-
           <NavCartPill />
         </>
       )}
