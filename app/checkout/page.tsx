@@ -42,8 +42,6 @@ type Address = {
   note?: string;
 };
 
-function sanitizeDigits(s: string) { return (s || "").replace(/\D+/g, ""); }
-
 type Planned = {
   enabledPickup: boolean;
   timePickup: string;
@@ -85,7 +83,7 @@ function hhmmInTZ(d: Date, tz: string) {
   return new Intl.DateTimeFormat("de-DE", {
     timeZone: tz,
     hour: "2-digit",
-    minute: "2-digit",        // ✅ düzeltildi (minute)
+    minute: "2-digit",
     hour12: false,
   }).format(d);
 }
@@ -101,13 +99,7 @@ function todayAt(hhmm: string, tz: string) {
 }
 
 function getMinTotal(t: any) {
-  // ✅ her iki olası anahtara tolerans (eski/yanlış yazımlar için)
-  return Number(
-    t?.minTotal ??
-    t?.MinTotal ??
-    t?.["Min.Total"] ??
-    0
-  );
+  return Number(t?.minTotal ?? t?.MinTotal ?? t?.["Min.Total"] ?? 0);
 }
 
 function calcFreeSauces(merchandise: number, tiers?: FreebieTier[]) {
@@ -170,7 +162,7 @@ function collectCatalog(): FlatItem[] {
     if (obj?.active === false) return false;
     const now = Date.now();
     const from = obj?.activeFrom ?? obj?.startAt;
-    const to = obj?.activeTo ?? obj?.endAt;
+       const to = obj?.activeTo ?? obj?.endAt;
     const f = from ? Date.parse(from) : NaN;
     const t = to ? Date.parse(to) : NaN;
     if (Number.isFinite(f) && now < f) return false;
@@ -215,7 +207,7 @@ function collectCatalog(): FlatItem[] {
     }
   };
 
-  // A) AdMin. drink groups (LS)
+  // A) Admin. drink groups (LS)
   try {
     const raw = localStorage.getItem(LS_DRINK_GROUPS);
     const arr = raw ? JSON.parse(raw) : [];
@@ -271,7 +263,7 @@ function collectCatalog(): FlatItem[] {
     }
   } catch {}
 
-  /* 🆕 C) LocalStorage ürünleri (bb_products_v1) — donut/drink/sauce gibi basit ürünler */
+  /* 🆕 C) LocalStorage ürünleri (bb_products_v1) */
   try {
     const raw = localStorage.getItem(LS_PRODUCTS);
     const arr = raw ? JSON.parse(raw) : [];
@@ -323,7 +315,7 @@ function sumCartMerchandise(items: any[]) {
 }
 
 function computePricingV6(items: any[], mode: Mode, plz: string | null | undefined) {
-  const ov = getPricingOverrides(mode); // discountRate, surcharges, plzMin, freebies
+  const ov = getPricingOverrides(mode);
   const rate = toNum(ov.discountRate, 0);
 
   const merchandise = sumCartMerchandise(items);
@@ -452,21 +444,17 @@ export default function CheckoutPage() {
     return c;
   }, [settingsRaw]);
 
-  // ✅ correct key: validation.phoneDigits
   const phoneDigits = toNum(settingsRaw?.validation?.phoneDigits, 11) || 11;
 
-  // ✅ Telegram config from Settings (forward to API)
   const telegramFromSettings = useMemo(() => {
     const tok =
       settingsRaw?.notify?.telegram?.botToken ??
       settingsRaw?.notifications?.telegram?.botToken ??
-      settingsRaw?.telegram?.botToken ??
-      null;
+      settingsRaw?.telegram?.botToken ?? null;
     const chat =
       settingsRaw?.notify?.telegram?.chatId ??
       settingsRaw?.notifications?.telegram?.chatId ??
-      settingsRaw?.telegram?.chatId ??
-      null;
+      settingsRaw?.telegram?.chatId ?? null;
     return { botToken: tok, chatId: chat };
   }, [settingsRaw]);
 
@@ -531,24 +519,36 @@ export default function CheckoutPage() {
     );
   }, [mustPlanNow, slotOptions, orderMode]);
 
-  // load from LS (eski)
+  // load from LS (eski) — SAFE
   useEffect(() => {
     try {
       const raw = localStorage.getItem(LS_CHECKOUT);
       if (!raw) return;
+
       const saved = JSON.parse(raw) as { addr?: Address; planned?: Planned; orderMode?: Mode };
-      if (saved?.addr) {
-        setAddr((a) => ({ ...a, ...saved.addr, zip: saved.addr.zip ?? (plzStore ?? ""), email: saved.addr.email ?? "" }));
+      const sa = saved?.addr ?? null;
+
+      if (sa) {
+        setAddr((a) => ({
+          ...a,
+          ...(sa ?? {}),
+          zip: sa?.zip ?? (plzStore ?? ""),
+          email: sa?.email ?? "",
+        }));
       }
+
       if (saved?.planned) {
         setPlanned({
-          enabledPickup: !!saved.planned.enabledPickup,
-          timePickup: saved.planned.timePickup || "",
-          enabledDelivery: !!saved.planned.enabledDelivery,
-          timeDelivery: saved.planned.timeDelivery || "",
+          enabledPickup: !!saved.planned?.enabledPickup,
+          timePickup: saved.planned?.timePickup || "",
+          enabledDelivery: !!saved.planned?.enabledDelivery,
+          timeDelivery: saved.planned?.timeDelivery || "",
         });
       }
-      if (saved?.orderMode === "pickup" || saved?.orderMode === "delivery") setOrderMode(saved.orderMode);
+
+      if (saved?.orderMode === "pickup" || saved?.orderMode === "delivery") {
+        setOrderMode(saved.orderMode);
+      }
     } catch {}
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -561,7 +561,6 @@ export default function CheckoutPage() {
       const p = JSON.parse(raw) as Partial<Address>;
       setAddr((a) => ({ ...a, ...p, zip: p?.zip ?? a.zip, email: p?.email ?? a.email }));
     } catch {}
-    // sadece mod değişince bir kere
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orderMode]);
 
@@ -570,9 +569,8 @@ export default function CheckoutPage() {
     try { localStorage.setItem(LS_CHECKOUT, JSON.stringify({ addr, planned, orderMode })); } catch {}
   }, [addr, planned, orderMode]);
 
-  // ✅ Profil kaydı – 400ms debounce (street final güvence)
+  // ✅ Profil kaydı – 400ms debounce
   const profTimer = useRef<number | null>(null);
-  // PLZ + street suggestions state
   const [streetOptions, setStreetOptions] = useState<string[]>([]);
   const [streetQuery, setStreetQuery] = useState("");
   const [showSug, setShowSug] = useState(false);
@@ -583,7 +581,7 @@ export default function CheckoutPage() {
       try {
         const toSave: Partial<Address> = {
           name: addr.name, phone: addr.phone, email: addr.email,
-          street: (addr.street || streetQuery || "").trim(), // ← final street
+          street: (addr.street || streetQuery || "").trim(),
           house: addr.house, zip: addr.zip, city: addr.city,
           floor: addr.floor, entrance: addr.entrance, note: addr.note,
         };
@@ -622,8 +620,7 @@ export default function CheckoutPage() {
     () => computeCouponDiscount(activeCode, items, afterDiscount, (addr.phone || "").replace(/\D/g, "") || null),
     [activeCode, items, afterDiscount, addr.phone]
   );
-  const couponAmount = Math.min(afterDiscount, Math.max(0, coupon.amount || 0));   // ✅ düzeltildi (Math.min)
-
+  const couponAmount = Math.min(afterDiscount, Math.max(0, coupon.amount || 0));
   const totalFinal = +((afterDiscount - couponAmount) + surcharges).toFixed(2);
 
   // Min. end-amount (after coupon)
@@ -639,9 +636,7 @@ export default function CheckoutPage() {
   const freebiesEnabled =
     !!freebiesCfg?.enabled && Array.isArray(freebiesCfg?.tiers) && freebiesCfg.tiers.length > 0;
   const freebiesModeOk =
-    !freebiesCfg?.mode ||
-    freebiesCfg.mode === "both" ||
-    freebiesCfg.mode === orderMode;
+    !freebiesCfg?.mode || freebiesCfg.mode === "both" || freebiesCfg.mode === orderMode;
   const freeSauces = useMemo(() => {
     if (!freebiesEnabled || !freebiesModeOk) return 0;
     return calcFreeSauces(merchandise, freebiesCfg.tiers as FreebieTier[]);
@@ -653,7 +648,7 @@ export default function CheckoutPage() {
       ? !!addr.name.trim() && !!addr.phone.trim()
       : !!addr.name.trim() &&
         !!addr.phone.trim() &&
-        !!(addr.street || streetQuery).trim() && // ← final street de kabul
+        !!(addr.street || streetQuery).trim() &&
         !!addr.house.trim() &&
         !!addr.zip.trim();
 
@@ -688,7 +683,7 @@ export default function CheckoutPage() {
     setPLZ(only || null);
     const list = getStreets(only);
     setStreetOptions(list);
-    setAddr((a) => ({ ...a, zip: only, street: "" })); // PLZ değişince reset
+    setAddr((a) => ({ ...a, zip: only, street: "" }));
     setStreetQuery("");
   };
 
@@ -953,12 +948,11 @@ export default function CheckoutPage() {
                       onChange={(e) => {
                         const v = e.target.value;
                         setStreetQuery(v);
-                        setAddr((a) => ({ ...a, street: v })); // ← yazılanı da tut
+                        setAddr((a) => ({ ...a, street: v }));
                       }}
                       onFocus={() => setShowSug(true)}
                       onBlur={() => {
                         setTimeout(() => setShowSug(false), 150);
-                        // öneri seçilmemişse bile yazılanı commit et
                         setAddr((a) => ({ ...a, street: (streetQuery || a.street || "").trim() }));
                       }}
                       placeholder={streetOptions.length ? "Straße eingeben (z. B. Adelheidallee)" : "Zuerst PLZ eingeben"}
@@ -1163,7 +1157,6 @@ export default function CheckoutPage() {
                 className="rounded-full border border-stone-700/60 bg-stone-800/60 px-4 py-2 text-sm"
                 onClick={async () => {
                   try {
-                    // ✅ sadece sipariş numarası (başta # varsa da temizler)
                     const id = String(confirm?.id ?? "").replace(/^#/, "");
                     if (!id) { alert("Keine Bestellnummer gefunden."); return; }
                     await navigator.clipboard.writeText(id);
@@ -1365,58 +1358,50 @@ export default function CheckoutPage() {
   async function handleLogBeforeNavigate() {
     const ts = Date.now();
 
-    // Kanalı mode’dan türet (Dashboard iki sütun için şart)
     const channel = (orderMode === "pickup" ? "abholung" : "lieferung");
 
-    // FINAL STREET (input/öneri farketmez)
     const streetFinal = (addr.street || streetQuery || "").trim();
 
-    // Sipariş payload (id’yi API’den aldıktan sonra kaydedeceğiz)
     const orderBase = {
-  ts,
-  mode: orderMode,
-  channel,
-  plz: orderMode === "delivery" ? (addr.zip || null) : null,
-  items: mapCartToOrderItems(),
-  merchandise,
-  discount,
-  surcharges,
-  total: totalFinal,
-  coupon: (activeCode || undefined),
-  couponDiscount: couponAmount || 0,
+      ts,
+      mode: orderMode,
+      channel,
+      plz: orderMode === "delivery" ? (addr.zip || null) : null,
+      items: mapCartToOrderItems(),
+      merchandise,
+      discount,
+      surcharges,
+      total: totalFinal,
+      coupon: (activeCode || undefined),
+      couponDiscount: couponAmount || 0,
 
-  // 🔹 Checkout notunu köke yaz: TV/print tarafından kolay okunur
-  orderNote: (addr.note || "").trim() ? (addr.note || "").trim() : undefined,
+      orderNote: (addr.note || "").trim() ? (addr.note || "").trim() : undefined,
 
-  customer: {
-    name: addr.name,
-    phone: addr.phone,
+      customer: {
+        name: addr.name,
+        phone: addr.phone,
+        ...(orderMode === "delivery"
+          ? { deliveryHint: (addr.note || "").trim() || undefined }
+          : {}),
+        address:
+          orderMode === "delivery"
+            ? [
+                `${streetFinal} ${addr.house}`.trim(),
+                `${addr.zip} ${addr.city}`.trim(),
+                [addr.floor, addr.entrance].filter(Boolean).join(" • "),
+              ]
+                .filter(Boolean)
+                .join(" | ")
+            : addr.note || undefined,
+      },
 
-    // 🔹 Delivery ise notu ayrıca customer.deliveryHint olarak da sakla
-    ...(orderMode === "delivery"
-      ? { deliveryHint: (addr.note || "").trim() || undefined }
-      : {}),
-
-    address:
-      orderMode === "delivery"
-        ? [
-            `${streetFinal} ${addr.house}`.trim(),
-            `${addr.zip} ${addr.city}`.trim(),
-            [addr.floor, addr.entrance].filter(Boolean).join(" • "),
-          ]
-            .filter(Boolean)
-            .join(" | ")
-        : addr.note || undefined,
-  },
-
-  planned:
-    orderMode === "pickup"
-      ? (planned.enabledPickup && planned.timePickup) ? planned.timePickup : undefined
-      : (planned.enabledDelivery && planned.timeDelivery) ? planned.timeDelivery : undefined,
-};
+      planned:
+        orderMode === "pickup"
+          ? (planned.enabledPickup && planned.timePickup) ? planned.timePickup : undefined
+          : (planned.enabledDelivery && planned.timeDelivery) ? planned.timeDelivery : undefined,
+    };
 
     try {
-      // pass Telegram settings along (server also reads its own settings/env)
       const notifyCfg = {
         telegram: {
           botToken: telegramFromSettings.botToken,
