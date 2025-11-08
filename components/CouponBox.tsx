@@ -1,7 +1,8 @@
+// components/CouponBox.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useToast } from "@/components/ui/toast";
+import { useToast } from "@/components/ui/toast"; // ← senin hook'un
 import { readSettings } from "@/lib/settings";
 import {
   getAllCoupons,
@@ -11,7 +12,7 @@ import {
 } from "@/lib/coupons";
 
 const LS_ACTIVE = "bb_active_coupon_code";
-const LS_META   = "bb_active_coupon_meta";
+const LS_META = "bb_active_coupon_meta";
 
 type Status = { type: "none" | "ok" | "error"; msg?: string };
 
@@ -32,7 +33,7 @@ function parseTs(s?: string) {
 }
 
 export default function CouponBox() {
-  const { toast, ToastNode } = useToast?.() ?? { toast: undefined, ToastNode: null as any };
+  const { toast, ToastNode } = useToast(); // ← ToastNode bir node, component değil
   const [code, setCode] = useState("");
   const [status, setStatus] = useState<Status>({ type: "none" });
 
@@ -73,12 +74,13 @@ export default function CouponBox() {
     } catch {}
     setStatus({ type: "none" });
     setCode("");
+    toast?.("Gutschein entfernt");
   };
 
   return (
     <>
-      {/* ✅ Güvenli render: ToastNode yoksa hiç bir şey render etme */}
-      {typeof ToastNode === "function" ? <ToastNode /> : null}
+      {/* ← BİLEŞEN DEĞİL: node olduğu için doğrudan yerleştiriyoruz */}
+      {ToastNode}
 
       <div className="rounded-xl border border-stone-700/60 bg-stone-900/60 p-3 space-y-2">
         <div className="text-sm font-semibold">Gutschein</div>
@@ -122,7 +124,9 @@ export default function CouponBox() {
     if (issued) {
       const ok = validateIssued(issued);
       if (!ok.ok) {
-        if (!opts.silent) setStatus({ type: "error", msg: mapErr(ok.reason) });
+        const m = mapErr(ok.reason);
+        if (!opts.silent) setStatus({ type: "error", msg: m });
+        toast?.(m);
         if (opts.silent) {
           try {
             localStorage.removeItem(LS_ACTIVE);
@@ -141,14 +145,20 @@ export default function CouponBox() {
         title: defs.find((d) => d.id === issued.couponId)?.title,
       });
       setCode(input);
-      if (!opts.silent) setStatus({ type: "ok", msg: "Gutschein akzeptiert." });
+      if (!opts.silent) {
+        setStatus({ type: "ok", msg: "Gutschein akzeptiert." });
+        toast?.("Gutschein akzeptiert");
+      }
       return;
     }
 
     // 2) Statik listede
     const found = staticCoupons.find((c) => c.active && c.code === input);
     if (!found) {
-      if (!opts.silent) setStatus({ type: "error", msg: "Ungültiger Gutschein." });
+      if (!opts.silent) {
+        setStatus({ type: "error", msg: "Ungültiger Gutschein." });
+        toast?.("Ungültiger Gutschein");
+      }
       if (opts.silent) {
         try {
           localStorage.removeItem(LS_ACTIVE);
@@ -177,7 +187,10 @@ export default function CouponBox() {
       title: found.title,
     });
     setCode(input);
-    if (!opts.silent) setStatus({ type: "ok", msg: "Gutschein akzeptiert." });
+    if (!opts.silent) {
+      setStatus({ type: "ok", msg: "Gutschein akzeptiert." });
+      toast?.("Gutschein akzeptiert");
+    }
   }
 
   function persistActive(code: string, meta: ActiveMeta) {
