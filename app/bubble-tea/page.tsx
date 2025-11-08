@@ -233,7 +233,7 @@ export default function BubbleTeaPage() {
                     price={applied?.final ?? s.price}
                     image={s.imageUrl ?? undefined}
                     description={s.description ?? undefined}
-                    campaignLabel={applied?.badge}
+                    campaignLabel={applied?.badge ?? undefined}
                     outOfStock={out}
                     category="bubbletea"
                   />
