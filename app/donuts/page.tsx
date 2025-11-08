@@ -1,3 +1,4 @@
+// app/donuts/page.tsx
 "use client";
 
 import NextImage from "next/image";
@@ -8,6 +9,7 @@ import CartSummary, { CartSummaryMobile } from "@/components/CartSummary";
 import SauceCard from "@/components/sauces/SauceCard"; // Generic kart olarak kullanıyoruz
 import NavBar from "@/components/NavBar";
 
+import { useCart } from "@/components/store";
 import { loadNormalizedCampaigns } from "@/lib/campaigns-compat";
 import { priceWithCampaign, type Campaign, type Category } from "@/lib/catalog";
 
@@ -50,6 +52,9 @@ function isAvailable(p: Product): boolean {
 
 export default function DonutsPage() {
   const router = useRouter();
+
+  // ✅ Sepet modu (pickup/delivery) — kampanya uygularken kullanacağız
+  const orderMode = useCart((s: any) => s.orderMode) as "pickup" | "delivery";
 
   const [products, setProducts] = useState<Product[]>([]);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
@@ -146,12 +151,10 @@ export default function DonutsPage() {
 
     // Tıklamada: önce mevcut scroll'u kaydet, sonra hedefi hafif ortaya al
     const onClick = (e: Event) => {
-      const t = e.target as HTMLElement;
+      const t = (e.target as HTMLElement);
       const pill = t.closest(".nav-pill") as HTMLElement | null;
       if (pill) {
-        try {
-          sessionStorage.setItem(SS_TABS_X, String(rail.scrollLeft));
-        } catch {}
+        try { sessionStorage.setItem(SS_TABS_X, String(rail.scrollLeft)); } catch {}
         setTimeout(() => centerEl(pill, 0.55), 40);
       }
     };
@@ -200,7 +203,7 @@ export default function DonutsPage() {
             className="h-10 w-10 rounded-full"
             priority
           />
-        <div className="flex flex-col leading-tight">
+          <div className="flex flex-col leading-tight">
             <h1 className="text-2xl font-semibold">Burger Brothers</h1>
             <span className="text-xs text-white/70">Berlin Tegel</span>
           </div>
@@ -250,10 +253,11 @@ export default function DonutsPage() {
             </div>
           ) : (
             donuts.map((s) => {
+              // ❗ DÜZELTME: "both" yerine gerçek sepet modu (TS tipine uyumlu)
               const applied = priceWithCampaign(
                 { id: s.id, name: s.name, price: s.price, category: "donuts" as Category },
                 campaigns,
-                "both"
+                orderMode
               );
               const out = !isAvailable(s);
               return (
