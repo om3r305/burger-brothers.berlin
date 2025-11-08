@@ -1,3 +1,4 @@
+// app/driver/page.tsx
 "use client";
 
 import DriverLiveTracker from "@/components/DriverLiveTracker";
@@ -63,7 +64,7 @@ function plannedStartMs(o:StoredOrder, tz:string){
   const base = new Date(new Date().toLocaleString("en-US",{ timeZone: tz }));
   const d = new Date(base); d.setHours(hh||0, mm||0, 0, 0); return d.getTime();
 }
-function etaFor(o:StoredOrder, avgPickup:number, avgDelivery:number){ return o.etaMin ?? (o.mode==="pickup"?avgPickup:avgDelivery); }
+function etaFor(o:StoredOrder, avgPickup:number, avgDelivery:number){ return (o as any).etaMin ?? (o.mode==="pickup"?avgPickup:avgDelivery); }
 function remainingMinutes(o:StoredOrder, avgPickup:number, avgDelivery:number, tz:string){
   const eta = etaFor(o, avgPickup, avgDelivery);
   const p = plannedStartMs(o, tz);
@@ -159,17 +160,19 @@ export default function DriverPage() {
   const mine = useMemo(() => {
     if (!current) return [];
     return orders
-      .filter(o => o.driver?.id === current.id &&
+      .filter(o => (o as any).driver?.id === current.id &&
         (o.status === "out_for_delivery" || o.status === "preparing" || o.status === "ready"))
       .sort((a,b) => (a.ts||0) - (b.ts||0));
   }, [orders, current]);
 
+  // Gün sonu: deliveredAt artık meta içinde tutuluyor
   const eod = useMemo(() => {
     if (!current) return { count: 0, total: 0 };
     const start = todayStartMs();
-    const list = orders.filter(o =>
-      o.driver?.id === current.id && o.deliveredAt && Number(o.deliveredAt) >= start && o.status === "done"
-    );
+    const list = orders.filter(o => {
+      const deliveredAt = Number((o as any).meta?.deliveredAt ?? 0);
+      return (o as any).driver?.id === current.id && deliveredAt >= start && o.status === "done";
+    });
     const count = list.length;
     const total = list.reduce((s, o) =>
       s + Number(o.items?.reduce?.((a:any,b:any)=> a + Number(b.price||0) * Number(b.qty||1), 0) || 0)
@@ -190,7 +193,7 @@ export default function DriverPage() {
     if (remember) {
       setCurrentDriver(drv);
       localStorage.setItem(REMEMBER_KEY, "1");
-      localStorage.setItem(LASTPASS_KEY, enc(loginPass)); // şifreyi sakla
+      localStorage.setItem(LASTPASS_KEY, enc(loginPass));
     } else {
       setCurrentDriver(null);
       localStorage.setItem(REMEMBER_KEY, "0");
@@ -201,11 +204,10 @@ export default function DriverPage() {
   }
 
   function handleLogout() {
-    // çıkarken: bana ait aktif işlerin konum anahtarlarını temizle
     try {
       const me = getCurrentDriver();
       const active = orders.filter(o =>
-        o.driver?.id === me?.id && (o.status === "out_for_delivery" || o.status === "preparing" || o.status === "ready")
+        (o as any).driver?.id === me?.id && (o.status === "out_for_delivery" || o.status === "preparing" || o.status === "ready")
       );
       for (const o of active) clearPosKey(o.id);
     } catch {}
@@ -228,8 +230,12 @@ export default function DriverPage() {
       for (const id of ids) {
         const o = orders.find(x => String(x.id) === id);
         if (!o) continue;
-        if (o.driver && o.driver.id && o.driver.id !== current.id) continue;
-        await upsertOrder({ ...o, driver: { id: current.id, name: current.name }, claimedAt: Date.now() });
+        if ((o as any).driver && (o as any).driver.id && (o as any).driver.id !== current.id) continue;
+        await upsertOrder({
+          ...(o as any),
+          driver: { id: current.id, name: current.name },
+          meta: { ...((o as any).meta || {}), claimedAt: Date.now() },
+        } as Partial<StoredOrder> as any);
         await setOrderStatus(o.id, "out_for_delivery");
       }
       setSelected({});
@@ -239,21 +245,28 @@ export default function DriverPage() {
 
   async function claimOne(o: StoredOrder) {
     if (!current) return alert("Bitte zuerst anmelden.");
-    if (o.driver && o.driver.id && o.driver.id !== current.id)
+    if ((o as any).driver && (o as any).driver.id && (o as any).driver.id !== current.id)
       return alert("Dieser Auftrag ist bereits zugewiesen.");
-    await upsertOrder({ ...o, driver: { id: current.id, name: current.name }, claimedAt: Date.now() });
+    await upsertOrder({
+      ...(o as any),
+      driver: { id: current.id, name: current.name },
+      meta: { ...((o as any).meta || {}), claimedAt: Date.now() },
+    } as Partial<StoredOrder> as any);
     await setOrderStatus(o.id, "out_for_delivery");
     refresh();
   }
 
   async function releaseOne(o: StoredOrder) {
     if (!current) return;
-    if (!o.driver || o.driver.id !== current.id)
+    if (!(o as any).driver || (o as any).driver.id !== current.id)
       return alert("Dieser Auftrag gehört nicht Ihnen.");
 
-    // konum anahtarını ve yedeğini temizle
     clearPosKey(o.id);
-    await upsertOrder({ ...o, driver: null, claimedAt: null, meta: { ...(o.meta||{}), lastPos: null } });
+    await upsertOrder({
+      ...(o as any),
+      driver: null,
+      meta: { ...((o as any).meta || {}), claimedAt: null, lastPos: null },
+    } as Partial<StoredOrder> as any);
     await setOrderStatus(o.id, "preparing");
     refresh();
   }
@@ -262,9 +275,12 @@ export default function DriverPage() {
     if (!current) return;
     if (!confirm("Bestätigung: Lieferung abgeschlossen?")) return;
 
-    // konum anahtarını ve yedeğini temizle
     clearPosKey(o.id);
-    await upsertOrder({ ...o, driver: { id: current.id, name: current.name }, deliveredAt: Date.now(), meta: { ...(o.meta||{}), lastPos: null } });
+    await upsertOrder({
+      ...(o as any),
+      driver: { id: current.id, name: current.name },
+      meta: { ...((o as any).meta || {}), deliveredAt: Date.now(), lastPos: null },
+    } as Partial<StoredOrder> as any);
     await setOrderStatus(o.id, "done");
     refresh();
   }
@@ -456,10 +472,8 @@ export default function DriverPage() {
 
   return (
     <main className="min-h-screen text-stone-100 antialiased">
-      {/* Konum yayını artık sadece bu component’te */}
       <DriverLiveTracker />
 
-      {/* background */}
       <div className="pointer-events-none fixed inset-0 -z-10">
         <div className="absolute inset-0 bg-[radial-gradient(1200px_700px_at_10%_-10%,rgba(59,130,246,.18),transparent),radial-gradient(1000px_600px_at_90%_0%,rgba(16,185,129,.14),transparent),linear-gradient(180deg,#0b0f14_0%,#0f1318_50%,#0a0d11_100%)]" />
         <div className="absolute inset-0 bg-[radial-gradient(80%_80%_at_50%_20%,transparent,rgba(0,0,0,.45))]" />
