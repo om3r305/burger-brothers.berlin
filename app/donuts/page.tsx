@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, useLayoutEffect } from "react";
 import { useRouter } from "next/navigation";
 import CartSummary, { CartSummaryMobile } from "@/components/CartSummary";
-import SauceCard from "@/components/sauces/SauceCard"; // Generic kart olarak kullanıyoruz
+import SauceCard from "@/components/sauces/SauceCard"; // Generic kart
 import NavBar from "@/components/NavBar";
 
 import { useCart } from "@/components/store";
@@ -14,7 +14,7 @@ import { loadNormalizedCampaigns } from "@/lib/campaigns-compat";
 import { priceWithCampaign, type Campaign, type Category } from "@/lib/catalog";
 
 const LS_PRODUCTS = "bb_products_v1";
-const SS_TABS_X = "bb_tabs_scroll_x_v1"; // ⬅️ sekme rayı konumunu koru
+const SS_TABS_X = "bb_tabs_scroll_x_v1"; // sekme rayı kaydı
 
 type LocalCategory =
   | "burger"
@@ -36,7 +36,6 @@ type Product = {
   active?: boolean;
   startAt?: string;
   endAt?: string;
-  // varsa admin’den gelen sıralama
   order?: number;
 };
 
@@ -53,7 +52,7 @@ function isAvailable(p: Product): boolean {
 export default function DonutsPage() {
   const router = useRouter();
 
-  // ✅ Sepet modu (pickup/delivery) — kampanya uygularken kullanacağız
+  // Sepet modu (kampanya uygulamada gerekli)
   const orderMode = useCart((s: any) => s.orderMode) as "pickup" | "delivery";
 
   const [products, setProducts] = useState<Product[]>([]);
@@ -96,7 +95,7 @@ export default function DonutsPage() {
     [products]
   );
 
-  /* ------- Üst sekme rayı: oklar + aktif sekmeyi ortalama ------- */
+  /* ------- Üst sekme rayı ------- */
   const railRef = useRef<HTMLDivElement | null>(null);
   const [canLeft, setCanLeft] = useState(false);
   const [canRight, setCanRight] = useState(false);
@@ -109,7 +108,6 @@ export default function DonutsPage() {
     setCanRight(scrollLeft + clientWidth < scrollWidth - 2);
   };
 
-  // 🔧 Aktif sekmeyi görünüm içinde "hafif ortaya" al (bias=0.55)
   const centerEl = (pill: HTMLElement | null, bias = 0.55) => {
     const rail = railRef.current;
     if (!rail || !pill) return;
@@ -117,20 +115,16 @@ export default function DonutsPage() {
     const pillRect = pill.getBoundingClientRect();
     const targetViewportX = railRect.left + railRect.width * bias;
     const delta = pillRect.left + pillRect.width / 2 - targetViewportX;
-    const left = rail.scrollLeft + delta;
-    rail.scrollTo({ left, behavior: "smooth" });
+    rail.scrollTo({ left: rail.scrollLeft + delta, behavior: "smooth" });
     setTimeout(updateArrows, 250);
   };
 
-  // İlk karede zıplamayı önlemek için kaydırma konumunu geri yükle
   useLayoutEffect(() => {
     const rail = railRef.current;
     if (!rail) return;
     try {
       const saved = Number(sessionStorage.getItem(SS_TABS_X) || "0");
-      if (Number.isFinite(saved) && saved > 0) {
-        rail.scrollLeft = saved; // animasyonsuz
-      }
+      if (Number.isFinite(saved) && saved > 0) rail.scrollLeft = saved;
     } catch {}
   }, []);
 
@@ -143,22 +137,20 @@ export default function DonutsPage() {
       (rail.querySelector('[aria-current="page"]') as HTMLElement) ||
       (rail.querySelector('[data-active-tab="true"]') as HTMLElement);
 
-    // İlk yüklemede aktif sekmeyi hafif ortaya al
     requestAnimationFrame(() => centerEl(active, 0.55));
 
     updateArrows();
     rail.addEventListener("scroll", updateArrows, { passive: true });
 
-    // Tıklamada: önce mevcut scroll'u kaydet, sonra hedefi hafif ortaya al
     const onClick = (e: Event) => {
-      const t = (e.target as HTMLElement);
+      const t = e.target as HTMLElement;
       const pill = t.closest(".nav-pill") as HTMLElement | null;
       if (pill) {
         try { sessionStorage.setItem(SS_TABS_X, String(rail.scrollLeft)); } catch {}
         setTimeout(() => centerEl(pill, 0.55), 40);
       }
     };
-    rail.addEventListener("click", onClick, true); // capture: push'tan önce kaydet
+    rail.addEventListener("click", onClick, true);
 
     const ro = new ResizeObserver(updateArrows);
     ro.observe(rail);
@@ -178,10 +170,9 @@ export default function DonutsPage() {
     setTimeout(updateArrows, 250);
   };
 
-  // sekme değiştir
   const handleTabChange = (key: string) => {
     const k = key.toLowerCase();
-    if (k === "donuts") return; // zaten buradayız
+    if (k === "donuts") return;
     if (k === "extras") return router.push("/extras");
     if (k === "drinks") return router.push("/drinks");
     if (k === "hotdogs") return router.push("/hotdogs");
@@ -192,7 +183,7 @@ export default function DonutsPage() {
 
   return (
     <main className="mx-auto max-w-7xl p-6">
-      {/* Header: logo + sekmeler (kaydırmalı, oklu, aktif ortalanır) */}
+      {/* Header */}
       <div className="mb-4 flex flex-col gap-3 sm:mb-6 sm:flex-row sm:items-center sm:justify-between">
         <Link href="/" className="flex items-center gap-3">
           <NextImage
@@ -253,7 +244,7 @@ export default function DonutsPage() {
             </div>
           ) : (
             donuts.map((s) => {
-              // ❗ DÜZELTME: "both" yerine gerçek sepet modu (TS tipine uyumlu)
+              // kampanya: sepet moduna göre
               const applied = priceWithCampaign(
                 { id: s.id, name: s.name, price: s.price, category: "donuts" as Category },
                 campaigns,
@@ -268,7 +259,7 @@ export default function DonutsPage() {
                     price={applied?.final ?? s.price}
                     image={s.imageUrl}
                     description={s.description}
-                    campaignLabel={applied?.badge}
+                    campaignLabel={applied?.badge ?? undefined} {/* ← null → undefined */}
                     outOfStock={out}
                     category="donuts"
                   />
