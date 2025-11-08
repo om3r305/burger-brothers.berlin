@@ -1,3 +1,4 @@
+// app/tv/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -36,6 +37,9 @@ const GO_LIVE_AT = "2025-10-26T00:00:00Z"; // ← prod yayın tarihi (ISO)
 const ENABLE_AFTER_DAYS = 30;
 const BRIAN_FORCE: "on" | "off" | undefined = undefined;
 /* ──────────────────────────────────────────────────────────────── */
+
+/* ─────────────── Ek Tipler ─────────────── */
+type DiscountRow = { label: string; amount: number };
 
 /* ─────────────────────────────────────────────────────────────
    GÖRSEL: Metalik cam + net tipografi
@@ -146,7 +150,15 @@ function findDeliveryFeeDeep(order: any) {
 }
 
 /* toplamları güvenli hesapla */
-function getOrderTotals(o: StoredOrder) {
+function getOrderTotals(o: StoredOrder): {
+  subtotal: number;
+  deliveryFee: number;
+  serviceFee: number;
+  otherFee: number;
+  discountSum: number;
+  discountItems: DiscountRow[];
+  total: number;
+} {
   const items = Array.isArray(o?.items) ? o.items : [];
   const P = (o as any)?.pricing || {};
   const F = (o as any)?.fees || {};
@@ -175,7 +187,7 @@ function getOrderTotals(o: StoredOrder) {
     discountSum = derivedDiscount;
   }
 
-  const discountItems = Array.isArray((o as any)?.adjustments)
+  const discountItems: DiscountRow[] = Array.isArray((o as any)?.adjustments)
     ? (o as any).adjustments
         .filter((a: any) => String(a?.type || "").toLowerCase() === "discount")
         .map((a: any) => ({
@@ -601,17 +613,16 @@ async function silentPrint(order: StoredOrder) {
 export default function TVPage() {
   const router = useRouter();
 
- useEffect(() => {
-  // Sadece UI cookie'sine ve sekme işaretine bak
-  const hasUi = document.cookie.split("; ").some((c) => c.startsWith("bb_tv_ui=1"));
-  let hasTab = false;
-  try { hasTab = sessionStorage.getItem("bb_tv_tab") === "1"; } catch {}
+  useEffect(() => {
+    // Sadece UI cookie'sine ve sekme işaretine bak
+    const hasUi = document.cookie.split("; ").some((c) => c.startsWith("bb_tv_ui=1"));
+    let hasTab = false;
+    try { hasTab = sessionStorage.getItem("bb_tv_tab") === "1"; } catch {}
 
-  if (!hasUi || !hasTab) {
-    router.replace("/tv/login");
-  }
-}, [router]);
-
+    if (!hasUi || !hasTab) {
+      router.replace("/tv/login");
+    }
+  }, [router]);
 
   const [, setTick] = useState(0);
   useEffect(() => {
@@ -1050,7 +1061,7 @@ export default function TVPage() {
                           {t.discountSum ? `-${money(t.discountSum)}` : money(0)}
                         </td>
                       </tr>
-                      {t.discountItems.map((d, i) => (
+                      {t.discountItems.map((d: DiscountRow, i: number) => (
                         <tr key={i} className="border-b border-white/10 text-stone-300/90">
                           <td className="p-2 pl-6">- {d.label}</td>
                           <td className="p-2 text-right">-{money(d.amount)}</td>
