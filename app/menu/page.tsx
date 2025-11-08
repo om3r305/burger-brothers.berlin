@@ -1,3 +1,4 @@
+// app/menu/page.tsx
 "use client";
 
 import Image from "next/image";
@@ -13,15 +14,10 @@ import {
   priceWithCampaign,
   type Campaign,
   type Category,
-  // 🆕 menü sıralama + popülerlik için
   sortProductsForMenu,
-  // 🆕 top rozetini hesaplamak için
   popularityBadgeFor,
 } from "@/lib/catalog";
-/* kampanyaları normalize eden ortak loader (siteConfig + LS) */
 import { loadNormalizedCampaigns } from "@/lib/campaigns-compat";
-
-/* ✅ eklendi: kategori açıklaması */
 import CategoryBlurb from "@/components/CategoryBlurb";
 
 /* ==== LS anahtarları ==== */
@@ -61,7 +57,6 @@ type TabKey =
   | "donuts"
   | "bubbletea";
 
-/* 🔒 Sıra: Burger → Vegan → ... (Vegan 2. sırada sabit) */
 const ALL_TABS: TabKey[] = [
   "burger",
   "vegan",
@@ -85,8 +80,6 @@ const TAB_TITLE: Record<TabKey, string> = {
 };
 
 /* === Yardımcılar === */
-
-/** Ürün kategorisini TabKey’e normalize et */
 function normalizeCategory(input: any): TabKey | null {
   const s = String(input ?? "").toLowerCase().trim();
   if (!s) return null;
@@ -100,8 +93,6 @@ function normalizeCategory(input: any): TabKey | null {
   if (s.includes("burger")) return "burger";
   return null;
 }
-
-/** Fallback: sku/name/ipucu ile kategori yakala */
 function guessCategory(p: Product): TabKey {
   const fromField = normalizeCategory(p.category);
   if (fromField) return fromField;
@@ -136,14 +127,12 @@ export default function MenuPage() {
   const pathname = usePathname();
   const orderMode = useCart((s: any) => s.orderMode) as "pickup" | "delivery";
 
-  /* URL -> tab (cat veya tab param) */
   const [tab, setTab] = useState<TabKey>("burger");
   useEffect(() => {
     const cat = (searchParams?.get("cat") || searchParams?.get("tab") || "").toLowerCase();
     if (ALL_TABS.includes(cat as TabKey)) setTab(cat as TabKey);
   }, [searchParams]);
 
-  /* Vegan teması */
   useEffect(() => {
     const cls = "theme-vegan";
     if (tab === "vegan") document.body.classList.add(cls);
@@ -166,11 +155,12 @@ export default function MenuPage() {
           donuts: !!js?.features?.donuts?.enabled,
           bubbleTea: !!js?.features?.bubbleTea?.enabled,
         } as FeatureFlags;
-      } catch { return null; }
+      } catch {
+        return null;
+      }
     };
 
     const init = async () => {
-      // 1) Deneme: server settings
       try {
         const res = await fetch("/api/settings", { cache: "no-store" });
         if (res.ok) {
@@ -183,18 +173,18 @@ export default function MenuPage() {
           }
           return;
         }
-      } catch {/* geç */ }
+      } catch {}
 
-      // 2) Fallback: localStorage (eski davranış)
       const ls = fromLS();
       if (mounted && ls) setFeatures(ls);
     };
 
     init();
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+    };
   }, []);
 
-  /* Sekme listesi: özelliklere göre filtrele (sıra ALL_TABS'tan gelir) */
   const enabledTabs = useMemo<TabKey[]>(() => {
     return ALL_TABS.filter((t) => {
       if (t === "donuts" && !features.donuts) return false;
@@ -203,7 +193,6 @@ export default function MenuPage() {
     });
   }, [features]);
 
-  /* Aktif tab artık görünmüyorsa güvenli birine atla */
   useEffect(() => {
     if (!enabledTabs.includes(tab)) {
       const next = enabledTabs[0] ?? "burger";
@@ -216,7 +205,7 @@ export default function MenuPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabledTabs]);
 
-  /* LS’ten veri */
+  /* LS veri */
   const [products, setProducts] = useState<Product[]>([]);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
 
@@ -228,7 +217,6 @@ export default function MenuPage() {
       setProducts([]);
     }
     try {
-      // 🆕 tüm kampanyaları normalize eden ortak loader
       const cmps = loadNormalizedCampaigns();
       setCampaigns(cmps || []);
     } catch {
@@ -236,7 +224,6 @@ export default function MenuPage() {
     }
   }, []);
 
-  /* Sekme değiştirme -> URL güncelle */
   const handleTabChange = (t: TabKey) => {
     setTab(t);
     const sp = new URLSearchParams(searchParams?.toString() || "");
@@ -245,7 +232,6 @@ export default function MenuPage() {
     router.replace(`${pathname}?${sp.toString()}`);
   };
 
-  /* Sekme scroller okları için ref (opsiyonel) */
   const tabsWrapRef = useRef<HTMLDivElement | null>(null);
   const scrollTabs = (dir: "left" | "right") => {
     const el = tabsWrapRef.current;
@@ -257,7 +243,6 @@ export default function MenuPage() {
   /* Liste */
   const now = new Date();
 
-  // 1) Aktif tab'a ait ürünleri topla
   const filteredByTab = useMemo(() => {
     return (products || []).filter((p) => {
       const cat = guessCategory(p);
@@ -267,14 +252,12 @@ export default function MenuPage() {
     });
   }, [products, tab, features]);
 
-  // 2) Menü sıralama (kampanyalılar en üstte + burger/vegan popülerlik)
   const baseListForTab = useMemo(() => {
-    // ProductLike listesi
     return filteredByTab.map((p) => ({
       id: String(p.id ?? p.sku ?? p.code ?? p.name),
       name: p.name,
       price: p.price,
-      category: (guessCategory(p) as unknown as Category),
+      category: guessCategory(p) as unknown as Category,
     }));
   }, [filteredByTab]);
 
@@ -282,7 +265,6 @@ export default function MenuPage() {
     return sortProductsForMenu(baseListForTab, campaigns, orderMode, now);
   }, [baseListForTab, campaigns, orderMode, now]);
 
-  // 3) ID -> Product map
   const byId = useMemo(() => {
     const m = new Map<string, Product>();
     for (const p of filteredByTab) {
@@ -292,13 +274,26 @@ export default function MenuPage() {
     return m;
   }, [filteredByTab]);
 
-  // 4) Kartlara gidecek nihai liste (fiyat, rozet, stok bilgisi + 🏅 top rozet rank)
+  // 🔧 burada adapter ile type hatasını çözüyoruz
   const list = useMemo(() => {
     const isBV = tab === "burger" || tab === "vegan";
 
     return sortedForMenu.map((plike) => {
       const p = byId.get(plike.id)!;
-      const available = isProductAvailable(p, now);
+
+      // isProductAvailable id:string bekliyor → garanti eden adapter
+      const availProbe = {
+        id: plike.id,
+        name: plike.name,
+        price: plike.price,
+        category: plike.category,
+        active: (p as any)?.active,
+        activeFrom: (p as any)?.activeFrom,
+        activeTo: (p as any)?.activeTo,
+      } as any;
+
+      const available = isProductAvailable(availProbe, now);
+
       const pr = priceWithCampaign(
         { id: plike.id, name: plike.name, price: plike.price, category: plike.category },
         campaigns,
@@ -306,10 +301,9 @@ export default function MenuPage() {
         now
       );
 
-      // 🏅 sadece burger/vegan için top rozet (son 14 gün)
       let topSellerRank: 1 | 2 | 3 | undefined;
       if (isBV) {
-        const badge = popularityBadgeFor(plike.id, baseListForTab); // "gold" | "silver" | "bronze" | null
+        const badge = popularityBadgeFor(plike.id, baseListForTab);
         topSellerRank =
           badge === "gold" ? 1 : badge === "silver" ? 2 : badge === "bronze" ? 3 : undefined;
       }
@@ -326,7 +320,6 @@ export default function MenuPage() {
     });
   }, [sortedForMenu, byId, campaigns, orderMode, now, tab, baseListForTab]);
 
-  /* Boş mesaj */
   const emptyMsgMap: Record<TabKey, string> = {
     burger:
       'Aktuell keine Burger vorhanden. Bitte im Admin-Bereich Produkte der Etageegorie „Burger“ hinzufügen.',
@@ -346,15 +339,12 @@ export default function MenuPage() {
       'Noch kein Bubble Tea vorhanden. Bitte im Admin-Bereich Produkte der Etageegorie „Bubble Tea“ hinzufügen.',
   };
 
-  /* ✅ hangi sekmelerde blurb gösterilecek */
-  const showBlurb =
-    tab === "burger" || tab === "vegan" || tab === "hotdogs";
+  const showBlurb = tab === "burger" || tab === "vegan" || tab === "hotdogs";
 
   return (
     <main className="mx-auto max-w-7xl p-6">
       {/* Kopfbereich */}
       <div className="mb-4 flex flex-col gap-3 sm:mb-6 sm:flex-row sm:items-center sm:justify-between">
-        {/* Logo + Titel */}
         <Link href="/" className="flex items-center gap-3">
           <Image
             src="/logo-burger-brothers.png"
@@ -370,7 +360,6 @@ export default function MenuPage() {
           </div>
         </Link>
 
-        {/* Etageegori sekmeleri — logonun ALTINDA, yatay kaydırmalı */}
         <div className="relative -mx-6 px-6 sm:mx-0 sm:px-0">
           <button
             aria-label="Tabs nach links"
@@ -404,10 +393,7 @@ export default function MenuPage() {
       {/* Produkt-Grid + Warenkorb */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_380px]">
         <div>
-          {/* ✅ kategori açıklaması – sadece burger/vegan/hotdogs */}
-          {showBlurb && (
-            <CategoryBlurb category={tab as "burger" | "vegan" | "hotdogs"} />
-          )}
+          {showBlurb && <CategoryBlurb category={tab as "burger" | "vegan" | "hotdogs"} />}
 
           <div className="grid-cards">
             {list.length === 0 ? (
@@ -424,7 +410,7 @@ export default function MenuPage() {
                     originalPrice={original}
                     description={p.description || ""}
                     image={p.imageUrl}
-                    category={(guessCategory(p) as unknown as Category)}
+                    category={guessCategory(p) as unknown as Category}
                     extrasOptions={(p.extras || []).map((e) => ({
                       id: e.id,
                       label: e.name,
@@ -435,7 +421,6 @@ export default function MenuPage() {
                     outOfStock={!available}
                     campaignLabel={badge ? (countdown ? `${badge} · ${countdown}` : badge) : undefined}
                     coverRatio="16/10"
-                    // 🏅 görsel madalya
                     topSellerRank={topSellerRank as 1 | 2 | 3 | undefined}
                   />
                 </div>
@@ -449,10 +434,8 @@ export default function MenuPage() {
         </div>
       </div>
 
-      {/* Mobil sabit checkout butonu */}
       <CartSummaryMobile />
 
-      {/* Grid/Card yardımcılar — kart yüksekliklerini eşitle + iOS aspect-ratio guard */}
       <style jsx global>{`
         .grid-cards {
           display: grid;
@@ -469,18 +452,18 @@ export default function MenuPage() {
           display: flex;
           flex-direction: column;
         }
-
         @media (max-width: 480px) {
-          .product-card .cover { min-height: 160px; }
+          .product-card .cover {
+            min-height: 160px;
+          }
         }
         .product-card [data-desc-empty] {
           min-height: 1.25rem;
           display: block;
         }
-
         .grid-cards > .menu-card .card p,
         .grid-cards > .menu-card .card .desc,
-        .grid-cards > .menu-card [data-desc]{
+        .grid-cards > .menu-card [data-desc] {
           display: -webkit-box;
           -webkit-line-clamp: 2;
           -webkit-box-orient: vertical;
