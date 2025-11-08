@@ -51,6 +51,13 @@ type Planned = {
 
 type FreebieTier = { minTotal: number; freeSauces: number };
 
+/** ✅ Freebies tipini netleştir — TS strict build için */
+type FreebiesCfg = {
+  enabled?: boolean;
+  tiers?: FreebieTier[];
+  mode?: "pickup" | "delivery" | "both";
+} | null;
+
 type Variant = { id: string; name: string; price: number; active?: boolean };
 type FlatItem = {
   id?: string;
@@ -162,7 +169,7 @@ function collectCatalog(): FlatItem[] {
     if (obj?.active === false) return false;
     const now = Date.now();
     const from = obj?.activeFrom ?? obj?.startAt;
-       const to = obj?.activeTo ?? obj?.endAt;
+    const to = obj?.activeTo ?? obj?.endAt;
     const f = from ? Date.parse(from) : NaN;
     const t = to ? Date.parse(to) : NaN;
     if (Number.isFinite(f) && now < f) return false;
@@ -347,7 +354,7 @@ function computePricingV6(items: any[], mode: Mode, plz: string | null | undefin
     totalPreCoupon,
     requiredMin: requiredMin ?? null,
     plzKnown,
-    freebiesCfg: ov.freebies,
+    freebiesCfg: ov.freebies, // bilgi amaçlı; aşağıda type-cast ile okunuyor
   };
 }
 
@@ -458,8 +465,9 @@ export default function CheckoutPage() {
     return { botToken: tok, chatId: chat };
   }, [settingsRaw]);
 
-  // FREEBIE (v6)
-  const freebiesFromOverrides = getPricingOverrides(orderMode)?.freebies || {};
+  // FREEBIE (v6) — tip güvenli
+  const freebiesFromOverrides = getPricingOverrides(orderMode)?.freebies as FreebiesCfg;
+
   const [addr, setAddr] = useState<Address>({
     name: "",
     phone: "",
@@ -631,15 +639,15 @@ export default function CheckoutPage() {
           ? Math.round(totalFinal * 100) >= Math.round(toNum(requiredMin, 0) * 100)
           : false);
 
-  // freebies (v6)
-  const freebiesCfg = freebiesFromOverrides || {};
+  // freebies (v6) — type-safe
+  const freebiesCfg: FreebiesCfg = freebiesFromOverrides ?? null;
   const freebiesEnabled =
-    !!freebiesCfg?.enabled && Array.isArray(freebiesCfg?.tiers) && freebiesCfg.tiers.length > 0;
+    !!(freebiesCfg?.enabled) && Array.isArray(freebiesCfg?.tiers) && ((freebiesCfg?.tiers?.length ?? 0) > 0);
   const freebiesModeOk =
     !freebiesCfg?.mode || freebiesCfg.mode === "both" || freebiesCfg.mode === orderMode;
   const freeSauces = useMemo(() => {
     if (!freebiesEnabled || !freebiesModeOk) return 0;
-    return calcFreeSauces(merchandise, freebiesCfg.tiers as FreebieTier[]);
+    return calcFreeSauces(merchandise, (freebiesCfg?.tiers ?? []) as FreebieTier[]);
   }, [freebiesEnabled, freebiesModeOk, merchandise]);
 
   // required fields
