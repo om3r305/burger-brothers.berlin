@@ -64,16 +64,21 @@ export default function DriverPage({ params }: { params: { id: string } }) {
     }
   };
 
+  // TIP-SAFE: driverName'i meta içine yazıyoruz
   const goUnterwegs = () => {
     if (!isDelivery) return;
-    // Şoför adını siparişe yazıyoruz
-    upsertOrder({ ...order, driverName: driverName.trim() });
+    const dn = driverName.trim();
+
+    upsertOrder({
+      ...(order as any),
+      meta: { ...((order as any).meta || {}), driverName: dn },
+    } as Partial<StoredOrder> as any);
+
     setOrderStatus(order.id, "out_for_delivery");
     alert("Durum güncellendi: Unterwegs");
   };
 
   const goDone = () => {
-    // Tamamlandı yap
     setOrderStatus(order.id, "done");
     alert("Durum güncellendi: Abgeschlossen");
   };
@@ -140,7 +145,7 @@ export default function DriverPage({ params }: { params: { id: string } }) {
               )}
               {isDelivery && address && (
                 <div>
-                  <span style={styles.k}>Adressese:</span> <b>{address}</b>
+                  <span style={styles.k}>Adresse:</span> <b>{address}</b>
                 </div>
               )}
               {driverName.trim() && (
