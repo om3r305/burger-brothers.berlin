@@ -224,13 +224,13 @@ const defaultSettings: SettingsV6 = {
       includeOrderId: true,
       includeCustomerName: false,
       includePhone: false,
-      includeAddress: true
+      includeAddress: true,
     },
 
     // 🆕 ağ yazıcı defaultları
     enabled: true,
     ip: "192.168.0.150",
-    port: 9100
+    port: 9100,
   },
   tv: {
     autoRefreshSeconds: 5,
@@ -320,7 +320,12 @@ function normalizeAndMerge(raw: any): SettingsV6 {
     merged.printing = { ...merged.printing, qrPayload: { ...defaultSettings.printing!.qrPayload! } };
   }
 
-  merged.security = mergeDeep(defaultSettings.security || {}, merged.security || {});
+  // ✅ FIX: Tipi netleştirerek security birleştirme
+  merged.security = mergeDeep(
+    (defaultSettings.security ?? {}) as SecuritySettings,
+    (merged.security ?? {}) as SecuritySettings
+  ) as SecuritySettings;
+
   return merged;
 }
 
