@@ -324,3 +324,4 @@ export function exportCSV(db: StreetDB): string {
   }
   return rows.join("\n");
 }
+export const normalizeForSearch = normalize;
