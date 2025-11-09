@@ -64,3 +64,39 @@ export type Settings = {
   };
   drivers?: Driver[];
 };
+
+/* ───────────────────────────────
+ * Eklenen tipler (seed.ts ve diğerleri için)
+ * ─────────────────────────────── */
+
+// Menü öğesi tipi (seed.ts burada bunu kullanacak)
+export type MenuItem = {
+  id: string;
+  name: string;
+  desc?: string;
+  price: number;
+  imageUrl?: string;
+  /** opsiyonel vitrin videosu */
+  videoUrl?: string;
+  /** kategoriler — seed’te kullanılan değerler */
+  category: "burger" | "vegan" | "extra" | "drink" | "sauce";
+  /** etiketler (örn. "beliebt") */
+  tags?: string[];
+  /** kaldırılabilir içerikler (örn. "Zwiebel") */
+  removable?: string[];
+  /** eklenebilir opsiyonlar */
+  addable?: Array<{ id: string; name: string; price: number }>;
+};
+
+// WhatsApp/metin çıktılarında kullanılan basit sepet kalemi
+export type CartItem = {
+  qty: number;
+  item?: {
+    id?: string;
+    name?: string;
+    description?: string;
+  };
+  add?: Array<{ id?: string; name: string; price?: number }>;
+  rm?: string[];
+  note?: string;
+};
