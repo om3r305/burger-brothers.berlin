@@ -2,7 +2,15 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { getStreets, normalizeForSearch } from "@/lib/streets";
+import { getStreets, normalize as normalizeForSearch } from "@/lib/streets";
+
+type Props = {
+  plz: string;
+  value: string;
+  onChange: (v: string) => void;
+  disabled?: boolean;
+  placeholder?: string;
+};
 
 export default function StreetSelect({
   plz,
@@ -10,91 +18,50 @@ export default function StreetSelect({
   onChange,
   disabled,
   placeholder = "Straße wählen...",
-}: {
-  plz: string;
-  value: string;
-  onChange: (v: string) => void;
-  disabled?: boolean;
-  placeholder?: string;
-}) {
+}: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
+  const [q, setQ] = useState(value || "");
 
-  useEffect(() => {
-    // PLZ değiştiyse query’yi sıfırla
-    setQuery("");
-    setOpen(false);
-    // PLZ yoksa sokağı da sıfırla
-    if ((plz || "").length !== 5) onChange("");
-  }, [plz]);
+  useEffect(() => setQ(value || ""), [value]);
 
-  const options = useMemo(() => {
-    const list = (plz && plz.length === 5) ? getStreets(plz) : [];
-    if (!query) return list.slice(0, 200);
-    const key = normalizeForSearch(query);
-    return list.filter((s) => normalizeForSearch(s).includes(key)).slice(0, 200);
-  }, [plz, query]);
+  const all = useMemo(() => getStreets(plz), [plz]);
 
-  const exactMatch = useMemo(() => {
-    const list = (plz && plz.length === 5) ? getStreets(plz) : [];
-    return !!list.find((s) => s === value);
-  }, [plz, value]);
+  const list = useMemo(() => {
+    const term = normalizeForSearch(q);
+    if (!term) return all.slice(0, 50);
+    const out: string[] = [];
+    for (const s of all) {
+      if (normalizeForSearch(s).includes(term)) {
+        out.push(s);
+        if (out.length >= 50) break;
+      }
+    }
+    return out;
+  }, [all, q]);
 
-  const canInteract = !disabled && (plz || "").length === 5;
+  const listId = `streets-${plz || "none"}`;
 
   return (
-    <div className={`relative ${!canInteract ? "opacity-60" : ""}`}>
+    <div className="relative">
       <input
         ref={inputRef}
-        disabled={!canInteract}
-        value={value || query}
+        type="text"
+        value={q}
         onChange={(e) => {
-          onChange(""); // serbest yazımı state’te tutmuyoruz, seçim zorunlu
-          setQuery(e.target.value);
-          setOpen(true);
+          const v = e.target.value;
+          setQ(v);
+          onChange(v);
         }}
-        onFocus={() => setOpen(true)}
-        onBlur={() => {
-          // blur’da açık listeyi kapat
-          setTimeout(() => setOpen(false), 120);
-        }}
+        disabled={disabled || !plz}
         placeholder={placeholder}
-        className={`w-full rounded-md bg-stone-800/60 p-2 outline-none ${value && !exactMatch ? "ring-1 ring-rose-500/60" : ""}`}
+        list={listId}
+        className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2 outline-none"
       />
-
-      {open && canInteract && (
-        <div className="absolute z-20 mt-1 max-h-64 w-full overflow-auto rounded-md border border-stone-700/60 bg-stone-900/95 shadow-lg">
-          {options.length === 0 && (
-            <div className="px-3 py-2 text-sm opacity-70">Sonuç yok.</div>
-          )}
-          {options.map((opt) => (
-            <button
-              key={opt}
-              type="button"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => {
-                onChange(opt);
-                setQuery("");
-                setOpen(false);
-                inputRef.current?.blur();
-              }}
-              className="block w-full px-3 py-2 text-left hover:bg-stone-800/80"
-            >
-              {opt}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {!exactMatch && value && (
-        <div className="mt-1 text-xs text-rose-300">Listeden bir sokak seçmelisin.</div>
-      )}
-      {(plz || "").length === 5 && getStreets(plz).length === 0 && (
-        <div className="mt-1 text-xs text-amber-300">
-          Bu PLZ için sokak sözlüğü yok. Admin → Adresseler sayfasından ekleyin.
-        </div>
-      )}
+      <datalist id={listId}>
+        {list.map((s) => (
+          <option key={s} value={s} />
+        ))}
+      </datalist>
     </div>
   );
 }
