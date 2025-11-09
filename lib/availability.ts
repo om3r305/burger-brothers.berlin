@@ -3,7 +3,7 @@
 // PURE: Tarayıcı API’sine veya localStorage’a bağımlı değildir.
 
 import type { OrderMode as Mode } from "@/components/types";
-import type { Settings, WeekSchedule, TimeRange } from "@/lib/settings";
+import type { SettingsV6, WeekSchedule, TimeRange } from "@/lib/settings";
 
 /** Varsayılan saat dilimi (Settings yoksa) */
 export const DEFAULT_TZ = "Europe/Berlin";
@@ -62,13 +62,13 @@ export const DEFAULT_PLAN: OpeningPlan = {
     6: [{ start: "12:30", end: "21:30" }],
   },
   specials: {
-    // "2025-01-01": null, // Neujahr kapalı
+    // "2025-01-01": null,
     // "2025-12-24": [{ start: "12:00", end: "18:00" }],
   },
 };
 
 /** Settings.hours’ı OpeningPlan’e çevir (PURE) */
-export function planFromSettings(hours?: Settings["hours"]): AvailabilityConfig {
+export function planFromSettings(hours?: SettingsV6["hours"]): AvailabilityConfig {
   const tz = (hours?.timezone || DEFAULT_TZ).trim() || DEFAULT_TZ;
 
   const wk = (ws?: WeekSchedule): WeekHours => {
@@ -77,7 +77,7 @@ export function planFromSettings(hours?: Settings["hours"]): AvailabilityConfig 
       if (day == null) return null;
       const arr = Array.isArray(day) ? day : [];
       const norm = arr
-        .map(r => safeTimeRange(r))
+        .map((r) => safeTimeRange(r))
         .filter((r): r is TimeRange => !!r && r.start < r.end);
       return norm.length ? norm : null;
     };
@@ -95,7 +95,6 @@ export function planFromSettings(hours?: Settings["hours"]): AvailabilityConfig 
   const plan: OpeningPlan = {
     pickup: wk(hours?.pickup),
     delivery: wk(hours?.delivery),
-    // specials’ı Settings’te saklamıyorsak boş bırak
     specials: undefined,
   };
 
@@ -114,49 +113,15 @@ function safeTimeRange(r?: TimeRange | null): TimeRange | null {
   const s = normHHMM(r.start);
   const e = normHHMM(r.end);
   if (!s || !e) return null;
-  if (s >= e) return null; // aynı gün içinde kapanış ≥ açılış bekliyoruz
+  if (s >= e) return null;
   return { start: s, end: e };
 }
 
-/* =========================================================
-   Validasyon opsiyonları
-   ========================================================= */
-
-export type ValidateOpts = {
-  /** Sipariş hazırlık süresi (dakika) */
-  leadPickupMin?: number;
-  leadDeliveryMin?: number;
-  /** Kapanıştan önce kabul edilen son sipariş tamponu (dakika) */
-  lastOrderBufferMin?: number;
-  /** Kullanılan plan (verilmezse DEFAULT_PLAN) */
-  plan?: OpeningPlan;
-  /** Saat dilimi (verilmezse Europe/Berlin) */
-  tz?: string;
-
-  /** Site tamamen kapalı mı? (Settings.site.closed) */
-  siteClosed?: boolean;
-
-  /** Ön sipariş aktif mi? (Settings.hours.allowPreorder) */
-  allowPreorder?: boolean;
-
-  /** En fazla kaç gün ileriye plan? 0=sadece bugün */
-  daysAhead?: number;
-};
-
-export type Interval = { start: Date; end: Date };
-
-export type ValidationResult =
-  | { ok: true; reason?: undefined; suggest?: undefined; window: Interval }
-  | { ok: false; reason: string; suggest?: Date; window?: Interval };
-
-/* =========================================================
-   Zaman yardımcıları (TZ duyarlı)
-   ========================================================= */
+/* =================== Zaman yardımcıları (TZ) =================== */
 
 function pad2(n: number) { return n < 10 ? `0${n}` : String(n); }
 
 export function isoDateInTZ(d: Date, tz: string): string {
-  // YYYY-MM-DD (o TZ’deki gün)
   const dd = new Date(d.toLocaleString("en-US", { timeZone: tz }));
   const y = dd.getFullYear();
   const m = dd.getMonth() + 1;
@@ -164,14 +129,12 @@ export function isoDateInTZ(d: Date, tz: string): string {
   return `${y}-${pad2(m)}-${pad2(day)}`;
 }
 
-/** TZ’de şimdi */
 export function nowInTZ(tz: string): Date {
   return new Date(new Date().toLocaleString("en-US", { timeZone: tz }));
 }
 
-/** Aynı gün içinde "HH:MM" → Date (TZ) */
 function timeOn(dateInTZ: Date, hhmm: string, tz: string): Date {
-  const [hh, mm] = hhmm.split(":").map(v => parseInt(v, 10));
+  const [hh, mm] = hhmm.split(":").map((v) => parseInt(v, 10));
   const y = dateInTZ.getFullYear();
   const m = dateInTZ.getMonth();
   const d = dateInTZ.getDate();
@@ -180,14 +143,12 @@ function timeOn(dateInTZ: Date, hhmm: string, tz: string): Date {
   return isNaN(fixed.getTime()) ? new Date(isoLocal) : fixed;
 }
 
-/** ISO hafta mantığı: 0=Mon … 6=Sun */
 function dayIndexInTZ(d: Date, tz: string): DayIndex {
   const local = new Date(d.toLocaleString("en-US", { timeZone: tz }));
   const js = local.getDay(); // 0=Sun..6=Sat
   return (((js + 6) % 7) as DayIndex); // Mon=0..Sun=6
 }
 
-/** "8:0" → "08:00" */
 function normHHMM(s?: string): `${number}:${number}` | null {
   if (!s) return null;
   const m = s.match(/^(\d{1,2}):(\d{1,2})$/);
@@ -197,12 +158,11 @@ function normHHMM(s?: string): `${number}:${number}` | null {
   return `${pad2(hh)}:${pad2(mm)}` as `${number}:${number}`;
 }
 
-/* =========================================================
-   Pencereleri çıkar (çoklu aralık destekli)
-   ========================================================= */
+/* =================== Pencere & açık/kapalı =================== */
+
+export type Interval = { start: Date; end: Date };
 
 function getWindowsFor(mode: Mode, atInTZ: Date, plan: OpeningPlan, tz: string): Interval[] {
-  // Özel gün öncelikli
   const iso = isoDateInTZ(atInTZ, tz);
   let ranges: DayHours | undefined = plan.specials?.[iso];
   if (ranges === undefined) {
@@ -210,15 +170,11 @@ function getWindowsFor(mode: Mode, atInTZ: Date, plan: OpeningPlan, tz: string):
     ranges = mode === "pickup" ? plan.pickup[day] : plan.delivery[day];
   }
   if (!ranges || !ranges.length) return [];
-  return ranges.map(r => ({
+  return ranges.map((r) => ({
     start: timeOn(atInTZ, r.start, tz),
     end: timeOn(atInTZ, r.end, tz),
   }));
 }
-
-/* =========================================================
-   Açık/Kapalı kontrol
-   ========================================================= */
 
 export function isOpenAt(
   mode: Mode,
@@ -230,11 +186,9 @@ export function isOpenAt(
   for (const w of wins) {
     if (at >= w.start && at <= w.end) return { open: true, window: w };
   }
-  // en yakın pencereyi döndürmek için: at bulunduğu güne ait tüm pencereleri referans veriyoruz (ilkini window’a koyabiliriz)
   return wins.length ? { open: false, window: wins[0] } : { open: false };
 }
 
-/** Verilen andan itibaren bir sonraki açık pencereyi bul (bugün dahil) */
 export function nextOpenWindow(
   mode: Mode,
   from: Date = nowInTZ(DEFAULT_TZ),
@@ -243,33 +197,39 @@ export function nextOpenWindow(
   maxDaysScan = 7
 ): Interval | null {
   const base = new Date(from.toLocaleString("en-US", { timeZone: tz }));
-
   for (let i = 0; i <= maxDaysScan; i++) {
     const probe = new Date(base);
     probe.setDate(probe.getDate() + i);
-
     const wins = getWindowsFor(mode, probe, plan, tz);
     if (!wins.length) continue;
 
     if (i === 0) {
-      // Aynı gün: from sonrası bir pencere/slot var mı?
       for (const w of wins) {
-        if (from <= w.end) {
-          // from <= start ise o pencere; from içindeyse o pencere
-          return { start: w.start, end: w.end };
-        }
+        if (from <= w.end) return { start: w.start, end: w.end };
       }
     } else {
-      // Gelecek gün: ilk pencere yeter
       return { start: wins[0].start, end: wins[0].end };
     }
   }
   return null;
 }
 
-/* =========================================================
-   Planlanan zaman doğrulama (geplante/abholzeit)
-   ========================================================= */
+/* =================== Planlı zaman doğrulama =================== */
+
+export type ValidateOpts = {
+  leadPickupMin?: number;
+  leadDeliveryMin?: number;
+  lastOrderBufferMin?: number;
+  plan?: OpeningPlan;
+  tz?: string;
+  siteClosed?: boolean;
+  allowPreorder?: boolean;
+  daysAhead?: number;
+};
+
+export type ValidationResult =
+  | { ok: true; reason?: undefined; suggest?: undefined; window: Interval }
+  | { ok: false; reason: string; suggest?: Date; window?: Interval };
 
 export function validatePlannedTime(
   mode: Mode,
@@ -287,44 +247,31 @@ export function validatePlannedTime(
     daysAhead = 0,
   } = opts;
 
-  if (siteClosed) {
-    return { ok: false, reason: "Heute geschlossen." };
-  }
+  if (siteClosed) return { ok: false, reason: "Heute geschlossen." };
 
   const now = nowInTZ(tz);
   const leadMin = mode === "pickup" ? leadPickupMin : leadDeliveryMin;
 
-  // Preorder kapalıysa: sadece "şu anda" açık pencere içindeki bir zamana izin ver.
   if (!allowPreorder) {
     const open = isOpenAt(mode, now, plan, tz);
-    if (!open.open) {
-      return { ok: false, reason: "Derzeit geschlossen (Vorbestellung deaktiviert)." };
-    }
-    // Gün dışına kaçmayı da engelle
+    if (!open.open) return { ok: false, reason: "Derzeit geschlossen (Vorbestellung deaktiviert)." };
     if (isoDateInTZ(now, tz) !== isoDateInTZ(plannedAt, tz)) {
       return { ok: false, reason: "Nur heute verfügbar (Vorbestellung deaktiviert)." };
     }
   }
 
-  // Gün aşımı sınırı
   if (daysAhead >= 0) {
     const dNow = isoDateInTZ(now, tz);
     const dPln = isoDateInTZ(plannedAt, tz);
     const diffDays = dateDiffInDays(dNow, dPln);
     if (diffDays > daysAhead) {
       const next = nextOpenWindow(mode, now, plan, tz);
-      return {
-        ok: false,
-        reason: `Nur bis ${daysAhead} Tag(e) im Voraus.`,
-        suggest: next ? next.start : undefined,
-      };
+      return { ok: false, reason: `Nur bis ${daysAhead} Tag(e) im Voraus.`, suggest: next?.start };
     }
   }
 
-  // 1) Geçmiş + lead time
   const minAllowed = new Date(now.getTime() + leadMin * 60 * 1000);
   if (plannedAt < minAllowed) {
-    // en erken öneri
     const next = nextOpenWindow(mode, minAllowed, plan, tz);
     const suggest = next ? new Date(Math.max(next.start.getTime(), minAllowed.getTime())) : undefined;
     return {
@@ -338,14 +285,12 @@ export function validatePlannedTime(
     };
   }
 
-  // 2) O gün pencereleri
   const wins = getWindowsFor(mode, plannedAt, plan, tz);
   if (!wins.length) {
     const next = nextOpenWindow(mode, plannedAt, plan, tz);
-    return { ok: false, reason: "An diesem Tag geschlossen.", suggest: next ? next.start : undefined };
+    return { ok: false, reason: "An diesem Tag geschlossen.", suggest: next?.start };
   }
 
-  // 3) Uygun pencereyi bul + kapanış tamponunu uygula
   for (const w of wins) {
     const lastAccept = new Date(w.end.getTime() - lastOrderBufferMin * 60 * 1000);
     if (plannedAt < w.start) {
@@ -357,7 +302,6 @@ export function validatePlannedTime(
       };
     }
     if (plannedAt >= w.start && plannedAt <= lastAccept) {
-      // ✓ geçerli
       return { ok: true, window: w };
     }
     if (plannedAt > lastAccept && plannedAt <= w.end) {
@@ -365,20 +309,17 @@ export function validatePlannedTime(
       return {
         ok: false,
         reason: `Zu nah an der Schließzeit (letzte Annahme ${lastOrderBufferMin} Min vorher).`,
-        suggest: next ? next.start : undefined,
+        suggest: next?.start,
         window: w,
       };
     }
   }
 
-  // Pencereler var ama hiçbiri koşulları sağlamadı → bir sonrakini öner
   const next = nextOpenWindow(mode, plannedAt, plan, tz);
-  return { ok: false, reason: "Außerhalb der Öffnungszeiten.", suggest: next ? next.start : undefined };
+  return { ok: false, reason: "Außerhalb der Öffnungszeiten.", suggest: next?.start };
 }
 
-/* =========================================================
-   UI Yardımcıları
-   ========================================================= */
+/* =================== UI helpers & slot üretim =================== */
 
 export function statusLabel(
   mode: Mode,
@@ -388,19 +329,11 @@ export function statusLabel(
 ): { open: boolean; text: string; window?: Interval } {
   const st = isOpenAt(mode, at, plan, tz);
   if (st.open && st.window) {
-    return {
-      open: true,
-      text: `Geöffnet bis ${fmtTime(st.window.end, tz)} (${mode === "pickup" ? "Abholung" : "Lieferung"})`,
-      window: st.window,
-    };
+    return { open: true, text: `Geöffnet bis ${fmtTime(st.window.end, tz)} (${mode === "pickup" ? "Abholung" : "Lieferung"})`, window: st.window };
   }
   const next = nextOpenWindow(mode, at, plan, tz);
   if (next) {
-    return {
-      open: false,
-      text: `Geschlossen – öffnet um ${fmtTime(next.start, tz)} (${mode === "pickup" ? "Abholung" : "Lieferung"})`,
-      window: next,
-    };
+    return { open: false, text: `Geschlossen – öffnet um ${fmtTime(next.start, tz)} (${mode === "pickup" ? "Abholung" : "Lieferung"})`, window: next };
   }
   return { open: false, text: "Heute geschlossen" };
 }
@@ -412,18 +345,9 @@ export function fmtTime(d: Date, tz: string = DEFAULT_TZ): string {
   return `${hh}:${mm}`;
 }
 
-/* =========================================================
-   Slot üretici (UI için)
-   ========================================================= */
-
-/**
- * Verilen tarihte (TZ’de o gün) seçilebilir slotları üretir.
- * - lead time + last buffer + daysAhead + allowPreorder kuralları uygulanır.
- * - Bir günde birden fazla pencereyi işler.
- */
 export function buildSlotsForDate(
   mode: Mode,
-  dateInTZ: Date, // o gün (saat önemsiz)
+  dateInTZ: Date,
   cfg: {
     plan: OpeningPlan;
     tz?: string;
@@ -442,13 +366,10 @@ export function buildSlotsForDate(
   const minAllowed = new Date(now.getTime() + leadMin * 60 * 1000);
 
   if (cfg.allowPreorder === false) {
-    // sadece "şu an" açık penceredeki slotlar
     const open = isOpenAt(mode, now, cfg.plan, tz);
     if (!open.open || !open.window) return [];
-    // tarih uyuşmuyorsa boş
     if (isoDateInTZ(now, tz) !== isoDateInTZ(dateInTZ, tz)) return [];
   } else {
-    // daysAhead kontrol
     const diff = dateDiffInDays(isoDateInTZ(now, tz), isoDateInTZ(dateInTZ, tz));
     if (diff > Math.max(0, Number(cfg.daysAhead ?? 0))) return [];
   }
@@ -457,21 +378,14 @@ export function buildSlotsForDate(
   const out: Date[] = [];
 
   for (const w of wins) {
-    // kapanış tampondan önceki son kabul
     const lastAccept = new Date(w.end.getTime() - (cfg.lastOrderBufferMin ?? 15) * 60 * 1000);
-    // slotları üret
     for (let t = new Date(w.start); t <= lastAccept; t = new Date(t.getTime() + slotMin * 60 * 1000)) {
-      // lead time
       if (t < minAllowed) continue;
       out.push(t);
     }
   }
   return out;
 }
-
-/* =========================================================
-   Ekstra: UI entegrasyonunu kolaylaştıran helper'lar
-   ========================================================= */
 
 /** Dakika bazlı yukarı yuvarla (slot’a)—ör. 13:02 → 13:15 */
 export function ceilToSlot(d: Date, slotMinutes: number): Date {
@@ -481,7 +395,7 @@ export function ceilToSlot(d: Date, slotMinutes: number): Date {
 
 /** “HH:MM” → Date (verilen gün & TZ) */
 export function parseHHMMToDateInTZ(hhmm: string, baseDayInTZ: Date, tz: string): Date {
-  const [hh, mm] = (hhmm || "00:00").split(":").map(n => parseInt(n, 10) || 0);
+  const [hh, mm] = (hhmm || "00:00").split(":").map((n) => parseInt(n, 10) || 0);
   const y = baseDayInTZ.getFullYear();
   const m = baseDayInTZ.getMonth();
   const d = baseDayInTZ.getDate();
@@ -496,26 +410,6 @@ export function formatHHMMInTZ(d: Date, tz: string = DEFAULT_TZ): string {
   return `${pad2(dd.getHours())}:${pad2(dd.getMinutes())}`;
 }
 
-/**
- * Şu an açıK değilse planlıya zorlamak ve en erken uygun slotu önermek için.
- * UI’de: plannedEnabled=false ise ve mustPlan=true dönerse plannedEnabled’i true yapıp
- * plannedTime’i suggested ile doldur.
- */
-export function forcePlannedIfClosed(
-  mode: Mode,
-  cfg: AvailabilityConfig,
-  opts?: Pick<ValidateOpts, "leadPickupMin" | "leadDeliveryMin" | "lastOrderBufferMin">
-): { mustPlan: boolean; suggested?: Date; reason?: string } {
-  const tz = cfg.tz || DEFAULT_TZ;
-  const now = nowInTZ(tz);
-  const open = isOpenAt(mode, now, cfg.plan, tz);
-  if (open.open) return { mustPlan: false };
-
-  const slotMin = cfg.slotMinutes ?? 15;
-  const earliest = earliestPossibleTime(mode, cfg, opts);
-  return { mustPlan: true, suggested: ceilToSlot(earliest, slotMin), reason: "Geschlossen – Planung erforderlich" };
-}
-
 /** En erken mümkün zamanı (lead + pencere + tamponlara göre) döndürür. */
 export function earliestPossibleTime(
   mode: Mode,
@@ -528,9 +422,7 @@ export function earliestPossibleTime(
   const leadDeliveryMin = opts?.leadDeliveryMin ?? 35;
   const lastBuffer = opts?.lastOrderBufferMin ?? 15;
 
-  const minAllowed = new Date(
-    now.getTime() + (mode === "pickup" ? leadPickupMin : leadDeliveryMin) * 60 * 1000
-  );
+  const minAllowed = new Date(now.getTime() + (mode === "pickup" ? leadPickupMin : leadDeliveryMin) * 60 * 1000);
 
   const vr = validatePlannedTime(mode, minAllowed, {
     plan: cfg.plan,
@@ -545,12 +437,7 @@ export function earliestPossibleTime(
   return vr.ok ? minAllowed : (vr.suggest ?? minAllowed);
 }
 
-/* =========================================================
-   Yardımcılar
-   ========================================================= */
-
 function dateDiffInDays(isoA: string, isoB: string): number {
-  // basit fark: YYYY-MM-DD string’lerini gün objesine çevirip fark
   const [aY, aM, aD] = isoA.split("-").map(Number);
   const [bY, bM, bD] = isoB.split("-").map(Number);
   const a = Date.UTC(aY, aM - 1, aD);
