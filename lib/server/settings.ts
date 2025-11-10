@@ -1,7 +1,7 @@
 // lib/server/settings.ts
 import fs from "fs";
-import { DBA } from "@/lib/server/db";
 import path from "path";
+import { DBA } from "@/lib/server/db";
 
 export type ServerSettings = {
   telegram?: {
@@ -26,18 +26,29 @@ function safeJSON(p: string): any {
   }
 }
 
-export async function getServerSettings(): ServerSettings {
+/**
+ * Sunucu ayarlarını getirir.
+ * Önce KV (DBA) → sonra dosya (.data/data/tmp) → en son ENV fallback.
+ */
+export async function getServerSettings(): Promise<ServerSettings> {
+  // 1) KV (Prisma/SQLite/JSON) üzerinden dene
+  try {
+    const kv = await DBA.read("server_settings", null);
+    if (kv && typeof kv === "object") return kv as ServerSettings;
+  } catch {}
+
+  // 2) Dosyalardan dene
   const candidates = [
     path.join(process.cwd(), ".data", "settings.json"),
     path.join(process.cwd(), "data", "settings.json"),
     "/tmp/settings.json",
   ];
-
   for (const p of candidates) {
     const obj = safeJSON(p);
     if (obj) return obj as ServerSettings;
   }
 
+  // 3) ENV fallback
   return {
     telegram: {
       botToken: process.env.TELEGRAM_BOT_TOKEN,
@@ -51,4 +62,11 @@ export async function getServerSettings(): ServerSettings {
       idLength: Number(process.env.ORDER_ID_LENGTH || "6"),
     },
   };
+}
+
+/** İsteğe bağlı: Ayarları KV’ye kaydet (admin için kullanışlı). */
+export async function saveServerSettings(s: ServerSettings): Promise<void> {
+  try {
+    await DBA.write("server_settings", s);
+  } catch {}
 }
