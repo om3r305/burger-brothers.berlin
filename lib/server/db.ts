@@ -10,6 +10,7 @@ const DATA_DIRS = [
 ];
 
 const FILE_NAME = "orders.json";
+const KV_FILE = "kv.json";
 
 /* ───────────────── types ───────────────── */
 
@@ -63,6 +64,11 @@ function filePath(): string {
   return path.join(dir, FILE_NAME);
 }
 
+function kvPath(): string {
+  const dir = ensureDir();
+  return path.join(dir, KV_FILE);
+}
+
 /** Atomic write: önce .tmp, sonra rename */
 function writeJsonAtomic(targetPath: string, data: unknown) {
   const tmpPath = `${targetPath}.tmp`;
@@ -90,9 +96,7 @@ function startOfTodayBerlin(): number {
   const y = Number(parts.year);
   const m = Number(parts.month);
   const d = Number(parts.day);
-  // Yerel Berlin gününün 00:00’ını üret
   const iso = `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}T00:00:00`;
-  // O saati Berlin’e göre epoch’a çevir
   const berlinMidnight = new Date(
     new Date(iso + "Z").toLocaleString("en-US", { timeZone: tz })
   );
@@ -103,7 +107,7 @@ function endOfTodayBerlin(): number {
   return startOfTodayBerlin() + 24 * 60 * 60 * 1000 - 1;
 }
 
-/* ───────────────── core IO ───────────────── */
+/* ───────────────── core IO (orders.json) ───────────────── */
 
 export function readAll(): StoredOrder[] {
   const p = filePath();
@@ -126,12 +130,10 @@ export function writeAll(list: StoredOrder[]) {
 /* ───────────────── mapping & merge ───────────────── */
 
 const legacyToNewStatus: Record<string, OrderStatus | undefined> = {
-  // mevcut koddaki statüler geriye dönük desteklensin
   received: "received",
   preparing: "preparing",
   ready: "ready",
   completed: "completed",
-  // bazı olası varyasyonlar:
   in_progress: "preparing",
   done: "completed",
 };
@@ -145,7 +147,6 @@ function normalizeStatus(s: string): OrderStatus {
 
 function pushHistory(o: StoredOrder, status: OrderStatus, at: number) {
   if (!o.history) o.history = [];
-  // Aynı statüyü üst üste kaydetme (gereksiz artışı engelle)
   const last = o.history[o.history.length - 1];
   if (!last || last.status !== status) {
     o.history.push({ status, at });
@@ -159,7 +160,6 @@ export function upsert(o: StoredOrder) {
   const i = list.findIndex((x) => x.id === o.id);
   const now = Date.now();
 
-  // normalize status & history
   o.status = normalizeStatus(o.status);
   o.updatedAt = now;
   if (!o.history || o.history.length === 0) {
@@ -170,7 +170,6 @@ export function upsert(o: StoredOrder) {
   if (o.status === "completed") o.completedAt = o.completedAt || now;
 
   if (i >= 0) {
-    // merge (order içindeki alanlar korunur, yeni alanlar güncellenir)
     const prev = list[i];
     const merged: StoredOrder = {
       ...prev,
@@ -300,65 +299,124 @@ export function countsByChannelToday(): Record<OrderChannel, number> {
   return base;
 }
 
-export function usingSQLite(): boolean {
-  return !!(sqlite && process.env.DB_SQLITE_FILE);
+/* ───────────────── KV store (dosya) ───────────────── */
+
+function readJSON(key: string, fallback: any) {
+  try {
+    const p = kvPath();
+    const raw = fs.readFileSync(p, "utf8");
+    const obj = JSON.parse(raw) || {};
+    return Object.prototype.hasOwnProperty.call(obj, key) ? obj[key] : fallback;
+  } catch {
+    return fallback;
+  }
 }
 
+function writeJSON(key: string, data: any) {
+  try {
+    const p = kvPath();
+    let obj: any = {};
+    try {
+      obj = JSON.parse(fs.readFileSync(p, "utf8")) || {};
+    } catch {}
+    obj[key] = data;
+    writeJsonAtomic(p, obj);
+  } catch {}
+}
+
+/* ───────────────── DB backend seçimi (Vercel-safe) ───────────────── */
+
+/** SQLite kullanılacak mı? (sadece env varsa) */
+export function usingSQLite(): boolean {
+  return !!process.env.DB_SQLITE_FILE;
+}
+
+/** Lazy-load better-sqlite3; yoksa null döner */
 function sql() {
   if (!usingSQLite()) return null;
-  const Database = sqlite;
-  const db = new Database(process.env.DB_SQLITE_FILE as string);
-  db.pragma("journal_mode = WAL");
-  db.exec(`CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT)`);
-  return db;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const Database = require("better-sqlite3");
+    const db = new Database(process.env.DB_SQLITE_FILE as string);
+    db.pragma("journal_mode = WAL");
+    db.exec(`CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT)`);
+    return db;
+  } catch {
+    return null;
+  }
 }
 
 function sqlGet(db: any, k: string, fallback: any) {
-  const row = db.prepare("SELECT v FROM kv WHERE k = ?").get(k);
-  return row ? JSON.parse(row.v) : fallback;
+  try {
+    const row = db.prepare("SELECT v FROM kv WHERE k = ?").get(k);
+    return row ? JSON.parse(row.v) : fallback;
+  } catch {
+    return fallback;
+  }
 }
 function sqlSet(db: any, k: string, v: any) {
-  db.prepare("INSERT INTO kv (k, v) VALUES (?, ?) ON CONFLICT(k) DO UPDATE SET v=excluded.v").run(k, JSON.stringify(v));
+  try {
+    db.prepare(
+      "INSERT INTO kv (k, v) VALUES (?, ?) ON CONFLICT(k) DO UPDATE SET v=excluded.v"
+    ).run(k, JSON.stringify(v));
+  } catch {}
 }
 
+/** Prisma kullanılacak mı? (sadece env varsa) */
 function usingPrisma(): boolean {
-  return !!(prisma && process.env.DATABASE_URL);
+  return !!process.env.DATABASE_URL;
 }
 
+/** Lazy Prisma client (global cache) */
 function prismaClient() {
   if (!usingPrisma()) return null;
-  const { PrismaClient } = prisma;
-  // @ts-ignore
-  globalThis.__prisma = globalThis.__prisma || new PrismaClient();
-  // @ts-ignore
-  return globalThis.__prisma as InstanceType<typeof PrismaClient>;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { PrismaClient } = require("@prisma/client");
+    const g = globalThis as any;
+    g.__prisma = g.__prisma || new PrismaClient();
+    return g.__prisma as InstanceType<typeof PrismaClient>;
+  } catch {
+    return null;
+  }
 }
 
 export const DBA = {
   async read(key: string, fallback: any) {
-    if (usingPrisma()) {
-      const db = prismaClient();
-      const row = await db.kV.findUnique({ where: { k: key } });
-      return row ? JSON.parse(row.v) : fallback;
+    // 1) Prisma
+    const p = prismaClient();
+    if (p) {
+      try {
+        const row = await p.kV.findUnique({ where: { k: key } });
+        return row ? JSON.parse(row.v) : fallback;
+      } catch {}
     }
-    if (usingSQLite()) {
-      const db = sql();
-      if (db) return sqlGet(db, key, fallback);
-    }
+    // 2) SQLite
+    const s = sql();
+    if (s) return sqlGet(s, key, fallback);
+    // 3) JSON dosya
     return readJSON(key, fallback);
   },
+
   async write(key: string, data: any) {
-    if (usingPrisma()) {
-      const db = prismaClient();
-      await db.kV.upsert({ where: { k: key }, update: { v: JSON.stringify(data) }, create: { k: key, v: JSON.stringify(data) } });
-      return;
+    // 1) Prisma
+    const p = prismaClient();
+    if (p) {
+      try {
+        await p.kV.upsert({
+          where: { k: key },
+          update: { v: JSON.stringify(data) },
+          create: { k: key, v: JSON.stringify(data) },
+        });
+        return;
+      } catch {}
     }
-    if (usingSQLite()) {
-      const db = sql();
-      if (db) return sqlSet(db, key, data);
-    }
+    // 2) SQLite
+    const s = sql();
+    if (s) return sqlSet(s, key, data);
+    // 3) JSON dosya
     return writeJSON(key, data);
-  }
+  },
 };
 
 export function currentMode(): "prisma" | "sqlite" | "json" {
