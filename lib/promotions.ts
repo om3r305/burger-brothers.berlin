@@ -1,26 +1,68 @@
 // lib/promotions.ts
-import type { CartItem, Promotion, PricingSummary, Category } from "@/components/types";
+"use client";
 
-/* =========================================================
-   Promosyon Motoru
-   Hinweis:
-   - ÜCRETSİZ SOS ve "delivery % ind." hesapları store.computePricing() içinde.
-   - Burada SADECE ek kampanya indirimleri uygulanır (kategori/ürün/BuGO).
-   - startsAt/endsAt penceresi ve active=false kontrolü eklendi.
-   - Ürün eşlemede hem item.id hem de item.sku (varsa) dikkate alınır.
-   ========================================================= */
+import type { CartItem, MenuItem } from "@/components/types";
+import type { PricingSummary } from "@/lib/pricing/types";
+
+// Projedeki kategori union'unu tekrar kullanmak için:
+type Category = MenuItem["category"];
+
+/** Kampanya tipi (yerel & esnek) */
+export type Promotion =
+  | {
+      type: "percentOffCategory";
+      targetCategory: Category;
+      percent: number;
+      active?: boolean;
+      startsAt?: string;
+      endsAt?: string;
+      badgeText?: string;
+      badgeColor?: string;
+    }
+  | {
+      type: "fixedOffItem";
+      targetItemIds: string[]; // id/sku/name eşleşmesi yapılır
+      amount: number;          // satır başına sabit indirim (€)
+      active?: boolean;
+      startsAt?: string;
+      endsAt?: string;
+      badgeText?: string;
+      badgeColor?: string;
+    }
+  | {
+      type: "bogo";            // 2 al 1 öde (qty/2 ücretsiz)
+      targetItemIds: string[];
+      active?: boolean;
+      startsAt?: string;
+      endsAt?: string;
+      badgeText?: string;
+      badgeColor?: string;
+    }
+  | {
+      type: "badgeOnly";       // görsel rozet; fiyatı etkilemez
+      targetItemIds?: string[];
+      active?: boolean;
+      startsAt?: string;
+      endsAt?: string;
+      badgeText?: string;
+      badgeColor?: string;
+    }
+  | {
+      // Ücretsiz sos eşiği store.computePricing tarafında uygulanıyor;
+      // burada sadece tanım tutarlılığı için var.
+      type: "freeSauceThreshold";
+      active?: boolean;
+      startsAt?: string;
+      endsAt?: string;
+    };
 
 /** Promonun şu an aktif olup olmadığını kontrol et (active, startsAt, endsAt). */
 function isPromoActive(p: Promotion, now = new Date()): boolean {
-  if (p.active === false) return false;
-  if (p.startsAt) {
-    const s = new Date(p.startsAt);
-    if (isFinite(s.getTime()) && now < s) return false;
-  }
-  if (p.endsAt) {
-    const e = new Date(p.endsAt);
-    if (isFinite(e.getTime()) && now > e) return false;
-  }
+  if ((p as any).active === false) return false;
+  const s = (p as any).startsAt ? new Date((p as any).startsAt) : null;
+  if (s && isFinite(s.getTime()) && now < s) return false;
+  const e = (p as any).endsAt ? new Date((p as any).endsAt) : null;
+  if (e && isFinite(e.getTime()) && now > e) return false;
   return true;
 }
 
@@ -46,26 +88,24 @@ export function applyPromotions(
   let discount = 0;
   const now = new Date();
 
-  // —— 1) freeSauceThreshold burada YOK — store.computePricing zaten uyguluyor. ——
-
-  // —— 2) Diğer promosyonlar ——
   for (const promo of promotions) {
     if (!isPromoActive(promo, now)) continue;
 
     switch (promo.type) {
       case "percentOffCategory": {
-        if (!promo.targetCategory || !promo.percent) break;
-        const pct = Math.max(0, Math.min(100, promo.percent));
-        if (pct <= 0) break;
+        const pct = Math.max(0, Math.min(100, (promo as any).percent || 0));
+        const want = (promo as any).targetCategory as Category;
+        if (pct <= 0 || !want) break;
 
-        // Yalnızca o kategorideki satırların ÜRÜN+EXTRA fiyatına yüzde uygula
-        const catItems = items.filter((ci) => (ci.category as Category) === promo.targetCategory);
+        const catItems = items.filter(
+          (ci) => ((ci.category as Category) ?? (ci.item.category as Category)) === want
+        );
         if (catItems.length === 0) break;
 
         const catTotal = catItems.reduce((sum, ci) => {
           const basePrice = Number(ci.item.price || 0);
           const addSum =
-            (ci.add || []).reduce((a, e: any) => a + Number(e?.price || 0), 0) || 0;
+            (ci.add || []).reduce((a: number, e: any) => a + Number(e?.price || 0), 0) || 0;
           const qty = Number(ci.qty || 1);
           return sum + (basePrice + addSum) * qty;
         }, 0);
@@ -76,11 +116,12 @@ export function applyPromotions(
       }
 
       case "fixedOffItem": {
-        if (!promo.targetItemIds?.length || !promo.amount) break;
-        const amt = Math.max(0, promo.amount);
+        const ids = (promo as any).targetItemIds as string[] | undefined;
+        const amt = Math.max(0, Number((promo as any).amount || 0));
+        if (!ids?.length || !amt) break;
 
         for (const ci of items) {
-          if (!matchItemIds(ci, promo.targetItemIds)) continue;
+          if (!matchItemIds(ci, ids)) continue;
           const qty = Number(ci.qty || 1);
           const d = +(amt * qty).toFixed(2);
           if (d > 0) discount += d;
@@ -89,11 +130,11 @@ export function applyPromotions(
       }
 
       case "bogo": {
-        // 2 al 1 öde: her iki üründen biri ücretsiz (freeQty = floor(qty / 2))
-        if (!promo.targetItemIds?.length) break;
+        const ids = (promo as any).targetItemIds as string[] | undefined;
+        if (!ids?.length) break;
 
         for (const ci of items) {
-          if (!matchItemIds(ci, promo.targetItemIds)) continue;
+          if (!matchItemIds(ci, ids)) continue;
           const qty = Math.max(0, Number(ci.qty || 0));
           const freeQty = Math.floor(qty / 2);
           if (freeQty > 0) {
@@ -106,11 +147,8 @@ export function applyPromotions(
       }
 
       case "badgeOnly":
-        // Görsel amaçlı; indirim yok.
-        break;
-
       case "freeSauceThreshold":
-        // Ücretsiz sos, store.computePricing içinde (çift uygulanmaması için pas geçiyoruz).
+        // Görsel/harici hesaplanan; fiyata etkisi yok.
         break;
     }
   }
@@ -126,18 +164,14 @@ export function getBadgesForItem(itemId: string, promotions: Promotion[]) {
     .filter((p) => isPromoActive(p, now))
     .filter((p) => {
       if (p.type === "badgeOnly") {
-        // hedef belirtilmediyse global badge say
-        if (!p.targetItemIds?.length) return true;
-        return p.targetItemIds.includes(itemId);
+        if (!(p as any).targetItemIds?.length) return true; // global badge
+        return (p as any).targetItemIds.includes(itemId);
       }
-      if (p.type === "fixedOffItem") return p.targetItemIds?.includes(itemId);
-      if (p.type === "percentOffCategory") {
-        // Ürün kartı kategori bilgisini UI'da biliyor; burada yalnız rozet metnini sağlar.
-        return true;
-      }
+      if (p.type === "fixedOffItem") return (p as any).targetItemIds?.includes(itemId);
+      if (p.type === "percentOffCategory") return true;
       return false;
     })
-    .map((p) => ({
+    .map((p: any) => ({
       text: p.badgeText ?? (p.type === "percentOffCategory" && p.percent ? `${p.percent}%` : "Aktion"),
       color: p.badgeColor ?? "bg-red-500",
     }));
@@ -150,8 +184,8 @@ export function getBadgeForCategory(cat: Category, promotions: Promotion[]) {
     (p) =>
       isPromoActive(p, now) &&
       p.type === "percentOffCategory" &&
-      p.targetCategory === cat
-  );
+      (p as any).targetCategory === cat
+  ) as any;
   if (!promo) return null;
   return {
     text: promo.badgeText ?? (promo.percent ? `${promo.percent}%` : "Aktion"),
