@@ -39,7 +39,7 @@ export function buildWhatsAppMessage(
   lines.push("*Bestellung:*");
 
   for (const ci of items) {
-    const qty = ci.qty || 1;
+    const qty = typeof ci.qty === "number" ? ci.qty : 1;
     const name = ci.item?.name ?? "Unbekannt";
     const desc = ci.item?.description ? ` (${ci.item.description})` : "";
     lines.push(`• ${qty}× ${name}${desc}`);
@@ -49,12 +49,15 @@ export function buildWhatsAppMessage(
     if (ci.note) lines.push(`   📝 Hinweis: ${ci.note}`);
   }
 
-  // Gratis-Soßen berechnen (computeFreebies çıktısı farklı sürümlerde değişebildi,
-  // güvenli olsun diye count alanını esnek okuyoruz)
-  const fb: any = computeFreebies(items) ?? {};
-  const freeCount = Number(
-    fb.count ?? fb.freeCount ?? fb.freeSauces ?? 0
-  );
+  // computeFreebies qty:number bekliyor → normalize et
+  const itemsForFreebie = (items || []).map((ci) => ({
+    ...ci,
+    qty: typeof ci.qty === "number" ? ci.qty : 1,
+  }));
+
+  // Gratis-Soßen (çıktı sürüme göre farklı isimlerle gelebilir)
+  const fb: any = computeFreebies(itemsForFreebie) ?? {};
+  const freeCount = Number(fb.count ?? fb.freeCount ?? fb.freeSauces ?? 0);
 
   if (freeCount > 0) {
     lines.push("");
