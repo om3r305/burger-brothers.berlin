@@ -12,7 +12,12 @@
     "migrate:json": "ts-node tools/migrate_json_to_db.ts",
     "db:activate:sqlite": "ts-node tools/activate_sqlite.ts",
     "db:health": "ts-node tools/db_health.ts",
-    "prisma:migrate": "prisma migrate dev -n init"
+    "prisma:migrate": "prisma migrate dev -n init",
+
+   
+    "typecheck": "tsc --noEmit",
+    "vercel:dev": "vercel dev",
+    "prepush": "npm run typecheck && next build --no-lint"
   },
   "prisma": {
     "seed": "ts-node prisma/seed.ts"
@@ -42,5 +47,8 @@
     "tailwindcss": "3.4.10",
     "ts-node": "^10.9.2",
     "typescript": "5.4.5"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }
