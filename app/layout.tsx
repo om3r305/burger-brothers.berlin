@@ -9,6 +9,11 @@ import OrdersSync from "./OrdersSync";
 import { LS_SETTINGS } from "@/lib/settings";
 import AnnouncementsClient from "@/components/AnnouncementsClient"; // ← DUYURU
 
+/* 🔧 SSG yerine runtime render (prerender hatalarını engelle) */
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+export const fetchCache = "force-no-store";
+
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 
 /** Tarayıcı tema rengi + viewport (PWA/iOS için ideal) */
@@ -56,7 +61,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   var KEY = ${JSON.stringify(LS_SETTINGS)};
   var overlayId = "bb-maintenance-overlay";
 
-  // admin sayfalarını kapatma
   function isAdmin() {
     try {
       var p = location.pathname || "/";
@@ -65,7 +69,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   }
   if (isAdmin()) return;
 
-  // LOGO seçici (mutlak URL + sağlam fallback)
   function toAbs(u) {
     try {
       if (!u) return "";
@@ -82,12 +85,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         (theme && theme.logos && theme.logos[active]) ||
         (s && s.printing && s.printing.logoUrl) ||
         "";
-
-      // /logo.png default'u veya boş değerler fallback'e düşsün
       if (!cand || cand === "/logo.png" || cand === "logo.png") {
         cand = "/logo-burger-brothers.png";
       }
-
       return toAbs(cand);
     } catch (_) {
       return toAbs("/logo-burger-brothers.png");
@@ -96,7 +96,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
   function makeOverlay(msg, logoUrl) {
     if (document.getElementById(overlayId)) return;
-
     var wrap = document.createElement("div");
     wrap.id = overlayId;
     wrap.setAttribute("role", "dialog");
@@ -113,7 +112,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       .replace(/"/g, '&quot;')
       .replace(/'/g, "\\'");
 
-    // LOGO büyüklüğü (gölgesiz)
     var logoHtml = logoUrl
       ? '<img src="' + logoUrl +
         '" alt="Logo" onerror="this.onerror=null;this.src=\\'' + fallback + '\\'" ' +
@@ -147,10 +145,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     } catch (_) {}
   }
 
-  // İlk değerlendirme
   evalState();
 
-  // Settings değişince canlı güncelle
   window.addEventListener("bb_settings_changed", function (ev) {
     try {
       var s = (ev && ev.detail) || {};
@@ -161,7 +157,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     } catch (_) {}
   });
 
-  // Başka sekmeden değişirse
   window.addEventListener("storage", function (ev) {
     if (ev && ev.key === KEY) evalState();
   });
