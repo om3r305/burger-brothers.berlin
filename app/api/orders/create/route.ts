@@ -14,7 +14,8 @@ export async function POST(req: Request) {
   try {
     const { order, notify } = await req.json();
 
-    const settings = getServerSettings();
+    // 🔧 kritik düzeltme: getServerSettings() async → await gerekiyor
+    const settings = await getServerSettings();
     const id = generateOrderId(settings.orders?.idLength || 6);
 
     const avgPickup = settings.hours?.avgPickupMinutes ?? 15;
