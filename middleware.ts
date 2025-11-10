@@ -12,6 +12,7 @@ const TV_PREFIXES = ["/tv", "/print"];
 /** Public yollar (middleware check atlanır) */
 const PUBLIC_PATHS = new Set<string>([
   "/admin/login",
+  "/admin/manifest.webmanifest",  // ← eklendi: admin PWA manifest public olmalı
   "/api/admin/login",
   "/api/admin/logout",
 
@@ -25,7 +26,7 @@ const PUBLIC_PATHS = new Set<string>([
 ]);
 
 export function middleware(req: NextRequest) {
-  const { pathname } = req.nextUrl;
+  const { pathname, search } = req.nextUrl;
 
   // Next statikleri ve genel public yollar serbest
   if (
@@ -55,7 +56,8 @@ export function middleware(req: NextRequest) {
     if (!ok) {
       const url = req.nextUrl.clone();
       url.pathname = "/admin/login";
-      url.searchParams.set("next", pathname);
+      // ← query’yi koru (önceden sadece pathname idi)
+      url.searchParams.set("next", pathname + (search || ""));
       return NextResponse.redirect(url);
     }
     return NextResponse.next();
@@ -74,14 +76,14 @@ export function middleware(req: NextRequest) {
       if (pathname === "/tv" || pathname.startsWith("/tv/")) {
         const url = req.nextUrl.clone();
         url.pathname = "/tv/login";
-        url.searchParams.set("next", pathname);
+        url.searchParams.set("next", pathname + (search || "")); // ← query’yi koru
         return NextResponse.redirect(url);
       }
       // /print sayfaları hem admin hem TV tarafından kullanılabilir
       // ikisi de yoksa admin login'e yönlendir
       const url = req.nextUrl.clone();
       url.pathname = "/admin/login";
-      url.searchParams.set("next", pathname);
+      url.searchParams.set("next", pathname + (search || "")); // ← query’yi koru
       return NextResponse.redirect(url);
     }
     return NextResponse.next();
