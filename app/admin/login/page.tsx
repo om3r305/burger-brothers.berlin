@@ -9,7 +9,10 @@ export default function AdminLogin() {
   const [loading, setLoading] = useState(false);
   const r = useRouter();
   const sp = useSearchParams();
-  const backTo = sp.get("from") || "/admin";
+
+  // hem ?next= hem ?from= destekle
+  const backTo =
+    sp.get("next") || sp.get("from") || "/admin";
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -18,12 +21,24 @@ export default function AdminLogin() {
       const res = await fetch("/api/admin/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user: u.trim(), pass: p }),
+        credentials: "include", // cookie kesin yazılsın
+        body: JSON.stringify({
+          user: u.trim(),     // varsa backend log’ları için dursun
+          pass: p,            // geriye dönük uyumluluk
+          pin: p,             // ← backend’in beklediği alan (kritik düzeltme)
+        }),
       });
+
       if (res.ok) {
         r.replace(backTo);
       } else {
-        alert("Falsche Zugangsdaten");
+        // mümkünse backend {reason} döndürür; yoksa genel mesaj
+        let msg = "Falsche Zugangsdaten";
+        try {
+          const j = await res.json();
+          if (j?.reason === "no_admin_pin") msg = "Server-Konfiguration fehlt (ADMIN_PIN / settings.json).";
+        } catch {}
+        alert(msg);
       }
     } catch {
       alert("Netzwerkfehler, bitte erneut versuchen.");
@@ -43,11 +58,12 @@ export default function AdminLogin() {
           value={u}
           onChange={(e) => setU(e.target.value)}
           autoComplete="username"
+          autoFocus
         />
         <input
           className="w-full mb-4 rounded-md bg-stone-800/70 px-3 py-2 outline-none"
           type="password"
-          placeholder="Passwort"
+          placeholder="Passwort / PIN"
           value={p}
           onChange={(e) => setP(e.target.value)}
           autoComplete="current-password"
@@ -61,7 +77,7 @@ export default function AdminLogin() {
         </button>
 
         <div className="mt-3 text-xs text-stone-400">
-          Standard: <code>admin</code> / <code>123456</code> (in <code>.env</code> ändern)
+          Standard: <code>admin</code> / <code>123456</code> (<code>ADMIN_PIN</code> oder <code>data/settings.json</code>)
         </div>
       </form>
     </div>
