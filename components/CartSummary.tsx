@@ -281,9 +281,7 @@ function computePricingFromSettings_CS(
 ) {
   const ovr = getPricingOverrides(mode);
 
-  // Eski: const merchandise = sumCartMerch(items);
   const merchandise = sumCartMerchDynamic_CS(items, mode, campaigns, catalog);
-
   const discount = +(merchandise * toNum(ovr.discountRate,0)).toFixed(2);
 
   let surcharges = 0;
@@ -678,7 +676,7 @@ export default function CartSummary() {
           )}
 
           {!!activeCode && couponAmount === 0 && coupon.error && (
-            <div className="flex items-center justify_between text-rose-400">
+            <div className="flex items-center justify-between text-rose-400">
               <span className="text-xs">{coupon.error}</span>
               <button onClick={clearCoupon} className="rounded-md border border-stone-700/60 px-2 py-0.5 text-xs">✕</button>
             </div>
@@ -858,32 +856,46 @@ export function CartSummaryMobile() {
     } catch {}
   }, []);
 
-  /* ── YENİ: Ürün modalı/overlay açıldığında fab butonu gizle ── */
+  /* ── Modal/overlay açıkken sabit cart FAB’ı gizle ── */
   const [overlayOpen, setOverlayOpen] = useState(false);
   useEffect(() => {
     if (typeof document === "undefined") return;
-    const check = () => {
-      // Heuristik: role="dialog" veya product modal class/attr'ları varsa
-      const el = document.querySelector('[data-product-modal], .product-modal, [role="dialog"]');
-      setOverlayOpen(!!el);
-    };
+
+    // Modal/drawer/select overlay’leri için geniş kapsamlı selector
+    const SELECTOR = [
+      "[data-product-modal]",
+      ".product-modal",
+      "[role='dialog']",
+      ".ReactModal__Overlay--after-open",
+      "[data-radix-portal] [data-state='open']",
+      ".drawer-open",
+      ".DialogOverlay",
+      ".SheetOverlay",
+    ].join(",");
+
+    const check = () => setOverlayOpen(!!document.querySelector(SELECTOR));
     check();
+
     const mo = new MutationObserver(check);
     mo.observe(document.body, { childList: true, subtree: true, attributes: true });
+
     const onVis = () => check();
     document.addEventListener("visibilitychange", onVis);
-    return () => { mo.disconnect(); document.removeEventListener("visibilitychange", onVis); };
+
+    return () => {
+      mo.disconnect();
+      document.removeEventListener("visibilitychange", onVis);
+    };
   }, []);
 
   return (
     <>
-      {mounted && (
+      {mounted && !open && !overlayOpen && (
         <button
           suppressHydrationWarning
           onClick={() => setOpen(true)}
           style={{ bottom: safeBottom }}
-          className={`fixed left-1/2 z-50 -translate-x-1/2 rounded-full bg-amber-600 px-5 py-3 text-black shadow-xl sm:hidden transition
-                      ${overlayOpen ? "translate-y-full opacity-0 pointer-events-none" : ""}`}
+          className="fixed left-1/2 z-40 -translate-x-1/2 rounded-full bg-amber-600 px-5 py-3 text-black shadow-xl sm:hidden"
         >
           Warenkorb ansehen • {fmt(totalFinal)}
         </button>
@@ -970,7 +982,7 @@ export function CartSummaryMobile() {
                 <div className="space-y-2">
                   {g.lines.map((ci: any) => (
                     <div key={ci.id} className="rounded-xl border border-stone-700/40 bg-stone-900/60 p-3">
-                      <div className="flex items-start justify_between gap-3">
+                      <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <div className="text-sm font-medium">
                             {ci?.item?.name} {ci?.qty > 1 ? <span className="text-stone-400">× {ci.qty}</span> : null}
@@ -984,7 +996,7 @@ export function CartSummaryMobile() {
                         </div>
                       </div>
 
-                      <div className="mt-2 flex items-center justify_between gap-3">
+                      <div className="mt-2 flex items-center justify-between gap-3">
                         <div className="flex items-center gap-2">
                           <button className="qty" onClick={() => (ci.qty > 1 ? setQty(ci.id, ci.qty - 1) : remove(ci.id))} aria-label="Menge verringern">−</button>
                           <span className="w-6 text-center text-sm">{ci.qty}</span>
