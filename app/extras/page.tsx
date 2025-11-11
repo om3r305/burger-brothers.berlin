@@ -29,6 +29,49 @@ type VariantGroup = {
 
 const LS_EXTRA_GROUPS = "bb_extra_groups_v1";
 
+/** JSON’u güvenli şekilde VariantGroup[]’e normalle */
+function normalizeGroups(input: any): VariantGroup[] {
+  const arr = Array.isArray(input) ? input : [];
+  return arr.map((g: any) => ({
+    sku: String(g?.sku ?? ""),
+    name: String(g?.name ?? ""),
+    description: g?.description ? String(g.description) : undefined,
+    image: g?.image ? String(g.image) : undefined,
+    variants: Array.isArray(g?.variants)
+      ? g.variants
+          .filter((v: any) => v && (v.id || v.name))
+          .map((v: any) => ({
+            id: String(v.id || v.name || Math.random()),
+            name: String(v.name ?? ""),
+            price: Number(v.price) || 0,
+            image: v.image ? String(v.image) : undefined,
+            active: v.active !== false,
+            startAt: v.startAt ? String(v.startAt) : undefined,
+            endAt: v.endAt ? String(v.endAt) : undefined,
+          }))
+      : [],
+  }));
+}
+
+/** API yanıtı şunlardan biri olabilir:
+ *  - Doğrudan VariantGroup[]
+ *  - { bb_extra_groups_v1: "json-string" }
+ *  - { data: VariantGroup[] } / { items: VariantGroup[] }
+ */
+function extractGroupsFromApiPayload(payload: any): VariantGroup[] | null {
+  if (!payload) return null;
+  if (Array.isArray(payload)) return normalizeGroups(payload);
+  if (payload?.bb_extra_groups_v1) {
+    try {
+      const parsed = JSON.parse(payload.bb_extra_groups_v1);
+      return normalizeGroups(parsed);
+    } catch {}
+  }
+  if (Array.isArray(payload?.data)) return normalizeGroups(payload.data);
+  if (Array.isArray(payload?.items)) return normalizeGroups(payload.items);
+  return null;
+}
+
 export default function ExtrasPage() {
   const router = useRouter();
 
@@ -36,34 +79,86 @@ export default function ExtrasPage() {
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(LS_EXTRA_GROUPS);
-      const arr = raw ? (JSON.parse(raw) as VariantGroup[]) : [];
-      const safe: VariantGroup[] = (Array.isArray(arr) ? arr : []).map((g: any) => ({
-        sku: String(g?.sku ?? ""),
-        name: String(g?.name ?? ""),
-        description: g?.description ? String(g.description) : undefined,
-        image: g?.image ? String(g.image) : undefined,
-        variants: Array.isArray(g?.variants)
-          ? g.variants
-              .filter((v: any) => v && (v.id || v.name))
-              .map((v: any) => ({
-                id: String(v.id || v.name || Math.random()),
-                name: String(v.name ?? ""),
-                price: Number(v.price) || 0,
-                image: v.image ? String(v.image) : undefined,
-                active: v.active !== false,
-                startAt: v.startAt ? String(v.startAt) : undefined,
-                endAt: v.endAt ? String(v.endAt) : undefined,
-              }))
-          : [],
-      }));
-      setGroups(safe);
-    } catch {
-      setGroups([]);
-    } finally {
-      setLoaded(true);
-    }
+    let mounted = true;
+
+    const readFromLS = (): VariantGroup[] | null => {
+      try {
+        const raw = localStorage.getItem(LS_EXTRA_GROUPS);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        return normalizeGroups(parsed);
+      } catch {
+        return null;
+      }
+    };
+
+    const writeToLS = (val: VariantGroup[]) => {
+      try {
+        localStorage.setItem(LS_EXTRA_GROUPS, JSON.stringify(val));
+        // Diğer sekmeler cihazında senkron olsun
+        window.dispatchEvent(new Event("storage"));
+        window.dispatchEvent(new Event("bb_settings_changed" as any));
+      } catch {}
+    };
+
+    const SOURCES = [
+      "/api/extras-groups",
+      "/api/data/extras-groups",
+      "/api/bootstrap?keys=bb_extra_groups_v1",
+      "/data/extras-groups.json",
+      "/data/extras.json",
+      "/extras.json",
+    ];
+
+    const tryFetchChain = async (): Promise<VariantGroup[] | null> => {
+      for (const url of SOURCES) {
+        try {
+          const res = await fetch(url, { cache: "no-store" });
+          if (!res.ok) continue;
+          const payload = await res.json().catch(() => null);
+          const got = extractGroupsFromApiPayload(payload) ?? normalizeGroups(payload);
+          if (got && got.length) return got;
+        } catch {
+          /* ignore and continue */
+        }
+      }
+      return null;
+    };
+
+    (async () => {
+      // 1) Önce LS
+      const lsVal = readFromLS();
+      if (lsVal && lsVal.length) {
+        if (!mounted) return;
+        setGroups(lsVal);
+        setLoaded(true);
+        // Arka planda sessiz güncelleme (varsa)
+        try {
+          const fresh = await tryFetchChain();
+          if (fresh && mounted) {
+            setGroups(fresh);
+            writeToLS(fresh);
+          }
+        } catch {}
+        return;
+      }
+
+      // 2) LS boşsa zincirden getir → LS’ye yaz → kullan
+      const fetched = await tryFetchChain();
+      if (mounted) {
+        if (fetched && fetched.length) {
+          setGroups(fetched);
+          writeToLS(fetched);
+        } else {
+          setGroups([]);
+        }
+        setLoaded(true);
+      }
+    })();
+
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   /* --- ÜST SEKMELER: yatay kaydırma + oklar + aktif sekmeyi ortalama --- */
