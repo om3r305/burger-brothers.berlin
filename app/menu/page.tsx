@@ -70,13 +70,23 @@ const ALL_TABS: TabKey[] = [
 
 const TAB_TITLE: Record<TabKey, string> = {
   burger: "Burger",
-  vegan: "Vegan",
+  vegan: "Vegan / Vegetarisch",
   extras: "Extras",
   sauces: "Soßen",
   hotdogs: "Hot Dogs",
   drinks: "Getränke",
   donuts: "Donuts",
   bubbletea: "Bubble Tea",
+};
+
+/* --- NEW: Bu tab’lar kendi route’larına gider; diğerleri /menu’da kalır --- */
+const ROUTE_MAP: Partial<Record<TabKey, string>> = {
+  extras: "/extras",
+  sauces: "/sauces",
+  drinks: "/drinks",
+  hotdogs: "/hotdogs",
+  donuts: "/donuts",
+  bubbletea: "/bubble-tea",
 };
 
 /* === Yardımcılar === */
@@ -127,30 +137,19 @@ export default function MenuPage() {
   const pathname = usePathname();
   const orderMode = useCart((s: any) => s.orderMode) as "pickup" | "delivery";
 
-  /* ——— /menu?cat=… (veya tab=…) → özel sayfalara güçlü yönlendirme ——— */
-  useEffect(() => {
-    const q = (searchParams?.get("cat") || searchParams?.get("tab") || "").toLowerCase();
-    if (!q) return;
-    const map: Record<string, string> = {
-      extras: "/extras",
-      drinks: "/drinks",
-      sauces: "/sauces",
-      hotdogs: "/hotdogs",
-      donuts: "/donuts",
-      bubbletea: "/bubble-tea",
-      "bubble-tea": "/bubble-tea",
-    };
-    const target = map[q];
-    if (target && pathname !== target) {
-      router.replace(target);
-    }
-  }, [searchParams, router, pathname]);
-
   const [tab, setTab] = useState<TabKey>("burger");
+
+  /* --- NEW: URL'de menü-dışı bir kategori geldiyse ilgili route’a yönlendir --- */
   useEffect(() => {
-    const cat = (searchParams?.get("cat") || searchParams?.get("tab") || "").toLowerCase();
-    if (ALL_TABS.includes(cat as TabKey)) setTab(cat as TabKey);
-  }, [searchParams]);
+    const raw = (searchParams?.get("cat") || searchParams?.get("tab") || "").toLowerCase() as TabKey;
+    if (!raw) return;
+    const route = ROUTE_MAP[raw];
+    if (route) {
+      router.replace(route);
+      return;
+    }
+    if (ALL_TABS.includes(raw)) setTab(raw);
+  }, [searchParams, router]);
 
   useEffect(() => {
     const cls = "theme-vegan";
@@ -243,7 +242,13 @@ export default function MenuPage() {
     }
   }, []);
 
+  /* --- NEW: tab değişince özel route’a git; aksi halde /menu?cat=... --- */
   const handleTabChange = (t: TabKey) => {
+    const route = ROUTE_MAP[t];
+    if (route) {
+      router.push(route);
+      return;
+    }
     setTab(t);
     const sp = new URLSearchParams(searchParams?.toString() || "");
     sp.set("cat", t);
@@ -281,8 +286,8 @@ export default function MenuPage() {
   }, [filteredByTab]);
 
   const sortedForMenu = useMemo(() => {
-    return sortProductsForMenu(baseListForTab, campaigns, orderMode, now);
-  }, [baseListForTab, campaigns, orderMode, now]);
+    return sortProductsForMenu(baseListForTab, campaigns, useCart.getState().orderMode, now);
+  }, [baseListForTab, campaigns, now]);
 
   const byId = useMemo(() => {
     const m = new Map<string, Product>();
@@ -293,14 +298,12 @@ export default function MenuPage() {
     return m;
   }, [filteredByTab]);
 
-  // 🔧 burada adapter ile type hatasını çözüyoruz
   const list = useMemo(() => {
     const isBV = tab === "burger" || tab === "vegan";
 
     return sortedForMenu.map((plike) => {
       const p = byId.get(plike.id)!;
 
-      // isProductAvailable id:string bekliyor → garanti eden adapter
       const availProbe = {
         id: plike.id,
         name: plike.name,
@@ -316,7 +319,7 @@ export default function MenuPage() {
       const pr = priceWithCampaign(
         { id: plike.id, name: plike.name, price: plike.price, category: plike.category },
         campaigns,
-        orderMode,
+        useCart.getState().orderMode,
         now
       );
 
@@ -337,7 +340,7 @@ export default function MenuPage() {
         topSellerRank,
       };
     });
-  }, [sortedForMenu, byId, campaigns, orderMode, now, tab, baseListForTab]);
+  }, [sortedForMenu, byId, campaigns, now, tab, baseListForTab]);
 
   const emptyMsgMap: Record<TabKey, string> = {
     burger:
@@ -375,7 +378,7 @@ export default function MenuPage() {
           />
           <div className="flex flex-col leading-tight">
             <h1 className="text-2xl font-semibold">Burger Brothers</h1>
-            <span className="text-xs text.white/70">Berlin Tegel</span>
+            <span className="text-xs text-white/70">Berlin Tegel</span>
           </div>
         </Link>
 
