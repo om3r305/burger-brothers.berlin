@@ -29,57 +29,70 @@ type VariantGroup = {
 
 const LS_EXTRA_GROUPS = "bb_extra_groups_v1";
 
-/** Sunucudan/JSON'dan/LS'den sırayla oku (kalıcı görünürlük) */
-async function loadGroupsSmart(): Promise<VariantGroup[]> {
-  // 1) Opsiyonel API (varsa)
-  try {
-    const r = await fetch("/api/extras", { cache: "no-store" });
-    if (r.ok) {
-      const j = await r.json();
-      if (Array.isArray(j) && j.length) return j as VariantGroup[];
+/** Uzaktan → /public → LS sırası ile oku; uzaktan gelirse LS’ye yazar */
+async function loadGroupsWithFallback(): Promise<VariantGroup[]> {
+  const norm = (arr: any): VariantGroup[] =>
+    (Array.isArray(arr) ? arr : []).map((g: any) => ({
+      sku: String(g?.sku ?? ""),
+      name: String(g?.name ?? ""),
+      description: g?.description ? String(g.description) : undefined,
+      image: g?.image ? String(g.image) : undefined,
+      variants: Array.isArray(g?.variants)
+        ? g.variants
+            .filter((v: any) => v && (v.id || v.name))
+            .map((v: any) => ({
+              id: String(v.id || v.name || Math.random()),
+              name: String(v.name ?? ""),
+              price: Number(v.price) || 0,
+              image: v.image ? String(v.image) : undefined,
+              active: v.active !== false,
+              startAt: v.startAt ? String(v.startAt) : undefined,
+              endAt: v.endAt ? String(v.endAt) : undefined,
+            }))
+        : [],
+    }));
+
+  // 1) NEXT_PUBLIC_EXTRAS_URL -> örn: https://your-bucket/extras.json
+  const remote = process.env.NEXT_PUBLIC_EXTRAS_URL;
+  const bust = `_=${Date.now()}`; // cache-bust
+  const tryFetch = async (url: string) => {
+    const r = await fetch(url.includes("?") ? `${url}&${bust}` : `${url}?${bust}`, {
+      cache: "no-store",
+    });
+    if (!r.ok) throw new Error("fetch failed");
+    const j = await r.json();
+    const safe = norm(j);
+    if (safe.length) {
+      // uzaktan başarı → LS’ye yaz
+      try {
+        localStorage.setItem(LS_EXTRA_GROUPS, JSON.stringify(safe));
+      } catch {}
     }
+    return safe;
+  };
+
+  // 1) remote URL
+  if (remote) {
+    try {
+      const data = await tryFetch(remote);
+      if (data.length) return data;
+    } catch {}
+  }
+
+  // 2) /public/extras.json (projeye koyduğun statik dosya)
+  try {
+    const data = await tryFetch("/extras.json");
+    if (data.length) return data;
   } catch {}
 
-  // 2) /public/extras.json (deploy ile kalıcı)
-  try {
-    const r = await fetch("/extras.json", { next: { revalidate: 60 } as any });
-    if (r.ok) {
-      const j = await r.json();
-      if (Array.isArray(j) && j.length) return j as VariantGroup[];
-    }
-  } catch {}
-
-  // 3) LocalStorage fallback (yalnız bu cihaz)
+  // 3) LS fallback
   try {
     const raw = localStorage.getItem(LS_EXTRA_GROUPS);
-    const arr = raw ? (JSON.parse(raw) as VariantGroup[]) : [];
-    if (Array.isArray(arr)) return arr;
-  } catch {}
-
-  return [];
-}
-
-/** Veri şekillendirici (bozuk objeleri sağlamlaştırır) */
-function normalizeGroups(input: any[]): VariantGroup[] {
-  return (Array.isArray(input) ? input : []).map((g: any) => ({
-    sku: String(g?.sku ?? ""),
-    name: String(g?.name ?? ""),
-    description: g?.description ? String(g.description) : undefined,
-    image: g?.image ? String(g.image) : undefined,
-    variants: Array.isArray(g?.variants)
-      ? g.variants
-          .filter((v: any) => v && (v.id || v.name))
-          .map((v: any) => ({
-            id: String(v.id || v.name || Math.random()),
-            name: String(v.name ?? ""),
-            price: Number(v.price) || 0,
-            image: v.image ? String(v.image) : undefined,
-            active: v.active !== false,
-            startAt: v.startAt ? String(v.startAt) : undefined,
-            endAt: v.endAt ? String(v.endAt) : undefined,
-          }))
-      : [],
-  }));
+    const arr = raw ? JSON.parse(raw) : [];
+    return norm(arr);
+  } catch {
+    return [];
+  }
 }
 
 export default function ExtrasPage() {
@@ -91,23 +104,14 @@ export default function ExtrasPage() {
   useEffect(() => {
     let mounted = true;
     (async () => {
-      const raw = await loadGroupsSmart();
-      const safe = normalizeGroups(raw);
-
-      if (!mounted) return;
-      setGroups(safe);
-      setLoaded(true);
-
-      // LS’i de eşitle (telefon/başka cihaz bir kez açınca yerel de dolsun)
       try {
-        localStorage.setItem(LS_EXTRA_GROUPS, JSON.stringify(safe));
-        window.dispatchEvent(new Event("storage"));
-        window.dispatchEvent(new Event("bb_settings_changed" as any));
-      } catch {}
+        const data = await loadGroupsWithFallback();
+        if (mounted) setGroups(data);
+      } finally {
+        if (mounted) setLoaded(true);
+      }
     })();
-    return () => {
-      mounted = false;
-    };
+    return () => { mounted = false; };
   }, []);
 
   /* --- ÜST SEKMELER: yatay kaydırma + oklar + aktif sekmeyi ortalama --- */
@@ -123,6 +127,7 @@ export default function ExtrasPage() {
     setCanRight(scrollLeft + clientWidth < scrollWidth - 2);
   };
 
+  // Ray içinde bir sekmeyi merkeze hizala
   const centerEl = (pill: HTMLElement | null) => {
     const rail = railRef.current;
     if (!rail || !pill) return;
@@ -139,6 +144,7 @@ export default function ExtrasPage() {
     const rail = railRef.current;
     if (!rail) return;
 
+    // İlk açılışta aktif "Extras" sekmesini ortala
     const active =
       (rail.querySelector(".nav-pill--active") as HTMLElement) ||
       (rail.querySelector('[aria-current="page"]') as HTMLElement) ||
@@ -150,6 +156,7 @@ export default function ExtrasPage() {
     const ro = new ResizeObserver(updateArrows);
     ro.observe(rail);
 
+    // Sekmeye tıklanınca yeni aktifi ortala
     const onClick = (e: Event) => {
       const t = e.target as HTMLElement;
       const pill = t.closest(".nav-pill") as HTMLElement | null;
@@ -172,6 +179,9 @@ export default function ExtrasPage() {
     setTimeout(updateArrows, 250);
   };
 
+  // Sekme tıklanınca doğru sayfaya git
+  // burger/vegan -> /menu?cat=..., drinks -> /drinks, sauces -> /sauces, hotdogs -> /hotdogs,
+  // donuts -> /donuts, bubbletea -> /bubble-tea, extras -> bu sayfa
   const handleTabChange = (key: string) => {
     const k = key.toLowerCase();
     if (k === "extras") return;
@@ -180,6 +190,7 @@ export default function ExtrasPage() {
     if (k === "hotdogs") return router.push("/hotdogs");
     if (k === "donuts") return router.push("/donuts");
     if (k === "bubbletea") return router.push("/bubble-tea");
+    // burger/vegan ve diğerleri menu sayfasında
     router.push(`/menu?cat=${encodeURIComponent(k)}`);
   };
 
