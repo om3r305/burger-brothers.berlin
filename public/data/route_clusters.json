@@ -1,0 +1,14 @@
+{
+  "meta": {
+    "updatedAt": "2025-11-11T22:17:27.695Z",
+    "firstLearnAt": null,
+    "windowDays": 60,
+    "thresholds": {
+      "support": 12,
+      "lift": 1.5,
+      "confidence_lb": 0.99
+    }
+  },
+  "pairs": [],
+  "clusters": []
+}

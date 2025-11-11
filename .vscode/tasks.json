@@ -1,0 +1,27 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Type Check (watch)",
+      "type": "shell",
+      "command": "npm run typecheck -- --watch",
+      "problemMatcher": "$tsc-watch",
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      }
+    },
+    {
+      "label": "Next Build (dry run)",
+      "type": "shell",
+      "command": "npm run build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Vercel Local Dev",
+      "type": "shell",
+      "command": "npm run vercel:dev",
+      "problemMatcher": []
+    }
+  ]
+}

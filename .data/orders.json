@@ -1,0 +1,5693 @@
+[
+  {
+    "id": "CK7DQZ",
+    "status": "received",
+    "createdAt": 1759878355174,
+    "etaMin": 15,
+    "order": {
+      "ts": 1759878354903,
+      "mode": "pickup",
+      "plz": null,
+      "items": [
+        {
+          "id": "f564a42c-4d98-46cd-b678-54daeee699f8",
+          "sku": "f564a42c-4d98-46cd-b678-54daeee699f8",
+          "name": "All American",
+          "category": "burger",
+          "price": 6.5,
+          "qty": 1,
+          "add": []
+        }
+      ],
+      "merchandise": 6.5,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 6.5,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Ömer",
+        "phone": "123412345124"
+      }
+    },
+    "updatedAt": 1759878456496
+  },
+  {
+    "id": "NWS5Y4",
+    "status": "completed",
+    "createdAt": 1759879902238,
+    "etaMin": 15,
+    "order": {
+      "ts": 1759879902012,
+      "mode": "pickup",
+      "plz": null,
+      "items": [
+        {
+          "id": "57b9435b-aacc-48d8-b12d-a40dc781fca8",
+          "sku": "57b9435b-aacc-48d8-b12d-a40dc781fca8",
+          "name": "All American",
+          "category": "burger",
+          "price": 6.5,
+          "qty": 1,
+          "add": []
+        }
+      ],
+      "merchandise": 6.5,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 6.5,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Ömer",
+        "phone": "123456123151"
+      }
+    },
+    "updatedAt": 1759879976342,
+    "completedAt": 1759879976342
+  },
+  {
+    "id": "CNHHMF",
+    "ts": 1759911158781,
+    "mode": "pickup",
+    "channel": "direct",
+    "status": "new",
+    "etaMin": 15,
+    "items": [
+      {
+        "id": "286328ba-d615-46e3-85aa-c4a044659b7e",
+        "sku": "286328ba-d615-46e3-85aa-c4a044659b7e",
+        "name": "All American",
+        "category": "burger",
+        "qty": 1,
+        "price": 9,
+        "add": [
+          {
+            "label": "Bacon",
+            "price": 1.5
+          },
+          {
+            "label": "Käse",
+            "price": 1
+          }
+        ]
+      },
+      {
+        "id": "7f289131-549a-46d4-ab0d-5add96c61e24",
+        "sku": "7f289131-549a-46d4-ab0d-5add96c61e24",
+        "name": "All American",
+        "category": "burger",
+        "qty": 1,
+        "price": 9,
+        "add": [
+          {
+            "label": "Jalapeños",
+            "price": 1.5
+          },
+          {
+            "label": "Käse",
+            "price": 1
+          }
+        ]
+      },
+      {
+        "id": "b84dfc92-9287-4463-aa28-8c0bf0835fe5",
+        "sku": "b84dfc92-9287-4463-aa28-8c0bf0835fe5",
+        "name": "All American",
+        "category": "burger",
+        "qty": 1,
+        "price": 6.5,
+        "add": []
+      },
+      {
+        "id": "7c7689d2-25da-439c-b95e-e5f0a3a49bd9",
+        "sku": "7c7689d2-25da-439c-b95e-e5f0a3a49bd9",
+        "name": "Pommes & Potatos – Fries",
+        "category": "extras",
+        "qty": 1,
+        "price": 3.7,
+        "add": []
+      },
+      {
+        "id": "8f494ac0-025c-4a1e-b37d-d35c9a97c82d",
+        "sku": "8f494ac0-025c-4a1e-b37d-d35c9a97c82d",
+        "name": "Pommes & Potatos – Curly Fries",
+        "category": "extras",
+        "qty": 1,
+        "price": 4.7,
+        "add": []
+      },
+      {
+        "id": "860c363d-895a-4155-b010-be53e6736182",
+        "sku": "860c363d-895a-4155-b010-be53e6736182",
+        "name": "Snacks – Coleslaw",
+        "category": "extras",
+        "qty": 1,
+        "price": 2.5,
+        "add": []
+      }
+    ],
+    "merchandise": 35.4,
+    "discount": 0,
+    "couponDiscount": 0,
+    "surcharges": 0,
+    "total": 35.4,
+    "customer": {
+      "name": "Ömer",
+      "phone": "123456789912"
+    }
+  },
+  {
+    "id": "59A52E",
+    "source": "web",
+    "mode": "pickup",
+    "status": "received",
+    "createdAt": 1759913094358,
+    "etaMin": 15,
+    "order": {
+      "ts": 1759913094208,
+      "mode": "pickup",
+      "plz": null,
+      "items": [
+        {
+          "id": "286328ba-d615-46e3-85aa-c4a044659b7e",
+          "sku": "286328ba-d615-46e3-85aa-c4a044659b7e",
+          "name": "All American",
+          "category": "burger",
+          "price": 9,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Bacon",
+              "price": 1.5
+            },
+            {
+              "label": "Käse",
+              "price": 1
+            }
+          ]
+        },
+        {
+          "id": "7f289131-549a-46d4-ab0d-5add96c61e24",
+          "sku": "7f289131-549a-46d4-ab0d-5add96c61e24",
+          "name": "All American",
+          "category": "burger",
+          "price": 9,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Jalapeños",
+              "price": 1.5
+            },
+            {
+              "label": "Käse",
+              "price": 1
+            }
+          ]
+        },
+        {
+          "id": "b84dfc92-9287-4463-aa28-8c0bf0835fe5",
+          "sku": "b84dfc92-9287-4463-aa28-8c0bf0835fe5",
+          "name": "All American",
+          "category": "burger",
+          "price": 6.5,
+          "qty": 1,
+          "add": []
+        },
+        {
+          "id": "7c7689d2-25da-439c-b95e-e5f0a3a49bd9",
+          "sku": "7c7689d2-25da-439c-b95e-e5f0a3a49bd9",
+          "name": "Pommes & Potatos – Fries",
+          "category": "extras",
+          "price": 3.7,
+          "qty": 1,
+          "add": []
+        },
+        {
+          "id": "8f494ac0-025c-4a1e-b37d-d35c9a97c82d",
+          "sku": "8f494ac0-025c-4a1e-b37d-d35c9a97c82d",
+          "name": "Pommes & Potatos – Curly Fries",
+          "category": "extras",
+          "price": 4.7,
+          "qty": 1,
+          "add": []
+        },
+        {
+          "id": "860c363d-895a-4155-b010-be53e6736182",
+          "sku": "860c363d-895a-4155-b010-be53e6736182",
+          "name": "Snacks – Coleslaw",
+          "category": "extras",
+          "price": 2.5,
+          "qty": 1,
+          "add": []
+        }
+      ],
+      "merchandise": 35.4,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 35.4,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Ömer",
+        "phone": "123456789125"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1759913094358,
+    "history": [
+      {
+        "status": "received",
+        "at": 1759913094358
+      }
+    ]
+  },
+  {
+    "id": "CS387Z",
+    "source": "web",
+    "mode": "pickup",
+    "status": "received",
+    "createdAt": 1759915034833,
+    "etaMin": 15,
+    "order": {
+      "ts": 1759915034668,
+      "mode": "pickup",
+      "plz": null,
+      "items": [
+        {
+          "id": "286328ba-d615-46e3-85aa-c4a044659b7e",
+          "sku": "286328ba-d615-46e3-85aa-c4a044659b7e",
+          "name": "All American",
+          "category": "burger",
+          "price": 9,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Bacon",
+              "price": 1.5
+            },
+            {
+              "label": "Käse",
+              "price": 1
+            }
+          ]
+        },
+        {
+          "id": "7f289131-549a-46d4-ab0d-5add96c61e24",
+          "sku": "7f289131-549a-46d4-ab0d-5add96c61e24",
+          "name": "All American",
+          "category": "burger",
+          "price": 9,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Jalapeños",
+              "price": 1.5
+            },
+            {
+              "label": "Käse",
+              "price": 1
+            }
+          ]
+        },
+        {
+          "id": "b84dfc92-9287-4463-aa28-8c0bf0835fe5",
+          "sku": "b84dfc92-9287-4463-aa28-8c0bf0835fe5",
+          "name": "All American",
+          "category": "burger",
+          "price": 6.5,
+          "qty": 1,
+          "add": []
+        },
+        {
+          "id": "7c7689d2-25da-439c-b95e-e5f0a3a49bd9",
+          "sku": "7c7689d2-25da-439c-b95e-e5f0a3a49bd9",
+          "name": "Pommes & Potatos – Fries",
+          "category": "extras",
+          "price": 3.7,
+          "qty": 1,
+          "add": []
+        },
+        {
+          "id": "8f494ac0-025c-4a1e-b37d-d35c9a97c82d",
+          "sku": "8f494ac0-025c-4a1e-b37d-d35c9a97c82d",
+          "name": "Pommes & Potatos – Curly Fries",
+          "category": "extras",
+          "price": 4.7,
+          "qty": 1,
+          "add": []
+        },
+        {
+          "id": "860c363d-895a-4155-b010-be53e6736182",
+          "sku": "860c363d-895a-4155-b010-be53e6736182",
+          "name": "Snacks – Coleslaw",
+          "category": "extras",
+          "price": 2.5,
+          "qty": 1,
+          "add": []
+        }
+      ],
+      "merchandise": 35.4,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 35.4,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "OM3R",
+        "phone": "123456789124"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1759915034834,
+    "history": [
+      {
+        "status": "received",
+        "at": 1759915034833
+      }
+    ]
+  },
+  {
+    "id": "EDPHC3",
+    "source": "web",
+    "mode": "pickup",
+    "status": "received",
+    "createdAt": 1759915759263,
+    "etaMin": 15,
+    "order": {
+      "ts": 1759915759118,
+      "mode": "pickup",
+      "plz": null,
+      "items": [
+        {
+          "id": "286328ba-d615-46e3-85aa-c4a044659b7e",
+          "sku": "286328ba-d615-46e3-85aa-c4a044659b7e",
+          "name": "All American",
+          "category": "burger",
+          "price": 9,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Bacon",
+              "price": 1.5
+            },
+            {
+              "label": "Käse",
+              "price": 1
+            }
+          ]
+        },
+        {
+          "id": "7f289131-549a-46d4-ab0d-5add96c61e24",
+          "sku": "7f289131-549a-46d4-ab0d-5add96c61e24",
+          "name": "All American",
+          "category": "burger",
+          "price": 9,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Jalapeños",
+              "price": 1.5
+            },
+            {
+              "label": "Käse",
+              "price": 1
+            }
+          ]
+        },
+        {
+          "id": "b84dfc92-9287-4463-aa28-8c0bf0835fe5",
+          "sku": "b84dfc92-9287-4463-aa28-8c0bf0835fe5",
+          "name": "All American",
+          "category": "burger",
+          "price": 6.5,
+          "qty": 1,
+          "add": []
+        },
+        {
+          "id": "7c7689d2-25da-439c-b95e-e5f0a3a49bd9",
+          "sku": "7c7689d2-25da-439c-b95e-e5f0a3a49bd9",
+          "name": "Pommes & Potatos – Fries",
+          "category": "extras",
+          "price": 3.7,
+          "qty": 1,
+          "add": []
+        },
+        {
+          "id": "8f494ac0-025c-4a1e-b37d-d35c9a97c82d",
+          "sku": "8f494ac0-025c-4a1e-b37d-d35c9a97c82d",
+          "name": "Pommes & Potatos – Curly Fries",
+          "category": "extras",
+          "price": 4.7,
+          "qty": 1,
+          "add": []
+        },
+        {
+          "id": "860c363d-895a-4155-b010-be53e6736182",
+          "sku": "860c363d-895a-4155-b010-be53e6736182",
+          "name": "Snacks – Coleslaw",
+          "category": "extras",
+          "price": 2.5,
+          "qty": 1,
+          "add": []
+        }
+      ],
+      "merchandise": 35.4,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 35.4,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Deneme OM3R",
+        "phone": "123456123421"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1759915759263,
+    "history": [
+      {
+        "status": "received",
+        "at": 1759915759263
+      }
+    ]
+  },
+  {
+    "id": "AMF676",
+    "source": "web",
+    "mode": "pickup",
+    "status": "received",
+    "createdAt": 1759918279522,
+    "etaMin": 15,
+    "order": {
+      "ts": 1759918279442,
+      "mode": "pickup",
+      "channel": "abholung",
+      "plz": null,
+      "items": [
+        {
+          "id": "286328ba-d615-46e3-85aa-c4a044659b7e",
+          "sku": "286328ba-d615-46e3-85aa-c4a044659b7e",
+          "name": "All American",
+          "category": "burger",
+          "price": 9,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Bacon",
+              "price": 1.5
+            },
+            {
+              "label": "Käse",
+              "price": 1
+            }
+          ],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "7f289131-549a-46d4-ab0d-5add96c61e24",
+          "sku": "7f289131-549a-46d4-ab0d-5add96c61e24",
+          "name": "All American",
+          "category": "burger",
+          "price": 9,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Jalapeños",
+              "price": 1.5
+            },
+            {
+              "label": "Käse",
+              "price": 1
+            }
+          ],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "b84dfc92-9287-4463-aa28-8c0bf0835fe5",
+          "sku": "b84dfc92-9287-4463-aa28-8c0bf0835fe5",
+          "name": "All American",
+          "category": "burger",
+          "price": 6.5,
+          "qty": 1,
+          "add": [],
+          "note": "Deneme Burger 3",
+          "rm": []
+        },
+        {
+          "id": "7c7689d2-25da-439c-b95e-e5f0a3a49bd9",
+          "sku": "7c7689d2-25da-439c-b95e-e5f0a3a49bd9",
+          "name": "Pommes & Potatos – Fries",
+          "category": "extras",
+          "price": 3.7,
+          "qty": 1,
+          "add": [],
+          "rm": []
+        },
+        {
+          "id": "8f494ac0-025c-4a1e-b37d-d35c9a97c82d",
+          "sku": "8f494ac0-025c-4a1e-b37d-d35c9a97c82d",
+          "name": "Pommes & Potatos – Curly Fries",
+          "category": "extras",
+          "price": 4.7,
+          "qty": 1,
+          "add": [],
+          "rm": []
+        },
+        {
+          "id": "860c363d-895a-4155-b010-be53e6736182",
+          "sku": "860c363d-895a-4155-b010-be53e6736182",
+          "name": "Snacks – Coleslaw",
+          "category": "extras",
+          "price": 2.5,
+          "qty": 1,
+          "add": [],
+          "rm": []
+        }
+      ],
+      "merchandise": 35.4,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 35.4,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Ömer",
+        "phone": "123123456124"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1759918279522,
+    "history": [
+      {
+        "status": "received",
+        "at": 1759918279522
+      }
+    ]
+  },
+  {
+    "id": "D4UJJH",
+    "source": "web",
+    "mode": "pickup",
+    "status": "received",
+    "createdAt": 1759919598447,
+    "etaMin": 15,
+    "order": {
+      "ts": 1759919598211,
+      "mode": "pickup",
+      "channel": "abholung",
+      "plz": null,
+      "items": [
+        {
+          "id": "286328ba-d615-46e3-85aa-c4a044659b7e",
+          "sku": "286328ba-d615-46e3-85aa-c4a044659b7e",
+          "name": "All American",
+          "category": "burger",
+          "price": 9,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Bacon",
+              "price": 1.5
+            },
+            {
+              "label": "Käse",
+              "price": 1
+            }
+          ],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "7f289131-549a-46d4-ab0d-5add96c61e24",
+          "sku": "7f289131-549a-46d4-ab0d-5add96c61e24",
+          "name": "All American",
+          "category": "burger",
+          "price": 9,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Jalapeños",
+              "price": 1.5
+            },
+            {
+              "label": "Käse",
+              "price": 1
+            }
+          ],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "b84dfc92-9287-4463-aa28-8c0bf0835fe5",
+          "sku": "b84dfc92-9287-4463-aa28-8c0bf0835fe5",
+          "name": "All American",
+          "category": "burger",
+          "price": 6.5,
+          "qty": 1,
+          "add": [],
+          "note": "Deneme Burger 3",
+          "rm": []
+        },
+        {
+          "id": "7c7689d2-25da-439c-b95e-e5f0a3a49bd9",
+          "sku": "7c7689d2-25da-439c-b95e-e5f0a3a49bd9",
+          "name": "Pommes & Potatos – Fries",
+          "category": "extras",
+          "price": 3.7,
+          "qty": 1,
+          "add": [],
+          "rm": []
+        },
+        {
+          "id": "8f494ac0-025c-4a1e-b37d-d35c9a97c82d",
+          "sku": "8f494ac0-025c-4a1e-b37d-d35c9a97c82d",
+          "name": "Pommes & Potatos – Curly Fries",
+          "category": "extras",
+          "price": 4.7,
+          "qty": 1,
+          "add": [],
+          "rm": []
+        },
+        {
+          "id": "860c363d-895a-4155-b010-be53e6736182",
+          "sku": "860c363d-895a-4155-b010-be53e6736182",
+          "name": "Snacks – Coleslaw",
+          "category": "extras",
+          "price": 2.5,
+          "qty": 1,
+          "add": [],
+          "rm": []
+        }
+      ],
+      "merchandise": 35.4,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 35.4,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Ömer",
+        "phone": "123456123152"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1759919598448,
+    "history": [
+      {
+        "status": "received",
+        "at": 1759919598447
+      }
+    ]
+  },
+  {
+    "id": "9CADPA",
+    "source": "web",
+    "mode": "delivery",
+    "status": "received",
+    "createdAt": 1759920020159,
+    "etaMin": 35,
+    "order": {
+      "ts": 1759920019995,
+      "mode": "delivery",
+      "channel": "lieferung",
+      "plz": "13507",
+      "items": [
+        {
+          "id": "286328ba-d615-46e3-85aa-c4a044659b7e",
+          "sku": "286328ba-d615-46e3-85aa-c4a044659b7e",
+          "name": "All American",
+          "category": "burger",
+          "price": 9,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Bacon",
+              "price": 1.5
+            },
+            {
+              "label": "Käse",
+              "price": 1
+            }
+          ],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "7f289131-549a-46d4-ab0d-5add96c61e24",
+          "sku": "7f289131-549a-46d4-ab0d-5add96c61e24",
+          "name": "All American",
+          "category": "burger",
+          "price": 9,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Jalapeños",
+              "price": 1.5
+            },
+            {
+              "label": "Käse",
+              "price": 1
+            }
+          ],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "b84dfc92-9287-4463-aa28-8c0bf0835fe5",
+          "sku": "b84dfc92-9287-4463-aa28-8c0bf0835fe5",
+          "name": "All American",
+          "category": "burger",
+          "price": 6.5,
+          "qty": 1,
+          "add": [],
+          "note": "Deneme Burger 3",
+          "rm": []
+        },
+        {
+          "id": "7c7689d2-25da-439c-b95e-e5f0a3a49bd9",
+          "sku": "7c7689d2-25da-439c-b95e-e5f0a3a49bd9",
+          "name": "Pommes & Potatos – Fries",
+          "category": "extras",
+          "price": 3.7,
+          "qty": 1,
+          "add": [],
+          "rm": []
+        },
+        {
+          "id": "8f494ac0-025c-4a1e-b37d-d35c9a97c82d",
+          "sku": "8f494ac0-025c-4a1e-b37d-d35c9a97c82d",
+          "name": "Pommes & Potatos – Curly Fries",
+          "category": "extras",
+          "price": 4.7,
+          "qty": 1,
+          "add": [],
+          "rm": []
+        },
+        {
+          "id": "860c363d-895a-4155-b010-be53e6736182",
+          "sku": "860c363d-895a-4155-b010-be53e6736182",
+          "name": "Snacks – Coleslaw",
+          "category": "extras",
+          "price": 2.5,
+          "qty": 1,
+          "add": [],
+          "rm": []
+        }
+      ],
+      "merchandise": 35.4,
+      "discount": 3.54,
+      "surcharges": 3,
+      "total": 34.86,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "ÖMER",
+        "phone": "123456123142",
+        "address": "Namslaustraße A4 | 13507"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1759920020160,
+    "history": [
+      {
+        "status": "received",
+        "at": 1759920020159
+      }
+    ]
+  },
+  {
+    "id": "RRY23M",
+    "source": "web",
+    "mode": "pickup",
+    "status": "received",
+    "createdAt": 1759920866487,
+    "etaMin": 15,
+    "order": {
+      "ts": 1759920866409,
+      "mode": "pickup",
+      "channel": "abholung",
+      "plz": null,
+      "items": [
+        {
+          "id": "286328ba-d615-46e3-85aa-c4a044659b7e",
+          "sku": "286328ba-d615-46e3-85aa-c4a044659b7e",
+          "name": "All American",
+          "category": "burger",
+          "price": 9,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Bacon",
+              "price": 1.5
+            },
+            {
+              "label": "Käse",
+              "price": 1
+            }
+          ],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "7f289131-549a-46d4-ab0d-5add96c61e24",
+          "sku": "7f289131-549a-46d4-ab0d-5add96c61e24",
+          "name": "All American",
+          "category": "burger",
+          "price": 9,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Jalapeños",
+              "price": 1.5
+            },
+            {
+              "label": "Käse",
+              "price": 1
+            }
+          ],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "b84dfc92-9287-4463-aa28-8c0bf0835fe5",
+          "sku": "b84dfc92-9287-4463-aa28-8c0bf0835fe5",
+          "name": "All American",
+          "category": "burger",
+          "price": 6.5,
+          "qty": 1,
+          "add": [],
+          "note": "Deneme Burger 3",
+          "rm": []
+        },
+        {
+          "id": "7c7689d2-25da-439c-b95e-e5f0a3a49bd9",
+          "sku": "7c7689d2-25da-439c-b95e-e5f0a3a49bd9",
+          "name": "Pommes & Potatos – Fries",
+          "category": "extras",
+          "price": 3.7,
+          "qty": 1,
+          "add": [],
+          "rm": []
+        },
+        {
+          "id": "8f494ac0-025c-4a1e-b37d-d35c9a97c82d",
+          "sku": "8f494ac0-025c-4a1e-b37d-d35c9a97c82d",
+          "name": "Pommes & Potatos – Curly Fries",
+          "category": "extras",
+          "price": 4.7,
+          "qty": 1,
+          "add": [],
+          "rm": []
+        },
+        {
+          "id": "860c363d-895a-4155-b010-be53e6736182",
+          "sku": "860c363d-895a-4155-b010-be53e6736182",
+          "name": "Snacks – Coleslaw",
+          "category": "extras",
+          "price": 2.5,
+          "qty": 1,
+          "add": [],
+          "rm": []
+        }
+      ],
+      "merchandise": 35.4,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 35.4,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "ÖMER",
+        "phone": "123456789124"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1759920866487,
+    "history": [
+      {
+        "status": "received",
+        "at": 1759920866487
+      }
+    ]
+  },
+  {
+    "id": "5YR2K2",
+    "source": "web",
+    "mode": "pickup",
+    "status": "received",
+    "createdAt": 1759922202322,
+    "etaMin": 15,
+    "order": {
+      "ts": 1759922202066,
+      "mode": "pickup",
+      "channel": "abholung",
+      "plz": null,
+      "items": [
+        {
+          "id": "a5175cd2-0dd0-4f04-903f-20c9dd60b12f",
+          "sku": "a5175cd2-0dd0-4f04-903f-20c9dd60b12f",
+          "name": "All American",
+          "category": "burger",
+          "price": 6.5,
+          "qty": 2,
+          "add": [],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "2ffafd02-d681-4bd4-bfef-5189f7b6c3c7",
+          "sku": "2ffafd02-d681-4bd4-bfef-5189f7b6c3c7",
+          "name": "All American",
+          "category": "burger",
+          "price": 8,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Jalapeños",
+              "price": 1.5
+            }
+          ],
+          "note": "ohne Kase bitte",
+          "rm": []
+        },
+        {
+          "id": "885265df-4f15-4778-970b-984fdb45a1cb",
+          "sku": "885265df-4f15-4778-970b-984fdb45a1cb",
+          "name": "Fanta / Sprite – Fanta 0,33 l",
+          "category": "drinks",
+          "price": 2.6,
+          "qty": 1,
+          "add": [],
+          "rm": []
+        },
+        {
+          "id": "0c438efd-f912-4a78-93a0-c901e4eb2363",
+          "sku": "0c438efd-f912-4a78-93a0-c901e4eb2363",
+          "name": "Pommes & Potatos – Country Potatos",
+          "category": "extras",
+          "price": 4,
+          "qty": 2,
+          "add": [],
+          "note": "1x Ohne Salz",
+          "rm": []
+        }
+      ],
+      "merchandise": 31.6,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 31.6,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Ömer",
+        "phone": "123456789124"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1759922202323,
+    "history": [
+      {
+        "status": "received",
+        "at": 1759922202322
+      }
+    ]
+  },
+  {
+    "id": "W4M57J",
+    "source": "web",
+    "mode": "pickup",
+    "status": "received",
+    "createdAt": 1759966198874,
+    "etaMin": 15,
+    "planned": "11:00",
+    "order": {
+      "ts": 1759966198589,
+      "mode": "pickup",
+      "channel": "abholung",
+      "plz": null,
+      "items": [
+        {
+          "id": "5fae6213-b468-4cc6-8e8d-2087574122b8",
+          "sku": "5fae6213-b468-4cc6-8e8d-2087574122b8",
+          "name": "All American",
+          "category": "burger",
+          "price": 7.5,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Bacon",
+              "price": 1
+            }
+          ],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "a6cd84b0-79f2-42a3-bf47-3074751c8829",
+          "sku": "a6cd84b0-79f2-42a3-bf47-3074751c8829",
+          "name": "All American",
+          "category": "burger",
+          "price": 6.5,
+          "qty": 3,
+          "add": [],
+          "note": "",
+          "rm": []
+        }
+      ],
+      "merchandise": 27,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 27,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Ömer",
+        "phone": "123456789214"
+      },
+      "planned": "11:00"
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1759966198875,
+    "history": [
+      {
+        "status": "received",
+        "at": 1759966198874
+      }
+    ]
+  },
+  {
+    "id": "9ME3EZ",
+    "source": "web",
+    "mode": "pickup",
+    "status": "received",
+    "createdAt": 1759968142364,
+    "etaMin": 15,
+    "order": {
+      "ts": 1759968142106,
+      "mode": "pickup",
+      "channel": "abholung",
+      "plz": null,
+      "items": [
+        {
+          "id": "5fae6213-b468-4cc6-8e8d-2087574122b8",
+          "sku": "5fae6213-b468-4cc6-8e8d-2087574122b8",
+          "name": "All American",
+          "category": "burger",
+          "price": 7.5,
+          "qty": 4,
+          "add": [
+            {
+              "label": "Bacon",
+              "price": 1
+            }
+          ],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "a6cd84b0-79f2-42a3-bf47-3074751c8829",
+          "sku": "a6cd84b0-79f2-42a3-bf47-3074751c8829",
+          "name": "All American",
+          "category": "burger",
+          "price": 6.5,
+          "qty": 3,
+          "add": [],
+          "note": "",
+          "rm": []
+        }
+      ],
+      "merchandise": 49.5,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 49.5,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Öm3r",
+        "phone": "123456845124"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1759968142365,
+    "history": [
+      {
+        "status": "received",
+        "at": 1759968142364
+      }
+    ]
+  },
+  {
+    "id": "MWUDFX",
+    "source": "web",
+    "mode": "pickup",
+    "status": "received",
+    "createdAt": 1760010031266,
+    "etaMin": 15,
+    "order": {
+      "ts": 1760010030918,
+      "mode": "pickup",
+      "channel": "abholung",
+      "plz": null,
+      "items": [
+        {
+          "id": "1f95ae6a-d727-40f1-a110-aa201873b06d",
+          "sku": "1f95ae6a-d727-40f1-a110-aa201873b06d",
+          "name": "All American",
+          "category": "burger",
+          "price": 6.5,
+          "qty": 3,
+          "add": [],
+          "note": "",
+          "rm": []
+        }
+      ],
+      "merchandise": 19.5,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 19.5,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Ömer",
+        "phone": "123456784124"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1760010031269,
+    "history": [
+      {
+        "status": "received",
+        "at": 1760010031266
+      }
+    ]
+  },
+  {
+    "id": "HJFPB8",
+    "source": "web",
+    "mode": "delivery",
+    "status": "received",
+    "createdAt": 1760010112830,
+    "etaMin": 35,
+    "order": {
+      "ts": 1760010112810,
+      "mode": "delivery",
+      "channel": "lieferung",
+      "plz": "13507",
+      "items": [
+        {
+          "id": "1f95ae6a-d727-40f1-a110-aa201873b06d",
+          "sku": "1f95ae6a-d727-40f1-a110-aa201873b06d",
+          "name": "All American",
+          "category": "burger",
+          "price": 6.5,
+          "qty": 3,
+          "add": [],
+          "note": "",
+          "rm": []
+        }
+      ],
+      "merchandise": 19.5,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 19.5,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Ömer",
+        "phone": "123456712125",
+        "address": "Namslaustraße 15 | 13507"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1760010112831,
+    "history": [
+      {
+        "status": "received",
+        "at": 1760010112830
+      }
+    ]
+  },
+  {
+    "id": "WV9M23",
+    "source": "web",
+    "mode": "delivery",
+    "status": "received",
+    "createdAt": 1760010158075,
+    "etaMin": 35,
+    "planned": "18:30",
+    "order": {
+      "ts": 1760010158064,
+      "mode": "delivery",
+      "channel": "lieferung",
+      "plz": "13507",
+      "items": [
+        {
+          "id": "1f95ae6a-d727-40f1-a110-aa201873b06d",
+          "sku": "1f95ae6a-d727-40f1-a110-aa201873b06d",
+          "name": "All American",
+          "category": "burger",
+          "price": 6.5,
+          "qty": 5,
+          "add": [],
+          "note": "",
+          "rm": []
+        }
+      ],
+      "merchandise": 32.5,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 32.5,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Ömer Geplante",
+        "phone": "123456751542",
+        "address": "Kamener Weg 25 | 13507"
+      },
+      "planned": "18:30"
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1760010158076,
+    "history": [
+      {
+        "status": "received",
+        "at": 1760010158075
+      }
+    ]
+  },
+  {
+    "id": "DLGMFQ",
+    "source": "web",
+    "mode": "pickup",
+    "status": "received",
+    "createdAt": 1760048127225,
+    "etaMin": 15,
+    "order": {
+      "ts": 1760048127009,
+      "mode": "pickup",
+      "channel": "abholung",
+      "plz": null,
+      "items": [
+        {
+          "id": "1f95ae6a-d727-40f1-a110-aa201873b06d",
+          "sku": "1f95ae6a-d727-40f1-a110-aa201873b06d",
+          "name": "All American",
+          "category": "burger",
+          "price": 6.5,
+          "qty": 5,
+          "add": [],
+          "note": "",
+          "rm": []
+        }
+      ],
+      "merchandise": 32.5,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 32.5,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Ömer",
+        "phone": "123456123421"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1760048127226,
+    "history": [
+      {
+        "status": "received",
+        "at": 1760048127225
+      }
+    ]
+  },
+  {
+    "id": "NTY4VU",
+    "source": "web",
+    "mode": "pickup",
+    "status": "received",
+    "createdAt": 1760048552584,
+    "etaMin": 15,
+    "planned": "04:31",
+    "order": {
+      "ts": 1760048552573,
+      "mode": "pickup",
+      "channel": "abholung",
+      "plz": null,
+      "items": [
+        {
+          "id": "1f95ae6a-d727-40f1-a110-aa201873b06d",
+          "sku": "1f95ae6a-d727-40f1-a110-aa201873b06d",
+          "name": "All American",
+          "category": "burger",
+          "price": 6.5,
+          "qty": 5,
+          "add": [],
+          "note": "",
+          "rm": []
+        }
+      ],
+      "merchandise": 32.5,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 32.5,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Ömer",
+        "phone": "123456123421"
+      },
+      "planned": "04:31"
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1760048552585,
+    "history": [
+      {
+        "status": "received",
+        "at": 1760048552584
+      }
+    ]
+  },
+  {
+    "id": "DY692N",
+    "source": "web",
+    "mode": "delivery",
+    "status": "received",
+    "createdAt": 1760048594752,
+    "etaMin": 35,
+    "order": {
+      "ts": 1760048594741,
+      "mode": "delivery",
+      "channel": "lieferung",
+      "plz": "13507",
+      "items": [
+        {
+          "id": "1f95ae6a-d727-40f1-a110-aa201873b06d",
+          "sku": "1f95ae6a-d727-40f1-a110-aa201873b06d",
+          "name": "All American",
+          "category": "burger",
+          "price": 6.5,
+          "qty": 5,
+          "add": [],
+          "note": "",
+          "rm": []
+        }
+      ],
+      "merchandise": 32.5,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 32.5,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Icardi",
+        "phone": "123456712344",
+        "address": "Namslaustraße 1905 | 13507"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1760048594753,
+    "history": [
+      {
+        "status": "received",
+        "at": 1760048594752
+      }
+    ]
+  },
+  {
+    "id": "5B5YBZ",
+    "source": "web",
+    "mode": "delivery",
+    "status": "received",
+    "createdAt": 1760048702518,
+    "etaMin": 35,
+    "planned": "10:46",
+    "order": {
+      "ts": 1760048702493,
+      "mode": "delivery",
+      "channel": "lieferung",
+      "plz": "13507",
+      "items": [
+        {
+          "id": "f49d4dba-f761-4077-bfe4-4bfc2b4d2d95",
+          "sku": "f49d4dba-f761-4077-bfe4-4bfc2b4d2d95",
+          "name": "All American",
+          "category": "burger",
+          "price": 6.5,
+          "qty": 3,
+          "add": [],
+          "note": "",
+          "rm": []
+        }
+      ],
+      "merchandise": 19.5,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 19.5,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Osimhen",
+        "phone": "123456788545",
+        "address": "Kamener Weg 1905 | 13507"
+      },
+      "planned": "10:46"
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1760048702519,
+    "history": [
+      {
+        "status": "received",
+        "at": 1760048702518
+      }
+    ]
+  },
+  {
+    "id": "2YL76Z",
+    "source": "web",
+    "mode": "pickup",
+    "status": "received",
+    "createdAt": 1760136995736,
+    "etaMin": 15,
+    "order": {
+      "ts": 1760136995483,
+      "mode": "pickup",
+      "channel": "abholung",
+      "plz": null,
+      "items": [
+        {
+          "id": "8fedf94a-32ba-4211-85aa-d2728045b2bf",
+          "sku": "8fedf94a-32ba-4211-85aa-d2728045b2bf",
+          "name": "All American",
+          "category": "burger",
+          "price": 6.5,
+          "qty": 1,
+          "add": [],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "4ffef426-00bd-46ad-b4d4-ed846c7ed825",
+          "sku": "4ffef426-00bd-46ad-b4d4-ed846c7ed825",
+          "name": "All American",
+          "category": "burger",
+          "price": 6.5,
+          "qty": 1,
+          "add": [],
+          "note": "deneme",
+          "rm": []
+        }
+      ],
+      "merchandise": 13,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 13,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "ÖM3R",
+        "phone": "123456123512"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1760136995737,
+    "history": [
+      {
+        "status": "received",
+        "at": 1760136995736
+      }
+    ]
+  },
+  {
+    "id": "ZFA5TP",
+    "source": "web",
+    "mode": "delivery",
+    "status": "received",
+    "createdAt": 1760137043388,
+    "etaMin": 35,
+    "order": {
+      "ts": 1760137043371,
+      "mode": "delivery",
+      "channel": "lieferung",
+      "plz": "13507",
+      "items": [
+        {
+          "id": "8fedf94a-32ba-4211-85aa-d2728045b2bf",
+          "sku": "8fedf94a-32ba-4211-85aa-d2728045b2bf",
+          "name": "All American",
+          "category": "burger",
+          "price": 6.5,
+          "qty": 2,
+          "add": [],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "4ffef426-00bd-46ad-b4d4-ed846c7ed825",
+          "sku": "4ffef426-00bd-46ad-b4d4-ed846c7ed825",
+          "name": "All American",
+          "category": "burger",
+          "price": 6.5,
+          "qty": 1,
+          "add": [],
+          "note": "deneme",
+          "rm": []
+        }
+      ],
+      "merchandise": 19.5,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 19.5,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Öm3r",
+        "phone": "123451242145",
+        "address": "Namslaustraße 1905 | 13507"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1760137043389,
+    "history": [
+      {
+        "status": "received",
+        "at": 1760137043388
+      }
+    ]
+  },
+  {
+    "id": "WUZV2M",
+    "source": "web",
+    "mode": "delivery",
+    "status": "received",
+    "createdAt": 1760364776319,
+    "etaMin": 35,
+    "order": {
+      "ts": 1760364775988,
+      "mode": "delivery",
+      "channel": "lieferung",
+      "plz": "13507",
+      "items": [
+        {
+          "id": "1760364627021.1992",
+          "sku": "1760364627021.1992",
+          "name": "All American",
+          "category": "burger",
+          "price": 6.5,
+          "qty": 3,
+          "add": [],
+          "note": "",
+          "rm": []
+        }
+      ],
+      "merchandise": 19.5,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 19.5,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Ömer Yıldırım",
+        "phone": "12345678901",
+        "address": "Namslaustraße 83 | 13507"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1760364776320,
+    "history": [
+      {
+        "status": "received",
+        "at": 1760364776319
+      }
+    ]
+  },
+  {
+    "id": "YEJ8D6",
+    "source": "web",
+    "mode": "delivery",
+    "status": "received",
+    "createdAt": 1760389216351,
+    "etaMin": 35,
+    "order": {
+      "ts": 1760389216135,
+      "mode": "delivery",
+      "channel": "lieferung",
+      "plz": "13507",
+      "items": [
+        {
+          "id": "129d38d7-e599-431b-a0f1-b22113b00cbd",
+          "sku": "129d38d7-e599-431b-a0f1-b22113b00cbd",
+          "name": "All American",
+          "category": "burger",
+          "price": 6.5,
+          "qty": 3,
+          "add": [],
+          "note": "",
+          "rm": []
+        }
+      ],
+      "merchandise": 19.5,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 19.5,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Öm3r",
+        "phone": "12345678912",
+        "address": "Wickeder Straße 8A | 13507"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1760389216352,
+    "history": [
+      {
+        "status": "received",
+        "at": 1760389216351
+      }
+    ]
+  },
+  {
+    "id": "UZ9D3N",
+    "source": "web",
+    "mode": "delivery",
+    "status": "received",
+    "createdAt": 1760391688888,
+    "etaMin": 35,
+    "order": {
+      "ts": 1760391688547,
+      "mode": "delivery",
+      "channel": "lieferung",
+      "plz": "13507",
+      "items": [
+        {
+          "id": "129d38d7-e599-431b-a0f1-b22113b00cbd",
+          "sku": "129d38d7-e599-431b-a0f1-b22113b00cbd",
+          "name": "All American",
+          "category": "burger",
+          "price": 6.5,
+          "qty": 6,
+          "add": [],
+          "note": "",
+          "rm": []
+        }
+      ],
+      "merchandise": 39,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 39,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Ömer",
+        "phone": "12345678554",
+        "address": "Sterkrader Straße 25 | 13507"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1760391688889,
+    "history": [
+      {
+        "status": "received",
+        "at": 1760391688888
+      }
+    ]
+  },
+  {
+    "id": "LG3D39",
+    "source": "web",
+    "mode": "delivery",
+    "status": "received",
+    "createdAt": 1760395227969,
+    "etaMin": 35,
+    "order": {
+      "ts": 1760395227762,
+      "mode": "delivery",
+      "channel": "lieferung",
+      "plz": "13509",
+      "items": [
+        {
+          "id": "129d38d7-e599-431b-a0f1-b22113b00cbd",
+          "sku": "129d38d7-e599-431b-a0f1-b22113b00cbd",
+          "name": "All American",
+          "category": "burger",
+          "price": 6.5,
+          "qty": 3,
+          "add": [],
+          "note": "",
+          "rm": []
+        }
+      ],
+      "merchandise": 19.5,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 19.5,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Ömer",
+        "phone": "12345678995",
+        "address": "Gorkistraße 52 | 13509"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1760395227969,
+    "history": [
+      {
+        "status": "received",
+        "at": 1760395227969
+      }
+    ]
+  },
+  {
+    "id": "Q8JGD2",
+    "source": "web",
+    "mode": "delivery",
+    "status": "received",
+    "createdAt": 1760395757568,
+    "etaMin": 35,
+    "order": {
+      "ts": 1760395757389,
+      "mode": "delivery",
+      "channel": "lieferung",
+      "plz": "13509",
+      "items": [
+        {
+          "id": "129d38d7-e599-431b-a0f1-b22113b00cbd",
+          "sku": "129d38d7-e599-431b-a0f1-b22113b00cbd",
+          "name": "All American",
+          "category": "burger",
+          "price": 6.5,
+          "qty": 3,
+          "add": [],
+          "note": "",
+          "rm": []
+        }
+      ],
+      "merchandise": 19.5,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 19.5,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Ömer",
+        "phone": "12345685415",
+        "address": "Gorkistraße 55 | 13509"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1760395757569,
+    "history": [
+      {
+        "status": "received",
+        "at": 1760395757568
+      }
+    ]
+  },
+  {
+    "id": "R7FF9K",
+    "source": "web",
+    "mode": "delivery",
+    "status": "received",
+    "createdAt": 1760403805139,
+    "etaMin": 35,
+    "order": {
+      "ts": 1760403804965,
+      "mode": "delivery",
+      "channel": "lieferung",
+      "plz": "13509",
+      "items": [
+        {
+          "id": "bad54fed-b38d-469f-bd26-0952b1dcb274",
+          "sku": "bad54fed-b38d-469f-bd26-0952b1dcb274",
+          "name": "All American",
+          "category": "burger",
+          "price": 6.5,
+          "qty": 3,
+          "add": [],
+          "note": "",
+          "rm": []
+        }
+      ],
+      "merchandise": 19.5,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 19.5,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Ömer",
+        "phone": "12345623151",
+        "address": "Gorkistraße 55 | 13509"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1760403805140,
+    "history": [
+      {
+        "status": "received",
+        "at": 1760403805139
+      }
+    ]
+  },
+  {
+    "id": "88667J",
+    "source": "web",
+    "mode": "delivery",
+    "status": "received",
+    "createdAt": 1760405909754,
+    "etaMin": 35,
+    "order": {
+      "ts": 1760405909548,
+      "mode": "delivery",
+      "channel": "lieferung",
+      "plz": "13507",
+      "items": [
+        {
+          "id": "5e656080-4f2e-405b-8c72-a815ccbcd5c0",
+          "sku": "5e656080-4f2e-405b-8c72-a815ccbcd5c0",
+          "name": "All American",
+          "category": "burger",
+          "price": 6.5,
+          "qty": 5,
+          "add": [],
+          "note": "",
+          "rm": []
+        }
+      ],
+      "merchandise": 32.5,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 32.5,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Ömer",
+        "phone": "19050000000",
+        "address": "Medebacher Weg 7 | 13507"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1760405909755,
+    "history": [
+      {
+        "status": "received",
+        "at": 1760405909754
+      }
+    ]
+  },
+  {
+    "id": "WUJTV3",
+    "source": "web",
+    "mode": "delivery",
+    "status": "received",
+    "createdAt": 1760410018415,
+    "etaMin": 35,
+    "order": {
+      "ts": 1760410018247,
+      "mode": "delivery",
+      "channel": "lieferung",
+      "plz": "13507",
+      "items": [
+        {
+          "id": "5e656080-4f2e-405b-8c72-a815ccbcd5c0",
+          "sku": "5e656080-4f2e-405b-8c72-a815ccbcd5c0",
+          "name": "All American",
+          "category": "burger",
+          "price": 6.5,
+          "qty": 5,
+          "add": [],
+          "note": "",
+          "rm": []
+        }
+      ],
+      "merchandise": 32.5,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 32.5,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Ömer",
+        "phone": "12345612351",
+        "address": "Wittestraße 2 | 13507"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1760410018416,
+    "history": [
+      {
+        "status": "received",
+        "at": 1760410018415
+      }
+    ]
+  },
+  {
+    "id": "XP2VAN",
+    "source": "web",
+    "mode": "delivery",
+    "status": "received",
+    "createdAt": 1760410418470,
+    "etaMin": 35,
+    "order": {
+      "ts": 1760410418273,
+      "mode": "delivery",
+      "channel": "lieferung",
+      "plz": "13509",
+      "items": [
+        {
+          "id": "5e656080-4f2e-405b-8c72-a815ccbcd5c0",
+          "sku": "5e656080-4f2e-405b-8c72-a815ccbcd5c0",
+          "name": "All American",
+          "category": "burger",
+          "price": 6.5,
+          "qty": 5,
+          "add": [],
+          "note": "",
+          "rm": []
+        }
+      ],
+      "merchandise": 32.5,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 32.5,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Ömer",
+        "phone": "12345612151",
+        "address": "Tile-Brügge-Weg 15 | 13509"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1760410418471,
+    "history": [
+      {
+        "status": "received",
+        "at": 1760410418470
+      }
+    ]
+  },
+  {
+    "id": "495X98",
+    "source": "web",
+    "mode": "pickup",
+    "status": "received",
+    "createdAt": 1760463106789,
+    "etaMin": 10,
+    "order": {
+      "ts": 1760463106633,
+      "mode": "pickup",
+      "channel": "abholung",
+      "plz": null,
+      "items": [
+        {
+          "id": "22604bce-67e6-47cd-954b-9f57ca6882e3",
+          "sku": "22604bce-67e6-47cd-954b-9f57ca6882e3",
+          "name": "Artikel",
+          "category": "burger",
+          "price": 0,
+          "qty": 5,
+          "add": [],
+          "rm": []
+        }
+      ],
+      "merchandise": 0,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 0,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Ömer",
+        "phone": "12315351231"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1760463106790,
+    "history": [
+      {
+        "status": "received",
+        "at": 1760463106789
+      }
+    ]
+  },
+  {
+    "id": "FEBH69",
+    "source": "web",
+    "mode": "delivery",
+    "status": "received",
+    "createdAt": 1760463262710,
+    "etaMin": 35,
+    "order": {
+      "ts": 1760463262697,
+      "mode": "delivery",
+      "channel": "lieferung",
+      "plz": "13509",
+      "items": [
+        {
+          "id": "9ec259e0-1946-4111-a3ca-76d8d6ce6a61",
+          "sku": "9ec259e0-1946-4111-a3ca-76d8d6ce6a61",
+          "name": "All American",
+          "category": "burger",
+          "price": 6.5,
+          "qty": 3,
+          "add": [],
+          "note": "",
+          "rm": []
+        }
+      ],
+      "merchandise": 19.5,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 19.5,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Ömer",
+        "phone": "12346131512",
+        "address": "Gorkistraße 85 | 13509"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1760463262711,
+    "history": [
+      {
+        "status": "received",
+        "at": 1760463262710
+      }
+    ]
+  },
+  {
+    "id": "X3GUG9",
+    "source": "web",
+    "mode": "pickup",
+    "status": "received",
+    "createdAt": 1760470171272,
+    "etaMin": 10,
+    "order": {
+      "ts": 1760470171093,
+      "mode": "pickup",
+      "channel": "abholung",
+      "plz": null,
+      "items": [
+        {
+          "id": "9ec259e0-1946-4111-a3ca-76d8d6ce6a61",
+          "sku": "9ec259e0-1946-4111-a3ca-76d8d6ce6a61",
+          "name": "All American",
+          "category": "burger",
+          "price": 6.5,
+          "qty": 3,
+          "add": [],
+          "note": "",
+          "rm": []
+        }
+      ],
+      "merchandise": 19.5,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 19.5,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Ömer",
+        "phone": "12346132151"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1760470171272,
+    "history": [
+      {
+        "status": "received",
+        "at": 1760470171272
+      }
+    ]
+  },
+  {
+    "id": "2EX5C5",
+    "source": "web",
+    "mode": "pickup",
+    "status": "received",
+    "createdAt": 1760472238847,
+    "etaMin": 10,
+    "order": {
+      "ts": 1760472238727,
+      "mode": "pickup",
+      "channel": "abholung",
+      "plz": null,
+      "items": [
+        {
+          "id": "504c7348-b077-4d93-916f-70160b65fbe6",
+          "sku": "504c7348-b077-4d93-916f-70160b65fbe6",
+          "name": "Artikel",
+          "category": "burger",
+          "price": 0,
+          "qty": 3,
+          "add": [],
+          "rm": []
+        }
+      ],
+      "merchandise": 0,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 0,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Ömer",
+        "phone": "12345678912"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1760472238848,
+    "history": [
+      {
+        "status": "received",
+        "at": 1760472238847
+      }
+    ]
+  },
+  {
+    "id": "FARPE7",
+    "source": "web",
+    "mode": "pickup",
+    "status": "received",
+    "createdAt": 1760472613461,
+    "etaMin": 10,
+    "order": {
+      "ts": 1760472613357,
+      "mode": "pickup",
+      "channel": "abholung",
+      "plz": null,
+      "items": [
+        {
+          "id": "eabfd1d9-89da-4d17-90d5-c1b53eae16df",
+          "sku": "eabfd1d9-89da-4d17-90d5-c1b53eae16df",
+          "name": "Artikel",
+          "category": "burger",
+          "price": 0,
+          "qty": 3,
+          "add": [],
+          "rm": []
+        }
+      ],
+      "merchandise": 0,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 0,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Ömer",
+        "phone": "12345678912"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1760472613462,
+    "history": [
+      {
+        "status": "received",
+        "at": 1760472613461
+      }
+    ]
+  },
+  {
+    "id": "3UWA3H",
+    "source": "web",
+    "mode": "pickup",
+    "status": "received",
+    "createdAt": 1760472648632,
+    "etaMin": 10,
+    "order": {
+      "ts": 1760472648617,
+      "mode": "pickup",
+      "channel": "abholung",
+      "plz": null,
+      "items": [
+        {
+          "id": "d69081aa-8593-4a67-9ef2-765978c3a7ec",
+          "sku": "d69081aa-8593-4a67-9ef2-765978c3a7ec",
+          "name": "Artikel",
+          "category": "burger",
+          "price": 0,
+          "qty": 3,
+          "add": [],
+          "rm": []
+        }
+      ],
+      "merchandise": 0,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 0,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Ömer",
+        "phone": "12345678912"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1760472648632,
+    "history": [
+      {
+        "status": "received",
+        "at": 1760472648632
+      }
+    ]
+  },
+  {
+    "id": "UJRVGJ",
+    "source": "web",
+    "mode": "pickup",
+    "status": "received",
+    "createdAt": 1760473063289,
+    "etaMin": 10,
+    "order": {
+      "ts": 1760473063103,
+      "mode": "pickup",
+      "channel": "abholung",
+      "plz": null,
+      "items": [
+        {
+          "id": "d69081aa-8593-4a67-9ef2-765978c3a7ec",
+          "sku": "d69081aa-8593-4a67-9ef2-765978c3a7ec",
+          "name": "Artikel",
+          "category": "burger",
+          "price": 0,
+          "qty": 3,
+          "add": [],
+          "rm": []
+        }
+      ],
+      "merchandise": 0,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 0,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Ömer",
+        "phone": "12345678912"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1760473063290,
+    "history": [
+      {
+        "status": "received",
+        "at": 1760473063289
+      }
+    ]
+  },
+  {
+    "id": "TBWZLK",
+    "source": "web",
+    "mode": "delivery",
+    "status": "received",
+    "createdAt": 1760657269389,
+    "etaMin": 35,
+    "order": {
+      "ts": 1760657269153,
+      "mode": "delivery",
+      "channel": "lieferung",
+      "plz": "13507",
+      "items": [
+        {
+          "id": "fbb103e4-d6dc-4b2e-9d4a-238138e15465",
+          "sku": "fbb103e4-d6dc-4b2e-9d4a-238138e15465",
+          "name": "All American",
+          "category": "burger",
+          "price": 7.5,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Käse",
+              "price": 1
+            }
+          ],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "10887c0f-08f0-42a9-a7a6-68877c2a791c",
+          "sku": "10887c0f-08f0-42a9-a7a6-68877c2a791c",
+          "name": "All American",
+          "category": "burger",
+          "price": 8,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Jalapeños",
+              "price": 1.5
+            }
+          ],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "87b1c30c-885e-4788-89b0-1f06d4659588",
+          "sku": "87b1c30c-885e-4788-89b0-1f06d4659588",
+          "name": "All American",
+          "category": "burger",
+          "price": 8,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Bacon",
+              "price": 1.5
+            }
+          ],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "ee88e01c-710d-4ebc-b364-a218046dccfa",
+          "sku": "ee88e01c-710d-4ebc-b364-a218046dccfa",
+          "name": "All American",
+          "category": "burger",
+          "price": 6.5,
+          "qty": 1,
+          "add": [],
+          "note": "",
+          "rm": []
+        }
+      ],
+      "merchandise": 30,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 30,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Ömer",
+        "phone": "12345678912",
+        "address": "Namslaustraße 82 | 13507"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1760657269391,
+    "history": [
+      {
+        "status": "received",
+        "at": 1760657269389
+      }
+    ]
+  },
+  {
+    "id": "RY7GGZ",
+    "source": "web",
+    "mode": "pickup",
+    "status": "received",
+    "createdAt": 1760660456493,
+    "etaMin": 10,
+    "order": {
+      "ts": 1760660456329,
+      "mode": "pickup",
+      "channel": "abholung",
+      "plz": null,
+      "items": [
+        {
+          "id": "e44a6e8a-8151-469a-917a-960908e927fa",
+          "sku": "e44a6e8a-8151-469a-917a-960908e927fa",
+          "name": "Avocado Burger",
+          "category": "burger",
+          "price": 11,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Jalapeños",
+              "price": 1.5
+            }
+          ],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "4b2eb269-d160-43b2-b335-2ca6c1ebb92f",
+          "sku": "4b2eb269-d160-43b2-b335-2ca6c1ebb92f",
+          "name": "Beef & Bacon",
+          "category": "burger",
+          "price": 10.5,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Selfmade Panierte Mozzarella",
+              "price": 2.5
+            }
+          ],
+          "note": "",
+          "rm": []
+        }
+      ],
+      "merchandise": 21.5,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 21.5,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Ömer",
+        "phone": "12345678912"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1760660456494,
+    "history": [
+      {
+        "status": "received",
+        "at": 1760660456493
+      }
+    ]
+  },
+  {
+    "id": "HDRBK5",
+    "source": "web",
+    "mode": "pickup",
+    "status": "received",
+    "createdAt": 1760663766545,
+    "etaMin": 10,
+    "order": {
+      "ts": 1760663766333,
+      "mode": "pickup",
+      "channel": "abholung",
+      "plz": null,
+      "items": [
+        {
+          "id": "950c656c-20c2-44b0-bc8b-55c4ef52876d",
+          "sku": "950c656c-20c2-44b0-bc8b-55c4ef52876d",
+          "name": "Avocado Burger",
+          "category": "burger",
+          "price": 11,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Jalapeños",
+              "price": 1.5
+            }
+          ],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "afdb9850-fffa-47bd-b8b9-2dbe3815bf4b",
+          "sku": "afdb9850-fffa-47bd-b8b9-2dbe3815bf4b",
+          "name": "Beef & Bacon",
+          "category": "burger",
+          "price": 11,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Bacon",
+              "price": 1.5
+            },
+            {
+              "label": "Jalapeños",
+              "price": 1.5
+            }
+          ],
+          "note": "",
+          "rm": []
+        }
+      ],
+      "merchandise": 22,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 22,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Ömer",
+        "phone": "12345678912"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1760663766546,
+    "history": [
+      {
+        "status": "received",
+        "at": 1760663766545
+      }
+    ]
+  },
+  {
+    "id": "RNB6MT",
+    "source": "web",
+    "mode": "pickup",
+    "status": "received",
+    "createdAt": 1760664379572,
+    "etaMin": 10,
+    "order": {
+      "ts": 1760664379415,
+      "mode": "pickup",
+      "channel": "abholung",
+      "plz": null,
+      "items": [
+        {
+          "id": "5cf5a802-1f57-4b8f-914d-7b84791ae9c3",
+          "sku": "5cf5a802-1f57-4b8f-914d-7b84791ae9c3",
+          "name": "Beef & Bacon",
+          "category": "burger",
+          "price": 9.5,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Jalapeños",
+              "price": 1.5
+            }
+          ],
+          "note": "",
+          "rm": []
+        }
+      ],
+      "merchandise": 9.5,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 9.5,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Ömer",
+        "phone": "12345678912"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1760664379573,
+    "history": [
+      {
+        "status": "received",
+        "at": 1760664379572
+      }
+    ]
+  },
+  {
+    "id": "JTKVWY",
+    "source": "web",
+    "mode": "pickup",
+    "status": "received",
+    "createdAt": 1760664461608,
+    "etaMin": 10,
+    "order": {
+      "ts": 1760664461597,
+      "mode": "pickup",
+      "channel": "abholung",
+      "plz": null,
+      "items": [
+        {
+          "id": "3a0c9dac-72af-499f-ad73-857aac4c809b",
+          "sku": "3a0c9dac-72af-499f-ad73-857aac4c809b",
+          "name": "Big Mama’s",
+          "category": "burger",
+          "price": 13.5,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Jalapeños",
+              "price": 1.5
+            },
+            {
+              "label": "Selfmade Panierte Mozzarella",
+              "price": 2.5
+            }
+          ],
+          "note": "",
+          "rm": []
+        }
+      ],
+      "merchandise": 13.5,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 13.5,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Ömer",
+        "phone": "12345678912"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1760664461609,
+    "history": [
+      {
+        "status": "received",
+        "at": 1760664461608
+      }
+    ]
+  },
+  {
+    "id": "U9E799",
+    "source": "web",
+    "mode": "pickup",
+    "status": "received",
+    "createdAt": 1760696275245,
+    "etaMin": 10,
+    "order": {
+      "ts": 1760696275025,
+      "mode": "pickup",
+      "channel": "abholung",
+      "plz": null,
+      "items": [
+        {
+          "id": "3a0c9dac-72af-499f-ad73-857aac4c809b",
+          "sku": "3a0c9dac-72af-499f-ad73-857aac4c809b",
+          "name": "Big Mama’s",
+          "category": "burger",
+          "price": 13.5,
+          "qty": 2,
+          "add": [
+            {
+              "label": "Jalapeños",
+              "price": 1.5
+            },
+            {
+              "label": "Selfmade Panierte Mozzarella",
+              "price": 2.5
+            }
+          ],
+          "note": "",
+          "rm": []
+        }
+      ],
+      "merchandise": 27,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 27,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Ömer",
+        "phone": "12345678912"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1760696275247,
+    "history": [
+      {
+        "status": "received",
+        "at": 1760696275245
+      }
+    ]
+  },
+  {
+    "id": "5MBELH",
+    "source": "web",
+    "mode": "delivery",
+    "status": "received",
+    "createdAt": 1760696314421,
+    "etaMin": 35,
+    "order": {
+      "ts": 1760696314409,
+      "mode": "delivery",
+      "channel": "lieferung",
+      "plz": "13507",
+      "items": [
+        {
+          "id": "dcc20a02-f5eb-4836-b8d8-4295a4d6e328",
+          "sku": "dcc20a02-f5eb-4836-b8d8-4295a4d6e328",
+          "name": "Beef & Bacon",
+          "category": "burger",
+          "price": 11,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Bacon",
+              "price": 1.5
+            },
+            {
+              "label": "Jalapeños",
+              "price": 1.5
+            }
+          ],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "b20b7637-12ab-4a70-91d2-e964cb49a70c",
+          "sku": "b20b7637-12ab-4a70-91d2-e964cb49a70c",
+          "name": "Beef & Bacon",
+          "category": "burger",
+          "price": 8,
+          "qty": 1,
+          "add": [],
+          "note": "",
+          "rm": []
+        }
+      ],
+      "merchandise": 19,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 19,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Ömer",
+        "phone": "12345678912",
+        "address": "Namslaustraße 82 | 13507"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1760696314422,
+    "history": [
+      {
+        "status": "received",
+        "at": 1760696314421
+      }
+    ]
+  },
+  {
+    "id": "6J4YKS",
+    "source": "web",
+    "mode": "delivery",
+    "status": "received",
+    "createdAt": 1760778388824,
+    "etaMin": 35,
+    "order": {
+      "ts": 1760778388733,
+      "mode": "delivery",
+      "channel": "lieferung",
+      "plz": "13507",
+      "items": [
+        {
+          "id": "10af4b7c-17f2-4fda-9bd7-1a2e5efa8287",
+          "sku": "10af4b7c-17f2-4fda-9bd7-1a2e5efa8287",
+          "name": "All American",
+          "category": "burger",
+          "price": 8,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Jalapeños",
+              "price": 1.5
+            }
+          ],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "99ac5c25-d858-4197-831a-e34fd9f6626d",
+          "sku": "99ac5c25-d858-4197-831a-e34fd9f6626d",
+          "name": "All American",
+          "category": "burger",
+          "price": 8,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Bacon",
+              "price": 1.5
+            }
+          ],
+          "note": "",
+          "rm": []
+        }
+      ],
+      "merchandise": 16,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 16,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Ömer",
+        "phone": "12345678912",
+        "address": "Bernauer Straße 82 | 13507"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1760778388824,
+    "history": [
+      {
+        "status": "received",
+        "at": 1760778388824
+      }
+    ]
+  },
+  {
+    "id": "EK47UL",
+    "source": "web",
+    "mode": "delivery",
+    "status": "received",
+    "createdAt": 1760779904051,
+    "etaMin": 35,
+    "order": {
+      "ts": 1760779903882,
+      "mode": "delivery",
+      "channel": "lieferung",
+      "plz": "13507",
+      "items": [
+        {
+          "id": "1bfd5ebe-d252-4325-b8c0-68feaea0c334",
+          "sku": "1bfd5ebe-d252-4325-b8c0-68feaea0c334",
+          "name": "Avocado Burger",
+          "category": "burger",
+          "price": 9.5,
+          "qty": 2,
+          "add": [],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "3e3f0d82-ae6c-434d-b8af-1823afb93ebf",
+          "sku": "3e3f0d82-ae6c-434d-b8af-1823afb93ebf",
+          "name": "Fries – Curly Fries",
+          "category": "extras",
+          "price": 4.7,
+          "qty": 1,
+          "add": [],
+          "rm": []
+        }
+      ],
+      "merchandise": 23.7,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 23.7,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Ömer",
+        "phone": "12345678912",
+        "address": "Kamener Weg 82 | 13507 berlin"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1760779904052,
+    "history": [
+      {
+        "status": "received",
+        "at": 1760779904051
+      }
+    ]
+  },
+  {
+    "id": "ZCWKTM",
+    "source": "web",
+    "mode": "pickup",
+    "status": "received",
+    "createdAt": 1761135879224,
+    "etaMin": 15,
+    "order": {
+      "ts": 1761135879032,
+      "mode": "pickup",
+      "channel": "abholung",
+      "plz": null,
+      "items": [
+        {
+          "id": "33853376-68d5-4c9f-b0e8-e84a788fcd96",
+          "sku": "33853376-68d5-4c9f-b0e8-e84a788fcd96",
+          "name": "All American",
+          "category": "burger",
+          "price": 5.5,
+          "qty": 1,
+          "add": [],
+          "note": "",
+          "rm": []
+        }
+      ],
+      "merchandise": 5.5,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 5.5,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Ömer",
+        "phone": "12345678912"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1761135879226,
+    "history": [
+      {
+        "status": "received",
+        "at": 1761135879224
+      }
+    ]
+  },
+  {
+    "id": "TT6T2M",
+    "source": "web",
+    "mode": "pickup",
+    "status": "received",
+    "createdAt": 1761163083565,
+    "etaMin": 15,
+    "order": {
+      "ts": 1761163083435,
+      "mode": "pickup",
+      "channel": "abholung",
+      "plz": null,
+      "items": [
+        {
+          "id": "cebfc0a3-4890-4030-bf82-d6f7df3ec53c",
+          "sku": "cebfc0a3-4890-4030-bf82-d6f7df3ec53c",
+          "name": "Big Daddy",
+          "category": "burger",
+          "price": 10.5,
+          "qty": 1,
+          "add": [],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "4e8b254e-add0-415d-805f-58162f6803f2",
+          "sku": "4e8b254e-add0-415d-805f-58162f6803f2",
+          "name": "Big Mama’s",
+          "category": "burger",
+          "price": 11,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Bacon",
+              "price": 1.5
+            }
+          ],
+          "note": "",
+          "rm": []
+        }
+      ],
+      "merchandise": 21.5,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 21.5,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Ömer",
+        "phone": "12345678912"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1761163083568,
+    "history": [
+      {
+        "status": "received",
+        "at": 1761163083565
+      }
+    ]
+  },
+  {
+    "id": "QNQ7ZD",
+    "source": "web",
+    "mode": "delivery",
+    "status": "received",
+    "createdAt": 1761166392065,
+    "etaMin": 35,
+    "order": {
+      "ts": 1761166391910,
+      "mode": "delivery",
+      "channel": "lieferung",
+      "plz": "13507",
+      "items": [
+        {
+          "id": "882e5cb9-92b4-4973-bfe4-533f113aaca4",
+          "sku": "882e5cb9-92b4-4973-bfe4-533f113aaca4",
+          "name": "Big Daddy",
+          "category": "burger",
+          "price": 11.5,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Käse",
+              "price": 1
+            }
+          ],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "cf9f9c96-eadc-4f93-85c1-95c26ca83acb",
+          "sku": "cf9f9c96-eadc-4f93-85c1-95c26ca83acb",
+          "name": "Big Daddy",
+          "category": "burger",
+          "price": 13.5,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Bacon",
+              "price": 1.5
+            },
+            {
+              "label": "Jalapeños",
+              "price": 1.5
+            }
+          ],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "0e7f271d-96c6-433d-ad8e-d0cf96b93808",
+          "sku": "0e7f271d-96c6-433d-ad8e-d0cf96b93808",
+          "name": "Avocado Burger",
+          "category": "burger",
+          "price": 9.5,
+          "qty": 1,
+          "add": [],
+          "note": "Ohne Salat Bitte",
+          "rm": []
+        },
+        {
+          "id": "0c77cdf4-85d7-4e55-bde5-059b5c8f6e07",
+          "sku": "0c77cdf4-85d7-4e55-bde5-059b5c8f6e07",
+          "name": "Farmer’s Market",
+          "category": "vegan",
+          "price": 7.2,
+          "qty": 1,
+          "add": [],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "9f218d73-5120-4e7a-b4cd-4e2b451cc861",
+          "sku": "9f218d73-5120-4e7a-b4cd-4e2b451cc861",
+          "name": "Fries – Fries",
+          "category": "extras",
+          "price": 3.7,
+          "qty": 1,
+          "add": [],
+          "rm": []
+        },
+        {
+          "id": "f0c2ced2-f9e6-46f8-970f-b25345b0cd35",
+          "sku": "f0c2ced2-f9e6-46f8-970f-b25345b0cd35",
+          "name": "Snacks & Beilagen – Mozzarella Sticks (6 Stück)",
+          "category": "extras",
+          "price": 5.6,
+          "qty": 1,
+          "add": [],
+          "rm": []
+        },
+        {
+          "id": "cb40ea25-be68-4f9d-83f4-e1c317ddbbb4",
+          "sku": "cb40ea25-be68-4f9d-83f4-e1c317ddbbb4",
+          "name": "Coca Cola – Coca-Cola 0,33l",
+          "category": "drinks",
+          "price": 2.6,
+          "qty": 1,
+          "add": [],
+          "rm": []
+        },
+        {
+          "id": "c57efeb0-bc60-4e17-b945-adf458d97cf7",
+          "sku": "c57efeb0-bc60-4e17-b945-adf458d97cf7",
+          "name": "BBQ",
+          "category": "sauces",
+          "price": 1.2,
+          "qty": 2,
+          "add": [],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "326c8c5a-c31c-4737-9fd0-968d13af1497",
+          "sku": "326c8c5a-c31c-4737-9fd0-968d13af1497",
+          "name": "Sour Creme",
+          "category": "sauces",
+          "price": 1.2,
+          "qty": 2,
+          "add": [],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "3efe5400-00e2-4d9b-a89e-56062ec0f6db",
+          "sku": "3efe5400-00e2-4d9b-a89e-56062ec0f6db",
+          "name": "Erdbeere",
+          "category": "bubbletea",
+          "price": 4.5,
+          "qty": 1,
+          "add": [],
+          "note": "Lütfen Soğuk Olsun..",
+          "rm": []
+        }
+      ],
+      "merchandise": 62.9,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 62.9,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Ömer",
+        "phone": "12345678912",
+        "address": "Namslaustraße 82 | 13507 berlin"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1761166392067,
+    "history": [
+      {
+        "status": "received",
+        "at": 1761166392065
+      }
+    ]
+  },
+  {
+    "id": "4R5K8S",
+    "source": "web",
+    "mode": "delivery",
+    "status": "received",
+    "createdAt": 1761171228831,
+    "etaMin": 35,
+    "order": {
+      "ts": 1761171228688,
+      "mode": "delivery",
+      "channel": "lieferung",
+      "plz": "13507",
+      "items": [
+        {
+          "id": "882e5cb9-92b4-4973-bfe4-533f113aaca4",
+          "sku": "882e5cb9-92b4-4973-bfe4-533f113aaca4",
+          "name": "Big Daddy",
+          "category": "burger",
+          "price": 11.5,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Käse",
+              "price": 1
+            }
+          ],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "cf9f9c96-eadc-4f93-85c1-95c26ca83acb",
+          "sku": "cf9f9c96-eadc-4f93-85c1-95c26ca83acb",
+          "name": "Big Daddy",
+          "category": "burger",
+          "price": 13.5,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Bacon",
+              "price": 1.5
+            },
+            {
+              "label": "Jalapeños",
+              "price": 1.5
+            }
+          ],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "0e7f271d-96c6-433d-ad8e-d0cf96b93808",
+          "sku": "0e7f271d-96c6-433d-ad8e-d0cf96b93808",
+          "name": "Avocado Burger",
+          "category": "burger",
+          "price": 9.5,
+          "qty": 1,
+          "add": [],
+          "note": "Ohne Salat Bitte",
+          "rm": []
+        },
+        {
+          "id": "0c77cdf4-85d7-4e55-bde5-059b5c8f6e07",
+          "sku": "0c77cdf4-85d7-4e55-bde5-059b5c8f6e07",
+          "name": "Farmer’s Market",
+          "category": "vegan",
+          "price": 7.2,
+          "qty": 1,
+          "add": [],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "9f218d73-5120-4e7a-b4cd-4e2b451cc861",
+          "sku": "9f218d73-5120-4e7a-b4cd-4e2b451cc861",
+          "name": "Fries – Fries",
+          "category": "extras",
+          "price": 3.7,
+          "qty": 1,
+          "add": [],
+          "rm": []
+        },
+        {
+          "id": "f0c2ced2-f9e6-46f8-970f-b25345b0cd35",
+          "sku": "f0c2ced2-f9e6-46f8-970f-b25345b0cd35",
+          "name": "Snacks & Beilagen – Mozzarella Sticks (6 Stück)",
+          "category": "extras",
+          "price": 5.6,
+          "qty": 1,
+          "add": [],
+          "rm": []
+        },
+        {
+          "id": "cb40ea25-be68-4f9d-83f4-e1c317ddbbb4",
+          "sku": "cb40ea25-be68-4f9d-83f4-e1c317ddbbb4",
+          "name": "Coca Cola – Coca-Cola 0,33l",
+          "category": "drinks",
+          "price": 2.6,
+          "qty": 1,
+          "add": [],
+          "rm": []
+        },
+        {
+          "id": "c57efeb0-bc60-4e17-b945-adf458d97cf7",
+          "sku": "c57efeb0-bc60-4e17-b945-adf458d97cf7",
+          "name": "BBQ",
+          "category": "sauces",
+          "price": 1.2,
+          "qty": 2,
+          "add": [],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "326c8c5a-c31c-4737-9fd0-968d13af1497",
+          "sku": "326c8c5a-c31c-4737-9fd0-968d13af1497",
+          "name": "Sour Creme",
+          "category": "sauces",
+          "price": 1.2,
+          "qty": 2,
+          "add": [],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "3efe5400-00e2-4d9b-a89e-56062ec0f6db",
+          "sku": "3efe5400-00e2-4d9b-a89e-56062ec0f6db",
+          "name": "Erdbeere",
+          "category": "bubbletea",
+          "price": 4.5,
+          "qty": 1,
+          "add": [],
+          "note": "Lütfen Soğuk Olsun..",
+          "rm": []
+        }
+      ],
+      "merchandise": 62.9,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 62.9,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Ömer",
+        "phone": "12345678912",
+        "address": "Wickeder Straße 82 | 13507 berlin"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1761171228832,
+    "history": [
+      {
+        "status": "received",
+        "at": 1761171228831
+      }
+    ]
+  },
+  {
+    "id": "EU7N7X",
+    "source": "web",
+    "mode": "delivery",
+    "status": "received",
+    "createdAt": 1761172714742,
+    "etaMin": 35,
+    "planned": "11:00",
+    "order": {
+      "ts": 1761172714533,
+      "mode": "delivery",
+      "channel": "lieferung",
+      "plz": "13509",
+      "items": [
+        {
+          "id": "732fccc4-a9e2-42e8-8dde-113ff4e5888d",
+          "sku": "732fccc4-a9e2-42e8-8dde-113ff4e5888d",
+          "name": "Big Daddy",
+          "category": "burger",
+          "price": 14.5,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Jalapeños",
+              "price": 1.5
+            },
+            {
+              "label": "Selfmade Panierte Mozzarella",
+              "price": 2.5
+            }
+          ],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "df75c906-330c-4dc5-aa2b-4a36b3789f42",
+          "sku": "df75c906-330c-4dc5-aa2b-4a36b3789f42",
+          "name": "Italiana",
+          "category": "vegan",
+          "price": 8,
+          "qty": 1,
+          "add": [],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "2037ab9f-b5e2-40a0-9d03-97c739b821f8",
+          "sku": "2037ab9f-b5e2-40a0-9d03-97c739b821f8",
+          "name": "Fries – Süßkartoffel",
+          "category": "extras",
+          "price": 5.3,
+          "qty": 1,
+          "add": [],
+          "rm": []
+        },
+        {
+          "id": "9cae778c-a249-45c8-91ea-eb026ccf774e",
+          "sku": "9cae778c-a249-45c8-91ea-eb026ccf774e",
+          "name": "BBQ",
+          "category": "sauces",
+          "price": 1.2,
+          "qty": 1,
+          "add": [],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "460e6416-fc1e-4579-815d-a50189fa6eb8",
+          "sku": "460e6416-fc1e-4579-815d-a50189fa6eb8",
+          "name": "Sour Creme",
+          "category": "sauces",
+          "price": 1.2,
+          "qty": 1,
+          "add": [],
+          "note": "",
+          "rm": []
+        }
+      ],
+      "merchandise": 30.2,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 30.2,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Ömer",
+        "phone": "12341567891",
+        "address": "Gorkistraße 55 | 13509"
+      },
+      "planned": "11:00"
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1761172714744,
+    "history": [
+      {
+        "status": "received",
+        "at": 1761172714742
+      }
+    ]
+  },
+  {
+    "id": "7E5LVM",
+    "source": "web",
+    "mode": "delivery",
+    "status": "received",
+    "createdAt": 1761173177212,
+    "etaMin": 35,
+    "order": {
+      "ts": 1761173177013,
+      "mode": "delivery",
+      "channel": "lieferung",
+      "plz": "13509",
+      "items": [
+        {
+          "id": "732fccc4-a9e2-42e8-8dde-113ff4e5888d",
+          "sku": "732fccc4-a9e2-42e8-8dde-113ff4e5888d",
+          "name": "Big Daddy",
+          "category": "burger",
+          "price": 14.5,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Jalapeños",
+              "price": 1.5
+            },
+            {
+              "label": "Selfmade Panierte Mozzarella",
+              "price": 2.5
+            }
+          ],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "df75c906-330c-4dc5-aa2b-4a36b3789f42",
+          "sku": "df75c906-330c-4dc5-aa2b-4a36b3789f42",
+          "name": "Italiana",
+          "category": "vegan",
+          "price": 8,
+          "qty": 1,
+          "add": [],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "2037ab9f-b5e2-40a0-9d03-97c739b821f8",
+          "sku": "2037ab9f-b5e2-40a0-9d03-97c739b821f8",
+          "name": "Fries – Süßkartoffel",
+          "category": "extras",
+          "price": 5.3,
+          "qty": 1,
+          "add": [],
+          "rm": []
+        },
+        {
+          "id": "9cae778c-a249-45c8-91ea-eb026ccf774e",
+          "sku": "9cae778c-a249-45c8-91ea-eb026ccf774e",
+          "name": "BBQ",
+          "category": "sauces",
+          "price": 1.2,
+          "qty": 1,
+          "add": [],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "460e6416-fc1e-4579-815d-a50189fa6eb8",
+          "sku": "460e6416-fc1e-4579-815d-a50189fa6eb8",
+          "name": "Sour Creme",
+          "category": "sauces",
+          "price": 1.2,
+          "qty": 1,
+          "add": [],
+          "note": "",
+          "rm": []
+        }
+      ],
+      "merchandise": 30.2,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 30.2,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Ömer",
+        "phone": "12341567891",
+        "address": "Gorkistraße 55 | 13509"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1761173177213,
+    "history": [
+      {
+        "status": "received",
+        "at": 1761173177212
+      }
+    ]
+  },
+  {
+    "id": "4TYHG2",
+    "source": "web",
+    "mode": "delivery",
+    "status": "received",
+    "createdAt": 1761175990202,
+    "etaMin": 35,
+    "order": {
+      "ts": 1761175990045,
+      "mode": "delivery",
+      "channel": "lieferung",
+      "plz": "13509",
+      "items": [
+        {
+          "id": "732fccc4-a9e2-42e8-8dde-113ff4e5888d",
+          "sku": "732fccc4-a9e2-42e8-8dde-113ff4e5888d",
+          "name": "Big Daddy",
+          "category": "burger",
+          "price": 14.5,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Jalapeños",
+              "price": 1.5
+            },
+            {
+              "label": "Selfmade Panierte Mozzarella",
+              "price": 2.5
+            }
+          ],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "df75c906-330c-4dc5-aa2b-4a36b3789f42",
+          "sku": "df75c906-330c-4dc5-aa2b-4a36b3789f42",
+          "name": "Italiana",
+          "category": "vegan",
+          "price": 8,
+          "qty": 1,
+          "add": [],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "2037ab9f-b5e2-40a0-9d03-97c739b821f8",
+          "sku": "2037ab9f-b5e2-40a0-9d03-97c739b821f8",
+          "name": "Fries – Süßkartoffel",
+          "category": "extras",
+          "price": 5.3,
+          "qty": 1,
+          "add": [],
+          "rm": []
+        },
+        {
+          "id": "9cae778c-a249-45c8-91ea-eb026ccf774e",
+          "sku": "9cae778c-a249-45c8-91ea-eb026ccf774e",
+          "name": "BBQ",
+          "category": "sauces",
+          "price": 1.2,
+          "qty": 1,
+          "add": [],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "460e6416-fc1e-4579-815d-a50189fa6eb8",
+          "sku": "460e6416-fc1e-4579-815d-a50189fa6eb8",
+          "name": "Sour Creme",
+          "category": "sauces",
+          "price": 1.2,
+          "qty": 1,
+          "add": [],
+          "note": "",
+          "rm": []
+        }
+      ],
+      "merchandise": 30.2,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 30.2,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Ömer",
+        "phone": "12341567891",
+        "address": "Gorkistraße 55 | 13509"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1761175990203,
+    "history": [
+      {
+        "status": "received",
+        "at": 1761175990202
+      }
+    ]
+  },
+  {
+    "id": "6BYLTV",
+    "source": "web",
+    "mode": "delivery",
+    "status": "received",
+    "createdAt": 1761176744690,
+    "etaMin": 35,
+    "order": {
+      "ts": 1761176744542,
+      "mode": "delivery",
+      "channel": "lieferung",
+      "plz": "13509",
+      "items": [
+        {
+          "id": "732fccc4-a9e2-42e8-8dde-113ff4e5888d",
+          "sku": "732fccc4-a9e2-42e8-8dde-113ff4e5888d",
+          "name": "Big Daddy",
+          "category": "burger",
+          "price": 14.5,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Jalapeños",
+              "price": 1.5
+            },
+            {
+              "label": "Selfmade Panierte Mozzarella",
+              "price": 2.5
+            }
+          ],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "df75c906-330c-4dc5-aa2b-4a36b3789f42",
+          "sku": "df75c906-330c-4dc5-aa2b-4a36b3789f42",
+          "name": "Italiana",
+          "category": "vegan",
+          "price": 8,
+          "qty": 1,
+          "add": [],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "2037ab9f-b5e2-40a0-9d03-97c739b821f8",
+          "sku": "2037ab9f-b5e2-40a0-9d03-97c739b821f8",
+          "name": "Fries – Süßkartoffel",
+          "category": "extras",
+          "price": 5.3,
+          "qty": 1,
+          "add": [],
+          "rm": []
+        },
+        {
+          "id": "9cae778c-a249-45c8-91ea-eb026ccf774e",
+          "sku": "9cae778c-a249-45c8-91ea-eb026ccf774e",
+          "name": "BBQ",
+          "category": "sauces",
+          "price": 1.2,
+          "qty": 1,
+          "add": [],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "460e6416-fc1e-4579-815d-a50189fa6eb8",
+          "sku": "460e6416-fc1e-4579-815d-a50189fa6eb8",
+          "name": "Sour Creme",
+          "category": "sauces",
+          "price": 1.2,
+          "qty": 1,
+          "add": [],
+          "note": "",
+          "rm": []
+        }
+      ],
+      "merchandise": 30.2,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 30.2,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Ömer",
+        "phone": "12341567891",
+        "address": "Conradstraße 55 | 13509"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1761176744691,
+    "history": [
+      {
+        "status": "received",
+        "at": 1761176744690
+      }
+    ]
+  },
+  {
+    "id": "NRQS8X",
+    "source": "web",
+    "mode": "delivery",
+    "status": "received",
+    "createdAt": 1761178376216,
+    "etaMin": 35,
+    "order": {
+      "ts": 1761178376011,
+      "mode": "delivery",
+      "channel": "lieferung",
+      "plz": "13509",
+      "items": [
+        {
+          "id": "732fccc4-a9e2-42e8-8dde-113ff4e5888d",
+          "sku": "732fccc4-a9e2-42e8-8dde-113ff4e5888d",
+          "name": "Big Daddy",
+          "category": "burger",
+          "price": 14.5,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Jalapeños",
+              "price": 1.5
+            },
+            {
+              "label": "Selfmade Panierte Mozzarella",
+              "price": 2.5
+            }
+          ],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "df75c906-330c-4dc5-aa2b-4a36b3789f42",
+          "sku": "df75c906-330c-4dc5-aa2b-4a36b3789f42",
+          "name": "Italiana",
+          "category": "vegan",
+          "price": 8,
+          "qty": 1,
+          "add": [],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "2037ab9f-b5e2-40a0-9d03-97c739b821f8",
+          "sku": "2037ab9f-b5e2-40a0-9d03-97c739b821f8",
+          "name": "Fries – Süßkartoffel",
+          "category": "extras",
+          "price": 5.3,
+          "qty": 1,
+          "add": [],
+          "rm": []
+        },
+        {
+          "id": "9cae778c-a249-45c8-91ea-eb026ccf774e",
+          "sku": "9cae778c-a249-45c8-91ea-eb026ccf774e",
+          "name": "BBQ",
+          "category": "sauces",
+          "price": 1.2,
+          "qty": 1,
+          "add": [],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "460e6416-fc1e-4579-815d-a50189fa6eb8",
+          "sku": "460e6416-fc1e-4579-815d-a50189fa6eb8",
+          "name": "Sour Creme",
+          "category": "sauces",
+          "price": 1.2,
+          "qty": 1,
+          "add": [],
+          "note": "",
+          "rm": []
+        }
+      ],
+      "merchandise": 30.2,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 30.2,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Ömer",
+        "phone": "12341567891",
+        "address": "Tile-Brügge-Weg 55 | 13509"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1761178376217,
+    "history": [
+      {
+        "status": "received",
+        "at": 1761178376216
+      }
+    ]
+  },
+  {
+    "id": "6JJAL8",
+    "source": "web",
+    "mode": "delivery",
+    "status": "received",
+    "createdAt": 1761185122794,
+    "etaMin": 35,
+    "order": {
+      "ts": 1761185122591,
+      "mode": "delivery",
+      "channel": "lieferung",
+      "plz": "13509",
+      "items": [
+        {
+          "id": "76a91828-d47e-4ff0-8525-e5b341e679ee",
+          "sku": "76a91828-d47e-4ff0-8525-e5b341e679ee",
+          "name": "Big Daddy",
+          "category": "burger",
+          "price": 13,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Jalapeños",
+              "price": 1.5
+            },
+            {
+              "label": "Käse",
+              "price": 1
+            }
+          ],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "0df4e25d-6a6f-43f7-8ef1-f04ca26ba4a1",
+          "sku": "0df4e25d-6a6f-43f7-8ef1-f04ca26ba4a1",
+          "name": "Black Angus Burger",
+          "category": "burger",
+          "price": 10.5,
+          "qty": 1,
+          "add": [],
+          "note": "ohne tomate ",
+          "rm": []
+        },
+        {
+          "id": "f09b2e4c-ed56-4e4d-892e-21f4202b7a37",
+          "sku": "f09b2e4c-ed56-4e4d-892e-21f4202b7a37",
+          "name": "Coca Cola – Coca-Cola 0,33l",
+          "category": "drinks",
+          "price": 2.6,
+          "qty": 1,
+          "add": [],
+          "rm": []
+        },
+        {
+          "id": "93fca3e6-15d9-43d6-b490-6463b1b40263",
+          "sku": "93fca3e6-15d9-43d6-b490-6463b1b40263",
+          "name": "Fries – Curly Fries",
+          "category": "extras",
+          "price": 4.7,
+          "qty": 1,
+          "add": [],
+          "rm": []
+        },
+        {
+          "id": "2fc08466-d124-4b92-9f06-3cdc16a6901b",
+          "sku": "2fc08466-d124-4b92-9f06-3cdc16a6901b",
+          "name": "Vegan Big Mama’s",
+          "category": "vegan",
+          "price": 9.5,
+          "qty": 1,
+          "add": [],
+          "note": "",
+          "rm": []
+        }
+      ],
+      "merchandise": 40.3,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 40.3,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Ömer",
+        "phone": "12341567891",
+        "address": "Conradstraße 55 | 13509"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1761185122796,
+    "history": [
+      {
+        "status": "received",
+        "at": 1761185122794
+      }
+    ]
+  },
+  {
+    "id": "MVQXAU",
+    "source": "web",
+    "mode": "delivery",
+    "status": "received",
+    "createdAt": 1761186843439,
+    "etaMin": 35,
+    "order": {
+      "ts": 1761186843258,
+      "mode": "delivery",
+      "channel": "lieferung",
+      "plz": "13509",
+      "items": [
+        {
+          "id": "76a91828-d47e-4ff0-8525-e5b341e679ee",
+          "sku": "76a91828-d47e-4ff0-8525-e5b341e679ee",
+          "name": "Big Daddy",
+          "category": "burger",
+          "price": 13,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Jalapeños",
+              "price": 1.5
+            },
+            {
+              "label": "Käse",
+              "price": 1
+            }
+          ],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "0df4e25d-6a6f-43f7-8ef1-f04ca26ba4a1",
+          "sku": "0df4e25d-6a6f-43f7-8ef1-f04ca26ba4a1",
+          "name": "Black Angus Burger",
+          "category": "burger",
+          "price": 10.5,
+          "qty": 1,
+          "add": [],
+          "note": "ohne tomate ",
+          "rm": []
+        },
+        {
+          "id": "f09b2e4c-ed56-4e4d-892e-21f4202b7a37",
+          "sku": "f09b2e4c-ed56-4e4d-892e-21f4202b7a37",
+          "name": "Coca Cola – Coca-Cola 0,33l",
+          "category": "drinks",
+          "price": 2.6,
+          "qty": 1,
+          "add": [],
+          "rm": []
+        },
+        {
+          "id": "93fca3e6-15d9-43d6-b490-6463b1b40263",
+          "sku": "93fca3e6-15d9-43d6-b490-6463b1b40263",
+          "name": "Fries – Curly Fries",
+          "category": "extras",
+          "price": 4.7,
+          "qty": 1,
+          "add": [],
+          "rm": []
+        },
+        {
+          "id": "2fc08466-d124-4b92-9f06-3cdc16a6901b",
+          "sku": "2fc08466-d124-4b92-9f06-3cdc16a6901b",
+          "name": "Vegan Big Mama’s",
+          "category": "vegan",
+          "price": 9.5,
+          "qty": 1,
+          "add": [],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "b5a9b202-49b6-4faf-96d3-fc783fb8d789",
+          "sku": "b5a9b202-49b6-4faf-96d3-fc783fb8d789",
+          "name": "Big Daddy",
+          "category": "burger",
+          "price": 14.5,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Bacon",
+              "price": 1.5
+            },
+            {
+              "label": "Jalapeños",
+              "price": 1.5
+            },
+            {
+              "label": "Käse",
+              "price": 1
+            }
+          ],
+          "note": "ohne tomate unt Zwiebel",
+          "rm": []
+        },
+        {
+          "id": "b700d00c-2e6d-40d6-a956-efd6fc0cc093",
+          "sku": "b700d00c-2e6d-40d6-a956-efd6fc0cc093",
+          "name": "Italiana",
+          "category": "vegan",
+          "price": 8,
+          "qty": 1,
+          "add": [],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "daa3e594-4573-4ff9-8d98-b31e12ece93f",
+          "sku": "daa3e594-4573-4ff9-8d98-b31e12ece93f",
+          "name": "Fries – Süßkartoffel",
+          "category": "extras",
+          "price": 5.3,
+          "qty": 1,
+          "add": [],
+          "rm": []
+        },
+        {
+          "id": "fa1e3aa4-8238-4ecf-9642-77307b2540ed",
+          "sku": "fa1e3aa4-8238-4ecf-9642-77307b2540ed",
+          "name": "Snacks & Beilagen – Chicken Wings",
+          "category": "extras",
+          "price": 6.3,
+          "qty": 1,
+          "add": [],
+          "rm": []
+        },
+        {
+          "id": "21dc2c8b-0615-4d22-90ff-9ac8a8782ce7",
+          "sku": "21dc2c8b-0615-4d22-90ff-9ac8a8782ce7",
+          "name": "BBQ",
+          "category": "sauces",
+          "price": 1.2,
+          "qty": 1,
+          "add": [],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "cd4e64d5-329f-477e-b901-f6b944ba2626",
+          "sku": "cd4e64d5-329f-477e-b901-f6b944ba2626",
+          "name": "Avocado",
+          "category": "sauces",
+          "price": 2,
+          "qty": 1,
+          "add": [],
+          "note": "",
+          "rm": []
+        }
+      ],
+      "merchandise": 77.6,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 77.6,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Ömer",
+        "phone": "12341567891",
+        "address": "Holzhauser Straße 55 | 13509"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1761186843440,
+    "history": [
+      {
+        "status": "received",
+        "at": 1761186843439
+      }
+    ]
+  },
+  {
+    "id": "KPPE9A",
+    "source": "web",
+    "mode": "delivery",
+    "status": "received",
+    "createdAt": 1761212128419,
+    "etaMin": 35,
+    "order": {
+      "ts": 1761212128249,
+      "mode": "delivery",
+      "channel": "lieferung",
+      "plz": "13507",
+      "items": [
+        {
+          "id": "f9658ee0-dffb-458a-b08d-802e6f538404",
+          "sku": "f9658ee0-dffb-458a-b08d-802e6f538404",
+          "name": "All American",
+          "category": "burger",
+          "price": 9,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Halloumi",
+              "price": 2.5
+            },
+            {
+              "label": "Käse",
+              "price": 1
+            }
+          ],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "2bc7efe9-e6c7-4611-99a8-50dc075cdd76",
+          "sku": "2bc7efe9-e6c7-4611-99a8-50dc075cdd76",
+          "name": "Snacks & Beilagen – Zwiebelringe (8 Stück)",
+          "category": "extras",
+          "price": 4,
+          "qty": 1,
+          "add": [],
+          "rm": []
+        },
+        {
+          "id": "150acef5-bd7b-44d0-ad08-0c0138208314",
+          "sku": "150acef5-bd7b-44d0-ad08-0c0138208314",
+          "name": "Fries – Cheese Fries",
+          "category": "extras",
+          "price": 5.3,
+          "qty": 1,
+          "add": [],
+          "rm": []
+        },
+        {
+          "id": "0f97aecb-ff35-4baf-9b1f-ea4f3201929c",
+          "sku": "0f97aecb-ff35-4baf-9b1f-ea4f3201929c",
+          "name": "Curry",
+          "category": "sauces",
+          "price": 1.2,
+          "qty": 1,
+          "add": [],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "0039bd18-8c36-41c4-b63c-48fe4a511c74",
+          "sku": "0039bd18-8c36-41c4-b63c-48fe4a511c74",
+          "name": "Ketchup (To Go)",
+          "category": "sauces",
+          "price": 0.5,
+          "qty": 1,
+          "add": [],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "b4fe0c34-3c12-45c2-82b6-216281fd5e5e",
+          "sku": "b4fe0c34-3c12-45c2-82b6-216281fd5e5e",
+          "name": "Mayonnaise (To Go)",
+          "category": "sauces",
+          "price": 0.5,
+          "qty": 2,
+          "add": [],
+          "note": "",
+          "rm": []
+        }
+      ],
+      "merchandise": 21,
+      "discount": 2.1,
+      "surcharges": 1,
+      "total": 19.9,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Ömer",
+        "phone": "12345678912",
+        "address": "Namslaustraße 82 | 13507 berlin"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1761212128421,
+    "history": [
+      {
+        "status": "received",
+        "at": 1761212128419
+      }
+    ]
+  },
+  {
+    "id": "NF5XA8",
+    "source": "web",
+    "mode": "delivery",
+    "status": "received",
+    "createdAt": 1761214164173,
+    "etaMin": 35,
+    "order": {
+      "ts": 1761214164025,
+      "mode": "delivery",
+      "channel": "lieferung",
+      "plz": "13507",
+      "items": [
+        {
+          "id": "d793472e-aab1-4928-b3fe-5b0b3db9b568",
+          "sku": "d793472e-aab1-4928-b3fe-5b0b3db9b568",
+          "name": "All American",
+          "category": "burger",
+          "price": 8,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Jalapeños",
+              "price": 1.5
+            },
+            {
+              "label": "Käse",
+              "price": 1
+            }
+          ],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "64e75a54-ca89-4db7-812e-37486652abfe",
+          "sku": "64e75a54-ca89-4db7-812e-37486652abfe",
+          "name": "Big Daddy",
+          "category": "burger",
+          "price": 10.5,
+          "qty": 1,
+          "add": [],
+          "note": "ohne ",
+          "rm": []
+        },
+        {
+          "id": "dd592b1f-bfec-4e70-893c-dcef21d22e5f",
+          "sku": "dd592b1f-bfec-4e70-893c-dcef21d22e5f",
+          "name": "Vegetarian Halloumi",
+          "category": "vegan",
+          "price": 9,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Jalapeños",
+              "price": 1.5
+            }
+          ],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "eb47beb8-3ca0-4c32-ae24-be3854b86fc7",
+          "sku": "eb47beb8-3ca0-4c32-ae24-be3854b86fc7",
+          "name": "Vegetarian Halloumi",
+          "category": "vegan",
+          "price": 7.5,
+          "qty": 1,
+          "add": [],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "3bb2757f-4f0b-48c7-b3aa-a69bb4e11618",
+          "sku": "3bb2757f-4f0b-48c7-b3aa-a69bb4e11618",
+          "name": "Fries – Süßkartoffel",
+          "category": "extras",
+          "price": 5.3,
+          "qty": 2,
+          "add": [],
+          "rm": []
+        },
+        {
+          "id": "05d760e3-7e11-42f7-93d1-8c8c7870beb0",
+          "sku": "05d760e3-7e11-42f7-93d1-8c8c7870beb0",
+          "name": "Snacks & Beilagen – Chicken Wings",
+          "category": "extras",
+          "price": 6.3,
+          "qty": 2,
+          "add": [],
+          "rm": []
+        },
+        {
+          "id": "1d889e60-d38c-4b8c-8baf-3c880c97d1d2",
+          "sku": "1d889e60-d38c-4b8c-8baf-3c880c97d1d2",
+          "name": "Coca Cola – Fanta 0,33l",
+          "category": "drinks",
+          "price": 2.8,
+          "qty": 1,
+          "add": [],
+          "rm": []
+        },
+        {
+          "id": "5700993a-0475-4ae3-8915-eaf96952d525",
+          "sku": "5700993a-0475-4ae3-8915-eaf96952d525",
+          "name": "Jarritos (Mexico) – Jarritos Mango 0,37l",
+          "category": "drinks",
+          "price": 3.3,
+          "qty": 1,
+          "add": [],
+          "rm": []
+        },
+        {
+          "id": "1d997a19-d7c6-44f3-93d5-9462f89cece8",
+          "sku": "1d997a19-d7c6-44f3-93d5-9462f89cece8",
+          "name": "Avocado",
+          "category": "sauces",
+          "price": 2,
+          "qty": 1,
+          "add": [],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "9799fb77-dc68-435a-8378-38a913dfc858",
+          "sku": "9799fb77-dc68-435a-8378-38a913dfc858",
+          "name": "Sweet Chilisauce",
+          "category": "sauces",
+          "price": 1.2,
+          "qty": 1,
+          "add": [],
+          "note": "",
+          "rm": []
+        }
+      ],
+      "merchandise": 67.5,
+      "discount": 6.75,
+      "surcharges": 2,
+      "total": 62.75,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Ömer",
+        "phone": "12345678912",
+        "address": "Schlieperstraße 82 | 13507 berlin"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1761214164174,
+    "history": [
+      {
+        "status": "received",
+        "at": 1761214164173
+      }
+    ]
+  },
+  {
+    "id": "MA5JWW",
+    "source": "web",
+    "mode": "delivery",
+    "status": "received",
+    "createdAt": 1761301785103,
+    "etaMin": 35,
+    "order": {
+      "ts": 1761301784865,
+      "mode": "delivery",
+      "channel": "lieferung",
+      "plz": "13507",
+      "items": [
+        {
+          "id": "b619cb62-a56b-4f10-87af-df5eae11a8cd",
+          "sku": "b619cb62-a56b-4f10-87af-df5eae11a8cd",
+          "name": "All American",
+          "category": "burger",
+          "price": 8,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Jalapeños",
+              "price": 1.5
+            },
+            {
+              "label": "Käse",
+              "price": 1
+            }
+          ],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "742f936f-492f-4dc3-b7fa-6a744908f647",
+          "sku": "742f936f-492f-4dc3-b7fa-6a744908f647",
+          "name": "Goodfellas Burger",
+          "category": "burger",
+          "price": 8.1,
+          "qty": 1,
+          "add": [],
+          "note": "Deneme Deneme",
+          "rm": []
+        },
+        {
+          "id": "34567413-4b65-4e22-8b04-db5516e965d5",
+          "sku": "34567413-4b65-4e22-8b04-db5516e965d5",
+          "name": "Italiana",
+          "category": "vegan",
+          "price": 8,
+          "qty": 2,
+          "add": [],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "03dc1899-8597-448e-87ea-51e250a59f3c",
+          "sku": "03dc1899-8597-448e-87ea-51e250a59f3c",
+          "name": "Fries – Country Potatos",
+          "category": "extras",
+          "price": 4,
+          "qty": 1,
+          "add": [],
+          "rm": []
+        },
+        {
+          "id": "6b64e745-805c-4d48-a7ab-748c5938d289",
+          "sku": "6b64e745-805c-4d48-a7ab-748c5938d289",
+          "name": "Snacks & Beilagen – Chicken Fingers (6 Stück)",
+          "category": "extras",
+          "price": 5.8,
+          "qty": 1,
+          "add": [],
+          "rm": []
+        },
+        {
+          "id": "2d2c7b4d-b161-4dc5-baf4-a7bc6511ce3d",
+          "sku": "2d2c7b4d-b161-4dc5-baf4-a7bc6511ce3d",
+          "name": "Proviant (Bio) – Proviant Bio Schorle Rhabarber 0,33l",
+          "category": "drinks",
+          "price": 3,
+          "qty": 1,
+          "add": [],
+          "rm": []
+        },
+        {
+          "id": "967cbb6c-7407-4e32-ab02-45e851173c33",
+          "sku": "967cbb6c-7407-4e32-ab02-45e851173c33",
+          "name": "Durstlöscher – Durstlöscher Multivitamin 0,5l",
+          "category": "drinks",
+          "price": 2,
+          "qty": 1,
+          "add": [],
+          "rm": []
+        },
+        {
+          "id": "5cb8969d-5fac-42ef-a327-32cb4e6fea25",
+          "sku": "5cb8969d-5fac-42ef-a327-32cb4e6fea25",
+          "name": "Aioli",
+          "category": "sauces",
+          "price": 1.2,
+          "qty": 1,
+          "add": [],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "0f9aeff6-185e-494d-aca8-1517488f8a59",
+          "sku": "0f9aeff6-185e-494d-aca8-1517488f8a59",
+          "name": "Avocado",
+          "category": "sauces",
+          "price": 2,
+          "qty": 1,
+          "add": [],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "56c934b4-4fa0-40a0-9a1f-4752f51bf4b3",
+          "sku": "56c934b4-4fa0-40a0-9a1f-4752f51bf4b3",
+          "name": "BBQ",
+          "category": "sauces",
+          "price": 1.2,
+          "qty": 1,
+          "add": [],
+          "note": "",
+          "rm": []
+        }
+      ],
+      "merchandise": 51.3,
+      "discount": 5.13,
+      "surcharges": 2,
+      "total": 48.17,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Ömer",
+        "phone": "12345678912",
+        "address": "Namslaustraße 82 | 13507 berlin"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1761301785105,
+    "history": [
+      {
+        "status": "received",
+        "at": 1761301785103
+      }
+    ]
+  },
+  {
+    "id": "PCSZJU",
+    "source": "web",
+    "mode": "delivery",
+    "status": "received",
+    "createdAt": 1761311059095,
+    "etaMin": 35,
+    "order": {
+      "ts": 1761311058989,
+      "mode": "delivery",
+      "channel": "lieferung",
+      "plz": "13507",
+      "items": [
+        {
+          "id": "b619cb62-a56b-4f10-87af-df5eae11a8cd",
+          "sku": "b619cb62-a56b-4f10-87af-df5eae11a8cd",
+          "name": "All American",
+          "category": "burger",
+          "price": 8,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Jalapeños",
+              "price": 1.5
+            },
+            {
+              "label": "Käse",
+              "price": 1
+            }
+          ],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "742f936f-492f-4dc3-b7fa-6a744908f647",
+          "sku": "742f936f-492f-4dc3-b7fa-6a744908f647",
+          "name": "Goodfellas Burger",
+          "category": "burger",
+          "price": 8.1,
+          "qty": 1,
+          "add": [],
+          "note": "Deneme Deneme",
+          "rm": []
+        },
+        {
+          "id": "34567413-4b65-4e22-8b04-db5516e965d5",
+          "sku": "34567413-4b65-4e22-8b04-db5516e965d5",
+          "name": "Italiana",
+          "category": "vegan",
+          "price": 8,
+          "qty": 2,
+          "add": [],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "03dc1899-8597-448e-87ea-51e250a59f3c",
+          "sku": "03dc1899-8597-448e-87ea-51e250a59f3c",
+          "name": "Fries – Country Potatos",
+          "category": "extras",
+          "price": 4,
+          "qty": 1,
+          "add": [],
+          "rm": []
+        },
+        {
+          "id": "6b64e745-805c-4d48-a7ab-748c5938d289",
+          "sku": "6b64e745-805c-4d48-a7ab-748c5938d289",
+          "name": "Snacks & Beilagen – Chicken Fingers (6 Stück)",
+          "category": "extras",
+          "price": 5.8,
+          "qty": 1,
+          "add": [],
+          "rm": []
+        },
+        {
+          "id": "2d2c7b4d-b161-4dc5-baf4-a7bc6511ce3d",
+          "sku": "2d2c7b4d-b161-4dc5-baf4-a7bc6511ce3d",
+          "name": "Proviant (Bio) – Proviant Bio Schorle Rhabarber 0,33l",
+          "category": "drinks",
+          "price": 3,
+          "qty": 1,
+          "add": [],
+          "rm": []
+        },
+        {
+          "id": "967cbb6c-7407-4e32-ab02-45e851173c33",
+          "sku": "967cbb6c-7407-4e32-ab02-45e851173c33",
+          "name": "Durstlöscher – Durstlöscher Multivitamin 0,5l",
+          "category": "drinks",
+          "price": 2,
+          "qty": 1,
+          "add": [],
+          "rm": []
+        },
+        {
+          "id": "5cb8969d-5fac-42ef-a327-32cb4e6fea25",
+          "sku": "5cb8969d-5fac-42ef-a327-32cb4e6fea25",
+          "name": "Aioli",
+          "category": "sauces",
+          "price": 1.2,
+          "qty": 1,
+          "add": [],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "0f9aeff6-185e-494d-aca8-1517488f8a59",
+          "sku": "0f9aeff6-185e-494d-aca8-1517488f8a59",
+          "name": "Avocado",
+          "category": "sauces",
+          "price": 2,
+          "qty": 1,
+          "add": [],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "56c934b4-4fa0-40a0-9a1f-4752f51bf4b3",
+          "sku": "56c934b4-4fa0-40a0-9a1f-4752f51bf4b3",
+          "name": "BBQ",
+          "category": "sauces",
+          "price": 1.2,
+          "qty": 1,
+          "add": [],
+          "note": "",
+          "rm": []
+        }
+      ],
+      "merchandise": 51.3,
+      "discount": 5.13,
+      "surcharges": 2,
+      "total": 48.17,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Ömer",
+        "phone": "12345678912",
+        "address": "Namslaustraße 82 | 13507 berlin"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1761311059096,
+    "history": [
+      {
+        "status": "received",
+        "at": 1761311059095
+      }
+    ]
+  },
+  {
+    "id": "YDKRCE",
+    "source": "web",
+    "mode": "delivery",
+    "status": "received",
+    "createdAt": 1761340844889,
+    "etaMin": 35,
+    "order": {
+      "ts": 1761340844764,
+      "mode": "delivery",
+      "channel": "lieferung",
+      "plz": "13507",
+      "items": [
+        {
+          "id": "b619cb62-a56b-4f10-87af-df5eae11a8cd",
+          "sku": "b619cb62-a56b-4f10-87af-df5eae11a8cd",
+          "name": "All American",
+          "category": "burger",
+          "price": 8,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Jalapeños",
+              "price": 1.5
+            },
+            {
+              "label": "Käse",
+              "price": 1
+            }
+          ],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "03dc1899-8597-448e-87ea-51e250a59f3c",
+          "sku": "03dc1899-8597-448e-87ea-51e250a59f3c",
+          "name": "Fries – Country Potatos",
+          "category": "extras",
+          "price": 4,
+          "qty": 1,
+          "add": [],
+          "rm": []
+        },
+        {
+          "id": "967cbb6c-7407-4e32-ab02-45e851173c33",
+          "sku": "967cbb6c-7407-4e32-ab02-45e851173c33",
+          "name": "Durstlöscher – Durstlöscher Multivitamin 0,5l",
+          "category": "drinks",
+          "price": 2,
+          "qty": 1,
+          "add": [],
+          "rm": []
+        },
+        {
+          "id": "5cb8969d-5fac-42ef-a327-32cb4e6fea25",
+          "sku": "5cb8969d-5fac-42ef-a327-32cb4e6fea25",
+          "name": "Aioli",
+          "category": "sauces",
+          "price": 1.2,
+          "qty": 1,
+          "add": [],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "0f9aeff6-185e-494d-aca8-1517488f8a59",
+          "sku": "0f9aeff6-185e-494d-aca8-1517488f8a59",
+          "name": "Avocado",
+          "category": "sauces",
+          "price": 2,
+          "qty": 1,
+          "add": [],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "56c934b4-4fa0-40a0-9a1f-4752f51bf4b3",
+          "sku": "56c934b4-4fa0-40a0-9a1f-4752f51bf4b3",
+          "name": "BBQ",
+          "category": "sauces",
+          "price": 1.2,
+          "qty": 1,
+          "add": [],
+          "note": "",
+          "rm": []
+        }
+      ],
+      "merchandise": 18.4,
+      "discount": 1.84,
+      "surcharges": 1,
+      "total": 17.56,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Ömer",
+        "phone": "12345678912",
+        "address": "Namslaustraße 82 | 13507 berlin"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1761340844891,
+    "history": [
+      {
+        "status": "received",
+        "at": 1761340844889
+      }
+    ]
+  },
+  {
+    "id": "MXXX64",
+    "source": "web",
+    "mode": "delivery",
+    "status": "received",
+    "createdAt": 1761343492569,
+    "etaMin": 35,
+    "order": {
+      "ts": 1761343492402,
+      "mode": "delivery",
+      "channel": "lieferung",
+      "plz": "13509",
+      "items": [
+        {
+          "id": "76a91828-d47e-4ff0-8525-e5b341e679ee",
+          "sku": "76a91828-d47e-4ff0-8525-e5b341e679ee",
+          "name": "Big Daddy",
+          "category": "burger",
+          "price": 13,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Jalapeños",
+              "price": 1.5
+            },
+            {
+              "label": "Käse",
+              "price": 1
+            }
+          ],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "0df4e25d-6a6f-43f7-8ef1-f04ca26ba4a1",
+          "sku": "0df4e25d-6a6f-43f7-8ef1-f04ca26ba4a1",
+          "name": "Black Angus Burger",
+          "category": "burger",
+          "price": 10.5,
+          "qty": 1,
+          "add": [],
+          "note": "ohne tomate ",
+          "rm": []
+        },
+        {
+          "id": "f09b2e4c-ed56-4e4d-892e-21f4202b7a37",
+          "sku": "f09b2e4c-ed56-4e4d-892e-21f4202b7a37",
+          "name": "Coca Cola – Coca-Cola 0,33l",
+          "category": "drinks",
+          "price": 2.6,
+          "qty": 1,
+          "add": [],
+          "rm": []
+        },
+        {
+          "id": "93fca3e6-15d9-43d6-b490-6463b1b40263",
+          "sku": "93fca3e6-15d9-43d6-b490-6463b1b40263",
+          "name": "Fries – Curly Fries",
+          "category": "extras",
+          "price": 4.7,
+          "qty": 1,
+          "add": [],
+          "rm": []
+        },
+        {
+          "id": "2fc08466-d124-4b92-9f06-3cdc16a6901b",
+          "sku": "2fc08466-d124-4b92-9f06-3cdc16a6901b",
+          "name": "Vegan Big Mama’s",
+          "category": "vegan",
+          "price": 9.5,
+          "qty": 1,
+          "add": [],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "b5a9b202-49b6-4faf-96d3-fc783fb8d789",
+          "sku": "b5a9b202-49b6-4faf-96d3-fc783fb8d789",
+          "name": "Big Daddy",
+          "category": "burger",
+          "price": 14.5,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Bacon",
+              "price": 1.5
+            },
+            {
+              "label": "Jalapeños",
+              "price": 1.5
+            },
+            {
+              "label": "Käse",
+              "price": 1
+            }
+          ],
+          "note": "ohne tomate unt Zwiebel",
+          "rm": []
+        },
+        {
+          "id": "b700d00c-2e6d-40d6-a956-efd6fc0cc093",
+          "sku": "b700d00c-2e6d-40d6-a956-efd6fc0cc093",
+          "name": "Italiana",
+          "category": "vegan",
+          "price": 8,
+          "qty": 1,
+          "add": [],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "daa3e594-4573-4ff9-8d98-b31e12ece93f",
+          "sku": "daa3e594-4573-4ff9-8d98-b31e12ece93f",
+          "name": "Fries – Süßkartoffel",
+          "category": "extras",
+          "price": 5.3,
+          "qty": 1,
+          "add": [],
+          "rm": []
+        },
+        {
+          "id": "fa1e3aa4-8238-4ecf-9642-77307b2540ed",
+          "sku": "fa1e3aa4-8238-4ecf-9642-77307b2540ed",
+          "name": "Snacks & Beilagen – Chicken Wings",
+          "category": "extras",
+          "price": 6.3,
+          "qty": 1,
+          "add": [],
+          "rm": []
+        },
+        {
+          "id": "21dc2c8b-0615-4d22-90ff-9ac8a8782ce7",
+          "sku": "21dc2c8b-0615-4d22-90ff-9ac8a8782ce7",
+          "name": "BBQ",
+          "category": "sauces",
+          "price": 1.2,
+          "qty": 1,
+          "add": [],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "cd4e64d5-329f-477e-b901-f6b944ba2626",
+          "sku": "cd4e64d5-329f-477e-b901-f6b944ba2626",
+          "name": "Avocado",
+          "category": "sauces",
+          "price": 2,
+          "qty": 1,
+          "add": [],
+          "note": "",
+          "rm": []
+        }
+      ],
+      "merchandise": 77.6,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 77.6,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Ömer",
+        "phone": "12341567891",
+        "address": "Tile-Brügge-Weg 55 | 13509"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1761343492570,
+    "history": [
+      {
+        "status": "received",
+        "at": 1761343492569
+      }
+    ]
+  },
+  {
+    "id": "Y9EGJC",
+    "source": "web",
+    "mode": "delivery",
+    "status": "received",
+    "createdAt": 1761348434811,
+    "etaMin": 35,
+    "order": {
+      "ts": 1761348434660,
+      "mode": "delivery",
+      "channel": "lieferung",
+      "plz": "13509",
+      "items": [
+        {
+          "id": "76a91828-d47e-4ff0-8525-e5b341e679ee",
+          "sku": "76a91828-d47e-4ff0-8525-e5b341e679ee",
+          "name": "Big Daddy",
+          "category": "burger",
+          "price": 13,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Jalapeños",
+              "price": 1.5
+            },
+            {
+              "label": "Käse",
+              "price": 1
+            }
+          ],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "0df4e25d-6a6f-43f7-8ef1-f04ca26ba4a1",
+          "sku": "0df4e25d-6a6f-43f7-8ef1-f04ca26ba4a1",
+          "name": "Black Angus Burger",
+          "category": "burger",
+          "price": 10.5,
+          "qty": 1,
+          "add": [],
+          "note": "ohne tomate ",
+          "rm": []
+        },
+        {
+          "id": "f09b2e4c-ed56-4e4d-892e-21f4202b7a37",
+          "sku": "f09b2e4c-ed56-4e4d-892e-21f4202b7a37",
+          "name": "Coca Cola – Coca-Cola 0,33l",
+          "category": "drinks",
+          "price": 2.6,
+          "qty": 1,
+          "add": [],
+          "rm": []
+        },
+        {
+          "id": "93fca3e6-15d9-43d6-b490-6463b1b40263",
+          "sku": "93fca3e6-15d9-43d6-b490-6463b1b40263",
+          "name": "Fries – Curly Fries",
+          "category": "extras",
+          "price": 4.7,
+          "qty": 1,
+          "add": [],
+          "rm": []
+        },
+        {
+          "id": "2fc08466-d124-4b92-9f06-3cdc16a6901b",
+          "sku": "2fc08466-d124-4b92-9f06-3cdc16a6901b",
+          "name": "Vegan Big Mama’s",
+          "category": "vegan",
+          "price": 9.5,
+          "qty": 1,
+          "add": [],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "b5a9b202-49b6-4faf-96d3-fc783fb8d789",
+          "sku": "b5a9b202-49b6-4faf-96d3-fc783fb8d789",
+          "name": "Big Daddy",
+          "category": "burger",
+          "price": 14.5,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Bacon",
+              "price": 1.5
+            },
+            {
+              "label": "Jalapeños",
+              "price": 1.5
+            },
+            {
+              "label": "Käse",
+              "price": 1
+            }
+          ],
+          "note": "ohne tomate unt Zwiebel",
+          "rm": []
+        },
+        {
+          "id": "b700d00c-2e6d-40d6-a956-efd6fc0cc093",
+          "sku": "b700d00c-2e6d-40d6-a956-efd6fc0cc093",
+          "name": "Italiana",
+          "category": "vegan",
+          "price": 8,
+          "qty": 1,
+          "add": [],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "daa3e594-4573-4ff9-8d98-b31e12ece93f",
+          "sku": "daa3e594-4573-4ff9-8d98-b31e12ece93f",
+          "name": "Fries – Süßkartoffel",
+          "category": "extras",
+          "price": 5.3,
+          "qty": 1,
+          "add": [],
+          "rm": []
+        },
+        {
+          "id": "fa1e3aa4-8238-4ecf-9642-77307b2540ed",
+          "sku": "fa1e3aa4-8238-4ecf-9642-77307b2540ed",
+          "name": "Snacks & Beilagen – Chicken Wings",
+          "category": "extras",
+          "price": 6.3,
+          "qty": 1,
+          "add": [],
+          "rm": []
+        },
+        {
+          "id": "21dc2c8b-0615-4d22-90ff-9ac8a8782ce7",
+          "sku": "21dc2c8b-0615-4d22-90ff-9ac8a8782ce7",
+          "name": "BBQ",
+          "category": "sauces",
+          "price": 1.2,
+          "qty": 1,
+          "add": [],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "cd4e64d5-329f-477e-b901-f6b944ba2626",
+          "sku": "cd4e64d5-329f-477e-b901-f6b944ba2626",
+          "name": "Avocado",
+          "category": "sauces",
+          "price": 2,
+          "qty": 1,
+          "add": [],
+          "note": "",
+          "rm": []
+        }
+      ],
+      "merchandise": 77.6,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 77.6,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Ömer",
+        "phone": "12341567891",
+        "address": "Conradstraße 55 | 13509"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1761348434814,
+    "history": [
+      {
+        "status": "received",
+        "at": 1761348434811
+      }
+    ]
+  },
+  {
+    "id": "CJ3JLP",
+    "source": "web",
+    "mode": "delivery",
+    "status": "received",
+    "createdAt": 1761383041266,
+    "etaMin": 35,
+    "order": {
+      "ts": 1761383041118,
+      "mode": "delivery",
+      "channel": "lieferung",
+      "plz": "13509",
+      "items": [
+        {
+          "id": "d22e4897-91a3-4cbf-b27b-33696fa3dd84",
+          "sku": "d22e4897-91a3-4cbf-b27b-33696fa3dd84",
+          "name": "Beef & Bacon",
+          "category": "burger",
+          "price": 8,
+          "qty": 1,
+          "add": [],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "cba1b27f-f2ba-4fdc-9c1c-fdae4e7ff144",
+          "sku": "cba1b27f-f2ba-4fdc-9c1c-fdae4e7ff144",
+          "name": "Fries – Süßkartoffel",
+          "category": "extras",
+          "price": 5.3,
+          "qty": 1,
+          "add": [],
+          "rm": []
+        },
+        {
+          "id": "73304b8b-7beb-479c-aa36-812be8e1dd31",
+          "sku": "73304b8b-7beb-479c-aa36-812be8e1dd31",
+          "name": "Fritz – FRITZ Bio Limo 0,33l",
+          "category": "drinks",
+          "price": 3,
+          "qty": 2,
+          "add": [],
+          "rm": []
+        }
+      ],
+      "merchandise": 19.3,
+      "discount": 1.93,
+      "surcharges": 0,
+      "total": 17.37,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Ömer",
+        "phone": "12341567891",
+        "address": "Gorkistraße 55 | 13509"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1761383041268,
+    "history": [
+      {
+        "status": "received",
+        "at": 1761383041266
+      }
+    ]
+  },
+  {
+    "id": "M3TV9N",
+    "source": "web",
+    "mode": "delivery",
+    "status": "received",
+    "createdAt": 1761383402806,
+    "etaMin": 35,
+    "order": {
+      "ts": 1761383402689,
+      "mode": "delivery",
+      "channel": "lieferung",
+      "plz": "13509",
+      "items": [
+        {
+          "id": "6b46a9ef-0c55-47b7-8baf-39f85dde4261",
+          "sku": "6b46a9ef-0c55-47b7-8baf-39f85dde4261",
+          "name": "Coca Cola – Coca-Cola 0,33l",
+          "category": "drinks",
+          "price": 2.6,
+          "qty": 2,
+          "add": [],
+          "rm": []
+        },
+        {
+          "id": "e8f5c8e7-097e-41c0-8d9d-260a3f8441d1",
+          "sku": "e8f5c8e7-097e-41c0-8d9d-260a3f8441d1",
+          "name": "Big Daddy",
+          "category": "burger",
+          "price": 10.5,
+          "qty": 1,
+          "add": [],
+          "note": "",
+          "rm": []
+        }
+      ],
+      "merchandise": 15.7,
+      "discount": 1.57,
+      "surcharges": 2,
+      "total": 16.13,
+      "couponDiscount": 0,
+      "customer": {
+        "name": "Ömer",
+        "phone": "12341567891",
+        "address": "Tile-Brügge-Weg 55 | 13509"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1761383402807,
+    "history": [
+      {
+        "status": "received",
+        "at": 1761383402806
+      }
+    ]
+  },
+  {
+    "id": "ATEXEW",
+    "source": "web",
+    "mode": "delivery",
+    "status": "received",
+    "createdAt": 1761388760377,
+    "etaMin": 35,
+    "order": {
+      "ts": 1761388760176,
+      "mode": "delivery",
+      "channel": "lieferung",
+      "plz": "13509",
+      "items": [
+        {
+          "id": "c2aa4207-d281-43d6-be8c-473aca43fc7d",
+          "sku": "c2aa4207-d281-43d6-be8c-473aca43fc7d",
+          "name": "Coca Cola – Coca-Cola 0,33l",
+          "category": "drinks",
+          "price": 2.6,
+          "qty": 2,
+          "add": [],
+          "rm": []
+        },
+        {
+          "id": "a80a0ca4-669c-4401-bb22-8ffb105b0780",
+          "sku": "a80a0ca4-669c-4401-bb22-8ffb105b0780",
+          "name": "Big Daddy",
+          "category": "burger",
+          "price": 10.5,
+          "qty": 1,
+          "add": [],
+          "rm": []
+        }
+      ],
+      "merchandise": 15.7,
+      "discount": 1.57,
+      "surcharges": 2,
+      "total": 16.13,
+      "couponDiscount": 0,
+      "orderNote": "Deneme siparis acıklaması",
+      "customer": {
+        "name": "Ömer",
+        "phone": "12341567891",
+        "deliveryHint": "Deneme siparis acıklaması",
+        "address": "Holzhauser Straße 55 | 13509"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1761388760379,
+    "history": [
+      {
+        "status": "received",
+        "at": 1761388760377
+      }
+    ]
+  },
+  {
+    "id": "B4GYN9",
+    "source": "web",
+    "mode": "delivery",
+    "status": "received",
+    "createdAt": 1761389716231,
+    "etaMin": 35,
+    "planned": "15:01",
+    "order": {
+      "ts": 1761389716216,
+      "mode": "delivery",
+      "channel": "lieferung",
+      "plz": "13509",
+      "items": [
+        {
+          "id": "c2aa4207-d281-43d6-be8c-473aca43fc7d",
+          "sku": "c2aa4207-d281-43d6-be8c-473aca43fc7d",
+          "name": "Coca Cola – Coca-Cola 0,33l",
+          "category": "drinks",
+          "price": 2.6,
+          "qty": 2,
+          "add": [],
+          "rm": []
+        },
+        {
+          "id": "a80a0ca4-669c-4401-bb22-8ffb105b0780",
+          "sku": "a80a0ca4-669c-4401-bb22-8ffb105b0780",
+          "name": "Big Daddy",
+          "category": "burger",
+          "price": 10.5,
+          "qty": 1,
+          "add": [],
+          "rm": []
+        },
+        {
+          "id": "f4af47a6-688a-4c61-b4aa-457f2de6fbfe",
+          "sku": "f4af47a6-688a-4c61-b4aa-457f2de6fbfe",
+          "name": "Big Daddy",
+          "category": "burger",
+          "price": 10.5,
+          "qty": 1,
+          "add": [],
+          "note": "ohne zwiebel und Tomate bitte..",
+          "rm": []
+        }
+      ],
+      "merchandise": 26.2,
+      "discount": 2.62,
+      "surcharges": 3,
+      "total": 26.58,
+      "couponDiscount": 0,
+      "orderNote": "Bitte ohne Klingeln liefern, Baby schläft.",
+      "customer": {
+        "name": "Ömer",
+        "phone": "12341567891",
+        "deliveryHint": "Bitte ohne Klingeln liefern, Baby schläft.",
+        "address": "Gorkistraße 55 | 13509"
+      },
+      "planned": "15:01"
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1761389716232,
+    "history": [
+      {
+        "status": "received",
+        "at": 1761389716231
+      }
+    ]
+  },
+  {
+    "id": "Y3KRGC",
+    "source": "web",
+    "mode": "pickup",
+    "status": "received",
+    "createdAt": 1761395437785,
+    "etaMin": 15,
+    "planned": "14:46",
+    "order": {
+      "ts": 1761395437555,
+      "mode": "pickup",
+      "channel": "abholung",
+      "plz": null,
+      "items": [
+        {
+          "id": "0a1ca016-3b70-45d3-aa1c-eb6351653576",
+          "sku": "0a1ca016-3b70-45d3-aa1c-eb6351653576",
+          "name": "Big Mama’s",
+          "category": "burger",
+          "price": 12,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Halloumi",
+              "price": 2.5
+            }
+          ],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "81a15f2a-d342-4405-98eb-6fe88d1b354c",
+          "sku": "81a15f2a-d342-4405-98eb-6fe88d1b354c",
+          "name": "Avocado Burger",
+          "category": "burger",
+          "price": 14,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Beef (140gr)",
+              "price": 3
+            },
+            {
+              "label": "Jalapeños",
+              "price": 1.5
+            }
+          ],
+          "note": "",
+          "rm": []
+        }
+      ],
+      "merchandise": 26,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 26,
+      "couponDiscount": 0,
+      "orderNote": "Deneme Deneme",
+      "customer": {
+        "name": "Ömer",
+        "phone": "12345699999",
+        "address": "Deneme Deneme"
+      },
+      "planned": "14:46"
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1761395437787,
+    "history": [
+      {
+        "status": "received",
+        "at": 1761395437785
+      }
+    ]
+  },
+  {
+    "id": "KPMLGW",
+    "source": "web",
+    "mode": "delivery",
+    "status": "received",
+    "createdAt": 1761425271696,
+    "etaMin": 35,
+    "planned": "23:31",
+    "order": {
+      "ts": 1761425271482,
+      "mode": "delivery",
+      "channel": "lieferung",
+      "plz": "13509",
+      "items": [
+        {
+          "id": "0a1ca016-3b70-45d3-aa1c-eb6351653576",
+          "sku": "0a1ca016-3b70-45d3-aa1c-eb6351653576",
+          "name": "Big Mama’s",
+          "category": "burger",
+          "price": 12,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Halloumi",
+              "price": 2.5
+            }
+          ],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "81a15f2a-d342-4405-98eb-6fe88d1b354c",
+          "sku": "81a15f2a-d342-4405-98eb-6fe88d1b354c",
+          "name": "Avocado Burger",
+          "category": "burger",
+          "price": 14,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Beef (140gr)",
+              "price": 3
+            },
+            {
+              "label": "Jalapeños",
+              "price": 1.5
+            }
+          ],
+          "note": "",
+          "rm": []
+        }
+      ],
+      "merchandise": 26,
+      "discount": 2.6,
+      "surcharges": 2,
+      "total": 25.4,
+      "couponDiscount": 0,
+      "orderNote": "Bitte ohne Klingeln liefern, Baby schläft.",
+      "customer": {
+        "name": "Ömer",
+        "phone": "12341567891",
+        "deliveryHint": "Bitte ohne Klingeln liefern, Baby schläft.",
+        "address": "Gorkistraße 55 | 13509"
+      },
+      "planned": "23:31"
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1761425271698,
+    "history": [
+      {
+        "status": "received",
+        "at": 1761425271696
+      }
+    ]
+  },
+  {
+    "id": "GMDDW6",
+    "source": "web",
+    "mode": "pickup",
+    "status": "received",
+    "createdAt": 1761425571636,
+    "etaMin": 15,
+    "order": {
+      "ts": 1761425571506,
+      "mode": "pickup",
+      "channel": "abholung",
+      "plz": null,
+      "items": [
+        {
+          "id": "0a1ca016-3b70-45d3-aa1c-eb6351653576",
+          "sku": "0a1ca016-3b70-45d3-aa1c-eb6351653576",
+          "name": "Big Mama’s",
+          "category": "burger",
+          "price": 12,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Halloumi",
+              "price": 2.5
+            }
+          ],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "81a15f2a-d342-4405-98eb-6fe88d1b354c",
+          "sku": "81a15f2a-d342-4405-98eb-6fe88d1b354c",
+          "name": "Avocado Burger",
+          "category": "burger",
+          "price": 14,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Beef (140gr)",
+              "price": 3
+            },
+            {
+              "label": "Jalapeños",
+              "price": 1.5
+            }
+          ],
+          "note": "",
+          "rm": []
+        }
+      ],
+      "merchandise": 26,
+      "discount": 0,
+      "surcharges": 0,
+      "total": 26,
+      "couponDiscount": 0,
+      "orderNote": "Deneme Deneme",
+      "customer": {
+        "name": "Ömer",
+        "phone": "12345699999",
+        "address": "Deneme Deneme"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1761425571638,
+    "history": [
+      {
+        "status": "received",
+        "at": 1761425571636
+      }
+    ]
+  },
+  {
+    "id": "9LN7RH",
+    "source": "web",
+    "mode": "delivery",
+    "status": "received",
+    "createdAt": 1761425636820,
+    "etaMin": 35,
+    "order": {
+      "ts": 1761425636806,
+      "mode": "delivery",
+      "channel": "lieferung",
+      "plz": "13509",
+      "items": [
+        {
+          "id": "0a1ca016-3b70-45d3-aa1c-eb6351653576",
+          "sku": "0a1ca016-3b70-45d3-aa1c-eb6351653576",
+          "name": "Big Mama’s",
+          "category": "burger",
+          "price": 12,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Halloumi",
+              "price": 2.5
+            }
+          ],
+          "note": "",
+          "rm": []
+        },
+        {
+          "id": "81a15f2a-d342-4405-98eb-6fe88d1b354c",
+          "sku": "81a15f2a-d342-4405-98eb-6fe88d1b354c",
+          "name": "Avocado Burger",
+          "category": "burger",
+          "price": 14,
+          "qty": 1,
+          "add": [
+            {
+              "label": "Beef (140gr)",
+              "price": 3
+            },
+            {
+              "label": "Jalapeños",
+              "price": 1.5
+            }
+          ],
+          "note": "",
+          "rm": []
+        }
+      ],
+      "merchandise": 26,
+      "discount": 2.6,
+      "surcharges": 2,
+      "total": 25.4,
+      "couponDiscount": 0,
+      "orderNote": "Bitte ohne Klingeln liefern, Baby schläft.",
+      "customer": {
+        "name": "Ömer",
+        "phone": "12341567891",
+        "deliveryHint": "Bitte ohne Klingeln liefern, Baby schläft.",
+        "address": "Titusweg 55 | 13509"
+      }
+    },
+    "freebies": {
+      "freeSauces": 0
+    },
+    "updatedAt": 1761425636822,
+    "history": [
+      {
+        "status": "received",
+        "at": 1761425636820
+      }
+    ]
+  }
+]
