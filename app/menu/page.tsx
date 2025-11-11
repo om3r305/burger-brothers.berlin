@@ -127,6 +127,25 @@ export default function MenuPage() {
   const pathname = usePathname();
   const orderMode = useCart((s: any) => s.orderMode) as "pickup" | "delivery";
 
+  /* ——— /menu?cat=… (veya tab=…) → özel sayfalara güçlü yönlendirme ——— */
+  useEffect(() => {
+    const q = (searchParams?.get("cat") || searchParams?.get("tab") || "").toLowerCase();
+    if (!q) return;
+    const map: Record<string, string> = {
+      extras: "/extras",
+      drinks: "/drinks",
+      sauces: "/sauces",
+      hotdogs: "/hotdogs",
+      donuts: "/donuts",
+      bubbletea: "/bubble-tea",
+      "bubble-tea": "/bubble-tea",
+    };
+    const target = map[q];
+    if (target && pathname !== target) {
+      router.replace(target);
+    }
+  }, [searchParams, router, pathname]);
+
   const [tab, setTab] = useState<TabKey>("burger");
   useEffect(() => {
     const cat = (searchParams?.get("cat") || searchParams?.get("tab") || "").toLowerCase();
@@ -356,7 +375,7 @@ export default function MenuPage() {
           />
           <div className="flex flex-col leading-tight">
             <h1 className="text-2xl font-semibold">Burger Brothers</h1>
-            <span className="text-xs text-white/70">Berlin Tegel</span>
+            <span className="text-xs text.white/70">Berlin Tegel</span>
           </div>
         </Link>
 
