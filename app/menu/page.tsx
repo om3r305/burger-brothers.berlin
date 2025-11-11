@@ -79,7 +79,7 @@ const TAB_TITLE: Record<TabKey, string> = {
   bubbletea: "Bubble Tea",
 };
 
-/* --- NEW: Bu tab’lar kendi route’larına gider; diğerleri /menu’da kalır --- */
+/* --- Bu tab’lar kendi route’larına gider; diğerleri /menu’da kalır --- */
 const ROUTE_MAP: Partial<Record<TabKey, string>> = {
   extras: "/extras",
   sauces: "/sauces",
@@ -131,6 +131,87 @@ function guessCategory(p: Product): TabKey {
   return "burger";
 }
 
+/* ========= UZAK KAYNAK ⇒ LS ⇒ STATE SENKRON ========== */
+
+type MaybeProductsResponse =
+  | Product[]
+  | { products?: Product[] }
+  | { items?: Product[] }
+  | { data?: Product[] };
+
+function normalizeProductsPayload(payload: any): Product[] {
+  if (!payload) return [];
+  const arr: any[] =
+    Array.isArray(payload)
+      ? payload
+      : Array.isArray(payload.products)
+      ? payload.products
+      : Array.isArray(payload.items)
+      ? payload.items
+      : Array.isArray(payload.data)
+      ? payload.data
+      : [];
+  return arr
+    .filter(Boolean)
+    .map((p: any) => ({
+      id: String(p.id ?? p.sku ?? p.code ?? p.name ?? ""),
+      sku: p.sku,
+      code: p.code,
+      name: String(p.name ?? "Produkt"),
+      price: Number(p.price) || 0,
+      category: p.category ?? guessCategory(p),
+      imageUrl: p.imageUrl ?? p.image ?? p.cover,
+      description: p.description ?? "",
+      extras: Array.isArray(p.extras) ? p.extras : [],
+      allergens: Array.isArray(p.allergens) ? p.allergens : [],
+      allergenHinweise: p.allergenHinweise,
+      active: p.active,
+      activeFrom: p.activeFrom,
+      activeTo: p.activeTo,
+    })) as Product[];
+}
+
+async function tryFetchFirst(urls: string[]): Promise<Product[] | null> {
+  for (const u of urls) {
+    try {
+      const res = await fetch(u, { cache: "no-store" });
+      if (!res.ok) continue;
+      const json: MaybeProductsResponse = await res.json();
+      const norm = normalizeProductsPayload(json);
+      if (norm.length) return norm;
+    } catch {
+      /* ignore and continue */
+    }
+  }
+  return null;
+}
+
+function lsReadProducts(): Product[] {
+  try {
+    const raw = localStorage.getItem(LS_PRODUCTS);
+    const js = raw ? JSON.parse(raw) : [];
+    return normalizeProductsPayload(js);
+  } catch {
+    return [];
+  }
+}
+
+function lsWriteProducts(list: Product[]) {
+  try {
+    localStorage.setItem(LS_PRODUCTS, JSON.stringify(list));
+  } catch {}
+}
+
+function hashList(list: Product[]): string {
+  try {
+    // hızlı ve yeterli: isim+fiyat+id üstünden basit hash
+    const sig = list.map(p => `${p.id}|${p.name}|${p.price}`).join("§");
+    let h = 0;
+    for (let i = 0; i < sig.length; i++) h = (h * 31 + sig.charCodeAt(i)) >>> 0;
+    return String(h);
+  } catch { return ""; }
+}
+
 export default function MenuPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -139,7 +220,7 @@ export default function MenuPage() {
 
   const [tab, setTab] = useState<TabKey>("burger");
 
-  /* --- NEW: URL'de menü-dışı bir kategori geldiyse ilgili route’a yönlendir --- */
+  /* URL tab + dış rota */
   useEffect(() => {
     const raw = (searchParams?.get("cat") || searchParams?.get("tab") || "").toLowerCase() as TabKey;
     if (!raw) return;
@@ -223,26 +304,68 @@ export default function MenuPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabledTabs]);
 
-  /* LS veri */
+  /* ======= Ürünleri getir: Uzak → LS → State, focus + interval ile tazele ======= */
   const [products, setProducts] = useState<Product[]>([]);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [sig, setSig] = useState<string>("");
+
+  async function syncProducts(force = false) {
+    // Uzak kaynak deneme sırası (olabildiğince esnek)
+    const urls = [
+      "/api/products",
+      "/api/catalog",
+      "/api/menu",
+      "/api/export/products",
+      "/data/products.json",
+      "/data/catalog.json",
+    ];
+    const remote = await tryFetchFirst(
+      force ? urls.map(u => `${u}?t=${Date.now()}`) : urls
+    );
+
+    if (remote && remote.length) {
+      const newSig = hashList(remote);
+      if (newSig !== sig) {
+        setProducts(remote);
+        lsWriteProducts(remote);
+        setSig(newSig);
+      }
+      return;
+    }
+
+    // Uzak yoksa LS’den oku
+    const fromLS = lsReadProducts();
+    const newSig = hashList(fromLS);
+    if (newSig !== sig) {
+      setProducts(fromLS);
+      setSig(newSig);
+    }
+  }
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(LS_PRODUCTS);
-      setProducts(raw ? (JSON.parse(raw) as Product[]) : []);
-    } catch {
-      setProducts([]);
-    }
-    try {
-      const cmps = loadNormalizedCampaigns();
-      setCampaigns(cmps || []);
-    } catch {
-      setCampaigns([]);
-    }
-  }, []);
+    (async () => {
+      await syncProducts(true); // ilk yüklemede cache’i tamamen baypas et
+      try {
+        const cmps = loadNormalizedCampaigns();
+        setCampaigns(cmps || []);
+      } catch { setCampaigns([]); }
+    })();
 
-  /* --- NEW: tab değişince özel route’a git; aksi halde /menu?cat=... --- */
+    // Odaklanınca tazele
+    const onFocus = () => { syncProducts(true); };
+    window.addEventListener("focus", onFocus);
+
+    // 30 sn’de bir tazele (fark varsa state/LS günceller)
+    const iv = setInterval(() => { syncProducts(false); }, 30000);
+
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      clearInterval(iv);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // sadece mount
+
+  /* --- tab değişince özel route’a git; aksi halde /menu?cat=... --- */
   const handleTabChange = (t: TabKey) => {
     const route = ROUTE_MAP[t];
     if (route) {
