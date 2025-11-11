@@ -1,0 +1,15 @@
+[
+  {
+    "sku": "fries",
+    "name": "Fries",
+    "variants": [
+      { "id": "sm", "name": "Klein", "price": 2.9 },
+      { "id": "lg", "name": "Groß", "price": 3.9 }
+    ]
+  },
+  {
+    "sku": "snacks",
+    "name": "Snacks & Beilagen",
+    "variants": [ { "id": "onion", "name": "Onion Rings", "price": 4.5 } ]
+  }
+]
