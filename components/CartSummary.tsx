@@ -858,6 +858,23 @@ export function CartSummaryMobile() {
     } catch {}
   }, []);
 
+  /* ── YENİ: Ürün modalı/overlay açıldığında fab butonu gizle ── */
+  const [overlayOpen, setOverlayOpen] = useState(false);
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const check = () => {
+      // Heuristik: role="dialog" veya product modal class/attr'ları varsa
+      const el = document.querySelector('[data-product-modal], .product-modal, [role="dialog"]');
+      setOverlayOpen(!!el);
+    };
+    check();
+    const mo = new MutationObserver(check);
+    mo.observe(document.body, { childList: true, subtree: true, attributes: true });
+    const onVis = () => check();
+    document.addEventListener("visibilitychange", onVis);
+    return () => { mo.disconnect(); document.removeEventListener("visibilitychange", onVis); };
+  }, []);
+
   return (
     <>
       {mounted && (
@@ -865,7 +882,8 @@ export function CartSummaryMobile() {
           suppressHydrationWarning
           onClick={() => setOpen(true)}
           style={{ bottom: safeBottom }}
-          className="fixed left-1/2 z-50 -translate-x-1/2 rounded-full bg-amber-600 px-5 py-3 text-black shadow-xl sm:hidden"
+          className={`fixed left-1/2 z-50 -translate-x-1/2 rounded-full bg-amber-600 px-5 py-3 text-black shadow-xl sm:hidden transition
+                      ${overlayOpen ? "translate-y-full opacity-0 pointer-events-none" : ""}`}
         >
           Warenkorb ansehen • {fmt(totalFinal)}
         </button>

@@ -43,18 +43,26 @@ export default function HomePage() {
   };
 
   return (
-    <main className="relative flex min-h-dvh items-center justify-center overflow-hidden bg-black">
+    <main className="relative flex min-h-svh items-center justify-center overflow-hidden bg-black">
       {/* 🔥 Arka plan videosu — autoplay düşerse “Arka planı başlat” butonu çıkar */}
       <VideoBG
-        src="/flames/flame-loop.mp4"      // Halloween videosunu da koyabilirsin (örn: /media/halloween.mp4)
-        poster="/flames/poster.jpg"       // varsa poster ekle
-        lighten={0.50}                    // kararmayı azalttım
-        shiftY="-10%"                     // biraz yukarı kaydır
+        src="/flames/flame-loop.mp4"
+        poster="/flames/poster.jpg"
+        lighten={0.35}     // <-- alevler daha canlı (daha az karartma)
+        shiftY="-10%"      // yukarı kaydırma (alt çizgiyi gizlemeye yardım eder)
       />
 
+      {/* Üstten hafif koyulaştırma: logonun okunaklı kalması için */}
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/45 via-black/20 to-transparent" />
+
+      {/* Altta amber glow: canlılık + alttaki siyah bantı öldürür */}
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-amber-400/18 to-transparent mix-blend-screen" />
+
       {/* Logo + Lokasyon + CTA */}
-      <div className="relative z-10 mx-auto flex max-w-screen-md flex-col items-center gap-4 p-6 text-center"
-           style={{ transform: "translateY(-6vh)" }}>
+      <div
+        className="relative z-10 mx-auto flex max-w-screen-md flex-col items-center gap-4 p-6 text-center"
+        style={{ transform: "translateY(-6vh)" }}
+      >
         <Image
           src={siteConfig.brand.logoPath}
           alt={siteConfig.brand.name}
@@ -62,6 +70,7 @@ export default function HomePage() {
           height={560}
           priority
           className="h-auto w-[56vh] max-w-[72vw] select-none drop-shadow-[0_8px_24px_rgba(0,0,0,0.6)]"
+          draggable={false}
         />
 
         <div

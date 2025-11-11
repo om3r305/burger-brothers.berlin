@@ -13,6 +13,7 @@ function hash(s: string) {
 
 export default function ProductsSync() {
   useEffect(() => {
+    const manual = () => (typeof localStorage!=="undefined" && localStorage.getItem("bb_products_manual")==="1");
     let stop = false;
     let lastSentHash = "";
 
@@ -31,6 +32,7 @@ export default function ProductsSync() {
     };
 
     const pull = async () => {
+      if (manual()) return;
       try {
         const res = await fetch("/api/products", { cache: "no-store" });
         const js = await res.json().catch(() => ({ items: [] }));
@@ -47,7 +49,7 @@ export default function ProductsSync() {
     pull().then(() => pushIfChanged());
 
     // Görünür olunca kontrol
-    const onVis = () => { if (document.visibilityState === "visible") pull(); };
+    const onVis = () => { if (document.visibilityState === "visible" && !manual()) pull(); };
     document.addEventListener("visibilitychange", onVis);
 
     // Her 3 saniyede bir LS'de değişiklik olduysa sunucuya yaz

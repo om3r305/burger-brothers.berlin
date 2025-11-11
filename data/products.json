@@ -51,8 +51,8 @@
       "G"
     ],
     "active": true,
-    "order": 3,
-    "dailyLimit": null
+    "dailyLimit": null,
+    "order": 3
   },
   {
     "id": "big-mama",
@@ -114,7 +114,7 @@
     "price": 9.5,
     "category": "burger",
     "imageUrl": "/images/burgers/avo.png",
-    "description": "Frische und Cremigkeit in Perfektion! Saftiges Rindfleisch, würziger Rucola und feine Avocado.",
+    "description": "Frische und Cremigkeit in Perfektion! Saftiges Rindfleisch, würziger Rucola und feine Avocado vereinen sich zu einem harmonischen Geschmackserlebnis.",
     "extras": [
       {
         "id": "ex-kaese",
@@ -494,7 +494,7 @@
     "price": 6.5,
     "category": "burger",
     "imageUrl": "/images/burgers/All.png",
-    "description": "Der Klassiker unter den Klassikern! Saftiges Rindfleischpatty mit traditionellen Zutaten.",
+    "description": "Der Klassiker unter den Klassikern! Ein saftiges Rindfleischpatty, verfeinert mit traditionellen Zutaten, die den typisch amerikanischen Burgergeschmack perfekt abrunden.",
     "extras": [
       {
         "id": "ex-kaese",
@@ -710,7 +710,7 @@
     "price": 8,
     "category": "burger",
     "imageUrl": "/images/burgers/BBQ.png",
-    "description": "Zartes Rindfleisch & knuspriger Bacon.",
+    "description": "Ein Klassiker mit besonderem Twist! Zartes Rindfleisch trifft auf knusprig gebratene Baconscheiben - herzhaft, rauchig und unwiderstehlich lecker.",
     "extras": [
       {
         "id": "ex-kaese",
@@ -1236,335 +1236,6 @@
     "imageUrl": "/images/sauces/Ketcap.png",
     "active": true,
     "order": 4,
-    "dailyLimit": null
-  },
-  {
-    "id": "dn-white-class",
-    "name": "White Class",
-    "price": 2.6,
-    "category": "donuts",
-    "imageUrl": "/images/donuts/white-class.png",
-    "description": "Glasur: Weiße Schokolade • Streifen: Zartbitterschokolade",
-    "allergens": [
-      "1",
-      "2",
-      "6",
-      "15",
-      "F"
-    ],
-    "active": true,
-    "order": 3,
-    "dailyLimit": null
-  },
-  {
-    "id": "dn-black-class",
-    "name": "Black Class",
-    "price": 2.6,
-    "category": "donuts",
-    "imageUrl": "/images/donuts/black-class.png",
-    "description": "Glasur: Zartbitterschokolade • Streifen: weiße Schokolade",
-    "allergens": [
-      "1",
-      "2",
-      "6",
-      "15",
-      "F"
-    ],
-    "active": true,
-    "order": 0,
-    "dailyLimit": null
-  },
-  {
-    "id": "dn-milky-class",
-    "name": "Milky Class",
-    "price": 2.6,
-    "category": "donuts",
-    "imageUrl": "/images/donuts/milky-class.png",
-    "description": "Glasur: Vollmilchschokolade • Streifen: weiße Schokolade",
-    "allergens": [
-      "1",
-      "2",
-      "6",
-      "15",
-      "F"
-    ],
-    "active": true,
-    "order": 1,
-    "dailyLimit": null
-  },
-  {
-    "id": "dn-monkey-blau",
-    "name": "Monkey Blau",
-    "price": 2.6,
-    "category": "donuts",
-    "imageUrl": "/images/donuts/monkey-blau.png",
-    "description": "Glasur: Blaue Glasur • Topping: Schokostreusel",
-    "allergens": [
-      "1",
-      "2",
-      "6",
-      "11",
-      "13",
-      "15",
-      "F"
-    ],
-    "active": true,
-    "order": 2,
-    "dailyLimit": null
-  },
-  {
-    "id": "dn-pinke-schokolade",
-    "name": "Pinke Schokolade",
-    "price": 2.6,
-    "category": "donuts",
-    "imageUrl": "/images/donuts/pinke-schokolade.png",
-    "description": "Glasur: Pinke Schokolade • Topping: Bunte Streusel",
-    "allergens": [
-      "1",
-      "2",
-      "6",
-      "15",
-      "F",
-      "K"
-    ],
-    "active": true,
-    "order": 4,
-    "dailyLimit": null
-  },
-  {
-    "id": "cake-raspberry-cheesecake",
-    "name": "Raspberry Cheesecake",
-    "price": 5.3,
-    "category": "donuts",
-    "imageUrl": "/images/desserts/raspberry-cheesecake.png",
-    "description": "Zutaten: Labne-Käse, Zucker, Margarine, Ei, Weizenmehl, Wasser, Himbeergeschmack, Himbeere, Puderzucker, Kleie, Melasse, Milchpulver, Erdbeere, Glukose, Maisstärke, Zitronensaft, Pektin, Backpulver, Carbonat, Zimt, Salz, Vanille. Allergene: WEIZENMEHL, EI, MILCH",
-    "allergens": [
-      "WEIZENMEHL",
-      "EI",
-      "MILCH"
-    ],
-    "active": true,
-    "order": 5,
-    "dailyLimit": null
-  },
-  {
-    "id": "cake-carrot",
-    "name": "Spezial Carrot Cake",
-    "price": 5.6,
-    "category": "donuts",
-    "imageUrl": "/images/desserts/carrot-cake.png",
-    "description": "Zutaten: Weizenmehl, Zucker, Karotte, Sonnenblumenöl, Ei, Schlagsahne, Ananas, Rosinen, Wasser, Walnuss, Kokosnuss, Milch, Sahnepatisserie, Melasse, Backpulver, Zimt, Gelatine, Muskatnuss. Allergene: WEIZENMEHL, EI, MILCH",
-    "allergens": [
-      "WEIZENMEHL",
-      "EI",
-      "MILCH"
-    ],
-    "active": true,
-    "order": 6,
-    "dailyLimit": null
-  },
-  {
-    "id": "cake-tiramisu",
-    "name": "Tiramisu",
-    "price": 5.3,
-    "category": "donuts",
-    "imageUrl": "/images/desserts/tiramisu.png",
-    "description": "Zutaten: Sahne, Zucker, Wasser, Ei, Labne-Käse, Weizenmehl, Glukose, Eigelb, Emulgator, Instantkaffee, Kakao, Maisstärke, Gelatine, Backpulver. Allergene: WEIZENMEHL, EI, MILCH",
-    "allergens": [
-      "WEIZENMEHL",
-      "EI",
-      "MILCH"
-    ],
-    "active": true,
-    "order": 7,
-    "dailyLimit": null
-  },
-  {
-    "id": "bt-wassermelone",
-    "name": "Wassermelone",
-    "price": 4.5,
-    "category": "bubbleTea",
-    "imageUrl": "/images/bubbletea/wassermelone.png",
-    "description": "Wassermelone Sirup & Grüner Apfel Boba-Perlen, Früchte-Tee",
-    "allergens": [
-      "FR",
-      "AR",
-      "GL",
-      "SC",
-      "SR",
-      "SRA",
-      "G",
-      "K",
-      "SÜ",
-      "F"
-    ],
-    "active": true,
-    "order": 7,
-    "dailyLimit": null
-  },
-  {
-    "id": "bt-monkey-hawaii",
-    "name": "Monkey Hawaii",
-    "price": 4.5,
-    "category": "bubbleTea",
-    "imageUrl": "/images/bubbletea/monkey-hawaii.png",
-    "description": "Maracuja Sirup & Pfirsich Boba-Perlen, Früchte-Tee",
-    "allergens": [
-      "FR",
-      "AR",
-      "GL",
-      "SC",
-      "SRA",
-      "G",
-      "K",
-      "SÜ",
-      "F"
-    ],
-    "active": true,
-    "order": 4,
-    "dailyLimit": null
-  },
-  {
-    "id": "bt-monkey-tropika",
-    "name": "Monkey Tropika",
-    "price": 4.5,
-    "category": "bubbleTea",
-    "imageUrl": "/images/bubbletea/monkey-tropika.png",
-    "description": "Mango Sirup & Maracuja Boba-Perlen, Früchte-Tee",
-    "allergens": [
-      "FR",
-      "AR",
-      "GL",
-      "SC",
-      "SRA",
-      "G",
-      "K",
-      "SÜ",
-      "F"
-    ],
-    "active": true,
-    "order": 5,
-    "dailyLimit": null
-  },
-  {
-    "id": "bt-heidelbeere",
-    "name": "Heidelbeere",
-    "price": 4.5,
-    "category": "bubbleTea",
-    "imageUrl": "/images/bubbletea/heidelbeere.png",
-    "description": "Heidelbeere Sirup & Litchi Boba-Perlen, Grüner Tee",
-    "allergens": [
-      "AF",
-      "AL",
-      "AR",
-      "FR",
-      "KA",
-      "KC",
-      "N",
-      "SA",
-      "T",
-      "X"
-    ],
-    "active": true,
-    "order": 2,
-    "dailyLimit": null
-  },
-  {
-    "id": "bt-erdbeere",
-    "name": "Erdbeere",
-    "price": 4.5,
-    "category": "bubbleTea",
-    "imageUrl": "/images/bubbletea/erdbeere.png",
-    "description": "Erdbeer Sirup & Grüner Apfel Boba-Perlen, Grüner Tee",
-    "allergens": [
-      "AF",
-      "AL",
-      "AR",
-      "FR",
-      "KA",
-      "KC",
-      "N",
-      "SA",
-      "T",
-      "X"
-    ],
-    "active": true,
-    "order": 0,
-    "dailyLimit": null
-  },
-  {
-    "id": "bt-gruener-apfel",
-    "name": "Grüner Apfel",
-    "price": 4.5,
-    "category": "bubbleTea",
-    "imageUrl": "/images/bubbletea/gruener-apfel.png",
-    "description": "Maracuja Sirup & Pfirsich Boba-Perlen, Früchte-Tee",
-    "allergens": [
-      "FR",
-      "AR",
-      "GL",
-      "SC",
-      "SRA",
-      "G",
-      "K",
-      "SÜ",
-      "F"
-    ],
-    "active": true,
-    "order": 1,
-    "dailyLimit": null
-  },
-  {
-    "id": "bt-litchi",
-    "name": "Litchi",
-    "price": 4.5,
-    "category": "bubbleTea",
-    "imageUrl": "/images/bubbletea/litchi.png",
-    "description": "Litchi Sirup & Wassermelonen Boba-Perlen, Schwarzer Tee",
-    "allergens": [
-      "SZ",
-      "RT",
-      "SRA",
-      "SR",
-      "HO",
-      "GL",
-      "AR",
-      "K",
-      "SÜ",
-      "SCR",
-      "CLF",
-      "T",
-      "SN",
-      "SOR",
-      "PP",
-      "ZS",
-      "BR"
-    ],
-    "active": true,
-    "order": 3,
-    "dailyLimit": null
-  },
-  {
-    "id": "bt-pfirsich",
-    "name": "Pfirsich",
-    "price": 4.5,
-    "category": "bubbleTea",
-    "imageUrl": "/images/bubbletea/pfirsich.png",
-    "description": "Pfirsich Sirup & Wassermelonen Boba-Perlen, Früchte-Tee",
-    "allergens": [
-      "AF",
-      "AL",
-      "AR",
-      "FR",
-      "KA",
-      "KC",
-      "N",
-      "SA",
-      "T",
-      "X"
-    ],
-    "active": true,
-    "order": 6,
     "dailyLimit": null
   }
 ]

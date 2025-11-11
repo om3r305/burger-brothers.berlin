@@ -304,7 +304,15 @@ export default function AdminPage() {
     try { localStorage.setItem(LS_PRODUCTS, JSON.stringify(items)); } catch {}
   }, [items], 300);
 
+  
+  // Mark as manually edited so sync/pull won't override
   useDebouncedEffect(() => {
+    try { 
+      localStorage.setItem("bb_products_manual", "1");
+      localStorage.setItem("bb_products_v1_version", String(Date.now()));
+    } catch {}
+  }, [items], 0);
+useDebouncedEffect(() => {
     try { localStorage.setItem(LS_DRINK_GROUPS, JSON.stringify(drinkGroups)); } catch {}
   }, [drinkGroups], 300);
 

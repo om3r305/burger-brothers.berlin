@@ -7,7 +7,7 @@
       "command": "npm run typecheck -- --watch",
       "problemMatcher": "$tsc-watch",
       "group": {
-        "kind": "build",
+        "kind": "test",
         "isDefault": true
       }
     },
