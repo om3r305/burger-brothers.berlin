@@ -1,0 +1,16 @@
+{
+  "meta": {
+    "updatedAt": "2026-06-24T19:45:41.818Z",
+    "firstLearnAt": "2026-06-20T09:03:55.600Z",
+    "windowDays": 60,
+    "thresholds": {
+      "support": 12,
+      "lift": 1.5,
+      "confidence_lb": 0.99
+    },
+    "storage": "file",
+    "logCount": 2
+  },
+  "pairs": [],
+  "clusters": []
+}

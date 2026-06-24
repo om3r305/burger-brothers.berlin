@@ -1,0 +1,1241 @@
+[
+  {
+    "id": "big-daddy",
+    "name": "Big Daddy",
+    "price": 10.5,
+    "category": "burger",
+    "imageUrl": "/images/burgers/Bigdaddy.png",
+    "description": "mit Salat, doppelt Bacon, doppelt Fleisch, doppelt Cheddarkäse",
+    "extras": [
+      {
+        "id": "ex-kaese",
+        "name": "Käse",
+        "price": 1
+      },
+      {
+        "id": "ex-jalapenos",
+        "name": "Jalapeños",
+        "price": 1.5
+      },
+      {
+        "id": "ex-bacon",
+        "name": "Bacon",
+        "price": 1.5
+      },
+      {
+        "id": "ex-mozzarella-handmade",
+        "name": "Selfmade Panierte Mozzarella",
+        "price": 2.5
+      },
+      {
+        "id": "ex-halloumi",
+        "name": "Halloumi",
+        "price": 2.5
+      },
+      {
+        "id": "ex-beef-140",
+        "name": "Beef (140gr)",
+        "price": 3
+      },
+      {
+        "id": "ex-caramel-onions",
+        "name": "Karamellisierte Zwiebeln",
+        "price": 0.5
+      }
+    ],
+    "allergens": [
+      "A1",
+      "N",
+      "C",
+      "M",
+      "G"
+    ],
+    "active": true,
+    "dailyLimit": null,
+    "order": 3
+  },
+  {
+    "id": "big-mama",
+    "name": "Big Mama’s",
+    "price": 9.5,
+    "category": "burger",
+    "imageUrl": "/images/burgers/Bigmamas.png",
+    "description": "mit Beef, frittierter Aubergine, Zucchini, Paprika, Karotten & Rucola",
+    "extras": [
+      {
+        "id": "ex-kaese",
+        "name": "Käse",
+        "price": 1
+      },
+      {
+        "id": "ex-jalapenos",
+        "name": "Jalapeños",
+        "price": 1.5
+      },
+      {
+        "id": "ex-bacon",
+        "name": "Bacon",
+        "price": 1.5
+      },
+      {
+        "id": "ex-mozzarella-handmade",
+        "name": "Selfmade Panierte Mozzarella",
+        "price": 2.5
+      },
+      {
+        "id": "ex-halloumi",
+        "name": "Halloumi",
+        "price": 2.5
+      },
+      {
+        "id": "ex-beef-140",
+        "name": "Beef (140gr)",
+        "price": 3
+      },
+      {
+        "id": "ex-caramel-onions",
+        "name": "Karamellisierte Zwiebeln",
+        "price": 0.5
+      }
+    ],
+    "allergens": [
+      "A1",
+      "N",
+      "C",
+      "M"
+    ],
+    "active": true,
+    "order": 4,
+    "dailyLimit": null
+  },
+  {
+    "id": "avocado-burger",
+    "name": "Avocado Burger",
+    "price": 9.5,
+    "category": "burger",
+    "imageUrl": "/images/burgers/avo.png",
+    "description": "Frische und Cremigkeit in Perfektion! Saftiges Rindfleisch, würziger Rucola und feine Avocado vereinen sich zu einem harmonischen Geschmackserlebnis.",
+    "extras": [
+      {
+        "id": "ex-kaese",
+        "name": "Käse",
+        "price": 1
+      },
+      {
+        "id": "ex-jalapenos",
+        "name": "Jalapeños",
+        "price": 1.5
+      },
+      {
+        "id": "ex-bacon",
+        "name": "Bacon",
+        "price": 1.5
+      },
+      {
+        "id": "ex-mozzarella-handmade",
+        "name": "Selfmade Panierte Mozzarella",
+        "price": 2.5
+      },
+      {
+        "id": "ex-halloumi",
+        "name": "Halloumi",
+        "price": 2.5
+      },
+      {
+        "id": "ex-beef-140",
+        "name": "Beef (140gr)",
+        "price": 3
+      },
+      {
+        "id": "ex-caramel-onions",
+        "name": "Karamellisierte Zwiebeln",
+        "price": 0.5
+      }
+    ],
+    "allergens": [
+      "A1",
+      "N",
+      "C",
+      "M"
+    ],
+    "active": true,
+    "order": 1,
+    "dailyLimit": null
+  },
+  {
+    "id": "montana-blue",
+    "name": "Montana Blue",
+    "price": 9.4,
+    "category": "burger",
+    "description": "mit Beef, Rucola & Gorgonzola",
+    "extras": [
+      {
+        "id": "ex-kaese",
+        "name": "Käse",
+        "price": 1
+      },
+      {
+        "id": "ex-jalapenos",
+        "name": "Jalapeños",
+        "price": 1.5
+      },
+      {
+        "id": "ex-bacon",
+        "name": "Bacon",
+        "price": 1.5
+      },
+      {
+        "id": "ex-mozzarella-handmade",
+        "name": "Selfmade Panierte Mozzarella",
+        "price": 2.5
+      },
+      {
+        "id": "ex-halloumi",
+        "name": "Halloumi",
+        "price": 2.5
+      },
+      {
+        "id": "ex-beef-140",
+        "name": "Beef (140gr)",
+        "price": 3
+      },
+      {
+        "id": "ex-caramel-onions",
+        "name": "Karamellisierte Zwiebeln",
+        "price": 0.5
+      }
+    ],
+    "allergens": [
+      "A1",
+      "N",
+      "C",
+      "M",
+      "G"
+    ],
+    "active": true,
+    "order": 14,
+    "dailyLimit": null
+  },
+  {
+    "id": "black-angus",
+    "name": "Black Angus Burger",
+    "price": 10.5,
+    "category": "burger",
+    "imageUrl": "/images/burgers/angus.png",
+    "description": "aus 200g Black-Angus-Hackfleisch",
+    "extras": [
+      {
+        "id": "ex-kaese",
+        "name": "Käse",
+        "price": 1
+      },
+      {
+        "id": "ex-jalapenos",
+        "name": "Jalapeños",
+        "price": 1.5
+      },
+      {
+        "id": "ex-bacon",
+        "name": "Bacon",
+        "price": 1.5
+      },
+      {
+        "id": "ex-mozzarella-handmade",
+        "name": "Selfmade Panierte Mozzarella",
+        "price": 2.5
+      },
+      {
+        "id": "ex-halloumi",
+        "name": "Halloumi",
+        "price": 2.5
+      },
+      {
+        "id": "ex-beef-140",
+        "name": "Beef (140gr)",
+        "price": 3
+      },
+      {
+        "id": "ex-caramel-onions",
+        "name": "Karamellisierte Zwiebeln",
+        "price": 0.5
+      }
+    ],
+    "allergens": [
+      "A1",
+      "N",
+      "C",
+      "M"
+    ],
+    "active": true,
+    "order": 5,
+    "dailyLimit": null
+  },
+  {
+    "id": "goodfellas",
+    "name": "Goodfellas Burger",
+    "price": 9.5,
+    "category": "burger",
+    "imageUrl": "/images/burgers/Good.png",
+    "description": "mit Beef, Halloumi & Rucola",
+    "extras": [
+      {
+        "id": "ex-kaese",
+        "name": "Käse",
+        "price": 1
+      },
+      {
+        "id": "ex-jalapenos",
+        "name": "Jalapeños",
+        "price": 1.5
+      },
+      {
+        "id": "ex-bacon",
+        "name": "Bacon",
+        "price": 1.5
+      },
+      {
+        "id": "ex-mozzarella-handmade",
+        "name": "Selfmade Panierte Mozzarella",
+        "price": 2.5
+      },
+      {
+        "id": "ex-halloumi",
+        "name": "Halloumi",
+        "price": 2.5
+      },
+      {
+        "id": "ex-beef-140",
+        "name": "Beef (140gr)",
+        "price": 3
+      },
+      {
+        "id": "ex-caramel-onions",
+        "name": "Karamellisierte Zwiebeln",
+        "price": 0.5
+      }
+    ],
+    "allergens": [
+      "A1",
+      "N",
+      "C",
+      "M",
+      "G"
+    ],
+    "active": true,
+    "order": 11,
+    "dailyLimit": null
+  },
+  {
+    "id": "brothers-special",
+    "name": "Burger Brothers Special",
+    "price": 9.5,
+    "category": "burger",
+    "imageUrl": "/images/burgers/BBS.png",
+    "description": "mit Beef & paniertem Mozzarella, Rucola (handmade)",
+    "extras": [
+      {
+        "id": "ex-kaese",
+        "name": "Käse",
+        "price": 1
+      },
+      {
+        "id": "ex-jalapenos",
+        "name": "Jalapeños",
+        "price": 1.5
+      },
+      {
+        "id": "ex-bacon",
+        "name": "Bacon",
+        "price": 1.5
+      },
+      {
+        "id": "ex-mozzarella-handmade",
+        "name": "Selfmade Panierte Mozzarella",
+        "price": 2.5
+      },
+      {
+        "id": "ex-halloumi",
+        "name": "Halloumi",
+        "price": 2.5
+      },
+      {
+        "id": "ex-beef-140",
+        "name": "Beef (140gr)",
+        "price": 3
+      },
+      {
+        "id": "ex-caramel-onions",
+        "name": "Karamellisierte Zwiebeln",
+        "price": 0.5
+      }
+    ],
+    "allergens": [
+      "A1",
+      "N",
+      "C",
+      "M",
+      "G"
+    ],
+    "active": true,
+    "order": 6,
+    "dailyLimit": null
+  },
+  {
+    "id": "smashburger",
+    "name": "Smashburger",
+    "price": 9.8,
+    "category": "burger",
+    "imageUrl": "/images/burgers/Smashburger.png",
+    "description": "2×80g Rinderhack, 2× Cheddar & karamellisierte Zwiebeln",
+    "extras": [
+      {
+        "id": "ex-kaese",
+        "name": "Käse",
+        "price": 1
+      },
+      {
+        "id": "ex-jalapenos",
+        "name": "Jalapeños",
+        "price": 1.5
+      },
+      {
+        "id": "ex-bacon",
+        "name": "Bacon",
+        "price": 1.5
+      },
+      {
+        "id": "ex-mozzarella-handmade",
+        "name": "Selfmade Panierte Mozzarella",
+        "price": 2.5
+      },
+      {
+        "id": "ex-halloumi",
+        "name": "Halloumi",
+        "price": 2.5
+      },
+      {
+        "id": "ex-beef-140",
+        "name": "Beef (140gr)",
+        "price": 3
+      },
+      {
+        "id": "ex-caramel-onions",
+        "name": "Karamellisierte Zwiebeln",
+        "price": 0.5
+      }
+    ],
+    "allergens": [
+      "A1",
+      "N",
+      "C",
+      "M",
+      "G"
+    ],
+    "active": true,
+    "order": 16,
+    "dailyLimit": null
+  },
+  {
+    "id": "fitburger",
+    "name": "Fitburger",
+    "price": 8.5,
+    "category": "burger",
+    "description": "mit gebr. Hähnchenbrustfilet & Rucola",
+    "extras": [
+      {
+        "id": "ex-kaese",
+        "name": "Käse",
+        "price": 1
+      },
+      {
+        "id": "ex-jalapenos",
+        "name": "Jalapeños",
+        "price": 1.5
+      },
+      {
+        "id": "ex-bacon",
+        "name": "Bacon",
+        "price": 1.5
+      },
+      {
+        "id": "ex-mozzarella-handmade",
+        "name": "Selfmade Panierte Mozzarella",
+        "price": 2.5
+      },
+      {
+        "id": "ex-halloumi",
+        "name": "Halloumi",
+        "price": 2.5
+      },
+      {
+        "id": "ex-beef-140",
+        "name": "Beef (140gr)",
+        "price": 3
+      },
+      {
+        "id": "ex-caramel-onions",
+        "name": "Karamellisierte Zwiebeln",
+        "price": 0.5
+      }
+    ],
+    "allergens": [
+      "A1",
+      "N",
+      "C",
+      "M"
+    ],
+    "active": true,
+    "order": 10,
+    "dailyLimit": null
+  },
+  {
+    "id": "all-american",
+    "name": "All American",
+    "price": 6.5,
+    "category": "burger",
+    "imageUrl": "/images/burgers/All.png",
+    "description": "Der Klassiker unter den Klassikern! Ein saftiges Rindfleischpatty, verfeinert mit traditionellen Zutaten, die den typisch amerikanischen Burgergeschmack perfekt abrunden.",
+    "extras": [
+      {
+        "id": "ex-kaese",
+        "name": "Käse",
+        "price": 1
+      },
+      {
+        "id": "ex-jalapenos",
+        "name": "Jalapeños",
+        "price": 1.5
+      },
+      {
+        "id": "ex-bacon",
+        "name": "Bacon",
+        "price": 1.5
+      },
+      {
+        "id": "ex-mozzarella-handmade",
+        "name": "Selfmade Panierte Mozzarella",
+        "price": 2.5
+      },
+      {
+        "id": "ex-halloumi",
+        "name": "Halloumi",
+        "price": 2.5
+      },
+      {
+        "id": "ex-beef-140",
+        "name": "Beef (140gr)",
+        "price": 3
+      },
+      {
+        "id": "ex-caramel-onions",
+        "name": "Karamellisierte Zwiebeln",
+        "price": 0.5
+      }
+    ],
+    "allergens": [
+      "A1",
+      "N",
+      "C",
+      "M"
+    ],
+    "active": true,
+    "order": 0,
+    "dailyLimit": null
+  },
+  {
+    "id": "cheesy-cheese",
+    "name": "Cheesy Cheese",
+    "price": 7.2,
+    "category": "burger",
+    "description": "mit Cheddarkäse",
+    "extras": [
+      {
+        "id": "ex-kaese",
+        "name": "Käse",
+        "price": 1
+      },
+      {
+        "id": "ex-jalapenos",
+        "name": "Jalapeños",
+        "price": 1.5
+      },
+      {
+        "id": "ex-bacon",
+        "name": "Bacon",
+        "price": 1.5
+      },
+      {
+        "id": "ex-mozzarella-handmade",
+        "name": "Selfmade Panierte Mozzarella",
+        "price": 2.5
+      },
+      {
+        "id": "ex-halloumi",
+        "name": "Halloumi",
+        "price": 2.5
+      },
+      {
+        "id": "ex-beef-140",
+        "name": "Beef (140gr)",
+        "price": 3
+      },
+      {
+        "id": "ex-caramel-onions",
+        "name": "Karamellisierte Zwiebeln",
+        "price": 0.5
+      }
+    ],
+    "allergens": [
+      "A1",
+      "N",
+      "C",
+      "M",
+      "G"
+    ],
+    "active": true,
+    "order": 7,
+    "dailyLimit": null
+  },
+  {
+    "id": "kids-kinda-borga",
+    "name": "Kids – Kinda Börga",
+    "price": 5,
+    "category": "burger",
+    "description": "Kids Burger",
+    "extras": [
+      {
+        "id": "ex-kaese",
+        "name": "Käse",
+        "price": 1
+      },
+      {
+        "id": "ex-jalapenos",
+        "name": "Jalapeños",
+        "price": 1.5
+      },
+      {
+        "id": "ex-bacon",
+        "name": "Bacon",
+        "price": 1.5
+      },
+      {
+        "id": "ex-mozzarella-handmade",
+        "name": "Selfmade Panierte Mozzarella",
+        "price": 2.5
+      },
+      {
+        "id": "ex-halloumi",
+        "name": "Halloumi",
+        "price": 2.5
+      },
+      {
+        "id": "ex-beef-140",
+        "name": "Beef (140gr)",
+        "price": 3
+      },
+      {
+        "id": "ex-caramel-onions",
+        "name": "Karamellisierte Zwiebeln",
+        "price": 0.5
+      }
+    ],
+    "allergens": [
+      "A1",
+      "N",
+      "C",
+      "M",
+      "G"
+    ],
+    "active": true,
+    "order": 13,
+    "dailyLimit": null
+  },
+  {
+    "id": "double-happiness",
+    "name": "Double Happiness",
+    "price": 9.5,
+    "category": "burger",
+    "imageUrl": "/images/burgers/Double.png",
+    "description": "aus 300g Rinderhackfleisch",
+    "extras": [
+      {
+        "id": "ex-kaese",
+        "name": "Käse",
+        "price": 1
+      },
+      {
+        "id": "ex-jalapenos",
+        "name": "Jalapeños",
+        "price": 1.5
+      },
+      {
+        "id": "ex-bacon",
+        "name": "Bacon",
+        "price": 1.5
+      },
+      {
+        "id": "ex-mozzarella-handmade",
+        "name": "Selfmade Panierte Mozzarella",
+        "price": 2.5
+      },
+      {
+        "id": "ex-halloumi",
+        "name": "Halloumi",
+        "price": 2.5
+      },
+      {
+        "id": "ex-beef-140",
+        "name": "Beef (140gr)",
+        "price": 3
+      },
+      {
+        "id": "ex-caramel-onions",
+        "name": "Karamellisierte Zwiebeln",
+        "price": 0.5
+      }
+    ],
+    "allergens": [
+      "A1",
+      "N",
+      "C",
+      "M"
+    ],
+    "active": true,
+    "order": 9,
+    "dailyLimit": null
+  },
+  {
+    "id": "beef-bacon",
+    "name": "Beef & Bacon",
+    "price": 8,
+    "category": "burger",
+    "imageUrl": "/images/burgers/BBQ.png",
+    "description": "Ein Klassiker mit besonderem Twist! Zartes Rindfleisch trifft auf knusprig gebratene Baconscheiben - herzhaft, rauchig und unwiderstehlich lecker.",
+    "extras": [
+      {
+        "id": "ex-kaese",
+        "name": "Käse",
+        "price": 1
+      },
+      {
+        "id": "ex-jalapenos",
+        "name": "Jalapeños",
+        "price": 1.5
+      },
+      {
+        "id": "ex-bacon",
+        "name": "Bacon",
+        "price": 1.5
+      },
+      {
+        "id": "ex-mozzarella-handmade",
+        "name": "Selfmade Panierte Mozzarella",
+        "price": 2.5
+      },
+      {
+        "id": "ex-halloumi",
+        "name": "Halloumi",
+        "price": 2.5
+      },
+      {
+        "id": "ex-beef-140",
+        "name": "Beef (140gr)",
+        "price": 3
+      },
+      {
+        "id": "ex-caramel-onions",
+        "name": "Karamellisierte Zwiebeln",
+        "price": 0.5
+      }
+    ],
+    "allergens": [
+      "A1",
+      "N",
+      "C",
+      "M"
+    ],
+    "active": true,
+    "order": 2,
+    "dailyLimit": null
+  },
+  {
+    "id": "hot-stuff",
+    "name": "Hot Stuff",
+    "price": 8,
+    "category": "burger",
+    "imageUrl": "/images/burgers/hot.png",
+    "description": "mit Jalapeños & Cheddarkäse",
+    "extras": [
+      {
+        "id": "ex-kaese",
+        "name": "Käse",
+        "price": 1
+      },
+      {
+        "id": "ex-jalapenos",
+        "name": "Jalapeños",
+        "price": 1.5
+      },
+      {
+        "id": "ex-bacon",
+        "name": "Bacon",
+        "price": 1.5
+      },
+      {
+        "id": "ex-mozzarella-handmade",
+        "name": "Selfmade Panierte Mozzarella",
+        "price": 2.5
+      },
+      {
+        "id": "ex-halloumi",
+        "name": "Halloumi",
+        "price": 2.5
+      },
+      {
+        "id": "ex-beef-140",
+        "name": "Beef (140gr)",
+        "price": 3
+      },
+      {
+        "id": "ex-caramel-onions",
+        "name": "Karamellisierte Zwiebeln",
+        "price": 0.5
+      }
+    ],
+    "allergens": [
+      "A1",
+      "N",
+      "C",
+      "M",
+      "G"
+    ],
+    "active": true,
+    "order": 12,
+    "dailyLimit": null
+  },
+  {
+    "id": "crispy-chicken",
+    "name": "Crispy Chicken",
+    "price": 8.3,
+    "category": "burger",
+    "imageUrl": "/images/burgers/crispy.png",
+    "description": "mit Rucola",
+    "extras": [
+      {
+        "id": "ex-kaese",
+        "name": "Käse",
+        "price": 1
+      },
+      {
+        "id": "ex-jalapenos",
+        "name": "Jalapeños",
+        "price": 1.5
+      },
+      {
+        "id": "ex-bacon",
+        "name": "Bacon",
+        "price": 1.5
+      },
+      {
+        "id": "ex-mozzarella-handmade",
+        "name": "Selfmade Panierte Mozzarella",
+        "price": 2.5
+      },
+      {
+        "id": "ex-halloumi",
+        "name": "Halloumi",
+        "price": 2.5
+      },
+      {
+        "id": "ex-beef-140",
+        "name": "Beef (140gr)",
+        "price": 3
+      },
+      {
+        "id": "ex-caramel-onions",
+        "name": "Karamellisierte Zwiebeln",
+        "price": 0.5
+      }
+    ],
+    "allergens": [
+      "A1",
+      "N",
+      "C",
+      "M"
+    ],
+    "active": true,
+    "order": 8,
+    "dailyLimit": null
+  },
+  {
+    "id": "neuland-bio",
+    "name": "Neuland Bio-Burger",
+    "price": 9.5,
+    "category": "burger",
+    "description": "Bio-Beef",
+    "extras": [
+      {
+        "id": "ex-kaese",
+        "name": "Käse",
+        "price": 1
+      },
+      {
+        "id": "ex-jalapenos",
+        "name": "Jalapeños",
+        "price": 1.5
+      },
+      {
+        "id": "ex-bacon",
+        "name": "Bacon",
+        "price": 1.5
+      },
+      {
+        "id": "ex-mozzarella-handmade",
+        "name": "Selfmade Panierte Mozzarella",
+        "price": 2.5
+      },
+      {
+        "id": "ex-halloumi",
+        "name": "Halloumi",
+        "price": 2.5
+      },
+      {
+        "id": "ex-beef-140",
+        "name": "Beef (140gr)",
+        "price": 3
+      },
+      {
+        "id": "ex-caramel-onions",
+        "name": "Karamellisierte Zwiebeln",
+        "price": 0.5
+      }
+    ],
+    "allergens": [
+      "A1",
+      "N",
+      "C",
+      "M"
+    ],
+    "active": true,
+    "order": 15,
+    "dailyLimit": null
+  },
+  {
+    "id": "veg-vegetarian-halloumi",
+    "name": "Vegetarian Halloumi",
+    "price": 7.5,
+    "category": "vegan",
+    "description": "mit Rucola",
+    "extras": [
+      {
+        "id": "ex-kaese",
+        "name": "Käse",
+        "price": 1
+      },
+      {
+        "id": "ex-jalapenos",
+        "name": "Jalapeños",
+        "price": 1.5
+      }
+    ],
+    "allergens": [
+      "A1",
+      "N",
+      "C",
+      "M",
+      "G"
+    ],
+    "active": true,
+    "order": 5,
+    "dailyLimit": null
+  },
+  {
+    "id": "veg-italiana",
+    "name": "Italiana",
+    "price": 8,
+    "category": "vegan",
+    "description": "mit paniertem Mozzarella (handmade), Rucola",
+    "extras": [
+      {
+        "id": "ex-kaese",
+        "name": "Käse",
+        "price": 1
+      },
+      {
+        "id": "ex-jalapenos",
+        "name": "Jalapeños",
+        "price": 1.5
+      }
+    ],
+    "allergens": [
+      "A1",
+      "N",
+      "G",
+      "C",
+      "M"
+    ],
+    "active": true,
+    "order": 2,
+    "dailyLimit": null
+  },
+  {
+    "id": "veg-farmers-market",
+    "name": "Farmer’s Market",
+    "price": 7.2,
+    "category": "vegan",
+    "description": "mit Gemüsefrikadelle, Rucola",
+    "extras": [
+      {
+        "id": "ex-kaese",
+        "name": "Käse",
+        "price": 1
+      },
+      {
+        "id": "ex-jalapenos",
+        "name": "Jalapeños",
+        "price": 1.5
+      }
+    ],
+    "allergens": [
+      "A1",
+      "N",
+      "C",
+      "M"
+    ],
+    "active": true,
+    "order": 1,
+    "dailyLimit": null
+  },
+  {
+    "id": "veg-bio-vegan-all-american",
+    "name": "Bio Vegan – Vegan All American",
+    "price": 7,
+    "category": "vegan",
+    "description": "mit Tofu, Bio",
+    "extras": [
+      {
+        "id": "ex-kaese",
+        "name": "Käse",
+        "price": 1
+      },
+      {
+        "id": "ex-jalapenos",
+        "name": "Jalapeños",
+        "price": 1.5
+      }
+    ],
+    "allergens": [
+      "A1",
+      "N",
+      "F",
+      "M"
+    ],
+    "active": true,
+    "order": 0,
+    "dailyLimit": null
+  },
+  {
+    "id": "veg-vegan-hot-stuff",
+    "name": "Vegan Hot Stuff",
+    "price": 8,
+    "category": "vegan",
+    "description": "mit Jalapeños",
+    "extras": [
+      {
+        "id": "ex-kaese",
+        "name": "Käse",
+        "price": 1
+      },
+      {
+        "id": "ex-jalapenos",
+        "name": "Jalapeños",
+        "price": 1.5
+      }
+    ],
+    "allergens": [
+      "A1",
+      "N",
+      "M"
+    ],
+    "active": true,
+    "order": 4,
+    "dailyLimit": null
+  },
+  {
+    "id": "veg-vegan-big-mama",
+    "name": "Vegan Big Mama’s",
+    "price": 9.5,
+    "category": "vegan",
+    "description": "mit Tofu, Auberginen, Zucchini, Paprika, Karotten & Rucola – Bio vegan",
+    "extras": [
+      {
+        "id": "ex-kaese",
+        "name": "Käse",
+        "price": 1
+      },
+      {
+        "id": "ex-jalapenos",
+        "name": "Jalapeños",
+        "price": 1.5
+      }
+    ],
+    "allergens": [
+      "A1",
+      "N",
+      "F",
+      "M"
+    ],
+    "active": true,
+    "order": 3,
+    "dailyLimit": null
+  },
+  {
+    "id": "hd-klassisch",
+    "name": "Klassischer Hot Dog",
+    "price": 4.5,
+    "category": "hotdogs",
+    "description": "Pute Wurst mit Ketchup & Senf; dazu Sauergurken, Sauerkraut & Röstzwiebeln",
+    "allergens": [
+      "A1",
+      "M"
+    ],
+    "active": true,
+    "order": 2,
+    "dailyLimit": null
+  },
+  {
+    "id": "hd-chili-cheese",
+    "name": "Chili Cheese Hot Dog",
+    "price": 5.5,
+    "category": "hotdogs",
+    "description": "Pute Wurst, Ketchup & Senf; Jalapeños, Röstzwiebeln, Cheese-Soße",
+    "allergens": [
+      "A1",
+      "M",
+      "G"
+    ],
+    "active": true,
+    "order": 1,
+    "dailyLimit": null
+  },
+  {
+    "id": "hd-bacon-cheese",
+    "name": "Bacon Cheese Hot Dog",
+    "price": 5.8,
+    "category": "hotdogs",
+    "description": "Pute Wurst, Ketchup & Senf; Sauergurken, Jalapeños, Röstzwiebeln, Cheese-Soße, Bacon",
+    "allergens": [
+      "A1",
+      "M",
+      "G"
+    ],
+    "active": true,
+    "order": 0,
+    "dailyLimit": null
+  },
+  {
+    "id": "sc-aioli",
+    "name": "Aioli",
+    "price": 1.2,
+    "category": "sauces",
+    "imageUrl": "/images/sauces/Aioli.png",
+    "allergens": [
+      "C"
+    ],
+    "active": true,
+    "order": 0,
+    "dailyLimit": null
+  },
+  {
+    "id": "sc-sourcreme",
+    "name": "Sour Creme",
+    "price": 1.2,
+    "category": "sauces",
+    "imageUrl": "/images/sauces/SourCreme.png",
+    "allergens": [
+      "G"
+    ],
+    "active": true,
+    "order": 7,
+    "dailyLimit": null
+  },
+  {
+    "id": "sc-mango",
+    "name": "Mango",
+    "price": 1.2,
+    "category": "sauces",
+    "imageUrl": "/images/sauces/Mango.png",
+    "active": true,
+    "order": 5,
+    "dailyLimit": null
+  },
+  {
+    "id": "sc-curry",
+    "name": "Curry",
+    "price": 1.2,
+    "category": "sauces",
+    "imageUrl": "/images/sauces/Curry.png",
+    "allergens": [
+      "M"
+    ],
+    "active": true,
+    "order": 3,
+    "dailyLimit": null
+  },
+  {
+    "id": "sc-avocado",
+    "name": "Avocado",
+    "price": 2,
+    "category": "sauces",
+    "imageUrl": "/images/sauces/Avocado.png",
+    "active": true,
+    "order": 1,
+    "dailyLimit": null
+  },
+  {
+    "id": "sc-bbq",
+    "name": "BBQ",
+    "price": 1.2,
+    "category": "sauces",
+    "imageUrl": "/images/sauces/BBQ.png",
+    "allergens": [
+      "O"
+    ],
+    "active": true,
+    "order": 2,
+    "dailyLimit": null
+  },
+  {
+    "id": "sc-sweet-chili",
+    "name": "Sweet Chilisauce",
+    "price": 1.2,
+    "category": "sauces",
+    "imageUrl": "/images/sauces/Chilisauce.png",
+    "active": true,
+    "order": 8,
+    "dailyLimit": null
+  },
+  {
+    "id": "sc-mayo",
+    "name": "Mayonnaise (To Go)",
+    "price": 0.5,
+    "category": "sauces",
+    "imageUrl": "/images/sauces/Mayonnaise.png",
+    "allergens": [
+      "C"
+    ],
+    "active": true,
+    "order": 6,
+    "dailyLimit": null
+  },
+  {
+    "id": "sc-ketchup",
+    "name": "Ketchup (To Go)",
+    "price": 0.5,
+    "category": "sauces",
+    "imageUrl": "/images/sauces/Ketcap.png",
+    "active": true,
+    "order": 4,
+    "dailyLimit": null
+  }
+]

@@ -1,0 +1,19 @@
+{
+  "id": "/driver?app=driver",
+  "name": "Kurier",
+  "short_name": "Kurier",
+  "description": "Burger Brothers – Fahrerinterface",
+  "start_url": "/driver",
+  "scope": "/driver",
+  "display": "standalone",
+  "background_color": "#0b0f14",
+  "theme_color": "#0b0f14",
+  "icons": [
+    {
+      "src": "/icon-kurier-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

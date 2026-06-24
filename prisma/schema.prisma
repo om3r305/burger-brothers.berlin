@@ -1,0 +1,335 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/**
+ * ─────────────────────────────────────────
+ * TENANT
+ * ─────────────────────────────────────────
+ */
+model Tenant {
+  id        String   @id @default(cuid())
+  slug      String   @unique
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  products  Product[]
+  campaigns Campaign[]
+  settings  Setting[]
+  coupons   Coupon[]
+  orders    Order[]
+
+  customers        Customer[]
+  issuedCoupons    IssuedCoupon[]
+  trackingSessions TrackingSession[]
+
+  brianLearnLogs   BrianLearnLog[]
+  brianRouteModels BrianRouteModel[]
+}
+
+/**
+ * ─────────────────────────────────────────
+ * PRODUCT
+ * ─────────────────────────────────────────
+ */
+model Product {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  sku         String
+  name        String
+  description String?
+  imageUrl    String?
+  category    String
+
+  price Decimal @db.Decimal(10, 2)
+
+  active     Boolean   @default(true)
+  activeFrom DateTime?
+  activeTo   DateTime?
+
+  extrasJson Json?
+  allergens  Json?
+
+  order      Int?
+  dailyLimit Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, sku])
+  @@index([tenantId, category])
+  @@index([tenantId, active])
+  @@index([tenantId, activeFrom])
+  @@index([tenantId, activeTo])
+}
+
+/**
+ * ─────────────────────────────────────────
+ * CAMPAIGN
+ * ─────────────────────────────────────────
+ */
+model Campaign {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  code      String?
+  title     String
+  badgeText String?
+  startsAt  DateTime?
+  endsAt    DateTime?
+  payload   Json
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, code], map: "campaign_code_tenant_unique")
+  @@index([tenantId, startsAt])
+  @@index([tenantId, endsAt])
+}
+
+/**
+ * ─────────────────────────────────────────
+ * SETTING
+ * ─────────────────────────────────────────
+ */
+model Setting {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  key   String
+  value Json
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, key])
+  @@index([tenantId])
+}
+
+/**
+ * ─────────────────────────────────────────
+ * COUPON
+ * ─────────────────────────────────────────
+ */
+model Coupon {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  code       String
+  definition Json
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+}
+
+/**
+ * ─────────────────────────────────────────
+ * ISSUED COUPON
+ * ─────────────────────────────────────────
+ */
+model IssuedCoupon {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  couponId   String
+  couponCode String
+  code       String
+
+  assignedToPhone String?
+  assignedToEmail String?
+
+  issuedAt  DateTime  @default(now())
+  expiresAt DateTime?
+
+  used   Boolean   @default(false)
+  usedAt DateTime?
+
+  source String?
+  note   String?
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+  @@index([tenantId, couponId])
+  @@index([tenantId, used])
+}
+
+/**
+ * ─────────────────────────────────────────
+ * CUSTOMER
+ * ─────────────────────────────────────────
+ */
+model Customer {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  name    String
+  phone   String?
+  email   String?
+  address String?
+  plz     String?
+  notes   String?
+
+  vip        Boolean @default(false)
+  blocked    Boolean @default(false)
+  emailOptIn Boolean @default(false)
+
+  lastOrderAt DateTime?
+  stats       Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, phone], map: "customer_phone_tenant_unique")
+  @@index([tenantId])
+  @@index([tenantId, lastOrderAt])
+}
+
+/**
+ * ─────────────────────────────────────────
+ * TRACKING SESSION
+ * ─────────────────────────────────────────
+ */
+model TrackingSession {
+  id       String @id
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  active   Boolean @default(true)
+  driverId String?
+
+  orderIds String[] @default([])
+
+  last    Json?
+  history Json?
+
+  @@index([tenantId])
+}
+
+/**
+ * ─────────────────────────────────────────
+ * ORDER
+ * ─────────────────────────────────────────
+ */
+model Order {
+  id String @id @default(cuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  mode    String
+  channel String?
+
+  status String
+
+  merchandise    Decimal? @db.Decimal(10, 2)
+  discount       Decimal? @db.Decimal(10, 2)
+  surcharges     Decimal? @db.Decimal(10, 2)
+  total          Decimal  @db.Decimal(10, 2)
+  coupon         String?
+  couponDiscount Decimal? @db.Decimal(10, 2)
+
+  customer Json
+  items    Json
+  meta     Json?
+
+  ts           DateTime @default(now())
+  planned      String?
+  etaMin       Int?
+  etaAdjustMin Int?
+
+  driver Json?
+
+  doneAt      DateTime?
+  cancelledAt DateTime?
+
+  history Json?
+  print   Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId, status])
+  @@index([tenantId, mode])
+  @@index([tenantId, ts])
+}
+
+/**
+ * ─────────────────────────────────────────
+ * BRIAN LEARN LOG
+ * ─────────────────────────────────────────
+ * Brian burada gerçek teslimat/rota öğrenme kayıtlarını tutar.
+ * Local JSONL yerine DB-first kaynak bu tablodur.
+ */
+model BrianLearnLog {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  orderId String?
+
+  driverId   String?
+  driverName String?
+
+  primaryStreet String?
+  streets       Json
+  peerStreets   Json?
+
+  status String?
+  source String?
+
+  raw Json?
+
+  occurredAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([tenantId, occurredAt])
+  @@index([tenantId, orderId])
+  @@index([tenantId, primaryStreet])
+}
+
+/**
+ * ─────────────────────────────────────────
+ * BRIAN ROUTE MODEL
+ * ─────────────────────────────────────────
+ * Brian export sonrası ürettiği aktif cluster/renk modelini burada saklar.
+ * TV tarafı bu modelden okuyarak renkleri gösterir.
+ */
+model BrianRouteModel {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  key     String @default("current")
+  version Int    @default(1)
+
+  model Json
+  stats Json?
+
+  generatedAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([tenantId, key])
+  @@index([tenantId])
+  @@index([tenantId, generatedAt])
+}

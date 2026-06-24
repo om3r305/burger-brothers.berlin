@@ -1,0 +1,9 @@
+{
+  "listenPort": 7777,
+  "printer": {
+    "ip": "192.168.0.150",
+    "port": 9100,
+    "paperWidthPx": 576
+  },
+  "allowOrigins": ["https://www.burger-brothers.berlin", "https://www.burger-brothers.berlin"]
+}

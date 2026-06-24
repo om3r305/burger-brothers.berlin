@@ -1,0 +1,55 @@
+{
+  "name": "burger-brothers-berlin",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "dev:https": "node server.js",
+    "dev:next": "next dev",
+    "prisma:generate": "prisma generate",
+    "prisma:push": "prisma db push",
+    "migrate:json": "ts-node tools/migrate_json_to_db.ts",
+    "db:activate:sqlite": "ts-node tools/activate_sqlite.ts",
+    "db:health": "ts-node tools/db_health.ts",
+    "prisma:migrate": "prisma migrate dev -n init",
+    "typecheck": "tsc --noEmit",
+    "vercel:dev": "vercel dev",
+    "prepush": "npm run typecheck && next build --no-lint"
+  },
+  "prisma": {
+    "seed": "ts-node prisma/seed.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.18.0",
+    "@react-three/drei": "^9.92.7",
+    "@react-three/fiber": "^8.15.16",
+    "autoprefixer": "10.4.19",
+    "clsx": "2.1.1",
+    "howler": "^2.2.4",
+    "jsbarcode": "^3.12.1",
+    "lucide-react": "^0.545.0",
+    "next": "14.2.5",
+    "postcss": "8.4.38",
+    "qrcode": "^1.5.4",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "react-qr-code": "^2.0.18",
+    "tailwindcss": "3.4.10",
+    "three": "^0.180.0",
+    "zustand": "4.5.2"
+  },
+  "devDependencies": {
+    "@types/node": "24.5.2",
+    "autoprefixer": "10.4.19",
+    "local-ssl-proxy": "^2.0.5",
+    "postcss": "8.4.38",
+    "prisma": "^6.18.0",
+    "tailwindcss": "3.4.10",
+    "ts-node": "^10.9.2",
+    "typescript": "5.4.5"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

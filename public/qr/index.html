@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Burger Brothers Berlin</title>
+
+  <!-- PWA / Icons -->
+  <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="theme-color" content="#0a0a0a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Burger Brothers Berlin">
+  <link rel="apple-touch-icon" href="/logo-burger-brothers.png">
+
+  <style>
+    :root{
+      --bg-1:#000; --bg-2:#111;
+      --glass-bg: rgba(20,20,20,.78);
+      --glass-brd: rgba(255,255,255,.08);
+      --text:#f5f5f5; --muted:#bbb;
+      --brand:#ff6a00; --brand-hover:#ff8124;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0; padding:0;
+      display:flex; align-items:center; justify-content:center;
+      background: radial-gradient(circle at 20% -10%, var(--bg-2) 0%, var(--bg-1) 60%);
+      color:var(--text);
+      font-family: Inter, "Segoe UI", system-ui, -apple-system, Roboto, Helvetica, Arial, sans-serif;
+      -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale;
+    }
+    .wrap{ width:100%; padding:24px; display:flex; justify-content:center }
+    .glass{
+      width:100%; max-width:460px;
+      padding: clamp(28px, 6vw, 40px);
+      text-align:center;
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      background: var(--glass-bg);
+      border:1px solid var(--glass-brd);
+      border-radius: 28px;
+      box-shadow: 0 18px 60px rgba(0,0,0,.45);
+    }
+    .logo{
+      width: clamp(120px, 28vw, 180px);
+      margin: 0 auto 14px;
+      display:block;
+      filter: drop-shadow(0 0 10px rgba(0,0,0,.6));
+      user-select:none; -webkit-user-drag:none;
+    }
+    h1{
+      font-size: clamp(1.2rem, 2.4vw, 1.45rem);
+      line-height:1.25;
+      margin: 8px 0 24px;
+      letter-spacing:.4px;
+    }
+    .btns{ display:flex; flex-direction:column; gap:12px }
+    button{
+      width:100%;
+      display:inline-flex; align-items:center; justify-content:center; gap:10px;
+      font-size: 1rem; font-weight: 600;
+      padding: 13px 14px;
+      border:none; border-radius:12px;
+      cursor:pointer; transition: background .22s, transform .04s;
+      touch-action: manipulation;
+    }
+    button:active{ transform: translateY(1px) }
+    .open{ background:var(--brand); color:#fff }
+    .open:hover{ background:var(--brand-hover) }
+    .add{ background:#222; color:#fff }
+    .add:hover{ background:#2e2e2e }
+    .hint{
+      margin-top:14px; font-size:.92rem; color:var(--muted); display:none
+    }
+
+    /* Güvenli çentik alanları */
+    @supports(padding:max(0px)){
+      .wrap{ padding: max(24px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left)); }
+    }
+
+    /* Küçük cihaz mikro düzen */
+    @media (max-width:360px){
+      .glass{ border-radius:22px }
+      .btns{ gap:10px }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="glass" role="region" aria-label="QR Zielseite">
+      <img src="/logo-burger-brothers.png" alt="Burger Brothers Berlin" class="logo">
+      <h1>Willkommen bei Burger Brothers Berlin</h1>
+
+      <div class="btns">
+        <button class="open" id="go" aria-label="Website öffnen">➡️ Website öffnen</button>
+        <button class="add" id="install" aria-label="Zum Startbildschirm hinzufügen">📲 Zum Startbildschirm hinzufügen</button>
+      </div>
+
+      <div class="hint" id="iosHint">
+        iOS: Tippen Sie unten auf <strong>Teilen</strong> → <strong>Zum Home-Bildschirm</strong>.
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Hedef URL (isteğe göre ana sayfa / veya /menu gibi)
+    const GO_URL = '/';
+
+    document.getElementById('go').addEventListener('click', () => {
+      location.href = GO_URL;
+    });
+
+    // PWA Service Worker (varsa)
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch(()=>{});
+    }
+
+    // Web App install prompt
+    let deferredPrompt = null;
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      deferredPrompt = e;
+    });
+
+    const ua = navigator.userAgent || navigator.vendor || window.opera;
+    const isIOS   = /iphone|ipad|ipod/i.test(ua);
+    const isSafari= /^((?!chrome|android).)*safari/i.test(ua);
+
+    if (isIOS && isSafari) {
+      document.getElementById('iosHint').style.display = 'block';
+    }
+
+    document.getElementById('install').addEventListener('click', async () => {
+      if (deferredPrompt) {
+        deferredPrompt.prompt();
+        await deferredPrompt.userChoice;
+        deferredPrompt = null;
+      } else if (isIOS && isSafari) {
+        alert('iOS Safari: Teilen → Zum Home-Bildschirm hinzufügen.');
+      } else {
+        alert('Android: Menü öffnen → „Zum Startbildschirm hinzufügen“.');
+      }
+    });
+  </script>
+</body>
+</html>

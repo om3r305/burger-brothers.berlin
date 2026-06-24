@@ -1,0 +1,332 @@
+/* ================================
+   CSS Variables (Theme Ready)
+   ================================ */
+:root {
+  /* Base */
+  --bg: #0c0c0c;
+  --fg: #f5f5f5;
+
+  /* Neutrals (stone-like) */
+  --stone-950: #0b0a09;
+  --stone-900: #1c1917;
+  --stone-800: #292524;
+  --stone-700: #78716c;
+
+  /* Brand / Accents */
+  --primary: #f59e0b;      /* amber-500 */
+  --primary-2: #f97316;    /* orange-500 */
+  --primary-200: #fbbf24;  /* amber-400 (borders) */
+
+  --vegan: #22c55e;        /* green-500 */
+  --vegan-border: #16a34a; /* green-600 */
+
+  --danger: #ef4444;       /* red-500 */
+  --danger-border: #dc2626;/* red-600 */
+
+  --success: #22c55e;
+  --success-border: #16a34a;
+
+  /* Effects */
+  --overlay: rgba(0,0,0,0.6);
+  --panel: rgba(28, 25, 23, 0.6);
+  --panel-strong: rgba(28, 25, 23, 0.95);
+  --chip: rgba(41, 37, 36, 0.6);
+  --chip-hover: rgba(68, 64, 60, 0.8);
+  --border: rgba(120, 113, 108, 0.6);
+
+  /* Transitions / Focus */
+  --easing: 150ms ease;
+  --ring: 0 0 0 3px rgba(245, 158, 11, 0.35);
+}
+
+/* Vegan tema varyantı (menu sayfasında body/main’e .theme-vegan ekleniyor) */
+.theme-vegan {
+  --primary: #22c55e;
+  --primary-2: #16a34a;
+  --primary-200: #86efac;
+  --ring: 0 0 0 3px rgba(34, 197, 94, 0.35);
+}
+
+/* ====== Reset & Base ====== */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+img, video { display:block; max-width:100%; }
+
+html, body {
+  height: 100%;
+  background-color: var(--bg);
+  color: var(--fg);
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
+  line-height: 1.5;
+}
+
+/* Remove tap highlight on mobile UI-ish elements */
+a, button {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Accessibility helpers */
+.sr-only {
+  position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden;
+  clip:rect(0,0,0,0); white-space:nowrap; border:0;
+}
+
+/* ====== Utility Classes ====== */
+.text-center { text-align: center; }
+.text-sm { font-size: 0.875rem; }
+.text-xs { font-size: 0.75rem; }
+.text-2xs { font-size: 0.7rem; }
+.font-medium { font-weight: 500; }
+.font-semibold { font-weight: 600; }
+.font-bold { font-weight: 700; }
+.opacity-80 { opacity: 0.8; }
+.opacity-90 { opacity: 0.9; }
+
+/* line clamp (kutu yüksekliklerini sabitlemek için) */
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Kartları 420px hizalamak için opsiyonel yardımcı (Product/Variant kartlarımız zaten bu min-h’i kullanıyor) */
+.card--uniform-420 { min-height: 420px; }
+
+/* Focus helper (use alongside existing classes) */
+.focus-ring:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+}
+
+/* Hide body scroll when a modal is open (toggle body.modal-open) */
+body.modal-open { overflow: hidden; }
+
+/* ====== Cards ====== */
+.card {
+  border-radius: 1rem;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  padding: 1rem;
+  transition: border-color var(--easing), background var(--easing);
+}
+
+/* Mobile-friendly tighter padding */
+@media (max-width: 480px) {
+  .card { padding: 0.75rem; }
+}
+
+/* ====== CTA Buttons ====== */
+.card-cta {
+  display: inline-block;
+  border-radius: 0.75rem;
+  background: linear-gradient(to right, var(--primary), var(--primary-2));
+  color: #111;
+  font-weight: 600;
+  padding: 0.6rem 1rem;
+  text-align: center;
+  transition: transform var(--easing), opacity var(--easing), box-shadow var(--easing);
+}
+.card-cta:hover { opacity: 0.9; transform: translateY(-1px); }
+.card-cta:focus-visible { outline: none; box-shadow: var(--ring); }
+.card-cta:disabled,
+.card-cta[disabled] { opacity: 0.55; cursor: not-allowed; transform: none; }
+.card-cta--lg { font-size: 1rem; padding: 0.75rem 1.25rem; }
+
+/* Ghost action (secondary) */
+.btn-ghost {
+  border-radius: 0.5rem;
+  border: 1px solid var(--border);
+  background: var(--chip);
+  color: var(--fg);
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  transition: background var(--easing), border-color var(--easing);
+}
+.btn-ghost:hover { background: var(--chip-hover); }
+.btn-ghost:focus-visible { outline: none; box-shadow: var(--ring); }
+.btn-ghost:disabled { opacity: 0.55; cursor: not-allowed; }
+
+/* ====== Pills (Top Nav & Filters) ====== */
+.nav-pill {
+  border-radius: 9999px;
+  border: 1px solid var(--border);
+  background: var(--chip);
+  padding: 0.35rem 0.9rem;
+  font-size: 0.875rem;
+  color: var(--fg);
+  transition: background var(--easing), color var(--easing), border-color var(--easing), transform var(--easing);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.nav-pill:hover { background: var(--chip-hover); }
+.nav-pill:focus-visible { outline: none; box-shadow: var(--ring); }
+
+.nav-pill--active {
+  background: var(--primary);
+  border-color: var(--primary-200);
+  color: #111;
+}
+.nav-pill--vegan { border-color: var(--vegan-border); color: var(--vegan); }
+.nav-pill--vegan.nav-pill--active { background: var(--vegan); border-color: var(--vegan-border); color: #111; }
+.nav-pill--cart { font-weight: 600; }
+
+/* ====== Generic "pill" (used inside modals for extras etc.) ====== */
+.pill {
+  border-radius: 9999px;
+  border: 1px solid var(--border);
+  background: var(--chip);
+  color: var(--fg);
+  font-size: 0.875rem;
+  padding: 0.35rem 0.75rem;
+  transition: background var(--easing), border-color var(--easing), color var(--easing), transform var(--easing);
+}
+.pill:hover { background: var(--chip-hover); }
+.pill:focus-visible { outline: none; box-shadow: var(--ring); }
+.pill.active { background: var(--primary); border-color: var(--primary-200); color: #111; }
+
+/* ====== Quantity Buttons ====== */
+.qty {
+  border-radius: 0.5rem;
+  background: var(--chip);
+  border: 1px solid var(--border);
+  width: 2rem;
+  height: 2rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--fg);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: background var(--easing), transform var(--easing);
+}
+.qty:hover { background: var(--chip-hover); }
+.qty:focus-visible { outline: none; box-shadow: var(--ring); }
+.qty:disabled { opacity: 0.55; cursor: not-allowed; }
+
+/* ====== Badges / Rozetler ====== */
+.badge {
+  display: inline-block;
+  border-radius: 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.2rem 0.5rem;
+  background: rgba(68, 64, 60, 0.9);
+  border: 1px solid var(--border);
+  color: var(--fg);
+}
+.badge--campaign { background: var(--primary); border-color: var(--primary-200); color: #111; }
+.badge--bestseller { background: var(--success); border-color: var(--success-border); color: #111; }
+.badge--soldout { background: var(--danger); border-color: var(--danger-border); color: #fff; }
+
+/* ====== Flashable Buttons (Footer social links use "flash-btn") ====== */
+.flash-btn { transition: transform var(--easing), background var(--easing), opacity var(--easing); will-change: transform; }
+.flash-btn:active { transform: scale(0.98); }
+
+/* ====== Modal ====== */
+.modal {
+  position: fixed;
+  inset: 0;
+  background: var(--overlay);
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  z-index: 50;
+}
+.modal-content {
+  border-radius: 1rem;
+  border: 1px solid var(--border);
+  background: var(--panel-strong);
+  padding: 1rem;
+  max-width: 40rem;
+  width: 100%;
+}
+
+/* ====== Modern Toggle (Checkbox → Switch) ======
+   Tüm input[type="checkbox"] öğelerini modern switch görünümüne dönüştürür.
+   Admin ve Checkout dahil her yerde geçerli. */
+input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 42px;
+  height: 24px;
+  border-radius: 9999px;
+  background: var(--chip);
+  border: 1px solid var(--border);
+  position: relative;
+  outline: none;
+  transition: background var(--easing), border-color var(--easing), box-shadow var(--easing);
+  vertical-align: middle;
+  cursor: pointer;
+}
+input[type="checkbox"]::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  border-radius: 9999px;
+  background: #fff;
+  transition: transform var(--easing), background var(--easing);
+  will-change: transform;
+}
+input[type="checkbox"]:checked { background: var(--primary); border-color: var(--primary-200); }
+input[type="checkbox"]:checked::after { transform: translateX(18px); }
+input[type="checkbox"]:disabled { opacity: 0.55; cursor: not-allowed; }
+input[type="checkbox"]:focus-visible { box-shadow: var(--ring); }
+
+/* Boyut varyantları (isteğe bağlı .switch--sm / .switch--lg sınıfları) */
+.switch--sm { width: 34px !important; height: 20px !important; }
+.switch--sm::after { width: 16px !important; height: 16px !important; }
+.switch--sm:checked::after { transform: translateX(14px) !important; }
+
+.switch--lg { width: 54px !important; height: 30px !important; }
+.switch--lg::after { width: 26px !important; height: 26px !important; top: 2px; left: 2px; }
+.switch--lg:checked::after { transform: translateX(24px) !important; }
+
+/* ====== Bilgi Banner’ları (kompakt tipografi) ====== */
+.banner {
+  border-radius: 0.75rem;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  padding: 0.6rem 0.75rem;
+  font-size: 0.82rem;        /* kompakt */
+  line-height: 1.35;
+}
+.banner--success { border-color: rgba(16, 185, 129, .35); background: rgba(16, 185, 129, .12); }
+.banner--warn    { border-color: rgba(245, 158, 11, .35); background: rgba(245, 158, 11, .12); }
+.banner--danger  { border-color: rgba(239, 68, 68, .35); background: rgba(239, 68, 68, .12); }
+
+/* Freebies banner’i daha küçük görünsün (CartSummary/Checkout) */
+.freebies-banner { font-size: 0.82rem; }
+.freebies-banner .progress { height: 0.4rem; border-radius: 6px; overflow: hidden; }
+
+/* ====== Nav/Sheet ufak düzeltmeler ======
+   (mobil burger açılır alanlarda gereksiz dikey çizgileri engelle) */
+.nav-sheet,
+.nav-drawer {
+  border-radius: 1rem;
+  border: 1px solid var(--border);
+  background: var(--panel-strong);
+  max-height: calc(100vh - 2rem);
+  overflow: auto;
+}
+
+/* Optional: nicer scrollbars on WebKit (keeps dark look) */
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); }
+*::-webkit-scrollbar-thumb { background: rgba(120,113,108,0.4); border-radius: 8px; }
+*::-webkit-scrollbar-thumb:hover { background: rgba(120,113,108,0.55); }
+
+:root[data-theme="classic"]  {}
+:root[data-theme="neon"]     { --brand: #7eff00; }
+:root[data-theme="christmas"]{ --brand: #3bdc7d; }
+:root[data-theme="halloween"]{ --brand: #ff7a00; }
+
+.cover{ aspect-ratio: 16/10; }

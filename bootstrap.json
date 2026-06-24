@@ -1,0 +1,127 @@
+{
+  "settings": {
+    "features": { "bubbleTea": { "enabled": true }, "donuts": { "enabled": true } },
+    "tracking": { "enabled": true, "showEtaClock": true },
+    "hours": {
+      "allowPreorder": true,
+      "slotMinutes": 15,
+      "slotMinutesDelivery": 15,
+      "slotMinutesPickup": 15,
+      "daysAhead": 0,
+      "avgPickupMinutes": 10,
+      "avgDeliveryMinutes": 35,
+      "tz": "Europe/Berlin",
+      "timezone": "Europe/Berlin",
+      "newGraceMinutes": 5,
+      "autoDoneWhenEtaUp": true
+    },
+    "statusColors": {
+      "eingegangen": "#60a5fa",
+      "zubereitung": "#f59e0b",
+      "abholbereit": "#34d399",
+      "unterwegs": "#a78bfa",
+      "abgeschlossen": "#9ca3af"
+    },
+    "modeColors": { "pickup": "#10b981", "delivery": "#f59e0b" },
+    "telegram": { "enabled": false },
+    "lifa": { "active": true, "discountRate": 0.1 },
+    "apollon": { "active": true, "discountRate": 0.05 },
+    "delivery": { "plzMin": {}, "surcharges": {} },
+    "freebies": { "enabled": false, "category": "sauces", "mode": "both", "tiers": [] },
+    "coupons": [],
+    "announcements": { "enabled": false, "items": [] },
+    "printing": {
+      "paper": "A4",
+      "showBarcode": true,
+      "showQR": true,
+      "groupingOrder": [],
+      "qrPayload": { "includeOrderId": true, "includeCustomerName": false, "includePhone": false, "includeAddress": true }
+    },
+    "tv": {
+      "autoRefreshSeconds": 5,
+      "hideSensitive": true,
+      "sounds": {
+        "apollonEnabled": true, "apollonUrl": "/sounds/apollo.mp3",
+        "lifaEnabled": true, "lifaUrl": "/sounds/lifa.mp3",
+        "volume": 1
+      },
+      "allowDurationAdjust": true,
+      "durationStepMinutes": 5,
+      "durationMaxMinutes": 60,
+      "allowCancel": true,
+      "confirmCancel": true
+    },
+    "security": {
+      "requirePinForQR": true,
+      "driverPin": "123456",
+      "qrAccessTTLMinutes": 120,
+      "drivers": [{ "id": "ali", "name": "Ali", "active": true }],
+      "trustedDevices": {},
+      "adminPin": "om3r305305.",
+      "tvPin": "19051905"
+    }
+  },
+ "catalog": {
+  "products": [
+    {
+      "sku": "BB-CLASSIC",
+      "name": "Classic Burger",
+      "description": "140 g Rindfleisch, Salat, Tomate, Zwiebel",
+      "imageUrl": "/images/burgers/classic.png",
+      "category": "burger",
+      "price": 10.0,
+      "active": true,
+      "extras": [
+        { "id": "cheddar", "name": "Cheddar", "price": 1.0 },
+        { "id": "jalapeno", "name": "Jalapeño", "price": 0.8 }
+      ],
+      "allergens": ["gluten", "senf", "sesam"]
+    },
+    {
+      "sku": "DR-COLA-033",
+      "name": "Coca-Cola 0,33l",
+      "category": "drinks",
+      "price": 2.5,
+      "active": true
+    },
+    {
+      "sku": "SX-KETCHUP",
+      "name": "Ketchup",
+      "category": "sauces",
+      "price": 0.0,
+      "active": true
+    },
+    {
+      "sku": "EX-EXTRAFRIES",
+      "name": "Pommes (klein)",
+      "category": "extras",
+      "price": 3.5,
+      "active": true
+    },
+    {
+      "sku": "VG-VEGAN-BURGER",
+      "name": "Vegan Burger",
+      "description": "Veganes Patty, Salat, Tomate, Zwiebel",
+      "category": "vegan",
+      "price": 11.0,
+      "active": true
+    },
+    {
+      "sku": "DN-BLACK-CLASS",
+      "name": "Donut Black Class",
+      "category": "donuts",
+      "price": 2.6,
+      "active": true
+    },
+    {
+      "sku": "BT-TARO-M",
+      "name": "Bubble Tea Taro (M)",
+      "category": "bubbleTea",
+      "price": 4.9,
+      "active": true
+    }
+  ],
+  "campaigns": []
+}
+
+}

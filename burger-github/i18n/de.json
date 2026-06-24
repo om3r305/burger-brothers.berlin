@@ -1,0 +1,102 @@
+{
+  "nav": {
+    "home": "Start",
+    "menu": "Speisekarte",
+    "cart": "Warenkorb",
+    "checkout": "Zur Kasse",
+    "admin": "Admin"
+  },
+  "common": {
+    "add": "Hinzufügen",
+    "remove": "Entfernen",
+    "cancel": "Abbrechen",
+    "save": "Speichern",
+    "edit": "Bearbeiten",
+    "delete": "Löschen",
+    "search": "Suchen…",
+    "total": "Gesamt",
+    "subtotal": "Zwischensumme",
+    "discount": "Rabatt",
+    "surcharge": "Aufschlag",
+    "not_available": "Nicht verfügbar",
+    "eta_pickup": "~{{mins}} Min (Abholung)",
+    "eta_delivery": "~{{mins}} Min (Lieferung)"
+  },
+  "status": {
+    "open_until": "Geöffnet bis {{time}}",
+    "closed_opens_at": "Geschlossen – öffnet um {{time}}",
+    "closed_today": "Heute geschlossen"
+  },
+  "checkout": {
+    "pickup": "Abholung",
+    "delivery": "Lieferung",
+    "address_zip": "PLZ",
+    "address_line": "Adresse",
+    "phone": "Telefon",
+    "name": "Name",
+    "place_order": "Bestellung abschließen",
+    "apply_coupon": "Gutschein prüfen",
+    "invalid_coupon": "Ungültiger Code.",
+    "expired_coupon": "Gutschein abgelaufen.",
+    "min_fail": "Mindestbestellwert nicht erreicht.",
+    "active_coupon": "Gutschein aktiv.",
+    "remove": "Entfernen",
+    "zip": "PLZ",
+    "address": "Adresse",
+    "street": "Straße",
+    "floor": "Etage",
+    "door": "Tür",
+    "note": "Hinweis"
+  },
+  "admin": {
+    "orders": "Bestellungen",
+    "customers": "Kunden",
+    "settings": "Einstellungen",
+    "schema_form_title": "Schema-basiertes Formular",
+    "schema_form_note": "Experimental · nur additive",
+    "save": "Speichern",
+    "saved": "Gespeichert."
+  },
+  "cart": {
+    "title": "Warenkorb",
+    "empty": "Dein Warenkorb ist leer.",
+    "total": "Gesamt",
+    "merchandise": "Warenwert",
+    "discount": "Rabatt",
+    "surcharges": "Aufschläge"
+  },
+  "coupon": {
+    "title": "Gutschein",
+    "apply": "Prüfen",
+    "active": "Gutschein aktiv.",
+    "invalid": "Ungültiger Code.",
+    "expired": "Gutschein abgelaufen.",
+    "min_fail": "Mindestbestellwert nicht erreicht.",
+    "confirm_replace": "Es ist bereits ein Gutschein aktiv. Möchtest du ihn ersetzen?",
+    "remove": "✕ Entfernen",
+    "active_with_code": "Gutschein aktiv:",
+    "removed": "Gutschein entfernt."
+  },
+  "buttons": {
+    "add_to_cart": "In den Warenkorb",
+    "close": "Schließen",
+    "save": "Speichern",
+    "edit": "Bearbeiten"
+  },
+  "toast": {
+    "copied": "Kopiert.",
+    "invalid": "Eingabe ungültig.",
+    "saved": "Gespeichert."
+  },
+  "schema": {
+    "search_placeholder": "Felder durchsuchen…",
+    "changed_only": "Nur geänderte zeigen",
+    "min": "Min: {{v}}",
+    "max": "Max: {{v}}",
+    "pattern": "Muster: {{v}}"
+  },
+  "valid": {
+    "phone_digits": "Bitte gib genau {{n}} Ziffern ein.",
+    "digits_only": "Nur Ziffern erlaubt."
+  }
+}

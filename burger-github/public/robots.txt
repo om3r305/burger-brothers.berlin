@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://www.burger-brothers.berlin/sitemap.xml
