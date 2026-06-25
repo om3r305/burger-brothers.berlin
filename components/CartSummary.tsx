@@ -762,7 +762,7 @@ export function CartSummaryMobile() {
   const pausedDelivery = !!pause.delivery;
 
   const { zip: checkoutZip, phone: checkoutPhone } = useMemo(() => getCheckoutZipAndPhone(), [lsTick]);
-  const plzEffective = (String(plz ?? "").trim().length === 5 ? plz : (checkoutZip || null));
+  const plzEffective = String(plz ?? "").trim().length === 5 ? String(plz).trim() : null;
 
   const groups = useMemo(() => groupItems(items), [items]);
   const campaigns = useMemo(() => loadNormalizedCampaigns(), [items, orderMode]);
@@ -953,13 +953,29 @@ export function CartSummaryMobile() {
                   disabled={pausedDelivery}
                   title={pausedDelivery ? "Lieferung pausiert" : "PLZ eingeben"}
                 />
+                {!plzEffective && !pausedDelivery && (
+                  <div className="mt-1 text-xs text-amber-400">Bitte PLZ eingeben, um Mindestbestellwert zu prüfen.</div>
+                )}
+                {plzEffective && !plzKnown && !pausedDelivery && (
+                  <div className="mt-1 text-xs text-red-400">Diese PLZ liegt außerhalb unseres Liefergebiets.</div>
+                )}
+                {plzKnown && !meetsMin && typeof requiredMin === "number" && !pausedDelivery && (
+                  <div className="mt-1 text-xs text-amber-400">
+                    Mindestbestellwert {fmt(requiredMin)} (Endbetrag) – bitte weitere Artikel hinzufügen.
+                  </div>
+                )}
                 {pausedDelivery && (
                   <div className="mt-1 text-xs text-amber-400">Lieferung ist derzeit pausiert.</div>
                 )}
               </div>
             )}
 
+            {/* Freebie */}
+            <FreeSauceBanner />
+
             {/* Lines */}
+            {isEmpty && <div className="mb-3 text-sm text-stone-400">Noch keine Artikel im Warenkorb.</div>}
+
             {groups.map((g) => (
               <div key={g.key} className="mb-3">
                 <div className="mb-2 text-xs font-semibold tracking-wide text-stone-300/80">
@@ -1026,6 +1042,13 @@ export function CartSummaryMobile() {
                 <div className="flex justify-between text-emerald-400">
                   <span>Gutschein {coupon.code ? `(${coupon.code})` : ""}</span>
                   <span>-{fmt(couponAmount)}</span>
+                </div>
+              )}
+
+              {!!activeCode && couponAmount === 0 && coupon.error && (
+                <div className="flex items-center justify-between text-rose-400">
+                  <span className="text-xs">{coupon.error}</span>
+                  <button onClick={clearCoupon} className="rounded-md border border-stone-700/60 px-2 py-0.5 text-xs">✕</button>
                 </div>
               )}
 
