@@ -108,18 +108,18 @@ function safeFileNamePart(value: string) {
 }
 
 function resultTitle(result: ApiResult | null) {
-  if (!result) return "Keine Aktion ausgeführt.";
+  if (!result) return "Henüz işlem yapılmadı.";
 
   if (result.ok === false) {
-    return result.error || "Fehler";
+    return result.error || "Hata oluştu";
   }
 
-  if (result.mode === "preview") return "Vorschau erfolgreich.";
-  if (result.mode === "archive") return "Archivierung erfolgreich.";
-  if (result.mode === "import") return "Import erfolgreich.";
-  if (result.rebuilt) return "Summary rebuild erfolgreich.";
+  if (result.mode === "preview") return "Ön izleme başarılı.";
+  if (result.mode === "archive") return "Arşivleme başarılı.";
+  if (result.mode === "import") return "İçe aktarma başarılı.";
+  if (result.rebuilt) return "Rapor özetleri başarıyla yenilendi.";
 
-  return "Aktion erfolgreich.";
+  return "İşlem başarılı.";
 }
 
 export default function AdminBackupPage() {
@@ -171,7 +171,7 @@ export default function AdminBackupPage() {
     } catch (error: any) {
       setLastResult({
         ok: false,
-        error: error?.message || "SUMMARY_REBUILD_FAILED",
+        error: error?.message || "RAPOR_OZETI_YENILEME_HATASI",
       });
     } finally {
       setLoading(null);
@@ -198,7 +198,7 @@ export default function AdminBackupPage() {
     } catch (error: any) {
       setLastResult({
         ok: false,
-        error: error?.message || "ARCHIVE_PREVIEW_FAILED",
+        error: error?.message || "ARSIV_ON_IZLEME_HATASI",
       });
     } finally {
       setLoading(null);
@@ -207,7 +207,7 @@ export default function AdminBackupPage() {
 
   async function runArchive() {
     const ok = window.confirm(
-      `${daysOld || DEFAULT_DAYS_OLD} günden eski done/cancelled siparişlere archivedAt basılacak.\n\nSilme yok, sadece aktif listeden çıkarma var.\n\nDevam edelim mi?`,
+      `${daysOld || DEFAULT_DAYS_OLD} günden eski tamamlanmış/iptal edilmiş siparişlere archivedAt işaretlenecek.\n\nSilme yok, sadece aktif listeden çıkarma var.\n\nDevam edelim mi?`,
     );
 
     if (!ok) return;
@@ -232,7 +232,7 @@ export default function AdminBackupPage() {
     } catch (error: any) {
       setLastResult({
         ok: false,
-        error: error?.message || "ARCHIVE_RUN_FAILED",
+        error: error?.message || "ARSIV_CALISTIRMA_HATASI",
       });
     } finally {
       setLoading(null);
@@ -273,7 +273,7 @@ export default function AdminBackupPage() {
         setLastResult(
           json || {
             ok: false,
-            error: `BACKUP_EXPORT_${res.status}`,
+            error: `YEDEK_INDIRME_${res.status}`,
           },
         );
         return;
@@ -288,7 +288,7 @@ export default function AdminBackupPage() {
       setLastResult({
         ok: true,
         source: "db",
-        message: "Backup indirildi.",
+        message: "Yedek dosyası indirildi.",
         fileName,
         counts: json?.counts || {},
         range: json?.range,
@@ -297,7 +297,7 @@ export default function AdminBackupPage() {
     } catch (error: any) {
       setLastResult({
         ok: false,
-        error: error?.message || "BACKUP_EXPORT_FAILED",
+        error: error?.message || "YEDEK_INDIRME_HATASI",
       });
     } finally {
       setLoading(null);
@@ -315,13 +315,13 @@ export default function AdminBackupPage() {
 
       setLastResult({
         ok: true,
-        message: `Backup-Datei geladen: ${file.name}`,
+        message: `Yedek dosyası yüklendi: ${file.name}`,
       });
     } catch (error: any) {
       setBackupText("");
       setLastResult({
         ok: false,
-        error: "Ungültige JSON-Datei.",
+        error: "Geçersiz JSON dosyası.",
         detail: error?.message || "",
       });
     } finally {
@@ -333,7 +333,7 @@ export default function AdminBackupPage() {
     if (!backupText.trim()) {
       setLastResult({
         ok: false,
-        error: "Önce eine Backup JSON-Datei auswählen oder JSON einfügen.",
+        error: "Önce bir yedek JSON dosyası seç veya JSON içeriğini yapıştır.",
       });
       return;
     }
@@ -345,7 +345,7 @@ export default function AdminBackupPage() {
     } catch (error: any) {
       setLastResult({
         ok: false,
-        error: "Backup JSON ist ungültig.",
+        error: "Yedek JSON içeriği geçersiz.",
         detail: error?.message || "",
       });
       return;
@@ -353,7 +353,7 @@ export default function AdminBackupPage() {
 
     if (confirmImport) {
       const ok = window.confirm(
-        "Bu import gerçek yazma işlemi yapacak.\n\nMevcut kayıt varsa günceller, yoksa ekler. Silme yapmaz.\n\nDevam edelim mi?",
+        "Bu işlem gerçek içe aktarma yapacak.\n\nMevcut kayıt varsa günceller, yoksa ekler. Silme yapmaz.\n\nDevam edelim mi?",
       );
 
       if (!ok) return;
@@ -382,7 +382,7 @@ export default function AdminBackupPage() {
     } catch (error: any) {
       setLastResult({
         ok: false,
-        error: error?.message || "BACKUP_IMPORT_FAILED",
+        error: error?.message || "YEDEK_ICE_AKTARMA_HATASI",
       });
     } finally {
       setLoading(null);
@@ -395,9 +395,9 @@ export default function AdminBackupPage() {
     <main className="mx-auto max-w-7xl p-6">
       <div className="mb-5 flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h1 className="text-2xl font-semibold">Backup & Wartung</h1>
+          <h1 className="text-2xl font-semibold">Yedekleme & Bakım</h1>
           <div className="mt-1 text-sm text-stone-400">
-            Backup, Import, Archivierung und Summary-Rebuild.
+            Yedek alma, geri yükleme, arşivleme ve rapor özetlerini yenileme.
           </div>
         </div>
 
@@ -406,7 +406,7 @@ export default function AdminBackupPage() {
             ← Admin
           </Link>
           <Link href="/admin/stats" className="btn-ghost">
-            Statistiken
+            İstatistikler
           </Link>
         </div>
       </div>
@@ -414,11 +414,11 @@ export default function AdminBackupPage() {
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_420px]">
         <section className="grid gap-6">
           <div className="card">
-            <div className="mb-3 text-lg font-medium">Zeitraum</div>
+            <div className="mb-3 text-lg font-medium">Tarih Aralığı</div>
 
             <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
               <label className="block text-sm">
-                <span className="mb-1 block text-stone-300/80">Von</span>
+                <span className="mb-1 block text-stone-300/80">Başlangıç</span>
                 <input
                   type="date"
                   value={from}
@@ -428,7 +428,7 @@ export default function AdminBackupPage() {
               </label>
 
               <label className="block text-sm">
-                <span className="mb-1 block text-stone-300/80">Bis</span>
+                <span className="mb-1 block text-stone-300/80">Bitiş</span>
                 <input
                   type="date"
                   value={to}
@@ -446,7 +446,7 @@ export default function AdminBackupPage() {
                     setTo(nowInputValue());
                   }}
                 >
-                  1 Jahr
+                  1 Yıl
                 </button>
                 <button
                   className="btn-ghost w-full"
@@ -456,7 +456,7 @@ export default function AdminBackupPage() {
                     setTo(nowInputValue());
                   }}
                 >
-                  5 Jahre
+                  5 Yıl
                 </button>
               </div>
             </div>
@@ -465,24 +465,24 @@ export default function AdminBackupPage() {
           <div className="card">
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <div>
-                <div className="text-lg font-medium">Backup herunterladen</div>
+                <div className="text-lg font-medium">Yedek İndir</div>
                 <div className="text-sm text-stone-400">
-                  JSON Export für Orders, Produkte, Settings, Kunden, Kampagnen, Coupons und Summaries.
+                  Siparişler, ürünler, ayarlar, müşteriler, kampanyalar, kuponlar ve rapor özetleri için JSON yedeği indirir.
                 </div>
               </div>
               <button className="card-cta" disabled={disabled} onClick={downloadBackup}>
-                {loading === "backup-export" ? "Wird erstellt…" : "Backup herunterladen"}
+                {loading === "backup-export" ? "Yedek hazırlanıyor…" : "Yedek indir"}
               </button>
             </div>
 
             <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
               <label className="block text-sm">
-                <span className="mb-1 block text-stone-300/80">Sections</span>
+                <span className="mb-1 block text-stone-300/80">Yedek Bölümleri</span>
                 <input
                   value={sections}
                   onChange={(event) => setSections(event.target.value)}
                   className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2 outline-none"
-                  placeholder="all oder orders,products,settings"
+                  placeholder="all veya orders,products,settings"
                 />
               </label>
 
@@ -492,12 +492,12 @@ export default function AdminBackupPage() {
                   checked={includeArchived}
                   onChange={(event) => setIncludeArchived(event.target.checked)}
                 />
-                Archivierte Bestellungen einschließen
+                Arşivlenmiş siparişleri de dahil et
               </label>
             </div>
 
             <div className="mt-3 text-xs text-stone-400">
-              Beispiele: <code>all</code>, <code>orders</code>,{" "}
+              Örnekler: <code>all</code>, <code>orders</code>,{" "}
               <code>products,settings</code>, <code>orders,customers,summaries</code>
             </div>
           </div>
@@ -505,43 +505,43 @@ export default function AdminBackupPage() {
           <div className="card">
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <div>
-                <div className="text-lg font-medium">Summary rebuild</div>
+                <div className="text-lg font-medium">Rapor Özetlerini Yenile</div>
                 <div className="text-sm text-stone-400">
-                  Erstellt DailySalesSummary und MonthlySalesSummary aus vorhandenen Orders neu.
+                  Mevcut siparişlerden günlük ve aylık rapor özetlerini yeniden oluşturur.
                 </div>
               </div>
               <button className="card-cta" disabled={disabled} onClick={runSummaryRebuild}>
-                {loading === "summary" ? "Läuft…" : "Summary rebuild starten"}
+                {loading === "summary" ? "Çalışıyor…" : "Rapor özetlerini yenile"}
               </button>
             </div>
 
             <div className="mt-3 rounded-lg border border-stone-700/60 bg-stone-950 p-3 text-sm text-stone-300">
-              Das brauchst du für schnelle Jahresberichte, ohne jedes Mal alle Einzelbestellungen zu berechnen.
+              Bu işlem yıllık raporların hızlı açılması için kullanılır. Böylece sistem her seferinde tüm tek tek siparişleri yeniden hesaplamak zorunda kalmaz.
             </div>
           </div>
 
           <div className="card">
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <div>
-                <div className="text-lg font-medium">Alte Orders archivieren</div>
+                <div className="text-lg font-medium">Eski Siparişleri Arşivle</div>
                 <div className="text-sm text-stone-400">
-                  Setzt archivedAt auf alte done/cancelled Orders. Es wird nichts gelöscht.
+                  Tamamlanmış veya iptal edilmiş eski siparişlere arşiv işareti koyar. Hiçbir şeyi silmez.
                 </div>
               </div>
 
               <div className="flex flex-wrap gap-2">
                 <button className="btn-ghost" disabled={disabled} onClick={previewArchive}>
-                  {loading === "archive-preview" ? "Prüft…" : "Vorschau"}
+                  {loading === "archive-preview" ? "Kontrol ediliyor…" : "Ön izleme"}
                 </button>
                 <button className="card-cta" disabled={disabled} onClick={runArchive}>
-                  {loading === "archive-run" ? "Archiviert…" : "Archiv ausführen"}
+                  {loading === "archive-run" ? "Arşivleniyor…" : "Arşivlemeyi çalıştır"}
                 </button>
               </div>
             </div>
 
             <div className="mt-4 max-w-xs">
               <label className="block text-sm">
-                <span className="mb-1 block text-stone-300/80">Älter als Tage</span>
+                <span className="mb-1 block text-stone-300/80">Kaç günden eski?</span>
                 <input
                   type="number"
                   min={1}
@@ -553,31 +553,31 @@ export default function AdminBackupPage() {
             </div>
 
             <div className="mt-3 rounded-lg border border-stone-700/60 bg-stone-950 p-3 text-sm text-stone-300">
-              Empfehlung: 90 Tage. Aktive TV/Admin-Listen bleiben dadurch schnell, Berichte können mit includeArchived weiter alte Daten lesen.
+              Öneri: 90 gün. Aktif TV/Admin listeleri hızlı kalır. Raporlar ise arşivlenmiş eski siparişleri yine okuyabilir.
             </div>
           </div>
 
           <div className="card">
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <div>
-                <div className="text-lg font-medium">Backup importieren</div>
+                <div className="text-lg font-medium">Yedek Geri Yükle</div>
                 <div className="text-sm text-stone-400">
-                  Standard ist Dry-run. Real Import nur mit Bestätigung.
+                  Varsayılan olarak sadece kontrol yapar. Gerçek geri yükleme için onay vermen gerekir.
                 </div>
               </div>
 
               <button className="card-cta" disabled={disabled} onClick={runImport}>
                 {loading === "backup-import" || loading === "backup-import-preview"
-                  ? "Import läuft…"
+                  ? "İçe aktarma çalışıyor…"
                   : confirmImport
-                    ? "Import ausführen"
-                    : "Dry-run prüfen"}
+                    ? "Geri yüklemeyi çalıştır"
+                    : "Ön kontrol yap"}
               </button>
             </div>
 
             <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
               <label className="block text-sm">
-                <span className="mb-1 block text-stone-300/80">Import Sections</span>
+                <span className="mb-1 block text-stone-300/80">Geri Yüklenecek Bölümler</span>
                 <input
                   value={importSections}
                   onChange={(event) => setImportSections(event.target.value)}
@@ -592,7 +592,7 @@ export default function AdminBackupPage() {
                   checked={confirmImport}
                   onChange={(event) => setConfirmImport(event.target.checked)}
                 />
-                Real Import bestätigen
+                Gerçek geri yüklemeyi onaylıyorum
               </label>
             </div>
 
@@ -603,7 +603,7 @@ export default function AdminBackupPage() {
                 disabled={disabled}
                 onClick={() => fileInputRef.current?.click()}
               >
-                JSON-Datei auswählen
+                JSON dosyası seç
               </button>
               <button
                 className="btn-ghost"
@@ -611,7 +611,7 @@ export default function AdminBackupPage() {
                 disabled={disabled || !backupText}
                 onClick={() => setBackupText("")}
               >
-                JSON leeren
+                JSON alanını temizle
               </button>
               <input
                 ref={fileInputRef}
@@ -627,17 +627,17 @@ export default function AdminBackupPage() {
               onChange={(event) => setBackupText(event.target.value)}
               rows={10}
               className="mt-3 w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2 font-mono text-xs outline-none"
-              placeholder="Backup JSON hier einfügen oder Datei auswählen…"
+              placeholder="Yedek JSON içeriğini buraya yapıştır veya JSON dosyası seç…"
             />
 
             <div className="mt-3 text-xs text-stone-400">
-              Sicher: Import löscht keine Daten. Bestehende IDs/SKUs/Codes werden aktualisiert, fehlende werden ergänzt.
+              Güvenli mod: Geri yükleme hiçbir veriyi silmez. Mevcut ID/SKU/kod varsa günceller, eksik olanları ekler.
             </div>
           </div>
         </section>
 
         <aside className="h-fit rounded-xl border border-stone-700/60 bg-stone-900/60 p-4 xl:sticky xl:top-4">
-          <div className="mb-2 text-lg font-medium">Letztes Ergebnis</div>
+          <div className="mb-2 text-lg font-medium">Son İşlem Sonucu</div>
 
           <div
             className={`mb-3 rounded-lg border px-3 py-2 text-sm ${
@@ -650,7 +650,7 @@ export default function AdminBackupPage() {
           </div>
 
           <pre className="max-h-[680px] overflow-auto rounded-lg border border-stone-700/60 bg-black p-3 text-xs text-stone-200">
-            {prettyJson(lastResult || { info: "Noch keine Aktion ausgeführt." })}
+            {prettyJson(lastResult || { info: "Henüz işlem yapılmadı." })}
           </pre>
         </aside>
       </div>

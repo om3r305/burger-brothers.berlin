@@ -25,6 +25,7 @@
     "@prisma/client": "^6.19.0",
     "@react-three/drei": "^9.92.7",
     "@react-three/fiber": "^8.15.16",
+    "@supabase/supabase-js": "^2.108.2",
     "clsx": "2.1.1",
     "howler": "^2.2.4",
     "jsbarcode": "^3.12.1",
