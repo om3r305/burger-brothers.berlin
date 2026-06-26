@@ -203,6 +203,70 @@ function safeJsonParse(value: string | null) {
   }
 }
 
+function isFilled(value: any) {
+  return String(value ?? "").trim().length > 0;
+}
+
+function digitsOnly(value: any) {
+  return String(value ?? "").replace(/\D/g, "");
+}
+
+function checkoutInputClass(valid: boolean, extra = "") {
+  return [
+    "w-full rounded-md border p-2 outline-none transition",
+    valid
+      ? "border-emerald-500/70 bg-emerald-500/10 ring-1 ring-emerald-500/30 focus:border-emerald-400"
+      : "border-rose-500/70 bg-rose-500/10 ring-1 ring-rose-500/25 focus:border-rose-400",
+    extra,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function checkoutOptionalInputClass(extra = "") {
+  return ["w-full rounded-md bg-stone-800/60 p-2 outline-none transition", extra]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function FieldHint({
+  ok,
+  okText,
+  errorText,
+}: {
+  ok: boolean;
+  okText: string;
+  errorText: string;
+}) {
+  return (
+    <span className={`mt-1 block text-xs ${ok ? "text-emerald-300" : "text-rose-300"}`}>
+      {ok ? okText : errorText}
+    </span>
+  );
+}
+
+function readPaymentEnabled(settings: any, key: "cash" | "online" | "contactless" | "split", fallback: boolean) {
+  const direct = settings?.payments?.[key]?.enabled;
+  const features = settings?.features?.payments;
+
+  if (typeof direct === "boolean") return direct;
+
+  const map: Record<typeof key, string[]> = {
+    cash: ["cashPayment", "cash"],
+    online: ["onlinePayment", "online"],
+    contactless: ["contactlessPayment", "contactless", "posPayment", "pos"],
+    split: ["splitPayment", "split"],
+  };
+
+  for (const featureKey of map[key]) {
+    if (typeof features?.[featureKey] === "boolean") {
+      return features[featureKey];
+    }
+  }
+
+  return fallback;
+}
+
 /* ───────── catalog ───────── */
 
 function collectCatalog(): FlatItem[] {
@@ -657,6 +721,16 @@ export default function CheckoutPage() {
 
   const phoneDigits = toNum(settingsRaw?.validation?.phoneDigits, 11) || 11;
 
+  const paymentSettings = useMemo(
+    () => ({
+      cash: readPaymentEnabled(settingsRaw, "cash", true),
+      online: readPaymentEnabled(settingsRaw, "online", false),
+      contactless: readPaymentEnabled(settingsRaw, "contactless", false),
+      split: readPaymentEnabled(settingsRaw, "split", false),
+    }),
+    [settingsRaw],
+  );
+
   const freebiesFromOverrides = getPricingOverrides(orderMode)?.freebies as FreebiesCfg;
 
   const [addr, setAddr] = useState<Address>({
@@ -897,6 +971,16 @@ export default function CheckoutPage() {
   const [testPaymentOpen, setTestPaymentOpen] = useState(false);
 
   useEffect(() => {
+    if (paymentMethod === "online" && !paymentSettings.online) {
+      setPaymentMethod("cash");
+    }
+
+    if (paymentMethod === "cash" && !paymentSettings.cash && paymentSettings.online) {
+      setPaymentMethod("online");
+    }
+  }, [paymentMethod, paymentSettings.cash, paymentSettings.online]);
+
+  useEffect(() => {
     const onStorage = (event: StorageEvent) => {
       if (
         !event.key ||
@@ -987,14 +1071,17 @@ export default function CheckoutPage() {
       : "Lieferung ist vorübergehend pausiert. Online-Bestellungen sind aktuell nicht möglich."
     : "";
 
+  const nameOk = isFilled(addr.name);
+  const phoneOk = digitsOnly(addr.phone).length === phoneDigits;
+  const zipOk =
+    orderMode === "pickup" ? true : digitsOnly(addr.zip).length === 5 && plzKnown;
+  const streetOk = orderMode === "pickup" ? true : isFilled(addr.street || streetQuery);
+  const houseOk = orderMode === "pickup" ? true : isFilled(addr.house);
+
   const requiredOk =
     orderMode === "pickup"
-      ? !!addr.name.trim() && !!addr.phone.trim()
-      : !!addr.name.trim() &&
-        !!addr.phone.trim() &&
-        !!(addr.street || streetQuery).trim() &&
-        !!addr.house.trim() &&
-        !!addr.zip.trim();
+      ? nameOk && phoneOk
+      : nameOk && phoneOk && zipOk && streetOk && houseOk;
 
   const emailValid =
     !addr.email || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(addr.email.trim());
@@ -1015,7 +1102,7 @@ export default function CheckoutPage() {
     !plannedOk ||
     noSlotsToday ||
     (orderMode === "delivery" && (!plzKnown || !meetsMin)) ||
-    addr.phone.replace(/\D/g, "").length !== phoneDigits ||
+    !phoneOk ||
     modePaused;
 
   const filteredStreets = useMemo(
@@ -1431,7 +1518,13 @@ export default function CheckoutPage() {
                       : normName(event.target.value),
                 })
               }
-              className="w-full rounded-md bg-stone-800/60 p-2 outline-none"
+              className={checkoutInputClass(nameOk)}
+              aria-invalid={!nameOk}
+            />
+            <FieldHint
+              ok={nameOk}
+              okText="Name ist ausgefüllt."
+              errorText="Bitte vollständigen Namen eingeben."
             />
           </Field>
 
@@ -1444,7 +1537,13 @@ export default function CheckoutPage() {
                 const only = event.target.value.replace(/\D/g, "").slice(0, phoneDigits);
                 setAddr({ ...addr, phone: only });
               }}
-              className="w-full rounded-md bg-stone-800/60 p-2 outline-none"
+              className={checkoutInputClass(phoneOk)}
+              aria-invalid={!phoneOk}
+            />
+            <FieldHint
+              ok={phoneOk}
+              okText={`Telefonnummer ist korrekt (${phoneDigits} Ziffern).`}
+              errorText={`Bitte genau ${phoneDigits} Ziffern eingeben.`}
             />
           </Field>
 
@@ -1457,7 +1556,17 @@ export default function CheckoutPage() {
                     inputMode="numeric"
                     value={addr.zip}
                     onChange={(event) => onZipChange(event.target.value)}
-                    className="w-full rounded-md bg-stone-800/60 p-2 outline-none"
+                    className={checkoutInputClass(zipOk)}
+                    aria-invalid={!zipOk}
+                  />
+                  <FieldHint
+                    ok={zipOk}
+                    okText="PLZ ist gültig und im Liefergebiet."
+                    errorText={
+                      digitsOnly(addr.zip).length === 5
+                        ? "Diese PLZ liegt nicht im Liefergebiet."
+                        : "Bitte 5-stellige PLZ eingeben."
+                    }
                   />
                 </Field>
 
@@ -1483,7 +1592,13 @@ export default function CheckoutPage() {
                           ? "Straße eingeben"
                           : "Zuerst PLZ eingeben"
                       }
-                      className="w-full rounded-md bg-stone-800/60 p-2 outline-none"
+                      className={checkoutInputClass(streetOk)}
+                      aria-invalid={!streetOk}
+                    />
+                    <FieldHint
+                      ok={streetOk}
+                      okText="Straße ist ausgefüllt."
+                      errorText="Bitte Straße eingeben."
                     />
 
                     {showSug &&
@@ -1523,7 +1638,13 @@ export default function CheckoutPage() {
                     placeholder="z. B. 12A"
                     value={addr.house}
                     onChange={(event) => setAddr({ ...addr, house: event.target.value })}
-                    className="w-full rounded-md bg-stone-800/60 p-2 outline-none"
+                    className={checkoutInputClass(houseOk)}
+                    aria-invalid={!houseOk}
+                  />
+                  <FieldHint
+                    ok={houseOk}
+                    okText="Hausnummer ist ausgefüllt."
+                    errorText="Bitte Hausnummer eingeben."
                   />
                 </Field>
 
@@ -1614,41 +1735,62 @@ export default function CheckoutPage() {
           <div className="mb-3">
             <div className="text-sm font-semibold text-stone-100">Zahlungsart</div>
             <div className="mt-1 text-xs text-stone-400">
-              Wählen Sie aus, wie Sie bezahlen möchten. Online-Zahlung läuft aktuell im
-              Testmodus.
+              Aktuell ist im Shop nur Barzahlung aktiv. Online-Zahlung und Kartenzahlung
+              können später im Adminbereich freigeschaltet werden.
             </div>
           </div>
 
           <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-            <button
-              type="button"
-              onClick={() => setPaymentMethod("cash")}
-              className={`rounded-xl border p-3 text-left transition ${
-                paymentMethod === "cash"
-                  ? "border-emerald-500/70 bg-emerald-500/10"
-                  : "border-stone-700/60 bg-stone-900/60 hover:bg-stone-800/60"
-              }`}
-            >
-              <div className="font-medium">Barzahlung</div>
-              <div className="mt-1 text-xs text-stone-400">
-                Bei Abholung oder Lieferung bezahlen. Die Bestellung wird sofort gesendet.
-              </div>
-            </button>
+            {paymentSettings.cash && (
+              <button
+                type="button"
+                onClick={() => setPaymentMethod("cash")}
+                className={`rounded-xl border p-3 text-left transition ${
+                  paymentMethod === "cash"
+                    ? "border-emerald-500/70 bg-emerald-500/10"
+                    : "border-stone-700/60 bg-stone-900/60 hover:bg-stone-800/60"
+                }`}
+              >
+                <div className="font-medium">Barzahlung</div>
+                <div className="mt-1 text-xs text-stone-400">
+                  Bei Abholung oder Lieferung bar bezahlen. Die Bestellung wird sofort
+                  gesendet.
+                </div>
+              </button>
+            )}
 
-            <button
-              type="button"
-              onClick={() => setPaymentMethod("online")}
-              className={`rounded-xl border p-3 text-left transition ${
-                paymentMethod === "online"
-                  ? "border-sky-500/70 bg-sky-500/10"
-                  : "border-stone-700/60 bg-stone-900/60 hover:bg-stone-800/60"
-              }`}
-            >
-              <div className="font-medium">Online-Zahlung</div>
-              <div className="mt-1 text-xs text-stone-400">
-                Testmodus: Zahlung simulieren. Später mit Stripe, Apple Pay und Google Pay.
+            {paymentSettings.online && (
+              <button
+                type="button"
+                onClick={() => setPaymentMethod("online")}
+                className={`rounded-xl border p-3 text-left transition ${
+                  paymentMethod === "online"
+                    ? "border-sky-500/70 bg-sky-500/10"
+                    : "border-stone-700/60 bg-stone-900/60 hover:bg-stone-800/60"
+                }`}
+              >
+                <div className="font-medium">Online-Zahlung</div>
+                <div className="mt-1 text-xs text-stone-400">
+                  Testmodus: Zahlung simulieren. Später mit Stripe, Apple Pay und Google Pay.
+                </div>
+              </button>
+            )}
+
+            {paymentSettings.contactless && (
+              <div className="rounded-xl border border-stone-700/60 bg-stone-900/60 p-3 text-left opacity-70">
+                <div className="font-medium">Kartenzahlung bei Lieferung</div>
+                <div className="mt-1 text-xs text-stone-400">
+                  Vorbereitung für später: Wird aktiv, sobald ein POS-Gerät vorhanden ist.
+                </div>
               </div>
-            </button>
+            )}
+
+            {!paymentSettings.cash && !paymentSettings.online && !paymentSettings.contactless && (
+              <div className="rounded-xl border border-rose-500/50 bg-rose-500/10 p-3 text-sm text-rose-200 md:col-span-2">
+                Es ist aktuell keine Zahlungsart aktiv. Bitte im Adminbereich mindestens
+                Barzahlung aktivieren.
+              </div>
+            )}
           </div>
 
           <div className="mt-4 border-t border-stone-800/70 pt-4">
