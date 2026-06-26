@@ -1,6 +1,7 @@
 // app/admin/page.tsx
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useEffect, useRef } from "react";
 
@@ -1255,6 +1256,9 @@ export default function AdminPage() {
       <div className="mb-5 flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-2xl font-semibold">Adminbereich</h1>
         <div className="flex flex-wrap items-center gap-2">
+          <Link className="btn-ghost" href="/admin/backup">
+            Backup & Wartung
+          </Link>
           <button className="btn-ghost" onClick={doExportAll}>
             Export (JSON)
           </button>
@@ -1286,6 +1290,9 @@ export default function AdminPage() {
             />
           </div>
           <nav className="flex flex-col gap-2">
+            <Link className="nav-pill w-full justify-start" href="/admin/backup">
+              🧰 Backup & Wartung
+            </Link>
             <button
               className={`nav-pill w-full justify-start ${
                 tab === "products" ? "nav-pill--active" : ""
