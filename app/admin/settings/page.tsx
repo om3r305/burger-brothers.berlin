@@ -201,12 +201,45 @@ const DEFAULT_MODEL: SettingsModel = {
     donuts: {
       enabled: false,
     },
+    payments: {
+      cashPayment: true,
+      onlinePayment: false,
+      contactlessPayment: false,
+      splitPayment: false,
+    },
+    cashPayment: {
+      enabled: true,
+    },
+    onlinePayment: {
+      enabled: false,
+    },
+    contactlessPayment: {
+      enabled: false,
+    },
+    splitPayment: {
+      enabled: false,
+    },
     liveTracking: {
       enabled: true,
     },
     tracking: {
       enabled: true,
       showEtaClock: true,
+    },
+  },
+
+  payments: {
+    cash: {
+      enabled: true,
+    },
+    online: {
+      enabled: false,
+    },
+    contactless: {
+      enabled: false,
+    },
+    split: {
+      enabled: false,
     },
   },
 
@@ -659,6 +692,54 @@ function normalizeForSave(raw: any) {
   const trackingEnabled = next.tracking?.enabled !== false;
   const showEtaClock = next.tracking?.showEtaClock !== false;
 
+  const cashPaymentEnabled = bool(
+    next.payments?.cash?.enabled ??
+      next.features?.payments?.cashPayment ??
+      next.features?.cashPayment?.enabled,
+    true
+  );
+
+  const onlinePaymentEnabled = bool(
+    next.payments?.online?.enabled ??
+      next.features?.payments?.onlinePayment ??
+      next.features?.onlinePayment?.enabled,
+    false
+  );
+
+  const contactlessPaymentEnabled = bool(
+    next.payments?.contactless?.enabled ??
+      next.features?.payments?.contactlessPayment ??
+      next.features?.contactlessPayment?.enabled,
+    false
+  );
+
+  const splitPaymentEnabled = bool(
+    next.payments?.split?.enabled ??
+      next.features?.payments?.splitPayment ??
+      next.features?.splitPayment?.enabled,
+    false
+  );
+
+  next.payments = {
+    ...(next.payments || {}),
+    cash: {
+      ...(next.payments?.cash || {}),
+      enabled: cashPaymentEnabled,
+    },
+    online: {
+      ...(next.payments?.online || {}),
+      enabled: onlinePaymentEnabled,
+    },
+    contactless: {
+      ...(next.payments?.contactless || {}),
+      enabled: contactlessPaymentEnabled,
+    },
+    split: {
+      ...(next.payments?.split || {}),
+      enabled: splitPaymentEnabled,
+    },
+  };
+
   next.features = {
     ...(next.features || {}),
     bubbleTea: {
@@ -668,6 +749,29 @@ function normalizeForSave(raw: any) {
     donuts: {
       ...(next.features?.donuts || {}),
       enabled: bool(next.features?.donuts?.enabled, false),
+    },
+    payments: {
+      ...(next.features?.payments || {}),
+      cashPayment: cashPaymentEnabled,
+      onlinePayment: onlinePaymentEnabled,
+      contactlessPayment: contactlessPaymentEnabled,
+      splitPayment: splitPaymentEnabled,
+    },
+    cashPayment: {
+      ...(next.features?.cashPayment || {}),
+      enabled: cashPaymentEnabled,
+    },
+    onlinePayment: {
+      ...(next.features?.onlinePayment || {}),
+      enabled: onlinePaymentEnabled,
+    },
+    contactlessPayment: {
+      ...(next.features?.contactlessPayment || {}),
+      enabled: contactlessPaymentEnabled,
+    },
+    splitPayment: {
+      ...(next.features?.splitPayment || {}),
+      enabled: splitPaymentEnabled,
     },
     liveTracking: {
       ...(next.features?.liveTracking || {}),
@@ -1145,6 +1249,100 @@ export default function AdminSettingsPage() {
                   }}
                 />
               </div>
+            </div>
+          </div>
+        </section>
+
+        {/* PAYMENT METHODS */}
+        <section className="card">
+          <div className="mb-3 text-lg font-medium">Zahlungsarten</div>
+
+          <div className="mb-3 rounded-md border border-amber-700/40 bg-amber-950/20 p-3 text-sm text-amber-100">
+            Aktuell arbeitet der Shop nur mit Barzahlung. Online-Zahlung und Kartenzahlung
+            bei Lieferung bleiben vorbereitet, sind aber für Kunden unsichtbar, solange sie hier
+            deaktiviert sind.
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div className="rounded-md border border-stone-700/60 p-3">
+              <div className="mb-2 font-medium">Aktive Zahlung</div>
+              <div className="space-y-2">
+                <Toggle
+                  label="Barzahlung / Nakit ödeme aktiv"
+                  checked={!!m.payments?.cash?.enabled}
+                  onChange={(value) => {
+                    setNested(["payments", "cash", "enabled"], value);
+                    setNested(["features", "payments"], {
+                      ...(m.features?.payments || {}),
+                      cashPayment: value,
+                      onlinePayment: !!m.payments?.online?.enabled,
+                      contactlessPayment: !!m.payments?.contactless?.enabled,
+                      splitPayment: !!m.payments?.split?.enabled,
+                    });
+                    setNested(["features", "cashPayment", "enabled"], value);
+                  }}
+                />
+              </div>
+
+              <p className="mt-3 text-xs text-stone-400">
+                Şu an müşteriye sadece bu ödeme yöntemi gösterilecek.
+              </p>
+            </div>
+
+            <div className="rounded-md border border-stone-700/60 p-3">
+              <div className="mb-2 font-medium">Hazır ama gizli ödeme altyapıları</div>
+              <div className="space-y-2">
+                <Toggle
+                  label="Online ödeme aktiv"
+                  checked={!!m.payments?.online?.enabled}
+                  onChange={(value) => {
+                    setNested(["payments", "online", "enabled"], value);
+                    setNested(["features", "payments"], {
+                      ...(m.features?.payments || {}),
+                      cashPayment: !!m.payments?.cash?.enabled,
+                      onlinePayment: value,
+                      contactlessPayment: !!m.payments?.contactless?.enabled,
+                      splitPayment: !!m.payments?.split?.enabled,
+                    });
+                    setNested(["features", "onlinePayment", "enabled"], value);
+                  }}
+                />
+                <Toggle
+                  label="Kapıda kart / POS ödeme aktiv"
+                  checked={!!m.payments?.contactless?.enabled}
+                  onChange={(value) => {
+                    setNested(["payments", "contactless", "enabled"], value);
+                    setNested(["features", "payments"], {
+                      ...(m.features?.payments || {}),
+                      cashPayment: !!m.payments?.cash?.enabled,
+                      onlinePayment: !!m.payments?.online?.enabled,
+                      contactlessPayment: value,
+                      splitPayment: !!m.payments?.split?.enabled,
+                    });
+                    setNested(["features", "contactlessPayment", "enabled"], value);
+                  }}
+                />
+                <Toggle
+                  label="Split / Alman usulü ödeme aktiv"
+                  checked={!!m.payments?.split?.enabled}
+                  onChange={(value) => {
+                    setNested(["payments", "split", "enabled"], value);
+                    setNested(["features", "payments"], {
+                      ...(m.features?.payments || {}),
+                      cashPayment: !!m.payments?.cash?.enabled,
+                      onlinePayment: !!m.payments?.online?.enabled,
+                      contactlessPayment: !!m.payments?.contactless?.enabled,
+                      splitPayment: value,
+                    });
+                    setNested(["features", "splitPayment", "enabled"], value);
+                  }}
+                />
+              </div>
+
+              <p className="mt-3 text-xs text-stone-400">
+                Kapalı olan ödeme yöntemleri checkout tarafında görünmez. İleride açmak için
+                buradan aktif etmen yeterli olacak.
+              </p>
             </div>
           </div>
         </section>
