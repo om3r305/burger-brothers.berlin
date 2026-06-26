@@ -31,6 +31,11 @@ model Tenant {
 
   brianLearnLogs   BrianLearnLog[]
   brianRouteModels BrianRouteModel[]
+
+  dailySalesSummaries   DailySalesSummary[]
+  monthlySalesSummaries MonthlySalesSummary[]
+  backupLogs            BackupLog[]
+  cleanupJobLogs        CleanupJobLog[]
 }
 
 /**
@@ -261,6 +266,9 @@ model Order {
   doneAt      DateTime?
   cancelledAt DateTime?
 
+  archivedAt   DateTime?
+  anonymizedAt DateTime?
+
   history Json?
   print   Json?
 
@@ -270,6 +278,168 @@ model Order {
   @@index([tenantId, status])
   @@index([tenantId, mode])
   @@index([tenantId, ts])
+  @@index([tenantId, archivedAt])
+  @@index([tenantId, anonymizedAt])
+}
+
+/**
+ * ─────────────────────────────────────────
+ * DAILY SALES SUMMARY
+ * ─────────────────────────────────────────
+ * Günlük rapor datası burada tutulur.
+ * Eski siparişler arşive gitse bile günlük/yıllık raporlar buradan hızlı alınır.
+ */
+model DailySalesSummary {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  date DateTime
+
+  orderCount     Int @default(0)
+  pickupCount    Int @default(0)
+  deliveryCount  Int @default(0)
+  cancelledCount Int @default(0)
+
+  grossSales      Decimal @default(0) @db.Decimal(10, 2)
+  netSales        Decimal @default(0) @db.Decimal(10, 2)
+  merchandise     Decimal @default(0) @db.Decimal(10, 2)
+  discounts       Decimal @default(0) @db.Decimal(10, 2)
+  surcharges      Decimal @default(0) @db.Decimal(10, 2)
+  couponDiscounts Decimal @default(0) @db.Decimal(10, 2)
+
+  cashTotal        Decimal @default(0) @db.Decimal(10, 2)
+  onlineTotal      Decimal @default(0) @db.Decimal(10, 2)
+  contactlessTotal Decimal @default(0) @db.Decimal(10, 2)
+  splitTotal       Decimal @default(0) @db.Decimal(10, 2)
+
+  topItems  Json?
+  byHour    Json?
+  byMode    Json?
+  byPayment Json?
+  extra     Json?
+
+  generatedAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([tenantId, date])
+  @@index([tenantId])
+  @@index([tenantId, date])
+}
+
+/**
+ * ─────────────────────────────────────────
+ * MONTHLY SALES SUMMARY
+ * ─────────────────────────────────────────
+ * Aylık/yıllık raporların hızlı çalışması için aylık özet.
+ */
+model MonthlySalesSummary {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  year  Int
+  month Int
+
+  orderCount     Int @default(0)
+  pickupCount    Int @default(0)
+  deliveryCount  Int @default(0)
+  cancelledCount Int @default(0)
+
+  grossSales      Decimal @default(0) @db.Decimal(10, 2)
+  netSales        Decimal @default(0) @db.Decimal(10, 2)
+  merchandise     Decimal @default(0) @db.Decimal(10, 2)
+  discounts       Decimal @default(0) @db.Decimal(10, 2)
+  surcharges      Decimal @default(0) @db.Decimal(10, 2)
+  couponDiscounts Decimal @default(0) @db.Decimal(10, 2)
+
+  cashTotal        Decimal @default(0) @db.Decimal(10, 2)
+  onlineTotal      Decimal @default(0) @db.Decimal(10, 2)
+  contactlessTotal Decimal @default(0) @db.Decimal(10, 2)
+  splitTotal       Decimal @default(0) @db.Decimal(10, 2)
+
+  topItems  Json?
+  byDay     Json?
+  byMode    Json?
+  byPayment Json?
+  extra     Json?
+
+  generatedAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([tenantId, year, month])
+  @@index([tenantId])
+  @@index([tenantId, year])
+  @@index([tenantId, year, month])
+}
+
+/**
+ * ─────────────────────────────────────────
+ * BACKUP LOG
+ * ─────────────────────────────────────────
+ * Manuel veya otomatik backup/export kayıtları.
+ * Dosyanın kendisini burada tutmak zorunda değiliz; metadata tutarız.
+ */
+model BackupLog {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  type   String
+  status String @default("success")
+
+  fileName String?
+  fileUrl  String?
+
+  sizeBytes Int?
+  checksum  String?
+
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+
+  meta  Json?
+  error String?
+
+  createdAt DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([tenantId, type])
+  @@index([tenantId, status])
+  @@index([tenantId, startedAt])
+}
+
+/**
+ * ─────────────────────────────────────────
+ * CLEANUP JOB LOG
+ * ─────────────────────────────────────────
+ * Arşivleme, summary rebuild, eski log temizliği gibi işlemlerin kayıtları.
+ */
+model CleanupJobLog {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  jobType String
+  status  String @default("success")
+
+  affectedOrders    Int @default(0)
+  affectedCustomers Int @default(0)
+  affectedLogs      Int @default(0)
+
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+
+  meta  Json?
+  error String?
+
+  createdAt DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([tenantId, jobType])
+  @@index([tenantId, status])
+  @@index([tenantId, startedAt])
 }
 
 /**
