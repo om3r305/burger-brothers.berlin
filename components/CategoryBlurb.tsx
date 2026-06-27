@@ -6,7 +6,7 @@ type CategoryKey = "burger" | "vegan" | "hotdogs";
 
 const BLURBS_DE: Record<CategoryKey, string> = {
   burger:
-    "Unsere Burger bestehen aus 140 g regionalem Rinderhackfleisch und werden mit frischem Brötchen, Tomaten, Zwiebeln, Eisbergsalat und Gewürzgurken serviert.Saucen: Ketchup und Mayonnaise.Allergene: Gluten, Milch, Senf, Sesam.",
+    "Jeder Burger wird mit Brötchen und Rinderhackfleisch aus der Region, Tomaten, Zwiebeln, Eisbergsalat und Gewürzgurken zubereitet und mit Ketchup oder Mayonnaise serviert.Allergene: Gluten, Milch, Senf, Sesam.",
   vegan:
     "Pflanzliche Patties, Tomaten, Zwiebeln, Salat, Gurken. Vegane Mayo/Ketchup. Allergene: Gluten, Soja, Senf.",
   hotdogs:
