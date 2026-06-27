@@ -53,13 +53,172 @@ function isMine(order: any, driver: any) {
   );
 }
 
+function normalizeMode(value: any) {
+  return String(value || "").toLowerCase().trim();
+}
+
+function normalizeStatus(value: any) {
+  return String(value || "").toLowerCase().trim();
+}
+
+function isDeliveryOrder(order: any) {
+  const mode = normalizeMode(order?.mode || order?.meta?.mode || order?.type);
+
+  return mode === "delivery" || mode === "lieferung" || mode.includes("liefer");
+}
+
 function isActiveDeliveryOrder(order: any) {
+  const status = normalizeStatus(order?.status || order?.meta?.status);
+
   return (
-    order?.mode === "delivery" &&
-    (order?.status === "out_for_delivery" ||
-      order?.status === "preparing" ||
-      order?.status === "ready")
+    isDeliveryOrder(order) &&
+    status !== "done" &&
+    status !== "cancelled" &&
+    status !== "canceled"
   );
+}
+
+function normalizeOrdersPayload(data: any): any[] {
+  const raw = Array.isArray(data)
+    ? data
+    : Array.isArray(data?.orders)
+      ? data.orders
+      : Array.isArray(data?.items)
+        ? data.items
+        : Array.isArray(data?.list)
+          ? data.list
+          : Array.isArray(data?.data)
+            ? data.data
+            : [];
+
+  return raw.filter(Boolean);
+}
+
+function mergeOrders(...lists: any[][]) {
+  const map = new Map<string, any>();
+
+  for (const list of lists) {
+    for (const order of list || []) {
+      const id = String(order?.id || order?.orderId || "").trim();
+      if (!id) continue;
+
+      const previous = map.get(id);
+
+      map.set(id, {
+        ...(previous || {}),
+        ...order,
+        customer: {
+          ...(previous?.customer || {}),
+          ...(order?.customer || {}),
+        },
+        meta: {
+          ...(previous?.meta || {}),
+          ...(order?.meta || {}),
+        },
+        items: Array.isArray(order?.items) && order.items.length ? order.items : previous?.items || order?.items || [],
+      });
+    }
+  }
+
+  return Array.from(map.values());
+}
+
+async function fetchDriverOrders(): Promise<any[]> {
+  let fromLib: any[] = [];
+
+  try {
+    fromLib = await fetchOrdersFromDb();
+  } catch {
+    fromLib = [];
+  }
+
+  const urls = [
+    "/api/orders/list?includeDone=1&includeArchived=1&take=500",
+    "/api/orders?includeDone=1&includeArchived=1&take=500",
+  ];
+
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, {
+        method: "GET",
+        cache: "no-store",
+        headers: {
+          accept: "application/json",
+        },
+      });
+
+      if (!res.ok) continue;
+
+      const data = await res.json().catch(() => ({}));
+      const fromApi = normalizeOrdersPayload(data);
+
+      if (fromApi.length) {
+        return mergeOrders(fromLib, fromApi);
+      }
+    } catch {}
+  }
+
+  return fromLib;
+}
+
+async function persistOrderToDb(order: any) {
+  try {
+    upsertOrder(order);
+  } catch {}
+
+  try {
+    const res = await fetch("/api/orders", {
+      method: "PUT",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json",
+      },
+      body: JSON.stringify({
+        orders: [order],
+        replace: false,
+      }),
+    });
+
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok || data?.ok === false) {
+      throw new Error(data?.error || `HTTP ${res.status}`);
+    }
+
+    try {
+      window.dispatchEvent(new CustomEvent("bb:refresh-orders"));
+      window.dispatchEvent(new CustomEvent("bb_orders_changed"));
+    } catch {}
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function withLastPos(order: any, payload: LivePos | null) {
+  const meta = order?.meta && typeof order.meta === "object" ? order.meta : {};
+
+  return {
+    ...order,
+    meta: {
+      ...meta,
+      lastPos: payload
+        ? {
+            lat: payload.lat,
+            lng: payload.lng,
+            ts: payload.ts,
+          }
+        : null,
+      lastDriverPos: payload
+        ? {
+            lat: payload.lat,
+            lng: payload.lng,
+            ts: payload.ts,
+          }
+        : null,
+    },
+  };
 }
 
 export default function DriverLiveTracker() {
@@ -70,6 +229,7 @@ export default function DriverLiveTracker() {
 
   const activeOrderIdsRef = useRef<string[]>([]);
   const prevActiveIdsRef = useRef<string[]>([]);
+  const ordersRef = useRef<any[]>([]);
   const lastWriteRef = useRef<Record<string, LivePos>>({});
 
   const publish = async (pos: GeolocationPosition) => {
@@ -82,7 +242,10 @@ export default function DriverLiveTracker() {
     };
 
     const ids = activeOrderIdsRef.current;
+
     if (!ids.length) return;
+
+    const all = ordersRef.current;
 
     for (const id of ids) {
       const last = lastWriteRef.current[id];
@@ -99,28 +262,22 @@ export default function DriverLiveTracker() {
         lastWriteRef.current[id] = payload;
       } catch {}
 
-      try {
-        const all = await fetchOrdersFromDb();
-        const order = all.find((x: any) => String(x.id) === id);
+      const order = all.find((x: any) => String(x?.id || x?.orderId) === String(id));
 
-        if (order) {
-          await upsertOrder({
-            ...(order as any),
-            meta: {
-              ...((order as any).meta || {}),
-              lastPos: {
-                lat: payload.lat,
-                lng: payload.lng,
-                ts: payload.ts,
-              },
-            },
-          } as any);
-        }
-      } catch {}
+      if (order) {
+        const updated = withLastPos(order, payload);
+
+        await persistOrderToDb(updated);
+
+        ordersRef.current = ordersRef.current.map((x: any) =>
+          String(x?.id || x?.orderId) === String(id) ? updated : x,
+        );
+      }
     }
 
     try {
       localStorage.setItem("bb_driverpos_ping", String(Date.now()));
+      window.dispatchEvent(new CustomEvent("bb:driver-pos-ping"));
     } catch {}
   };
 
@@ -130,7 +287,11 @@ export default function DriverLiveTracker() {
     navigator.geolocation.getCurrentPosition(
       publish,
       (e) => setErr(`Standortfehler: ${e.message}`),
-      { enableHighAccuracy: true, maximumAge: 1500, timeout: 10000 }
+      {
+        enableHighAccuracy: true,
+        maximumAge: 1500,
+        timeout: 10000,
+      },
     );
   };
 
@@ -141,16 +302,18 @@ export default function DriverLiveTracker() {
       let all: any[] = [];
 
       try {
-        all = await fetchOrdersFromDb();
+        all = await fetchDriverOrders();
       } catch {
         all = [];
       }
 
+      ordersRef.current = all;
+
       const mineActive = all.filter(
-        (order: any) => isMine(order, driver) && isActiveDeliveryOrder(order)
+        (order: any) => isMine(order, driver) && isActiveDeliveryOrder(order),
       );
 
-      const ids = mineActive.map((order: any) => String(order.id));
+      const ids = mineActive.map((order: any) => String(order.id || order.orderId));
       activeOrderIdsRef.current = ids;
 
       const removed = prevActiveIdsRef.current.filter((id) => !ids.includes(id));
@@ -160,16 +323,15 @@ export default function DriverLiveTracker() {
           try {
             clearDriverPosFor(id);
 
-            const order = all.find((x: any) => String(x.id) === id);
+            const order = all.find((x: any) => String(x?.id || x?.orderId) === String(id));
 
             if (order) {
-              await upsertOrder({
-                ...(order as any),
-                meta: {
-                  ...((order as any).meta || {}),
-                  lastPos: null,
-                },
-              } as any);
+              const updated = withLastPos(order, null);
+              await persistOrderToDb(updated);
+
+              ordersRef.current = ordersRef.current.map((x: any) =>
+                String(x?.id || x?.orderId) === String(id) ? updated : x,
+              );
             }
 
             if (lastWriteRef.current[id]) {
@@ -219,11 +381,11 @@ export default function DriverLiveTracker() {
       setErr(`Standortfehler: ${e.message}`);
     };
 
-    watchIdRef.current = navigator.geolocation.watchPosition(
-      publish,
-      onErr,
-      { enableHighAccuracy: true, maximumAge: 1500, timeout: 10000 }
-    );
+    watchIdRef.current = navigator.geolocation.watchPosition(publish, onErr, {
+      enableHighAccuracy: true,
+      maximumAge: 1500,
+      timeout: 10000,
+    });
 
     const onVis = () => {
       if (document.visibilityState === "visible") pushOnce();
@@ -245,7 +407,7 @@ export default function DriverLiveTracker() {
   if (!err) return null;
 
   return (
-    <div className="fixed inset-x-0 bottom-0 z-50 m-3 rounded-md bg-rose-600/90 px-3 py-2 text-sm">
+    <div className="fixed inset-x-0 bottom-0 z-50 m-3 rounded-md bg-rose-600/90 px-3 py-2 text-sm text-white shadow-lg">
       {err}
     </div>
   );
