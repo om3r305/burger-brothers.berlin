@@ -1,8 +1,0 @@
-{
-  "crons": [
-    {
-      "path": "/api/admin/cron/daily-backup",
-      "schedule": "30 3 * * *"
-    }
-  ]
-}
