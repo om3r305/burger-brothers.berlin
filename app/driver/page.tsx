@@ -13,6 +13,7 @@ import {
 import { readSettings } from "@/lib/settings";
 
 type Driver = { id: string; name: string; password: string };
+
 const DRIVERS_KEY = "bb_drivers_v1";
 const CURRENT_DRIVER_KEY = "bb_current_driver_v1";
 const REMEMBER_KEY = "bb_driver_remember";
@@ -27,6 +28,7 @@ function enc(s: string) {
     return "";
   }
 }
+
 function dec(s: string) {
   try {
     const raw = decodeURIComponent(escape(atob(s || "")));
@@ -35,6 +37,7 @@ function dec(s: string) {
     return "";
   }
 }
+
 function readDriversLocal(): Driver[] {
   try {
     return JSON.parse(localStorage.getItem(DRIVERS_KEY) || "[]");
@@ -42,12 +45,21 @@ function readDriversLocal(): Driver[] {
     return [];
   }
 }
+
 async function readDriversFromDb(): Promise<Driver[]> {
   try {
     const res = await fetch("/api/drivers", { cache: "no-store" });
     if (!res.ok) return readDriversLocal();
+
     const data = await res.json().catch(() => ({}));
-    const raw = Array.isArray(data) ? data : Array.isArray(data?.drivers) ? data.drivers : Array.isArray(data?.items) ? data.items : [];
+    const raw = Array.isArray(data)
+      ? data
+      : Array.isArray(data?.drivers)
+        ? data.drivers
+        : Array.isArray(data?.items)
+          ? data.items
+          : [];
+
     const list = raw
       .map((d: any) => ({
         id: String(d?.id || d?.name || ""),
@@ -60,11 +72,13 @@ async function readDriversFromDb(): Promise<Driver[]> {
       localStorage.setItem(DRIVERS_KEY, JSON.stringify(list));
       return list;
     }
+
     return readDriversLocal();
   } catch {
     return readDriversLocal();
   }
 }
+
 function getCurrentDriver(): Driver | null {
   try {
     return JSON.parse(localStorage.getItem(CURRENT_DRIVER_KEY) || "null");
@@ -72,75 +86,212 @@ function getCurrentDriver(): Driver | null {
     return null;
   }
 }
+
 function setCurrentDriver(d: Driver | null) {
   if (d) localStorage.setItem(CURRENT_DRIVER_KEY, JSON.stringify(d));
   else localStorage.removeItem(CURRENT_DRIVER_KEY);
 }
+
 function sanitizePhone(p?: string) {
   return (p || "").replace(/[^+\d]/g, "");
 }
+
 function mapsQuery(addr: string) {
-  return addr ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addr)}` : "https://www.google.com/maps";
+  return addr
+    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addr)}`
+    : "https://www.google.com/maps";
 }
+
 function prettyDeliveryLine(o: StoredOrder) {
   const raw = String(o?.customer?.address || o?.customer?.addressLine || "");
   if (!raw) return "";
+
   const parts = raw.split("|").map((s) => s.trim());
+
   if (parts.length >= 2) {
     const street = parts[0] || "";
     const zipMatch = (parts[1] || "").match(/\b\d{5}\b/);
     const zip = zipMatch ? zipMatch[0] : parts[1] || "";
     return [zip, street].filter(Boolean).join(" ");
   }
+
   return raw;
 }
+
 function todayStartMs() {
   const d = new Date();
   d.setHours(0, 0, 0, 0);
   return d.getTime();
 }
+
 function clearPosKey(id: string | number) {
   try {
     localStorage.removeItem(`bb_driverpos_${id}`);
   } catch {}
 }
+
 function orderDriver(o: StoredOrder): any {
   return (
     (o as any).driver ||
     (o as any).meta?.driver ||
     ((o as any).meta?.driverId || (o as any).meta?.driverName
-      ? { id: (o as any).meta?.driverId, name: (o as any).meta?.driverName }
+      ? {
+          id: (o as any).meta?.driverId,
+          name: (o as any).meta?.driverName,
+        }
       : null)
   );
 }
+
 function isDriverOrder(o: StoredOrder, current: Driver | null) {
   if (!current) return false;
+
   const d = orderDriver(o);
-  return String(d?.id || "") === String(current.id) || String(d?.name || "") === String(current.name);
+
+  return (
+    String(d?.id || "") === String(current.id) ||
+    String(d?.name || "") === String(current.name)
+  );
 }
+
+function isDeliveryOrder(o: StoredOrder) {
+  const raw = String((o as any).mode || (o as any).type || (o as any).meta?.mode || "")
+    .toLowerCase()
+    .trim();
+
+  return raw === "delivery" || raw === "lieferung" || raw.includes("liefer");
+}
+
+function moneyValue(value: any) {
+  if (value == null || value === "") return null;
+
+  if (typeof value === "object" && typeof value.toNumber === "function") {
+    const n = value.toNumber();
+    return Number.isFinite(n) ? n : null;
+  }
+
+  const n = Number(String(value).replace(",", "."));
+  return Number.isFinite(n) ? n : null;
+}
+
+function firstMoney(candidates: any[], fallback = 0) {
+  for (const value of candidates) {
+    const n = moneyValue(value);
+    if (n != null) return +n.toFixed(2);
+  }
+
+  return fallback;
+}
+
 function orderTipAmount(o: StoredOrder): number {
   const meta = ((o as any).meta || {}) as Record<string, any>;
   const payment = ((meta.payment || (o as any).payment || {}) as Record<string, any>);
-  const candidates = [payment.tip, payment.trinkgeld, meta.tip, meta.trinkgeld, (o as any).tip, (o as any).trinkgeld, (o as any).gratuity];
-  for (const value of candidates) {
-    const n = Number(String(value ?? "").replace(",", "."));
-    if (Number.isFinite(n) && n > 0) return +n.toFixed(2);
-  }
-  return 0;
+  const totals = ((o as any).totals || meta.totals || {}) as Record<string, any>;
+
+  return firstMoney(
+    [
+      payment.tip,
+      payment.trinkgeld,
+      totals.tip,
+      totals.trinkgeld,
+      meta.tip,
+      meta.trinkgeld,
+      (o as any).tip,
+      (o as any).trinkgeld,
+      (o as any).gratuity,
+    ],
+    0,
+  );
 }
+
+function orderItemsSubtotal(o: StoredOrder): number {
+  const items = Array.isArray((o as any).items) ? ((o as any).items as any[]) : [];
+
+  const sum = items.reduce((total, item) => {
+    const qty = Number(item?.qty || item?.quantity || 1);
+    const base = Number(item?.price || item?.unitPrice || 0);
+    const addSum = Array.isArray(item?.add)
+      ? item.add.reduce((s: number, extra: any) => s + Number(extra?.price || 0), 0)
+      : 0;
+
+    return total + (base + addSum) * qty;
+  }, 0);
+
+  return +sum.toFixed(2);
+}
+
 function orderPayableTotal(o: StoredOrder): number {
   const meta = ((o as any).meta || {}) as Record<string, any>;
   const payment = ((meta.payment || (o as any).payment || {}) as Record<string, any>);
-  const candidates = [payment.payableTotal, payment.total, (o as any).payable, (o as any).toPay, (o as any).total, (o as any).amount];
-  for (const value of candidates) {
-    const n = Number(String(value ?? "").replace(",", "."));
-    if (Number.isFinite(n) && n > 0) return +n.toFixed(2);
+  const totals = ((o as any).totals || meta.totals || {}) as Record<string, any>;
+
+  const total = firstMoney(
+    [
+      payment.payableTotal,
+      payment.total,
+      payment.amount,
+      totals.payableTotal,
+      totals.total,
+      totals.grandTotal,
+      totals.amount,
+      meta.payableTotal,
+      meta.total,
+      (o as any).payable,
+      (o as any).toPay,
+      (o as any).total,
+      (o as any).amount,
+    ],
+    0,
+  );
+
+  return total > 0 ? total : orderItemsSubtotal(o);
+}
+
+function orderSalesTotal(o: StoredOrder): number {
+  const total = orderPayableTotal(o);
+  const tip = orderTipAmount(o);
+
+  if (total > 0 && tip > 0 && total >= tip) {
+    return +(total - tip).toFixed(2);
   }
+
+  return total;
+}
+
+function doneTimeMs(o: StoredOrder): number {
+  const meta = ((o as any).meta || {}) as Record<string, any>;
+
+  const candidates = [
+    meta.deliveredAt,
+    meta.doneAt,
+    meta.completedAt,
+    meta.finishedAt,
+    (o as any).deliveredAt,
+    (o as any).doneAt,
+    (o as any).completedAt,
+    (o as any).updatedAt,
+    (o as any).createdAt,
+    (o as any).ts,
+  ];
+
+  for (const value of candidates) {
+    if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+      return value;
+    }
+
+    if (typeof value === "string" || value instanceof Date) {
+      const ms = new Date(value).valueOf();
+      if (Number.isFinite(ms) && ms > 0) return ms;
+    }
+  }
+
   return 0;
 }
+
 function orderNote(o: StoredOrder): string {
   const meta = ((o as any).meta || {}) as Record<string, any>;
   const customer = ((o as any).customer || {}) as Record<string, any>;
+
   const candidates = [
     meta.lieferhinweis,
     meta.deliveryNote,
@@ -156,15 +307,24 @@ function orderNote(o: StoredOrder): string {
     (o as any).orderNote,
     (o as any).note,
   ];
+
   for (const v of candidates) {
     const s = String(v ?? "").trim();
     if (s) return s;
   }
+
   return "";
 }
-function withDriverState(o: StoredOrder, current: Driver | null, status: OrderStatus, metaPatch: Record<string, any> = {}): StoredOrder {
+
+function withDriverState(
+  o: StoredOrder,
+  current: Driver | null,
+  status: OrderStatus,
+  metaPatch: Record<string, any> = {},
+): StoredOrder {
   const previousMeta = ((o as any).meta || {}) as Record<string, any>;
   const driver = current ? { id: current.id, name: current.name } : null;
+
   return {
     ...(o as any),
     status,
@@ -178,16 +338,25 @@ function withDriverState(o: StoredOrder, current: Driver | null, status: OrderSt
     },
   } as StoredOrder;
 }
-async function persistDriverOrderSnapshot(order: StoredOrder, fallbackStatus: OrderStatus, by = "driver") {
+
+async function persistDriverOrderSnapshot(
+  order: StoredOrder,
+  fallbackStatus: OrderStatus,
+  by = "driver",
+) {
   upsertOrder(order as any);
 
   const res = await fetch("/api/orders", {
     method: "PUT",
-    headers: { "content-type": "application/json", accept: "application/json" },
+    headers: {
+      "content-type": "application/json",
+      accept: "application/json",
+    },
     body: JSON.stringify({ orders: [order], replace: false }),
   });
 
   const data = await res.json().catch(() => ({}));
+
   if (!res.ok || data?.ok === false) {
     await setOrderStatus(order.id, fallbackStatus, by);
     throw new Error(data?.error || `HTTP ${res.status}`);
@@ -200,28 +369,114 @@ async function persistDriverOrderSnapshot(order: StoredOrder, fallbackStatus: Or
   return data;
 }
 
-const glass = "backdrop-blur-xl bg-white/5 border border-white/15 shadow-[inset_0_1px_0_0_rgba(255,255,255,.18)] ring-1 ring-black/20";
+function normalizeOrdersPayload(data: any): StoredOrder[] {
+  const raw = Array.isArray(data)
+    ? data
+    : Array.isArray(data?.orders)
+      ? data.orders
+      : Array.isArray(data?.items)
+        ? data.items
+        : Array.isArray(data?.list)
+          ? data.list
+          : Array.isArray(data?.data)
+            ? data.data
+            : [];
+
+  return raw.filter(Boolean) as StoredOrder[];
+}
+
+function mergeOrders(...lists: StoredOrder[][]) {
+  const map = new Map<string, StoredOrder>();
+
+  for (const list of lists) {
+    for (const order of list || []) {
+      const id = String((order as any)?.id || "");
+      if (!id) continue;
+      map.set(id, order);
+    }
+  }
+
+  return Array.from(map.values()).sort((a, b) => Number((a as any).ts || 0) - Number((b as any).ts || 0));
+}
+
+async function fetchDriverOrders(): Promise<StoredOrder[]> {
+  let fromLib: StoredOrder[] = [];
+
+  try {
+    fromLib = await fetchOrdersFromDb();
+  } catch {
+    fromLib = [];
+  }
+
+  const urls = [
+    "/api/orders/list?includeDone=1&includeArchived=1&take=500",
+    "/api/orders?includeDone=1&includeArchived=1&take=500",
+  ];
+
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, {
+        method: "GET",
+        cache: "no-store",
+        headers: {
+          accept: "application/json",
+        },
+      });
+
+      if (!res.ok) continue;
+
+      const data = await res.json().catch(() => ({}));
+      const fromApi = normalizeOrdersPayload(data);
+
+      if (fromApi.length) {
+        return mergeOrders(fromLib, fromApi);
+      }
+    } catch {}
+  }
+
+  return fromLib;
+}
+
+const glass =
+  "backdrop-blur-xl bg-white/5 border border-white/15 shadow-[inset_0_1px_0_0_rgba(255,255,255,.18)] ring-1 ring-black/20";
+
 const pad2 = (n: number) => (n < 10 ? `0${n}` : String(n));
 
 function appTZ(s: any) {
   return String(s?.hours?.timezone || s?.hours?.tz || "Europe/Berlin");
 }
+
 function plannedStartMs(o: StoredOrder, tz: string) {
   if (!o?.planned) return null;
-  const [hh, mm] = String(o.planned).split(":").map((x) => parseInt(x, 10));
+
+  const [hh, mm] = String(o.planned)
+    .split(":")
+    .map((x) => parseInt(x, 10));
+
   if (Number.isNaN(hh)) return null;
+
   const base = new Date(new Date().toLocaleString("en-US", { timeZone: tz }));
   const d = new Date(base);
+
   d.setHours(hh || 0, mm || 0, 0, 0);
+
   return d.getTime();
 }
+
 function etaFor(o: StoredOrder, avgPickup: number, avgDelivery: number) {
   return (o as any).etaMin ?? (o.mode === "pickup" ? avgPickup : avgDelivery);
 }
-function remainingMinutes(o: StoredOrder, avgPickup: number, avgDelivery: number, tz: string) {
+
+function remainingMinutes(
+  o: StoredOrder,
+  avgPickup: number,
+  avgDelivery: number,
+  tz: string,
+) {
   const eta = etaFor(o, avgPickup, avgDelivery);
   const p = plannedStartMs(o, tz);
   const start = p && p > Date.now() ? p : o.ts || Date.now();
+
   return Math.max(0, Math.floor((start + eta * 60_000 - Date.now()) / 60_000));
 }
 
@@ -229,7 +484,9 @@ export default function DriverPage() {
   useEffect(() => {
     const footer = document.querySelector("footer") as HTMLElement | null;
     const prev = footer?.style.display || "";
+
     if (footer) footer.style.display = "none";
+
     return () => {
       if (footer) footer.style.display = prev;
     };
@@ -245,7 +502,11 @@ export default function DriverPage() {
   const [orders, setOrders] = useState<StoredOrder[]>([]);
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [openMap, setOpenMap] = useState<Record<string, boolean>>({});
-  const [completedInfo, setCompletedInfo] = useState<{ id: string; tip: number; total: number } | null>(null);
+  const [completedInfo, setCompletedInfo] = useState<{
+    id: string;
+    tip: number;
+    total: number;
+  } | null>(null);
 
   const settings = readSettings() as any;
   const tz = appTZ(settings);
@@ -253,6 +514,7 @@ export default function DriverPage() {
   const avgDelivery = Number(settings?.hours?.avgDeliveryMinutes ?? 35);
 
   const [, setTick] = useState(0);
+
   useEffect(() => {
     const id = setInterval(() => setTick((x) => x + 1), 30_000);
     return () => clearInterval(id);
@@ -260,8 +522,13 @@ export default function DriverPage() {
 
   async function refresh() {
     try {
-      const all = await fetchOrdersFromDb();
-      setOrders(all.filter((o) => o.status !== "cancelled"));
+      const all = await fetchDriverOrders();
+      setOrders(
+        all.filter((o) => {
+          const status = String((o as any).status || "");
+          return status !== "cancelled" && status !== "canceled";
+        }),
+      );
     } catch {}
   }
 
@@ -285,11 +552,19 @@ export default function DriverPage() {
     if (cur) setCurrent(cur);
 
     refresh();
+
     const t = setInterval(refresh, 3000);
+
+    const onRefresh = () => refresh();
+
+    window.addEventListener("bb:refresh-orders", onRefresh as EventListener);
+    window.addEventListener("bb_orders_changed", onRefresh as EventListener);
 
     return () => {
       alive = false;
       clearInterval(t);
+      window.removeEventListener("bb:refresh-orders", onRefresh as EventListener);
+      window.removeEventListener("bb_orders_changed", onRefresh as EventListener);
     };
   }, []);
 
@@ -298,6 +573,7 @@ export default function DriverPage() {
       const r = localStorage.getItem(REMEMBER_KEY) === "1";
       const ln = localStorage.getItem(LASTNAME_KEY);
       const lp = localStorage.getItem(LASTPASS_KEY);
+
       if (ln) setLoginName(ln);
       if (r && lp) setLoginPass(dec(lp));
     }
@@ -306,36 +582,74 @@ export default function DriverPage() {
   const pending = useMemo(
     () =>
       orders
-        .filter((o) => o.mode === "delivery" && !orderDriver(o)?.id && o.status !== "out_for_delivery" && o.status !== "done" && o.status !== "cancelled")
-        .sort((a, b) => (a.ts || 0) - (b.ts || 0)),
-    [orders]
+        .filter((o) => {
+          const status = String((o as any).status || "");
+          const driver = orderDriver(o);
+
+          return (
+            isDeliveryOrder(o) &&
+            !driver?.id &&
+            !driver?.name &&
+            status !== "out_for_delivery" &&
+            status !== "done" &&
+            status !== "cancelled" &&
+            status !== "canceled"
+          );
+        })
+        .sort((a, b) => Number(a.ts || 0) - Number(b.ts || 0)),
+    [orders],
   );
 
   const mine = useMemo(() => {
     if (!current) return [];
+
     return orders
-      .filter((o) => isDriverOrder(o, current) && o.status !== "done" && o.status !== "cancelled")
-      .sort((a, b) => (a.ts || 0) - (b.ts || 0));
+      .filter((o) => {
+        const status = String((o as any).status || "");
+
+        return (
+          isDeliveryOrder(o) &&
+          isDriverOrder(o, current) &&
+          status !== "done" &&
+          status !== "cancelled" &&
+          status !== "canceled"
+        );
+      })
+      .sort((a, b) => Number(a.ts || 0) - Number(b.ts || 0));
   }, [orders, current]);
 
   const eod = useMemo(() => {
     if (!current) return { count: 0, total: 0, tip: 0 };
+
     const start = todayStartMs();
+
     const list = orders.filter((o) => {
-      const deliveredAt = Number((o as any).meta?.deliveredAt ?? 0);
-      return isDriverOrder(o, current) && deliveredAt >= start && o.status === "done";
+      const status = String((o as any).status || "");
+      const doneAt = doneTimeMs(o);
+
+      return (
+        isDeliveryOrder(o) &&
+        isDriverOrder(o, current) &&
+        status === "done" &&
+        doneAt >= start
+      );
     });
+
     return {
       count: list.length,
-      total: list.reduce((s, o) => s + Number(o.items?.reduce?.((a: any, b: any) => a + Number(b.price || 0) * Number(b.qty || 1), 0) || 0), 0),
+      total: list.reduce((s, o) => s + orderSalesTotal(o), 0),
       tip: list.reduce((s, o) => s + orderTipAmount(o), 0),
     };
   }, [orders, current]);
 
   function handleLogin(e?: React.FormEvent) {
     e?.preventDefault();
+
     const drv = drivers.find((d) => d.name === loginName && d.password === loginPass);
-    if (!drv) return alert("Ungültiger Benutzer / Passwort. Bitte Admin kontaktieren.");
+
+    if (!drv) {
+      return alert("Ungültiger Benutzer / Passwort. Bitte Admin kontaktieren.");
+    }
 
     setCurrent(drv);
     localStorage.setItem(LASTNAME_KEY, loginName || drv.name);
@@ -351,14 +665,20 @@ export default function DriverPage() {
     }
 
     setLoginPass("");
+    setTab("new");
+    refresh();
   }
 
   function handleLogout() {
     try {
       const me = getCurrentDriver();
-      const active = orders.filter((o) => isDriverOrder(o, me) && o.status !== "done" && o.status !== "cancelled");
+      const active = orders.filter(
+        (o) => isDriverOrder(o, me) && o.status !== "done" && o.status !== "cancelled",
+      );
+
       for (const o of active) clearPosKey(o.id);
     } catch {}
+
     setCurrent(null);
     setCurrentDriver(null);
   }
@@ -369,17 +689,32 @@ export default function DriverPage() {
 
   async function claimSelected() {
     if (!current) return alert("Bitte zuerst anmelden.");
+
     const ids = Object.keys(selected).filter((k) => selected[k]);
+
     if (!ids.length) return alert("Keine Auswahl.");
+
     setLoading(true);
+
     try {
       for (const id of ids) {
         const o = orders.find((x) => String(x.id) === id);
         if (!o) continue;
+
         const assigned = orderDriver(o);
+
         if (assigned?.id && String(assigned.id) !== String(current.id)) continue;
-        await persistDriverOrderSnapshot(withDriverState(o, current, "out_for_delivery", { claimedAt: Date.now(), lastPos: null }), "out_for_delivery", current.name);
+
+        await persistDriverOrderSnapshot(
+          withDriverState(o, current, "out_for_delivery", {
+            claimedAt: Date.now(),
+            lastPos: null,
+          }),
+          "out_for_delivery",
+          current.name,
+        );
       }
+
       setSelected({});
       await refresh();
       setTab("mine");
@@ -390,21 +725,46 @@ export default function DriverPage() {
 
   async function claimOne(o: StoredOrder) {
     if (!current) return alert("Bitte zuerst anmelden.");
-    const assigned = orderDriver(o);
-    if (assigned?.id && String(assigned.id) !== String(current.id)) return alert("Dieser Auftrag ist bereits zugewiesen.");
 
-    await persistDriverOrderSnapshot(withDriverState(o, current, "out_for_delivery", { claimedAt: Date.now(), lastPos: null }), "out_for_delivery", current.name);
+    const assigned = orderDriver(o);
+
+    if (assigned?.id && String(assigned.id) !== String(current.id)) {
+      return alert("Dieser Auftrag ist bereits zugewiesen.");
+    }
+
+    await persistDriverOrderSnapshot(
+      withDriverState(o, current, "out_for_delivery", {
+        claimedAt: Date.now(),
+        lastPos: null,
+      }),
+      "out_for_delivery",
+      current.name,
+    );
+
     await refresh();
     setTab("mine");
   }
 
   async function releaseOne(o: StoredOrder) {
     if (!current) return;
-    if (!isDriverOrder(o, current)) return alert("Dieser Auftrag gehört nicht Ihnen.");
+
+    if (!isDriverOrder(o, current)) {
+      return alert("Dieser Auftrag gehört nicht Ihnen.");
+    }
 
     clearPosKey(o.id);
-    await persistDriverOrderSnapshot(withDriverState(o, null, "preparing", { claimedAt: null, lastPos: null }), "preparing", current.name);
-    setOrders((prev) => prev.map((x) => (String(x.id) === String(o.id) ? withDriverState(x, null, "preparing", { claimedAt: null, lastPos: null }) : x)));
+
+    const updated = withDriverState(o, null, "preparing", {
+      claimedAt: null,
+      lastPos: null,
+    });
+
+    await persistDriverOrderSnapshot(updated, "preparing", current.name);
+
+    setOrders((prev) =>
+      prev.map((x) => (String(x.id) === String(o.id) ? updated : x)),
+    );
+
     await refresh();
   }
 
@@ -415,10 +775,17 @@ export default function DriverPage() {
     clearPosKey(o.id);
 
     const tip = orderTipAmount(o);
-    const total = orderPayableTotal(o);
-    const updated = withDriverState(o, current, "done", { deliveredAt: Date.now(), lastPos: null });
+    const total = orderSalesTotal(o);
 
-    setOrders((prev) => prev.map((x) => (String(x.id) === String(o.id) ? updated : x)));
+    const updated = withDriverState(o, current, "done", {
+      deliveredAt: Date.now(),
+      lastPos: null,
+    });
+
+    setOrders((prev) =>
+      prev.map((x) => (String(x.id) === String(o.id) ? updated : x)),
+    );
+
     setCompletedInfo({ id: String(o.id), tip, total });
 
     try {
@@ -434,32 +801,43 @@ export default function DriverPage() {
   function callCustomer(phone?: string) {
     const p = sanitizePhone(phone);
     if (!p) return alert("Keine Telefonnummer.");
+
     window.location.href = `tel:${p}`;
   }
+
   function openMaps(o: StoredOrder) {
     const addr = prettyDeliveryLine(o) || o.customer?.address || "";
     window.open(mapsQuery(addr), "_blank");
   }
+
   function TimeBadge({ o }: { o: StoredOrder }) {
     const left = remainingMinutes(o, avgPickup, avgDelivery, tz);
     const pMs = plannedStartMs(o, tz);
     const plannedFuture = !!pMs && pMs > Date.now();
-    const created = o.ts ? new Date(o.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "-";
+    const created = o.ts
+      ? new Date(o.ts).toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        })
+      : "-";
+
     return (
-      <div className="text-xs mt-1 flex gap-3 text-stone-300/90">
+      <div className="mt-1 flex flex-wrap gap-2 text-xs text-stone-300/90">
         {plannedFuture ? (
-          <span className="px-2 py-0.5 rounded-full border border-amber-400/40 bg-amber-500/15">
+          <span className="rounded-full border border-amber-400/40 bg-amber-500/15 px-2 py-0.5">
             Geplant: <b>{String(o.planned)}</b>
           </span>
         ) : (
-          <span className="px-2 py-0.5 rounded-full border border-sky-400/40 bg-sky-500/15">
+          <span className="rounded-full border border-sky-400/40 bg-sky-500/15 px-2 py-0.5">
             Rest: <b>{pad2(left)}′</b>
           </span>
         )}
-        <span className="opacity-80">Erstellt: {created}</span>
+
+        <span className="py-0.5 opacity-80">Erstellt: {created}</span>
       </div>
     );
   }
+
   function formatMoney(n: number | undefined) {
     const v = Number.isFinite(Number(n)) ? Number(n) : 0;
     return `${v.toFixed(2)}€`;
@@ -468,19 +846,28 @@ export default function DriverPage() {
   function OrderWithDetails({ o }: { o: StoredOrder }) {
     const open = !!openMap[String(o.id)];
     const items = Array.isArray(o.items) ? o.items : [];
-    const sum = items.reduce((s: any, it: any) => s + Number(it.price || 0) * Number(it.qty || 1), 0);
+    const sum = orderSalesTotal(o);
+    const tip = orderTipAmount(o);
     const noteText = orderNote(o);
 
     return (
       <div className={`rounded-xl p-4 ${glass}`}>
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex-1">
-            <div className="font-semibold">#{o.id} · Lieferung</div>
-            <div className="text-sm">{o.customer?.name || "-"} · {o.customer?.phone || "-"}</div>
-            <div className="text-sm opacity-80 mt-1">{prettyDeliveryLine(o)}</div>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0 flex-1">
+            <div className="break-words font-semibold">#{o.id} · Lieferung</div>
+
+            <div className="mt-1 break-words text-sm">
+              {o.customer?.name || "-"} · {o.customer?.phone || "-"}
+            </div>
+
+            <div className="mt-1 break-words text-sm opacity-80">
+              {prettyDeliveryLine(o)}
+            </div>
+
             <TimeBadge o={o} />
 
             <button
+              type="button"
               className="mt-2 text-sm underline underline-offset-4 opacity-90"
               onClick={() => setOpenMap((m) => ({ ...m, [String(o.id)]: !open }))}
             >
@@ -488,77 +875,130 @@ export default function DriverPage() {
             </button>
 
             {open && (
-              <div className="mt-2 space-y-2">
+              <div className="mt-3 space-y-2">
                 {noteText && (
                   <div className="rounded-lg border border-amber-400/30 bg-amber-500/10 p-3 text-sm">
                     <div className="font-semibold text-amber-100">Lieferhinweis</div>
-                    <div className="mt-1 text-stone-100 whitespace-pre-wrap">{noteText}</div>
+                    <div className="mt-1 whitespace-pre-wrap text-stone-100">
+                      {noteText}
+                    </div>
                   </div>
                 )}
 
-                <div className="rounded-lg border border-white/10 overflow-hidden">
-                  <table className="w-full text-sm">
-                    <thead className="bg-white/5">
-                      <tr>
-                        <th className="p-2 text-left">Artikel</th>
-                        <th className="p-2 text-right">Menge</th>
-                        <th className="p-2 text-right">Summe</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {items.map((it: any, i: number) => {
-                        const qty = Number(it.qty || 1);
-                        const line = qty * Number(it.price || 0);
-                        const add = Array.isArray(it.add) ? it.add : [];
-                        const rm = Array.isArray(it.rm) ? it.rm : [];
-                        const itemNote = it.note ? String(it.note) : "";
-                        return (
-                          <tr key={i} className="border-t border-white/10 align-top">
-                            <td className="p-2">
-                              <div className="font-medium">{it.name}</div>
-                              {itemNote && <div className="text-xs opacity-90 mt-0.5">Hinweis: {itemNote}</div>}
-                              {add.length > 0 && (
-                                <div className="text-xs opacity-70">
-                                  Extras: {add.map((a: any) => a?.label || a?.name).filter(Boolean).join(", ")}
-                                </div>
-                              )}
-                              {rm.length > 0 && <div className="text-xs opacity-70">Ohne: {rm.join(", ")}</div>}
+                <div className="overflow-hidden rounded-lg border border-white/10">
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[460px] text-sm">
+                      <thead className="bg-white/5">
+                        <tr>
+                          <th className="p-2 text-left">Artikel</th>
+                          <th className="p-2 text-right">Menge</th>
+                          <th className="p-2 text-right">Summe</th>
+                        </tr>
+                      </thead>
+
+                      <tbody>
+                        {items.map((it: any, i: number) => {
+                          const qty = Number(it.qty || 1);
+                          const line = qty * Number(it.price || 0);
+                          const add = Array.isArray(it.add) ? it.add : [];
+                          const rm = Array.isArray(it.rm) ? it.rm : [];
+                          const itemNote = it.note ? String(it.note) : "";
+
+                          return (
+                            <tr key={i} className="border-t border-white/10 align-top">
+                              <td className="p-2">
+                                <div className="font-medium">{it.name}</div>
+
+                                {itemNote && (
+                                  <div className="mt-0.5 text-xs opacity-90">
+                                    Hinweis: {itemNote}
+                                  </div>
+                                )}
+
+                                {add.length > 0 && (
+                                  <div className="text-xs opacity-70">
+                                    Extras:{" "}
+                                    {add
+                                      .map((a: any) => a?.label || a?.name)
+                                      .filter(Boolean)
+                                      .join(", ")}
+                                  </div>
+                                )}
+
+                                {rm.length > 0 && (
+                                  <div className="text-xs opacity-70">
+                                    Ohne: {rm.join(", ")}
+                                  </div>
+                                )}
+                              </td>
+
+                              <td className="p-2 text-right">{qty}</td>
+                              <td className="p-2 text-right">{formatMoney(line)}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+
+                      <tfoot>
+                        {tip > 0 && (
+                          <tr className="border-t border-white/10">
+                            <td className="p-2 text-right font-semibold" colSpan={2}>
+                              Trinkgeld
                             </td>
-                            <td className="p-2 text-right">{qty}</td>
-                            <td className="p-2 text-right">{formatMoney(line)}</td>
+                            <td className="p-2 text-right font-semibold">
+                              {formatMoney(tip)}
+                            </td>
                           </tr>
-                        );
-                      })}
-                    </tbody>
-                    <tfoot>
-                      <tr className="border-t border-white/10">
-                        <td className="p-2 text-right font-semibold" colSpan={2}>Gesamt</td>
-                        <td className="p-2 text-right font-semibold">{formatMoney(sum)}</td>
-                      </tr>
-                    </tfoot>
-                  </table>
+                        )}
+
+                        <tr className="border-t border-white/10">
+                          <td className="p-2 text-right font-semibold" colSpan={2}>
+                            Gesamt
+                          </td>
+                          <td className="p-2 text-right font-semibold">
+                            {formatMoney(sum)}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
                 </div>
               </div>
             )}
           </div>
 
-          <div className="flex flex-col gap-2 items-stretch min-w-[220px]">
-            <div className="flex gap-2">
-              <button className="flex-1 rounded-md px-3 py-1 border border-white/20 hover:bg-white/10" onClick={() => callCustomer(o.customer?.phone)}>
-                Anrufen
-              </button>
-              <button className="flex-1 rounded-md px-3 py-1 border border-white/20 hover:bg-white/10" onClick={() => openMaps(o)}>
-                Karte
-              </button>
-            </div>
-            <div className="flex gap-2">
-              <button className="flex-1 rounded-md px-3 py-1 bg-emerald-400 text-black font-semibold hover:bg-emerald-300" onClick={() => finishOne(o)}>
-                Fertig
-              </button>
-              <button className="flex-1 rounded-md px-3 py-1 border border-white/20 hover:bg-white/10" onClick={() => releaseOne(o)}>
-                Zurückgeben
-              </button>
-            </div>
+          <div className="grid w-full grid-cols-2 gap-2 sm:w-[220px] sm:min-w-[220px]">
+            <button
+              type="button"
+              className="rounded-md border border-white/20 px-3 py-2 text-sm hover:bg-white/10"
+              onClick={() => callCustomer(o.customer?.phone)}
+            >
+              Anrufen
+            </button>
+
+            <button
+              type="button"
+              className="rounded-md border border-white/20 px-3 py-2 text-sm hover:bg-white/10"
+              onClick={() => openMaps(o)}
+            >
+              Karte
+            </button>
+
+            <button
+              type="button"
+              className="rounded-md bg-emerald-400 px-3 py-2 text-sm font-semibold text-black hover:bg-emerald-300"
+              onClick={() => finishOne(o)}
+            >
+              Fertig
+            </button>
+
+            <button
+              type="button"
+              className="rounded-md border border-white/20 px-3 py-2 text-sm hover:bg-white/10"
+              onClick={() => releaseOne(o)}
+            >
+              Zurückgeben
+            </button>
           </div>
         </div>
       </div>
@@ -573,17 +1013,19 @@ export default function DriverPage() {
           <div className="absolute inset-0 bg-[radial-gradient(80%_80%_at_50%_20%,transparent,rgba(0,0,0,.45))]" />
         </div>
 
-        <div className="max-w-md mx-auto px-4 py-16">
+        <div className="mx-auto max-w-md px-4 py-16">
           <div className={`rounded-2xl p-6 ${glass}`}>
-            <div className="text-center mb-6">
+            <div className="mb-6 text-center">
               <img src="/logo-burger-brothers.png" className="mx-auto h-16 w-16" alt="" />
               <h1 className="mt-3 text-2xl font-bold">Fahrer-Login</h1>
-              <p className="text-sm text-stone-300/90 mt-1">Bitte mit vom Admin vergebenen Zugangsdaten anmelden.</p>
+              <p className="mt-1 text-sm text-stone-300/90">
+                Bitte mit vom Admin vergebenen Zugangsdaten anmelden.
+              </p>
             </div>
 
             <form onSubmit={handleLogin} className="space-y-3">
               <input
-                className="w-full rounded-md px-3 py-2 bg-white/10 border border-white/20 outline-none focus:ring-2 focus:ring-white/30"
+                className="w-full rounded-md border border-white/20 bg-white/10 px-3 py-2 outline-none focus:ring-2 focus:ring-white/30"
                 placeholder="Benutzername"
                 value={loginName}
                 onChange={(e) => {
@@ -592,9 +1034,10 @@ export default function DriverPage() {
                 }}
                 autoComplete="username"
               />
+
               <input
                 type="password"
-                className="w-full rounded-md px-3 py-2 bg-white/10 border border-white/20 outline-none focus:ring-2 focus:ring-white/30"
+                className="w-full rounded-md border border-white/20 bg-white/10 px-3 py-2 outline-none focus:ring-2 focus:ring-white/30"
                 placeholder="Passwort"
                 value={loginPass}
                 onChange={(e) => {
@@ -611,6 +1054,7 @@ export default function DriverPage() {
                   onChange={(e) => {
                     setRemember(e.target.checked);
                     localStorage.setItem(REMEMBER_KEY, e.target.checked ? "1" : "0");
+
                     if (e.target.checked) localStorage.setItem(LASTPASS_KEY, enc(loginPass));
                     else localStorage.removeItem(LASTPASS_KEY);
                   }}
@@ -618,7 +1062,10 @@ export default function DriverPage() {
                 Angemeldet bleiben
               </label>
 
-              <button type="submit" className="w-full rounded-md py-2 font-semibold bg-amber-500 hover:bg-amber-400 text-black transition">
+              <button
+                type="submit"
+                className="w-full rounded-md bg-amber-500 py-2 font-semibold text-black transition hover:bg-amber-400"
+              >
                 Anmelden
               </button>
             </form>
@@ -637,41 +1084,86 @@ export default function DriverPage() {
         <div className="absolute inset-0 bg-[radial-gradient(80%_80%_at_50%_20%,transparent,rgba(0,0,0,.45))]" />
       </div>
 
-      <div className="max-w-3xl mx-auto p-4 sm:p-6 space-y-4">
-        <div className={`rounded-2xl p-4 flex items-center justify-between ${glass}`}>
-          <div>
-            <div className="text-lg font-semibold">Willkommen, {current.name}</div>
-            <div className="text-sm text-stone-300/90">Nur Lieferaufträge werden angezeigt.</div>
-          </div>
-          <div className="text-right">
-            <div className="text-sm">Heute: <b>{eod.count}</b> Lieferungen</div>
-            <div className="text-sm">Umsatz: <b>{eod.total.toFixed(2)}€</b></div>
-            <div className="text-sm">Trinkgeld: <b>{eod.tip.toFixed(2)}€</b></div>
-            <button className="mt-2 text-sm px-3 py-1 rounded-md border border-white/20 hover:bg-white/10" onClick={handleLogout}>
-              Abmelden
-            </button>
+      <div className="mx-auto max-w-3xl space-y-4 p-4 sm:p-6">
+        <div className={`rounded-2xl p-4 ${glass}`}>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <div className="break-words text-lg font-semibold">
+                Willkommen, {current.name}
+              </div>
+              <div className="text-sm text-stone-300/90">
+                Nur Lieferaufträge werden angezeigt.
+              </div>
+            </div>
+
+            <div className="text-left sm:text-right">
+              <div className="text-sm">
+                Heute: <b>{eod.count}</b> Lieferungen
+              </div>
+              <div className="text-sm">
+                Umsatz: <b>{eod.total.toFixed(2)}€</b>
+              </div>
+              <div className="text-sm">
+                Trinkgeld: <b>{eod.tip.toFixed(2)}€</b>
+              </div>
+
+              <button
+                type="button"
+                className="mt-2 rounded-md border border-white/20 px-3 py-1 text-sm hover:bg-white/10"
+                onClick={handleLogout}
+              >
+                Abmelden
+              </button>
+            </div>
           </div>
         </div>
 
         <div className={`rounded-2xl p-2 ${glass}`}>
           <div className="grid grid-cols-2 gap-2">
-            <button onClick={() => setTab("new")} className={`rounded-md py-2 font-medium ${tab === "new" ? "bg-white/20" : "opacity-80 hover:bg-white/10"}`}>
+            <button
+              type="button"
+              onClick={() => setTab("new")}
+              className={`rounded-md py-2 font-medium ${
+                tab === "new" ? "bg-white/20" : "opacity-80 hover:bg-white/10"
+              }`}
+            >
               Neu ({pending.length})
             </button>
-            <button onClick={() => setTab("mine")} className={`rounded-md py-2 font-medium ${tab === "mine" ? "bg-white/20" : "opacity-80 hover:bg-white/10"}`}>
+
+            <button
+              type="button"
+              onClick={() => setTab("mine")}
+              className={`rounded-md py-2 font-medium ${
+                tab === "mine" ? "bg-white/20" : "opacity-80 hover:bg-white/10"
+              }`}
+            >
               Meine ({mine.length})
             </button>
           </div>
         </div>
 
         {completedInfo && (
-          <div className={`rounded-2xl border border-emerald-400/40 bg-emerald-500/10 p-4 ${glass}`}>
-            <div className="flex items-start justify-between gap-3">
+          <div
+            className={`rounded-2xl border border-emerald-400/40 bg-emerald-500/10 p-4 ${glass}`}
+          >
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
-                <div className="font-semibold text-emerald-100">Lieferung abgeschlossen ✅</div>
-                <div className="mt-1 text-sm text-stone-200">Bestellung <b>#{completedInfo.id}</b> wurde als fertig markiert.</div>
+                <div className="font-semibold text-emerald-100">
+                  Lieferung abgeschlossen ✅
+                </div>
+
+                <div className="mt-1 text-sm text-stone-200">
+                  Bestellung <b>#{completedInfo.id}</b> wurde als fertig markiert.
+                </div>
+
                 <div className="mt-2 text-sm">
-                  Trinkgeld: <b>{completedInfo.tip > 0 ? `${completedInfo.tip.toFixed(2)}€` : "Kein Trinkgeld"}</b>
+                  Trinkgeld:{" "}
+                  <b>
+                    {completedInfo.tip > 0
+                      ? `${completedInfo.tip.toFixed(2)}€`
+                      : "Kein Trinkgeld"}
+                  </b>
+
                   {completedInfo.total > 0 ? (
                     <>
                       <span className="mx-2 text-stone-500">•</span>
@@ -680,7 +1172,12 @@ export default function DriverPage() {
                   ) : null}
                 </div>
               </div>
-              <button type="button" className="rounded-md border border-white/20 px-3 py-1 text-sm hover:bg-white/10" onClick={() => setCompletedInfo(null)}>
+
+              <button
+                type="button"
+                className="rounded-md border border-white/20 px-3 py-1 text-sm hover:bg-white/10"
+                onClick={() => setCompletedInfo(null)}
+              >
                 Schließen
               </button>
             </div>
@@ -690,29 +1187,53 @@ export default function DriverPage() {
         <section className="space-y-3">
           {tab === "new" ? (
             pending.length === 0 ? (
-              <div className={`rounded-xl p-4 text-sm text-stone-300/90 ${glass}`}>Keine neuen Aufträge.</div>
+              <div className={`rounded-xl p-4 text-sm text-stone-300/90 ${glass}`}>
+                Keine neuen Aufträge.
+              </div>
             ) : (
               <>
                 <div className="flex justify-end">
-                  <button onClick={claimSelected} disabled={loading} className="rounded-md px-4 py-2 font-semibold bg-indigo-400 text-black hover:bg-indigo-300" title="Ausgewählte übernehmen">
+                  <button
+                    type="button"
+                    onClick={claimSelected}
+                    disabled={loading}
+                    className="rounded-md bg-indigo-400 px-4 py-2 font-semibold text-black hover:bg-indigo-300 disabled:pointer-events-none disabled:opacity-60"
+                    title="Ausgewählte übernehmen"
+                  >
                     ＋ Übernehmen
                   </button>
                 </div>
+
                 {pending.map((o) => (
                   <div key={String(o.id)} className={`rounded-xl p-4 ${glass}`}>
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex-1">
-                        <div className="font-semibold">#{o.id} · Lieferung</div>
-                        <div className="text-sm">{o.customer?.name || "-"} · {o.customer?.phone || "-"}</div>
-                        <div className="text-sm opacity-80 mt-1">{prettyDeliveryLine(o)}</div>
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="min-w-0 flex-1">
+                        <div className="break-words font-semibold">#{o.id} · Lieferung</div>
+                        <div className="mt-1 break-words text-sm">
+                          {o.customer?.name || "-"} · {o.customer?.phone || "-"}
+                        </div>
+                        <div className="mt-1 break-words text-sm opacity-80">
+                          {prettyDeliveryLine(o)}
+                        </div>
                         <TimeBadge o={o} />
                       </div>
-                      <div className="flex flex-col items-end gap-2">
-                        <label className="text-sm flex items-center gap-2 opacity-90">
-                          <input type="checkbox" checked={!!selected[String(o.id)]} onChange={() => toggleSelect(o.id)} />
+
+                      <div className="flex w-full items-center justify-between gap-2 sm:w-auto sm:flex-col sm:items-end">
+                        <label className="flex items-center gap-2 text-sm opacity-90">
+                          <input
+                            type="checkbox"
+                            checked={!!selected[String(o.id)]}
+                            onChange={() => toggleSelect(o.id)}
+                          />
                           Auswählen
                         </label>
-                        <button className="rounded-md px-3 py-1 border border-white/20 hover:bg-white/10" onClick={() => claimOne(o)} title="Übernehmen">
+
+                        <button
+                          type="button"
+                          className="rounded-md border border-white/20 px-4 py-2 hover:bg-white/10"
+                          onClick={() => claimOne(o)}
+                          title="Übernehmen"
+                        >
                           ＋
                         </button>
                       </div>
@@ -722,7 +1243,9 @@ export default function DriverPage() {
               </>
             )
           ) : mine.length === 0 ? (
-            <div className={`rounded-xl p-4 text-sm text-stone-300/90 ${glass}`}>Keine übernommenen Aufträge.</div>
+            <div className={`rounded-xl p-4 text-sm text-stone-300/90 ${glass}`}>
+              Keine übernommenen Aufträge.
+            </div>
           ) : (
             mine.map((o) => <OrderWithDetails key={String(o.id)} o={o} />)
           )}
