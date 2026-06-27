@@ -61,6 +61,8 @@ const ORDER_SCHEMA_FIELDS = new Set<string>([
   "driver",
   "doneAt",
   "cancelledAt",
+  "archivedAt",
+  "anonymizedAt",
   "history",
   "print",
   "createdAt",
@@ -194,6 +196,11 @@ function sanitizeJson(value: any): any {
   }
 
   return value;
+}
+
+function parseBool(value: any) {
+  const text = String(value || "").toLowerCase().trim();
+  return text === "1" || text === "true" || text === "yes" || text === "ja";
 }
 
 function normalizeMode(value: any): OrderMode {
@@ -427,6 +434,8 @@ function buildOrderSelect() {
     "driver",
     "doneAt",
     "cancelledAt",
+    "archivedAt",
+    "anonymizedAt",
     "history",
     "print",
   ];
@@ -458,6 +467,9 @@ function serializeOrder(row: any) {
     Math.max(0, merchandise + surcharges - discount - couponDiscount),
   );
 
+  const archivedAt = toIso(row?.archivedAt ?? rawMeta?.archivedAt);
+  const anonymizedAt = toIso(row?.anonymizedAt ?? rawMeta?.anonymizedAt);
+
   const meta = sanitizeJson({
     ...rawMeta,
     history,
@@ -465,6 +477,8 @@ function serializeOrder(row: any) {
     couponDiscount,
     couponMeta: rawMeta?.couponMeta ?? null,
     couponLifecycle: rawMeta?.couponLifecycle ?? null,
+    archivedAt,
+    anonymizedAt,
   });
 
   const payload = sanitizeJson({
@@ -515,6 +529,8 @@ function serializeOrder(row: any) {
     print: row?.print ?? rawMeta?.print ?? null,
     doneAt: toIso(row?.doneAt ?? rawMeta?.doneAt),
     cancelledAt: toIso(row?.cancelledAt ?? rawMeta?.cancelledAt),
+    archivedAt,
+    anonymizedAt,
     order: payload,
     item: payload,
   });
@@ -654,6 +670,8 @@ function buildCreateData(tenantId: string, raw: any, forcedId?: string) {
     couponLifecycle: rawMeta?.couponLifecycle ?? raw?.couponLifecycle ?? order?.couponLifecycle ?? null,
     note: rawMeta?.note ?? raw?.note ?? order?.note ?? customer?.deliveryHint ?? customer?.note ?? null,
     orderNote: rawMeta?.orderNote ?? raw?.orderNote ?? order?.orderNote ?? customer?.deliveryHint ?? customer?.note ?? null,
+    archivedAt: toIso(raw?.archivedAt ?? order?.archivedAt ?? rawMeta?.archivedAt),
+    anonymizedAt: toIso(raw?.anonymizedAt ?? order?.anonymizedAt ?? rawMeta?.anonymizedAt),
   });
 
   const data: Record<string, any> = {
@@ -699,6 +717,14 @@ function buildCreateData(tenantId: string, raw: any, forcedId?: string) {
   if (hasOrderField("cancelledAt")) {
     data.cancelledAt =
       status === "cancelled" ? toDate(raw?.cancelledAt ?? rawMeta?.cancelledAt) || new Date() : null;
+  }
+
+  if (hasOrderField("archivedAt")) {
+    data.archivedAt = toDate(raw?.archivedAt ?? order?.archivedAt ?? rawMeta?.archivedAt);
+  }
+
+  if (hasOrderField("anonymizedAt")) {
+    data.anonymizedAt = toDate(raw?.anonymizedAt ?? order?.anonymizedAt ?? rawMeta?.anonymizedAt);
   }
 
   return data;
@@ -842,11 +868,17 @@ function errorResponse(error: any, fallback: string, status = 500) {
   );
 }
 
-async function listOrders(tenantId: string, take = 1000) {
+async function listOrders(tenantId: string, take = 1000, includeArchived = false) {
+  const where: Record<string, any> = {
+    tenantId,
+  };
+
+  if (hasOrderField("archivedAt") && !includeArchived) {
+    where.archivedAt = null;
+  }
+
   const rows = await prisma.order.findMany({
-    where: {
-      tenantId,
-    },
+    where,
     orderBy: {
       ts: "desc",
     },
@@ -931,11 +963,18 @@ export async function GET(req: Request) {
       1000,
     );
 
-    const orders = await listOrders(tenantId, take);
+    const includeArchived =
+      parseBool(url.searchParams.get("includeArchived")) ||
+      parseBool(url.searchParams.get("archived"));
+
+    const orders = await listOrders(tenantId, take, includeArchived);
 
     return jsonResponse({
       ok: true,
       source: "db",
+      archived: {
+        included: includeArchived,
+      },
       orders,
       items: orders,
       allOrders: orders,
@@ -1038,6 +1077,96 @@ export async function POST(req: Request) {
         orders,
         items: orders,
         count: orders.length,
+      });
+    }
+
+    if (action === "updateDriverPosition") {
+      const id = String(body?.id || body?.orderId || body?.code || "").trim();
+      const by = cleanText(body?.by || body?.driverName || "driver", "driver");
+
+      const lat = Number(body?.lat ?? body?.position?.lat ?? body?.position?.latitude);
+      const lng = Number(
+        body?.lng ??
+          body?.lon ??
+          body?.position?.lng ??
+          body?.position?.lon ??
+          body?.position?.longitude,
+      );
+
+      const ts = toNum(body?.ts ?? body?.position?.ts, Date.now());
+
+      if (!id) {
+        return jsonResponse(
+          {
+            ok: false,
+            source: "db",
+            error: "id missing",
+          },
+          400,
+        );
+      }
+
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+        return jsonResponse(
+          {
+            ok: false,
+            source: "db",
+            error: "lat/lng missing",
+          },
+          400,
+        );
+      }
+
+      const row = await findOrder(tenantId, id);
+
+      if (!row) {
+        return jsonResponse(
+          {
+            ok: false,
+            source: "db",
+            error: "not_found",
+          },
+          404,
+        );
+      }
+
+      const rawMeta = ensureObj((row as any)?.meta);
+
+      const livePos = sanitizeJson({
+        lat,
+        lng,
+        ts,
+      });
+
+      const nextMeta = sanitizeJson({
+        ...rawMeta,
+        lastPos: livePos,
+        lastDriverPos: livePos,
+        lastDriverPosAt: ts,
+        lastDriverPosBy: by,
+      });
+
+      const updated = await prisma.order.update({
+        where: {
+          id: String((row as any).id),
+        },
+        data: {
+          meta: nextMeta,
+        } as any,
+        select: buildOrderSelect() as any,
+      });
+
+      const order = serializeOrder(updated);
+
+      return jsonResponse({
+        ok: true,
+        source: "db",
+        id: order.id,
+        orderId: order.orderId,
+        position: livePos,
+        order,
+        item: order,
+        data: order,
       });
     }
 
@@ -1167,11 +1296,15 @@ export async function POST(req: Request) {
               id: copyId,
               ts: Date.now(),
               status: "new",
+              archivedAt: null,
+              anonymizedAt: null,
               meta: {
                 ...meta,
                 source: "api",
                 duplicatedFrom: id,
                 statusManual: "new",
+                archivedAt: null,
+                anonymizedAt: null,
                 history,
               },
             },
@@ -1212,15 +1345,22 @@ export async function POST(req: Request) {
         /*
           DB-first güvenlik:
           replace=true boş/stale payload ile gelirse siparişleri silmiyoruz.
+          Ayrıca arşivlenmiş siparişleri import replace ile silmiyoruz.
         */
         if (replace && incoming.length > 0 && seenIds.size > 0) {
-          await tx.order.deleteMany({
-            where: {
-              tenantId,
-              id: {
-                notIn: Array.from(seenIds),
-              },
+          const where: Record<string, any> = {
+            tenantId,
+            id: {
+              notIn: Array.from(seenIds),
             },
+          };
+
+          if (hasOrderField("archivedAt")) {
+            where.archivedAt = null;
+          }
+
+          await tx.order.deleteMany({
+            where,
           });
         }
       });
@@ -1241,7 +1381,14 @@ export async function POST(req: Request) {
         ok: false,
         source: "db",
         error: "Unknown action",
-        allowedActions: ["addDummy", "setStatus", "delete", "duplicate", "import"],
+        allowedActions: [
+          "addDummy",
+          "setStatus",
+          "updateDriverPosition",
+          "delete",
+          "duplicate",
+          "import",
+        ],
       },
       400,
     );
