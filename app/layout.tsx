@@ -6,7 +6,6 @@ import SettingsSync from "./SettingsSync";
 import ProductsSync from "./ProductsSync";
 import DriversSync from "./DriversSync";
 import { LS_SETTINGS } from "@/lib/settings";
-import AnnouncementsClient from "@/components/AnnouncementsClient";
 import AnalyticsPing from "@/components/AnalyticsPing";
 
 /* 🔧 SSG yerine runtime render (prerender hatalarını engelle) */
@@ -182,8 +181,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {/* App-shell */}
         <main className="app-shell min-w-0">{children}</main>
 
-        {/* ↓ Duyuru bottom-sheet/sağ-alt */}
-        <AnnouncementsClient />
+        {/* 
+          Kampanya / broşür artık global layout'ta gösterilmiyor.
+          Büyük kampanya pop-up sadece app/page.tsx ana giriş sayfasında çalışır.
+        */}
 
         {/* Alt CTA boşluğu (yalnız mobil) */}
         <div aria-hidden className="h-[calc(env(safe-area-inset-bottom)+96px)] sm:hidden" />
