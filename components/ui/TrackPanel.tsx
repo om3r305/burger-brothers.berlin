@@ -9,6 +9,8 @@ type TrackPanelProps = {
 };
 
 const LS_LAST_TRACK_ID = "bb_last_track_order_id";
+const LS_LAST_TRACK_ID_LEGACY = "bb_last_tracking_order_id";
+const TRACK_EVENT = "bb:last-track-order-updated";
 
 function cleanOrderId(value: string) {
   return String(value || "")
@@ -18,18 +20,76 @@ function cleanOrderId(value: string) {
     .replace(/[^a-zA-Z0-9_-]/g, "");
 }
 
+function readLastTrackId() {
+  try {
+    const current = cleanOrderId(localStorage.getItem(LS_LAST_TRACK_ID) || "");
+    if (current) return current;
+
+    const legacy = cleanOrderId(localStorage.getItem(LS_LAST_TRACK_ID_LEGACY) || "");
+    if (legacy) {
+      localStorage.setItem(LS_LAST_TRACK_ID, legacy);
+      return legacy;
+    }
+  } catch {}
+
+  return "";
+}
+
 export default function TrackPanel({ variant = "default" }: TrackPanelProps) {
   const router = useRouter();
 
   const [val, setVal] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [autoFilled, setAutoFilled] = useState(false);
 
   useEffect(() => {
-    try {
-      const last = localStorage.getItem(LS_LAST_TRACK_ID) || "";
-      if (last) setVal(last);
-    } catch {}
+    const applyLastId = (nextId: string) => {
+      const clean = cleanOrderId(nextId);
+
+      if (!clean) return;
+
+      setVal(clean);
+      setAutoFilled(true);
+      setError("");
+
+      try {
+        localStorage.setItem(LS_LAST_TRACK_ID, clean);
+      } catch {}
+    };
+
+    const initial = readLastTrackId();
+    if (initial) {
+      applyLastId(initial);
+    }
+
+    const onStorage = (event: StorageEvent) => {
+      if (
+        !event.key ||
+        event.key === LS_LAST_TRACK_ID ||
+        event.key === LS_LAST_TRACK_ID_LEGACY
+      ) {
+        const next = readLastTrackId();
+        if (next) applyLastId(next);
+      }
+    };
+
+    const onCustomTrackEvent = (event: Event) => {
+      const custom = event as CustomEvent<{ id?: string; orderId?: string }>;
+      const next = custom.detail?.id || custom.detail?.orderId || readLastTrackId();
+
+      if (next) {
+        applyLastId(next);
+      }
+    };
+
+    window.addEventListener("storage", onStorage);
+    window.addEventListener(TRACK_EVENT, onCustomTrackEvent as EventListener);
+
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener(TRACK_EVENT, onCustomTrackEvent as EventListener);
+    };
   }, []);
 
   const go = async () => {
@@ -105,7 +165,11 @@ export default function TrackPanel({ variant = "default" }: TrackPanelProps) {
             value={val}
             onChange={(event) => {
               setVal(event.target.value);
-              if (error) setError("");
+              setAutoFilled(false);
+
+              if (error) {
+                setError("");
+              }
             }}
             placeholder="Bestellnummer eingeben"
             autoComplete="off"
@@ -127,8 +191,16 @@ export default function TrackPanel({ variant = "default" }: TrackPanelProps) {
         {error && <div className="text-xs text-rose-300">{error}</div>}
 
         {variant === "emphasized" && (
-          <div className="text-xs text-stone-400">
-            Hier können Sie den Status Ihrer Bestellung mit der Bestellnummer prüfen.
+          <div className="space-y-1 text-xs text-stone-400">
+            <div>
+              Hier können Sie den Status Ihrer Bestellung mit der Bestellnummer prüfen.
+            </div>
+
+            {autoFilled && val && (
+              <div className="text-emerald-300">
+                Hinweis: Der Code gehört zu Ihrer letzten Bestellung.
+              </div>
+            )}
           </div>
         )}
       </form>

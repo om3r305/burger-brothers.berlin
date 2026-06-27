@@ -100,6 +100,9 @@ const LS_ACTIVE_COUPON = "bb_active_coupon_code";
 const LS_ACTIVE_COUPON_META = "bb_active_coupon_meta";
 const LS_PRODUCTS = "bb_products_v1";
 const PROFILE_KEY = "bb_checkout_profile_v2";
+const LS_LAST_TRACK_ID = "bb_last_track_order_id";
+const LS_LAST_TRACK_ID_LEGACY = "bb_last_tracking_order_id";
+const TRACK_EVENT = "bb:last-track-order-updated";
 
 const pad2 = (n: number) => (n < 10 ? `0${n}` : String(n));
 
@@ -201,6 +204,36 @@ function safeJsonParse(value: string | null) {
   } catch {
     return null;
   }
+}
+
+function cleanTrackOrderId(value: any) {
+  return String(value || "")
+    .trim()
+    .replace(/^#+/, "")
+    .replace(/\s+/g, "")
+    .replace(/[^a-zA-Z0-9_-]/g, "");
+}
+
+function rememberLastDeliveryTrackId(id: any) {
+  const clean = cleanTrackOrderId(id);
+
+  if (!clean) return;
+
+  try {
+    localStorage.setItem(LS_LAST_TRACK_ID, clean);
+    localStorage.setItem(LS_LAST_TRACK_ID_LEGACY, clean);
+  } catch {}
+
+  try {
+    window.dispatchEvent(
+      new CustomEvent(TRACK_EVENT, {
+        detail: {
+          id: clean,
+          orderId: clean,
+        },
+      }),
+    );
+  } catch {}
 }
 
 function isFilled(value: any) {
@@ -2034,30 +2067,19 @@ export default function CheckoutPage() {
                   </>
                 )}
               </div>
-              <div className="text-stone-400">Bitte notieren Sie diese Nummer.</div>
+              {orderMode === "delivery" ? (
+                <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-2 text-xs text-emerald-200">
+                  Hinweis: Der Code gehört zu Ihrer letzten Bestellung und wurde unten
+                  automatisch in die Sendungsverfolgung übernommen.
+                </div>
+              ) : (
+                <div className="text-stone-400">
+                  Bitte notieren Sie diese Nummer für die Abholung.
+                </div>
+              )}
             </div>
 
             <div className="mt-4 flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                className="rounded-full border border-stone-700/60 bg-stone-800/60 px-4 py-2 text-sm"
-                onClick={async () => {
-                  try {
-                    const id = String(confirm?.id ?? "").replace(/^#/, "");
-
-                    if (!id) {
-                      alert("Keine Bestellnummer gefunden.");
-                      return;
-                    }
-
-                    await navigator.clipboard.writeText(id);
-                    alert("Bestellnummer wurde kopiert.");
-                  } catch {}
-                }}
-              >
-                Kopieren
-              </button>
-
               <button
                 type="button"
                 className="card-cta"
@@ -2073,7 +2095,7 @@ export default function CheckoutPage() {
                   } catch {}
                 }}
               >
-                OK • Zurück zum Menü
+                Zum Menü
               </button>
 
               <button
@@ -2303,6 +2325,10 @@ export default function CheckoutPage() {
       const etaMin =
         result?.etaMin ?? (orderMode === "pickup" ? avgPickupMinutes : avgDeliveryMinutes);
       const id = result?.id || String(Date.now());
+
+      if (orderMode === "delivery") {
+        rememberLastDeliveryTrackId(id);
+      }
 
       setConfirm({ id, etaMin });
       setSubmitted(true);
