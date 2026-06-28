@@ -434,19 +434,29 @@ export default function HomePage() {
 
   useEffect(() => {
     let cancelled = false;
+    let syncInFlight = false;
 
-    async function refreshLandingCoupon() {
+    async function refreshLandingCoupon(options: { sync?: boolean } = {}) {
       const phone = readKnownCustomerPhone();
 
       if (!phone) {
-        setLandingCoupon(null);
-        setCouponOpen(false);
+        if (!cancelled) {
+          setLandingCoupon(null);
+          setCouponOpen(false);
+        }
+
         return;
       }
 
-      try {
-        await syncCouponsFromServer();
-      } catch {}
+      if (options.sync && !syncInFlight) {
+        syncInFlight = true;
+
+        try {
+          await syncCouponsFromServer();
+        } catch {}
+
+        syncInFlight = false;
+      }
 
       if (cancelled) return;
 
@@ -469,36 +479,41 @@ export default function HomePage() {
       setCouponOpen(!closed);
     }
 
-    refreshLandingCoupon();
-
-    const onCouponsChanged = () => {
-      refreshLandingCoupon();
-    };
+    void refreshLandingCoupon({ sync: true });
 
     const onStorage = (event: StorageEvent) => {
+      const key = event.key || "";
+
       if (
         !event.key ||
-        event.key === LS_CHECKOUT ||
-        event.key === LS_ACTIVE_COUPON ||
-        event.key === LS_ACTIVE_COUPON_META
+        key === LS_CHECKOUT ||
+        key === LS_ACTIVE_COUPON ||
+        key === LS_ACTIVE_COUPON_META ||
+        key.startsWith(PROFILE_KEY)
       ) {
-        refreshLandingCoupon();
+        void refreshLandingCoupon({ sync: false });
+      }
+    };
+
+    const onFocus = () => {
+      void refreshLandingCoupon({ sync: true });
+    };
+
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        void refreshLandingCoupon({ sync: true });
       }
     };
 
     window.addEventListener("storage", onStorage);
-    window.addEventListener("bb_coupon_changed", onCouponsChanged as EventListener);
-    window.addEventListener("bb:coupon-sync", onCouponsChanged as EventListener);
-    window.addEventListener("bb_coupons_changed", onCouponsChanged as EventListener);
-    window.addEventListener("bb:coupons-sync", onCouponsChanged as EventListener);
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
 
     return () => {
       cancelled = true;
       window.removeEventListener("storage", onStorage);
-      window.removeEventListener("bb_coupon_changed", onCouponsChanged as EventListener);
-      window.removeEventListener("bb:coupon-sync", onCouponsChanged as EventListener);
-      window.removeEventListener("bb_coupons_changed", onCouponsChanged as EventListener);
-      window.removeEventListener("bb:coupons-sync", onCouponsChanged as EventListener);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
     };
   }, []);
 
@@ -561,20 +576,20 @@ export default function HomePage() {
     }
   };
 
-  const handleEnter = async () => {
+  const handleEnter = () => {
     try {
       if (clickRef.current) {
         clickRef.current.currentTime = 0;
-        await clickRef.current.play();
+        void clickRef.current.play().catch(() => {});
       }
 
-      await fireRef.current?.play();
-      await grillRef.current?.play();
+      void fireRef.current?.play().catch(() => {});
+      void grillRef.current?.play().catch(() => {});
     } catch {
       // iOS/Safari ses politikası nedeniyle sessiz geçilebilir.
-    } finally {
-      router.push("/menu");
     }
+
+    router.push("/menu");
   };
 
   return (
