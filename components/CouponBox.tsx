@@ -7,6 +7,8 @@ import { readSettings } from "@/lib/settings";
 import {
   canApply,
   findCouponByAnyCode,
+  getAllCoupons,
+  getAllIssued,
   syncCouponsFromServer,
   type CartItemForCoupon,
   type CheckResult,
@@ -45,6 +47,13 @@ type StaticCoupon = {
   title?: string;
 };
 
+type SuggestedCoupon = {
+  def: CouponDef;
+  issued: IssuedCoupon;
+  check: CheckResult;
+  validUntil: number | null;
+};
+
 type CouponBoxProps = {
   cartTotal?: number;
   cartItems?: CartItemForCoupon[];
@@ -76,6 +85,77 @@ function cleanCode(value: string) {
 
 function normalizePhone(value?: string | null) {
   return String(value ?? "").replace(/[^\d+]/g, "").trim();
+}
+
+function samePhone(left?: string | null, right?: string | null) {
+  const a = normalizePhone(left);
+  const b = normalizePhone(right);
+
+  return Boolean(a && b && a === b);
+}
+
+function formatMoney(value: number) {
+  return new Intl.NumberFormat("de-DE", {
+    style: "currency",
+    currency: "EUR",
+  }).format(value);
+}
+
+function formatDate(value?: number | null) {
+  if (!value) return "ohne Ablaufdatum";
+
+  try {
+    return new Date(value).toLocaleDateString("de-DE", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    });
+  } catch {
+    return "ohne Ablaufdatum";
+  }
+}
+
+function couponTitle(def: CouponDef) {
+  if (def.title) return def.title;
+
+  if (def.type === "percent") return `${Number(def.value || 0)}% Rabatt`;
+  if (def.type === "fixed") return `${formatMoney(Number(def.value || 0))} Rabatt`;
+  if (def.type === "free_item") return `Gratis ${def.meta?.freeItemName || "Artikel"}`;
+  if (def.type === "bogo") return "Gratis-Aktion";
+
+  return "Gutschein";
+}
+
+function couponDescription(def: CouponDef) {
+  if (def.meta?.aboutText) return String(def.meta.aboutText);
+
+  if (def.type === "percent") {
+    return `${Number(def.value || 0)}% Rabatt auf Ihre nächste Bestellung.`;
+  }
+
+  if (def.type === "fixed") {
+    return `${formatMoney(Number(def.value || 0))} Rabatt auf Ihre nächste Bestellung.`;
+  }
+
+  if (def.type === "free_item") {
+    return `Gratis: ${def.meta?.freeItemName || "Artikel"}.`;
+  }
+
+  if (def.type === "bogo") {
+    const bogo = def.meta?.bogo;
+
+    if (bogo) {
+      return `${bogo.buyQty} kaufen, ${bogo.freeQty} gratis.`;
+    }
+
+    return "Gratis-Aktion für Ihre Bestellung.";
+  }
+
+  return "Gutschein für Ihre Bestellung.";
+}
+
+function isBelowMin(check: CheckResult) {
+  return check.ok === false && check.reason === "below_min";
 }
 
 function dispatchCouponChanged() {
@@ -287,6 +367,74 @@ function validateStaticCoupon(
   };
 }
 
+function findSuggestedCouponForPhone(params: {
+  customerPhone?: string | null;
+  cartTotal?: number;
+  cartItems?: CartItemForCoupon[];
+}): SuggestedCoupon | null {
+  const phone = normalizePhone(params.customerPhone);
+
+  if (!phone || phone.length < 6) return null;
+
+  const now = nowTs();
+  const coupons = getAllCoupons();
+  const issuedCoupons = getAllIssued();
+
+  const candidates = issuedCoupons
+    .filter((issued) => {
+      if (!samePhone(issued.assignedToPhone, phone)) return false;
+      if (issued.used) return false;
+      if (issued.note === "cancelled") return false;
+      if (issued.note === "scheduled" && issued.issuedAt > now) return false;
+      if (issued.expiresAt && issued.expiresAt < now) return false;
+
+      return true;
+    })
+    .sort((a, b) => {
+      const aExpires = a.expiresAt || Number.MAX_SAFE_INTEGER;
+      const bExpires = b.expiresAt || Number.MAX_SAFE_INTEGER;
+
+      if (aExpires !== bExpires) return aExpires - bExpires;
+
+      return (b.issuedAt || 0) - (a.issuedAt || 0);
+    });
+
+  for (const issued of candidates) {
+    const def = coupons.find((coupon) => coupon.id === issued.couponId) || null;
+
+    if (!def) continue;
+    if (def.validFrom && now < def.validFrom) continue;
+    if (def.validUntil && now > def.validUntil) continue;
+
+    const check =
+      typeof params.cartTotal === "number"
+        ? canApply({
+            def,
+            issued,
+            cartTotal: params.cartTotal,
+            cartItems: params.cartItems || [],
+            customerPhone: phone,
+            now,
+          })
+        : lightweightCheck({
+            def,
+            issued,
+            customerPhone: phone,
+          });
+
+    if (check.ok || isBelowMin(check)) {
+      return {
+        def,
+        issued,
+        check,
+        validUntil: issued.expiresAt ?? def.validUntil ?? null,
+      };
+    }
+  }
+
+  return null;
+}
+
 export default function CouponBox({
   cartTotal,
   cartItems,
@@ -300,6 +448,7 @@ export default function CouponBox({
   const [loading, setLoading] = useState(false);
   const [couponTick, setCouponTick] = useState(0);
   const [settingsTick, setSettingsTick] = useState(0);
+  const [suggested, setSuggested] = useState<SuggestedCoupon | null>(null);
 
   const staticCoupons = useMemo<StaticCoupon[]>(() => {
     const settings: any = readSettings() || {};
@@ -386,6 +535,40 @@ export default function CouponBox({
     }
   }, [couponTick]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function refreshSuggestedCoupon() {
+      const phone = normalizePhone(customerPhone);
+
+      if (!phone || phone.length < 6) {
+        setSuggested(null);
+        return;
+      }
+
+      try {
+        await syncCouponsFromServer();
+      } catch {}
+
+      if (cancelled) return;
+
+      const found = findSuggestedCouponForPhone({
+        customerPhone: phone,
+        cartTotal,
+        cartItems,
+      });
+
+      setSuggested(found);
+      setCouponTick((x) => x + 1);
+    }
+
+    refreshSuggestedCoupon();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [customerPhone, cartTotal, cartItems]);
+
   const inputClass =
     status.type === "ok"
       ? "border-emerald-500/70 bg-emerald-950/30 ring-1 ring-emerald-500/30"
@@ -393,8 +576,23 @@ export default function CouponBox({
         ? "border-rose-500/70 bg-rose-950/20 ring-1 ring-rose-500/20"
         : "border-stone-700/60 bg-stone-800/60";
 
+  const suggestedCode = cleanCode(suggested?.issued?.code || "");
+  const suggestedIsActive = Boolean(activeCode && suggestedCode && activeCode === suggestedCode);
+  const suggestedBelowMin = suggested ? isBelowMin(suggested.check) : false;
+
   const onApply = () => {
     void validateAndPersist(code.trim(), {
+      silent: false,
+      skipConfirm: false,
+    });
+  };
+
+  const onApplySuggested = () => {
+    if (!suggestedCode) return;
+
+    setCode(suggestedCode);
+
+    void validateAndPersist(suggestedCode, {
       silent: false,
       skipConfirm: false,
     });
@@ -411,7 +609,9 @@ export default function CouponBox({
     <>
       {ToastNode}
 
-      <div className={`rounded-xl border border-stone-700/60 bg-stone-900/60 p-3 space-y-2 ${className}`}>
+      <div
+        className={`rounded-xl border border-stone-700/60 bg-stone-900/60 p-3 space-y-3 ${className}`}
+      >
         <div className="flex items-center justify-between gap-2">
           <div className="text-sm font-semibold">Gutschein</div>
 
@@ -421,6 +621,80 @@ export default function CouponBox({
             </span>
           )}
         </div>
+
+        {suggested && !suggestedIsActive && (
+          <div className="rounded-xl border border-amber-400/50 bg-amber-500/10 p-3 text-sm text-amber-50">
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-400 text-xl text-black">
+                🎁
+              </div>
+
+              <div className="min-w-0 flex-1">
+                <div className="font-semibold text-amber-100">
+                  Gutschein für Ihre Telefonnummer verfügbar!
+                </div>
+
+                <div className="mt-1 text-stone-100">
+                  <b>{couponTitle(suggested.def)}</b>
+                </div>
+
+                <div className="mt-1 text-xs text-stone-200/90">
+                  {couponDescription(suggested.def)}
+                </div>
+
+                <div className="mt-2 grid gap-1 text-xs text-stone-200/85 sm:grid-cols-2">
+                  <div>
+                    Code:{" "}
+                    <b className="tracking-wider text-amber-100">
+                      {suggestedCode}
+                    </b>
+                  </div>
+
+                  <div>
+                    Gültig bis:{" "}
+                    <b className="text-amber-100">
+                      {formatDate(suggested.validUntil)}
+                    </b>
+                  </div>
+
+                  {typeof suggested.def.minCartTotal === "number" && (
+                    <div className="sm:col-span-2">
+                      Mindestbestellwert:{" "}
+                      <b className="text-amber-100">
+                        {formatMoney(suggested.def.minCartTotal)}
+                      </b>
+                    </div>
+                  )}
+                </div>
+
+                {suggestedBelowMin && suggested.check.ok === false && (
+                  <div className="mt-2 rounded-md border border-amber-400/30 bg-amber-400/10 px-2 py-1 text-xs text-amber-100">
+                    {suggested.check.message}
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={onApplySuggested}
+                  disabled={loading}
+                  className="mt-3 rounded-full bg-amber-400 px-4 py-2 text-xs font-bold text-black hover:bg-amber-300 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Gutschein anwenden
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {suggested && suggestedIsActive && (
+          <div className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm text-emerald-200">
+            🎁 Ihr persönlicher Gutschein ist aktiv:{" "}
+            <b className="tracking-wider">{suggestedCode}</b>
+            <div className="mt-1 text-xs text-emerald-100/80">
+              Gültig bis: {formatDate(suggested.validUntil)}
+            </div>
+          </div>
+        )}
 
         <div className="flex gap-2">
           <input
