@@ -10,6 +10,13 @@ import {
   readSettings,
   fetchAndApplyRemoteSettings,
 } from "@/lib/settings";
+import {
+  getAllCoupons,
+  getAllIssued,
+  syncCouponsFromServer,
+  type CouponDef,
+  type IssuedCoupon,
+} from "@/lib/coupons";
 
 type PromoItem = {
   title?: string;
@@ -21,6 +28,18 @@ type PromoItem = {
   startsAt?: string;
   endsAt?: string;
 };
+
+type LandingCoupon = {
+  def: CouponDef;
+  issued: IssuedCoupon;
+  code: string;
+  validUntil: number | null;
+};
+
+const LS_CHECKOUT = "bb_checkout_info_v1";
+const LS_ACTIVE_COUPON = "bb_active_coupon_code";
+const LS_ACTIVE_COUPON_META = "bb_active_coupon_meta";
+const PROFILE_KEY = "bb_checkout_profile_v2";
 
 function isPromoActive(item: PromoItem) {
   if (!item) return false;
@@ -105,11 +124,240 @@ function formatDateRange(promo: PromoItem | null) {
   return "";
 }
 
+function cleanCode(value: any) {
+  return String(value || "")
+    .replace(/[\s\u00A0\u2000-\u200B\u202F\u205F\u3000\uFEFF]/g, "")
+    .trim()
+    .toUpperCase();
+}
+
+function normalizePhone(value?: string | null) {
+  return String(value ?? "").replace(/[^\d+]/g, "").trim();
+}
+
+function samePhone(left?: string | null, right?: string | null) {
+  const a = normalizePhone(left);
+  const b = normalizePhone(right);
+
+  return Boolean(a && b && a === b);
+}
+
+function readJson<T = any>(key: string): T | null {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : null;
+  } catch {
+    return null;
+  }
+}
+
+function readKnownCustomerPhone() {
+  try {
+    const checkout = readJson<any>(LS_CHECKOUT);
+    const checkoutPhone = normalizePhone(checkout?.addr?.phone);
+
+    if (checkoutPhone) return checkoutPhone;
+
+    const checkoutMode =
+      checkout?.orderMode === "pickup" || checkout?.orderMode === "delivery"
+        ? checkout.orderMode
+        : null;
+
+    if (checkoutMode) {
+      const profile = readJson<any>(`${PROFILE_KEY}:${checkoutMode}`);
+      const profilePhone = normalizePhone(profile?.phone);
+
+      if (profilePhone) return profilePhone;
+    }
+
+    const pickupProfile = readJson<any>(`${PROFILE_KEY}:pickup`);
+    const pickupPhone = normalizePhone(pickupProfile?.phone);
+
+    if (pickupPhone) return pickupPhone;
+
+    const deliveryProfile = readJson<any>(`${PROFILE_KEY}:delivery`);
+    const deliveryPhone = normalizePhone(deliveryProfile?.phone);
+
+    if (deliveryPhone) return deliveryPhone;
+  } catch {}
+
+  return "";
+}
+
+function formatMoney(value: number) {
+  return new Intl.NumberFormat("de-DE", {
+    style: "currency",
+    currency: "EUR",
+  }).format(value);
+}
+
+function formatCouponDate(value?: number | null) {
+  if (!value) return "ohne Ablaufdatum";
+
+  try {
+    return new Date(value).toLocaleDateString("de-DE", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    });
+  } catch {
+    return "ohne Ablaufdatum";
+  }
+}
+
+function couponTitle(def: CouponDef) {
+  if (def.title) return def.title;
+
+  if (def.type === "percent") return `${Number(def.value || 0)}% Rabatt`;
+  if (def.type === "fixed") return `${formatMoney(Number(def.value || 0))} Rabatt`;
+  if (def.type === "free_item") return `Gratis ${def.meta?.freeItemName || "Artikel"}`;
+  if (def.type === "bogo") return "Gratis-Aktion";
+
+  return "Gutschein";
+}
+
+function couponText(def: CouponDef) {
+  if (def.meta?.aboutText) return String(def.meta.aboutText);
+
+  if (def.type === "percent") {
+    return `${Number(def.value || 0)}% Rabatt auf Ihre nächste Bestellung.`;
+  }
+
+  if (def.type === "fixed") {
+    return `${formatMoney(Number(def.value || 0))} Rabatt auf Ihre nächste Bestellung.`;
+  }
+
+  if (def.type === "free_item") {
+    return `Gratis: ${def.meta?.freeItemName || "Artikel"}.`;
+  }
+
+  if (def.type === "bogo") {
+    const bogo = def.meta?.bogo;
+
+    if (bogo) {
+      return `${bogo.buyQty} kaufen, ${bogo.freeQty} gratis.`;
+    }
+
+    return "Gratis-Aktion für Ihre Bestellung.";
+  }
+
+  return "Ihr persönlicher Gutschein wartet auf Sie.";
+}
+
+function landingCouponStorageKey(coupon: LandingCoupon | null) {
+  if (!coupon?.code) return "";
+
+  return `bb_landing_coupon_closed_${coupon.issued.id || coupon.code}`;
+}
+
+function isIssuedUsableForLanding(params: {
+  issued: IssuedCoupon;
+  def: CouponDef;
+  phone: string;
+  now: number;
+}) {
+  const { issued, def, phone, now } = params;
+
+  if (!samePhone(issued.assignedToPhone, phone)) return false;
+  if (issued.used) return false;
+  if (issued.note === "cancelled") return false;
+  if (issued.note === "scheduled" && issued.issuedAt > now) return false;
+  if (issued.expiresAt && issued.expiresAt < now) return false;
+
+  if (def.validFrom && now < def.validFrom) return false;
+  if (def.validUntil && now > def.validUntil) return false;
+
+  return true;
+}
+
+function findLandingCouponForPhone(phoneInput: string): LandingCoupon | null {
+  const phone = normalizePhone(phoneInput);
+
+  if (!phone || phone.length < 6) return null;
+
+  const now = Date.now();
+  const coupons = getAllCoupons();
+  const issued = getAllIssued();
+
+  const activeCode = cleanCode(
+    typeof window !== "undefined" ? localStorage.getItem(LS_ACTIVE_COUPON) || "" : "",
+  );
+
+  const candidates = issued
+    .filter((item) => {
+      const def = coupons.find((coupon) => coupon.id === item.couponId) || null;
+
+      if (!def) return false;
+
+      return isIssuedUsableForLanding({
+        issued: item,
+        def,
+        phone,
+        now,
+      });
+    })
+    .sort((a, b) => {
+      const aExpires = a.expiresAt || Number.MAX_SAFE_INTEGER;
+      const bExpires = b.expiresAt || Number.MAX_SAFE_INTEGER;
+
+      if (aExpires !== bExpires) return aExpires - bExpires;
+
+      return (b.issuedAt || 0) - (a.issuedAt || 0);
+    });
+
+  for (const item of candidates) {
+    const def = coupons.find((coupon) => coupon.id === item.couponId) || null;
+
+    if (!def) continue;
+
+    const code = cleanCode(item.code || def.code);
+
+    if (!code) continue;
+
+    if (activeCode && activeCode === code) {
+      continue;
+    }
+
+    return {
+      def,
+      issued: item,
+      code,
+      validUntil: item.expiresAt ?? def.validUntil ?? null,
+    };
+  }
+
+  return null;
+}
+
+function persistLandingCoupon(coupon: LandingCoupon) {
+  try {
+    const meta = {
+      kind: "issued",
+      couponId: coupon.def.id,
+      issuedId: coupon.issued.id ?? null,
+      code: coupon.code,
+      type: coupon.def.type,
+      value: Number(coupon.def.value || 0),
+      title: coupon.def.title,
+      discountAmount: 0,
+      message: couponText(coupon.def),
+    };
+
+    localStorage.setItem(LS_ACTIVE_COUPON, cleanCode(coupon.code));
+    localStorage.setItem(LS_ACTIVE_COUPON_META, JSON.stringify(meta));
+
+    window.dispatchEvent(new CustomEvent("bb_coupon_changed"));
+    window.dispatchEvent(new CustomEvent("bb:coupon-sync"));
+  } catch {}
+}
+
 export default function HomePage() {
   const router = useRouter();
   const [ready, setReady] = useState(false);
   const [settingsTick, setSettingsTick] = useState(0);
   const [promoOpen, setPromoOpen] = useState(false);
+  const [landingCoupon, setLandingCoupon] = useState<LandingCoupon | null>(null);
+  const [couponOpen, setCouponOpen] = useState(false);
 
   const clickRef = useRef<HTMLAudioElement | null>(null);
   const fireRef = useRef<HTMLAudioElement | null>(null);
@@ -184,6 +432,76 @@ export default function HomePage() {
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function refreshLandingCoupon() {
+      const phone = readKnownCustomerPhone();
+
+      if (!phone) {
+        setLandingCoupon(null);
+        setCouponOpen(false);
+        return;
+      }
+
+      try {
+        await syncCouponsFromServer();
+      } catch {}
+
+      if (cancelled) return;
+
+      const found = findLandingCouponForPhone(phone);
+
+      if (!found) {
+        setLandingCoupon(null);
+        setCouponOpen(false);
+        return;
+      }
+
+      const key = landingCouponStorageKey(found);
+      let closed = false;
+
+      try {
+        closed = sessionStorage.getItem(key) === "1";
+      } catch {}
+
+      setLandingCoupon(found);
+      setCouponOpen(!closed);
+    }
+
+    refreshLandingCoupon();
+
+    const onCouponsChanged = () => {
+      refreshLandingCoupon();
+    };
+
+    const onStorage = (event: StorageEvent) => {
+      if (
+        !event.key ||
+        event.key === LS_CHECKOUT ||
+        event.key === LS_ACTIVE_COUPON ||
+        event.key === LS_ACTIVE_COUPON_META
+      ) {
+        refreshLandingCoupon();
+      }
+    };
+
+    window.addEventListener("storage", onStorage);
+    window.addEventListener("bb_coupon_changed", onCouponsChanged as EventListener);
+    window.addEventListener("bb:coupon-sync", onCouponsChanged as EventListener);
+    window.addEventListener("bb_coupons_changed", onCouponsChanged as EventListener);
+    window.addEventListener("bb:coupons-sync", onCouponsChanged as EventListener);
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener("bb_coupon_changed", onCouponsChanged as EventListener);
+      window.removeEventListener("bb:coupon-sync", onCouponsChanged as EventListener);
+      window.removeEventListener("bb_coupons_changed", onCouponsChanged as EventListener);
+      window.removeEventListener("bb:coupons-sync", onCouponsChanged as EventListener);
+    };
+  }, []);
+
   const settings = useMemo(() => readSettings() as any, [settingsTick]);
   const promo = useMemo(() => pickLandingPromo(settings), [settings]);
   const promoKey = useMemo(() => promoStorageKey(promo), [promo]);
@@ -211,6 +529,26 @@ export default function HomePage() {
     } catch {}
 
     setPromoOpen(false);
+  };
+
+  const closeCoupon = () => {
+    try {
+      const key = landingCouponStorageKey(landingCoupon);
+      if (key) {
+        sessionStorage.setItem(key, "1");
+      }
+    } catch {}
+
+    setCouponOpen(false);
+  };
+
+  const handleCouponCta = () => {
+    if (landingCoupon) {
+      persistLandingCoupon(landingCoupon);
+    }
+
+    closeCoupon();
+    router.push("/menu");
   };
 
   const handlePromoCta = () => {
@@ -290,7 +628,101 @@ export default function HomePage() {
         </button>
       </div>
 
-      {promoOpen && promo && (
+      {couponOpen && landingCoupon && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+          <div className="relative w-full max-w-lg overflow-hidden rounded-3xl border border-amber-400/40 bg-stone-950 shadow-2xl shadow-amber-900/40">
+            <button
+              type="button"
+              onClick={closeCoupon}
+              className="absolute right-3 top-3 z-20 rounded-full border border-white/20 bg-black/55 px-3 py-1 text-sm font-semibold text-white shadow backdrop-blur transition hover:bg-white/15"
+              aria-label="Schließen"
+            >
+              ✕
+            </button>
+
+            <div className="bg-gradient-to-br from-amber-500/25 via-orange-500/15 to-stone-950 px-5 pb-5 pt-7 text-center">
+              <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-amber-400 text-4xl text-black shadow-lg shadow-amber-500/30">
+                🎁
+              </div>
+
+              <div className="mt-4 inline-flex rounded-full border border-amber-300/40 bg-black/35 px-3 py-1 text-xs font-bold uppercase tracking-[0.2em] text-amber-100">
+                Persönlicher Gutschein
+              </div>
+
+              <h2 className="mt-4 text-3xl font-black tracking-tight text-white md:text-4xl">
+                Glückwunsch!
+              </h2>
+
+              <p className="mt-2 text-sm leading-relaxed text-stone-200 md:text-base">
+                Ihr persönlicher Gutschein wartet auf Sie.
+              </p>
+            </div>
+
+            <div className="space-y-4 p-5 text-center">
+              <div className="rounded-2xl border border-amber-400/30 bg-amber-400/10 p-4">
+                <div className="text-2xl font-black text-amber-100">
+                  {couponTitle(landingCoupon.def)}
+                </div>
+
+                <div className="mt-2 text-sm text-stone-200">
+                  {couponText(landingCoupon.def)}
+                </div>
+
+                <div className="mt-4 grid gap-2 text-sm text-stone-200 sm:grid-cols-2">
+                  <div className="rounded-xl border border-white/10 bg-black/25 p-3">
+                    <div className="text-xs uppercase tracking-wide text-stone-400">
+                      Code
+                    </div>
+                    <div className="mt-1 font-black tracking-widest text-amber-100">
+                      {landingCoupon.code}
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-white/10 bg-black/25 p-3">
+                    <div className="text-xs uppercase tracking-wide text-stone-400">
+                      Gültig bis
+                    </div>
+                    <div className="mt-1 font-black text-amber-100">
+                      {formatCouponDate(landingCoupon.validUntil)}
+                    </div>
+                  </div>
+
+                  {typeof landingCoupon.def.minCartTotal === "number" && (
+                    <div className="rounded-xl border border-white/10 bg-black/25 p-3 sm:col-span-2">
+                      <div className="text-xs uppercase tracking-wide text-stone-400">
+                        Mindestbestellwert
+                      </div>
+                      <div className="mt-1 font-black text-amber-100">
+                        {formatMoney(landingCoupon.def.minCartTotal)}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-2 pt-1 sm:flex-row sm:justify-center">
+                <button
+                  type="button"
+                  onClick={handleCouponCta}
+                  className="rounded-full bg-gradient-to-r from-orange-500 to-yellow-400 px-6 py-3 text-sm font-black text-black shadow-lg transition hover:scale-[1.02] hover:shadow-amber-400/50"
+                >
+                  Jetzt bestellen
+                </button>
+
+                <button
+                  type="button"
+                  onClick={closeCoupon}
+                  className="rounded-full border border-white/15 bg-white/10 px-6 py-3 text-sm font-semibold text-white transition hover:bg-white/15"
+                >
+                  Später
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {promoOpen && promo && !couponOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
           <div className="relative max-h-[92svh] w-full max-w-lg overflow-hidden rounded-3xl border border-amber-400/30 bg-stone-950 shadow-2xl shadow-amber-900/30">
             <button
