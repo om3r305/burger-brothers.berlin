@@ -156,6 +156,44 @@ function calcFreeSauces(merchandise: number, tiers?: FreebieTier[]) {
   return free;
 }
 
+type FreebieProgress = {
+  currentFreeSauces: number;
+  nextMinTotal: number | null;
+  nextFreeSauces: number;
+  missingAmount: number;
+};
+
+function sortedFreebieTiers(tiers?: FreebieTier[]) {
+  if (!tiers?.length) return [];
+
+  return tiers
+    .map((tier: any) => ({
+      minTotal: getMinTotal(tier),
+      freeSauces: Number(tier?.freeSauces ?? 0),
+    }))
+    .filter((tier) => tier.minTotal > 0 && tier.freeSauces > 0)
+    .sort((a, b) => a.minTotal - b.minTotal);
+}
+
+function buildFreebieProgress(
+  merchandise: number,
+  tiers?: FreebieTier[],
+): FreebieProgress | null {
+  const sorted = sortedFreebieTiers(tiers);
+
+  if (!sorted.length) return null;
+
+  const currentFreeSauces = calcFreeSauces(merchandise, sorted as FreebieTier[]);
+  const nextTier = sorted.find((tier) => merchandise < tier.minTotal) || null;
+
+  return {
+    currentFreeSauces,
+    nextMinTotal: nextTier ? nextTier.minTotal : null,
+    nextFreeSauces: nextTier ? nextTier.freeSauces : 0,
+    missingAmount: nextTier ? Math.max(0, nextTier.minTotal - merchandise) : 0,
+  };
+}
+
 function Toggle({
   checked,
   onChange,
@@ -1097,6 +1135,11 @@ export default function CheckoutPage() {
     return calcFreeSauces(merchandise, (freebiesCfg?.tiers ?? []) as FreebieTier[]);
   }, [freebiesEnabled, freebiesModeOk, merchandise, freebiesCfg?.tiers]);
 
+  const freebieProgress = useMemo(() => {
+    if (!freebiesEnabled || !freebiesModeOk) return null;
+    return buildFreebieProgress(merchandise, (freebiesCfg?.tiers ?? []) as FreebieTier[]);
+  }, [freebiesEnabled, freebiesModeOk, merchandise, freebiesCfg?.tiers]);
+
   const modePaused = isModePaused(orderMode, pause);
   const pauseMessage = modePaused
     ? orderMode === "pickup"
@@ -1457,10 +1500,57 @@ export default function CheckoutPage() {
         </div>
       </div>
 
-      {freeSauces > 0 && (
-        <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-200">
-          Gratis-Regel aktiv: <b>{freeSauces}</b>{" "}
-          {freeSauces === 1 ? "Soße" : "Soßen"} möglich.
+      {freebieProgress && (
+        <div
+          className={`rounded-2xl border p-3 text-sm ${
+            freebieProgress.currentFreeSauces > 0
+              ? "border-emerald-500/35 bg-emerald-500/10 text-emerald-100"
+              : "border-amber-500/35 bg-amber-500/10 text-amber-100"
+          }`}
+        >
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-3">
+              <div
+                className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-xl ${
+                  freebieProgress.currentFreeSauces > 0
+                    ? "bg-emerald-400 text-black"
+                    : "bg-amber-400 text-black"
+                }`}
+              >
+                🎁
+              </div>
+
+              <div className="min-w-0">
+                <div className="font-semibold">Gratis-Aktion</div>
+
+                {freebieProgress.currentFreeSauces > 0 ? (
+                  <div className="mt-1 text-sm leading-relaxed">
+                    Freigeschaltet: <b>{freebieProgress.currentFreeSauces}</b>{" "}
+                    {freebieProgress.currentFreeSauces === 1 ? "gratis Soße" : "gratis Soßen"}{" "}
+                    möglich.
+                  </div>
+                ) : freebieProgress.nextMinTotal ? (
+                  <div className="mt-1 text-sm leading-relaxed">
+                    Noch <b>{fmt(freebieProgress.missingAmount)}</b> bis zu{" "}
+                    <b>{freebieProgress.nextFreeSauces}</b>{" "}
+                    {freebieProgress.nextFreeSauces === 1 ? "gratis Soße" : "gratis Soßen"}.
+                  </div>
+                ) : null}
+
+                {freebieProgress.currentFreeSauces > 0 && freebieProgress.nextMinTotal && (
+                  <div className="mt-1 text-xs opacity-85">
+                    Noch {fmt(freebieProgress.missingAmount)} bis zur nächsten Gratis-Stufe.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {freebieProgress.currentFreeSauces > 0 && (
+              <div className="inline-flex w-full items-center justify-center rounded-full border border-emerald-400/40 bg-emerald-400/10 px-3 py-2 text-xs font-bold text-emerald-100 sm:w-auto">
+                {freebieProgress.currentFreeSauces}x gratis
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -1471,8 +1561,8 @@ export default function CheckoutPage() {
       />
 
       {suggestion && (
-        <div className="flex items-center justify-between rounded-md border border-sky-500/30 bg-sky-500/10 p-3 text-sm text-sky-200">
-          <div className="flex items-center gap-2">
+        <div className="flex flex-col gap-3 rounded-md border border-sky-500/30 bg-sky-500/10 p-3 text-sm text-sky-200 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-2 sm:items-center">
             {suggestion === "drink" && <span>🥤</span>}
             {suggestion === "donut" && <span>🍩</span>}
             {suggestion === "sauce" && <span>🥫</span>}
@@ -1482,7 +1572,7 @@ export default function CheckoutPage() {
             {suggestion === "sauce" && <span>Pommes ohne Soße? Soße hinzufügen.</span>}
           </div>
 
-          <button onClick={() => setDrawer(suggestion)} className="btn-ghost">
+          <button onClick={() => setDrawer(suggestion)} className="btn-ghost w-full sm:w-auto">
             {suggestion === "drink" && "Getränk auswählen"}
             {suggestion === "donut" && "Donut auswählen"}
             {suggestion === "sauce" && "Soße auswählen"}
