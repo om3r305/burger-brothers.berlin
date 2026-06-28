@@ -370,7 +370,7 @@ export default function AdminCustomersPage() {
     const fresh = await loadCustomersFromDb();
 
     if (!fresh) {
-      alert("DB ist aktuell nicht erreichbar. Änderungen wurden nicht gespeichert.");
+      alert("DB şu anda erişilebilir değil. Değişiklikler kaydedilmedi.");
       return null;
     }
 
@@ -385,7 +385,7 @@ export default function AdminCustomersPage() {
     const saved = await saveCustomersToDb(next);
 
     if (!saved) {
-      alert("Kunden konnten nicht in der DB gespeichert werden.");
+      alert("Müşteriler DB’ye kaydedilemedi.");
       return false;
     }
 
@@ -489,7 +489,7 @@ export default function AdminCustomersPage() {
 
   const sendCampaignWhatsApp = () => {
     if (!selectedWithPhone.length) {
-      alert("Kein ausgewählter Kunde mit Telefonnummer.");
+      alert("Telefon numarası olan seçili müşteri yok.");
       return;
     }
 
@@ -510,15 +510,15 @@ export default function AdminCustomersPage() {
     }, delay);
 
     alert(
-      `WhatsApp-Fenster werden nacheinander geöffnet (${selectedWithPhone.length} Kunden, ca. ${Math.ceil(
+      `WhatsApp pencereleri sırayla açılacak (${selectedWithPhone.length} müşteri, yaklaşık ${Math.ceil(
         (selectedWithPhone.length * delay) / 1000,
-      )} Sek.).`,
+      )} sn.).`,
     );
   };
 
   const exportSelectedCSV = () => {
     if (!selectedRows.length) {
-      alert("Bitte zuerst Kunden auswählen.");
+      alert("Lütfen önce müşteri seç.");
       return;
     }
 
@@ -603,7 +603,7 @@ export default function AdminCustomersPage() {
 
   const saveForm = async () => {
     if (!name.trim()) {
-      alert("Name ist erforderlich.");
+      alert("İsim zorunlu.");
       return;
     }
 
@@ -637,13 +637,13 @@ export default function AdminCustomersPage() {
   };
 
   const del = async (id: string) => {
-    if (!confirm("Diesen Kunden wirklich löschen?")) return;
+    if (!confirm("Bu müşteriyi gerçekten silmek istiyor musun?")) return;
 
     const customer = rows.find((row) => row.id === id) || id;
     const ok = await deleteCustomerFromDb(customer);
 
     if (!ok) {
-      alert("Kunde konnte nicht in der DB gelöscht werden.");
+      alert("Müşteri DB’den silinemedi.");
       return;
     }
 
@@ -665,12 +665,12 @@ export default function AdminCustomersPage() {
     const b = baseRows.find((row) => row.id === mergeB);
 
     if (!a || !b) {
-      alert("Ungültige ID.");
+      alert("Geçersiz ID.");
       return;
     }
 
     if (a.id === b.id) {
-      alert("A und B sind identisch.");
+      alert("A ve B aynı müşteri.");
       return;
     }
 
@@ -684,12 +684,12 @@ export default function AdminCustomersPage() {
     const deleteOk = await deleteCustomerFromDb(drop);
 
     if (!deleteOk) {
-      alert("Kunde wurde zusammengeführt, aber der doppelte Datensatz konnte nicht gelöscht werden.");
+      alert("Müşteri birleştirildi, fakat çift kayıt silinemedi.");
     }
 
     await refresh();
 
-    alert("Zusammengeführt ✅");
+    alert("Birleştirildi ✅");
     setMergeA("");
     setMergeB("");
   };
@@ -733,7 +733,7 @@ export default function AdminCustomersPage() {
     for (const value of byEmail.values()) visitGroup(value);
 
     if (!pairs.length) {
-      alert("Keine Duplikate gefunden.");
+      alert("Çift kayıt bulunamadı.");
       return;
     }
 
@@ -756,7 +756,7 @@ export default function AdminCustomersPage() {
     }
 
     if (!deleteIds.size) {
-      alert("Keine Duplikate gefunden.");
+      alert("Çift kayıt bulunamadı.");
       return;
     }
 
@@ -775,11 +775,11 @@ export default function AdminCustomersPage() {
     await refresh();
 
     if (failed > 0) {
-      alert(`Zusammengeführt, aber ${failed} doppelte Datensätze konnten nicht gelöscht werden.`);
+      alert(`Birleştirildi, fakat ${failed} çift kayıt silinemedi.`);
       return;
     }
 
-    alert(`Automatisches Zusammenführen fertig: ${deleteIds.size} Paare.`);
+    alert(`Otomatik birleştirme tamamlandı: ${deleteIds.size} eşleşme.`);
   };
 
   const toggleOptIn = async (customer: Customer) => {
@@ -800,10 +800,10 @@ export default function AdminCustomersPage() {
   const orderCount = orders.length;
 
   return (
-    <main className="mx-auto max-w-6xl p-6 space-y-6">
+    <main className="mx-auto w-full max-w-[1600px] space-y-6 px-3 py-4 sm:px-6">
       <div className="flex flex-wrap items-baseline justify-between gap-3">
         <div className="flex items-baseline gap-3">
-          <h1 className="text-2xl font-semibold">Kunden</h1>
+          <h1 className="text-2xl font-semibold">Müşteriler</h1>
 
           <Link href="/admin" className="text-sm text-stone-300 hover:text-stone-100">
             ← Admin
@@ -811,14 +811,14 @@ export default function AdminCustomersPage() {
         </div>
 
         <div className="text-xs text-stone-400">
-          Datenquelle:{" "}
+          Veri kaynağı:{" "}
           <b className={source === "db" ? "text-emerald-400" : "text-amber-400"}>
-            {source === "db" ? "DB" : source === "cache" ? "Cache" : "Leer"}
+            {source === "db" ? "DB" : source === "cache" ? "Önbellek" : "Boş"}
           </b>
 
-          <span className="ml-3">Bestellungen: {orderCount}</span>
+          <span className="ml-3">Siparişler: {orderCount}</span>
 
-          {loading && <span className="ml-2 opacity-70">· Lädt…</span>}
+          {loading && <span className="ml-2 opacity-70">· Yükleniyor…</span>}
 
           <button className="btn-ghost ml-3" onClick={refresh} disabled={loading}>
             Aktualisieren
@@ -828,21 +828,21 @@ export default function AdminCustomersPage() {
 
       {source === "cache" && (
         <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-200">
-          DB ist gerade nicht erreichbar. Die angezeigten Kunden stammen nur aus dem lokalen Cache.
-          Änderungen werden erst gespeichert, wenn die DB erreichbar ist.
+          DB şu anda erişilebilir değil. Gösterilen müşteriler sadece yerel önbellekten geliyor.
+          Değişiklikler ancak DB tekrar erişilebilir olduğunda kaydedilir.
         </div>
       )}
 
       <div className="card p-4">
-        <div className="mb-2 font-medium">{editId ? "Kunde bearbeiten" : "Neuer Kunde"}</div>
+        <div className="mb-2 font-medium">{editId ? "Müşteri düzenle" : "Yeni müşteri"}</div>
 
         <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-          <Field label="Name *">
+          <Field label="İsim *">
             <input
               className="inp"
               value={name}
               onChange={(event) => setName(event.target.value)}
-              placeholder="Name"
+              placeholder="İsim"
             />
           </Field>
 
@@ -855,7 +855,7 @@ export default function AdminCustomersPage() {
             />
           </Field>
 
-          <Field label="E-Mail">
+          <Field label="E-Posta">
             <input
               className="inp"
               value={email}
@@ -873,21 +873,21 @@ export default function AdminCustomersPage() {
             />
           </Field>
 
-          <Field label="Adresse">
+          <Field label="Adres">
             <input
               className="inp"
               value={address}
               onChange={(event) => setAddress(event.target.value)}
-              placeholder="Straße Hausnr., Ort"
+              placeholder="Sokak, kapı no, şehir"
             />
           </Field>
 
-          <Field label="Hinweis">
+          <Field label="Not">
             <input
               className="inp"
               value={notes}
               onChange={(event) => setNotes(event.target.value)}
-              placeholder="Hinweis…"
+              placeholder="Not…"
             />
           </Field>
 
@@ -902,7 +902,7 @@ export default function AdminCustomersPage() {
               checked={blocked}
               onChange={(event) => setBlocked(event.target.checked)}
             />
-            Gesperrt
+            Engelli
           </label>
 
           <label className="flex items-center gap-2 text-sm">
@@ -911,18 +911,18 @@ export default function AdminCustomersPage() {
               checked={optin}
               onChange={(event) => setOptin(event.target.checked)}
             />
-            Kampagnenfreigabe (Opt-in)
+            Kampanya izni (Opt-in)
           </label>
         </div>
 
         <div className="mt-3 flex gap-2">
           <button className="card-cta" onClick={saveForm}>
-            {editId ? "Speichern" : "Hinzufügen"}
+            {editId ? "Kaydet" : "Ekle"}
           </button>
 
           {editId && (
             <button className="btn-ghost" onClick={resetForm}>
-              Abbrechen
+              İptal
             </button>
           )}
         </div>
@@ -932,7 +932,7 @@ export default function AdminCustomersPage() {
         <div className="mb-3 grid grid-cols-1 gap-3 md:grid-cols-5">
           <input
             className="inp"
-            placeholder="Suche (Name/Telefon/E-Mail/Adresse/Hinweis)…"
+            placeholder="Ara (isim/telefon/e-posta/adres/not)…"
             value={q}
             onChange={(event) => setQ(event.target.value)}
           />
@@ -952,7 +952,7 @@ export default function AdminCustomersPage() {
               checked={onlyBlocked}
               onChange={(event) => setOnlyBlocked(event.target.checked)}
             />
-            Gesperrt
+            Engelli
           </label>
 
           <label className="flex items-center gap-2 text-sm">
@@ -961,12 +961,12 @@ export default function AdminCustomersPage() {
               checked={onlyOptIn}
               onChange={(event) => setOnlyOptIn(event.target.checked)}
             />
-            Nur Opt-in
+            Sadece izinli
           </label>
 
           <input
             className="inp"
-            placeholder="PLZ-Filter (z. B. 13507)"
+            placeholder="PLZ filtresi (örn. 13507)"
             value={plzFilter}
             onChange={(event) => setPlzFilter(event.target.value)}
           />
@@ -975,25 +975,25 @@ export default function AdminCustomersPage() {
         <div className="rounded-md border border-stone-700/60 p-3 bg-stone-950/50">
           <div className="mb-2 flex flex-wrap items-center gap-2">
             <span className="text-sm">
-              Auswahl: <b>{selectedIds.length}</b> / Gesamt: <b>{list.length}</b>
+              Seçim: <b>{selectedIds.length}</b> / Toplam: <b>{list.length}</b>
             </span>
 
             <button className="btn-ghost" onClick={selectAllVisible}>
-              Alle auswählen
+              Tümünü seç
             </button>
 
             <button className="btn-ghost" onClick={clearSelection}>
-              Auswahl löschen
+              Seçimi temizle
             </button>
 
             <span className="ml-auto text-xs opacity-70">
-              Tipp: Zeile auswählen und anschließend Aktion ausführen.
+              İpucu: Önce satır seç, sonra toplu işlemi çalıştır.
             </span>
           </div>
 
-          <div className="grid md:grid-cols-3 gap-3">
-            <div className="md:col-span-2">
-              <div className="text-sm font-medium mb-1">Kampagnentext</div>
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+            <div className="lg:col-span-2">
+              <div className="text-sm font-medium mb-1">Kampanya mesajı</div>
 
               <textarea
                 className="w-full rounded-md border border-stone-700/60 bg-stone-950 p-2 text-sm outline-none"
@@ -1003,7 +1003,7 @@ export default function AdminCustomersPage() {
               />
 
               <div className="mt-2 flex items-center gap-2 text-xs">
-                <span>Verzögerung (ms):</span>
+                <span>Gecikme (ms):</span>
 
                 <input
                   type="number"
@@ -1013,7 +1013,7 @@ export default function AdminCustomersPage() {
                 />
 
                 <button className="btn-ghost" onClick={() => copy(campaignMsg)}>
-                  Text kopieren
+                  Metni kopyala
                 </button>
 
                 <button
@@ -1027,31 +1027,31 @@ export default function AdminCustomersPage() {
                   }
                   disabled={!selectedWithPhone.length}
                 >
-                  WhatsApp-Links kopieren
+                  WhatsApp linklerini kopyala
                 </button>
               </div>
             </div>
 
             <div>
-              <div className="text-sm font-medium mb-1">Sammelaktionen</div>
+              <div className="text-sm font-medium mb-1">Toplu işlemler</div>
 
               <div className="flex flex-col gap-2">
                 <button
                   className="card-cta"
                   onClick={sendCampaignWhatsApp}
                   disabled={!selectedWithPhone.length}
-                  title="Öffnet WhatsApp Web nacheinander für die Auswahl"
+                  title="Seçili müşteriler için WhatsApp Web’i sırayla açar"
                 >
-                  Mit WhatsApp senden ({selectedWithPhone.length})
+                  WhatsApp ile gönder ({selectedWithPhone.length})
                 </button>
 
                 <button className="btn-ghost" onClick={exportSelectedCSV} disabled={!selectedRows.length}>
-                  Auswahl → CSV
+                  Seçim → CSV
                 </button>
               </div>
 
               <div className="mt-4 text-xs opacity-70">
-                Hinweis: Browser-Sicherheitsregeln können mehrere Popups blockieren. Erhöhe ggf. die Verzögerung.
+                Not: Tarayıcı güvenliği birden fazla popup’ı engelleyebilir. Gerekirse gecikmeyi artır.
               </div>
             </div>
           </div>
@@ -1059,9 +1059,9 @@ export default function AdminCustomersPage() {
       </div>
 
       <div className="card p-4">
-        <div className="mb-2 font-medium">Kunden zusammenführen</div>
+        <div className="mb-2 font-medium">Müşteri birleştir</div>
 
-        <div className="grid md:grid-cols-5 gap-2">
+        <div className="grid grid-cols-1 gap-2 lg:grid-cols-5">
           <input className="inp" placeholder="ID A" value={mergeA} onChange={(event) => setMergeA(event.target.value)} />
 
           <input className="inp" placeholder="ID B" value={mergeB} onChange={(event) => setMergeB(event.target.value)} />
@@ -1070,39 +1070,40 @@ export default function AdminCustomersPage() {
             className="inp"
             value={primary}
             onChange={(event) => setPrimary(event.target.value as "A" | "B")}
-            title="Welcher Datensatz soll bleiben?"
+            title="Hangi kayıt kalsın?"
           >
-            <option value="A">A bleibt</option>
-            <option value="B">B bleibt</option>
+            <option value="A">A kalsın</option>
+            <option value="B">B kalsın</option>
           </select>
 
           <button className="btn-ghost" onClick={mergeNow}>
-            Zusammenführen
+            Birleştir
           </button>
 
           <button className="btn-ghost" onClick={autoDeduplicate}>
-            Automatisch (Tel/E-Mail)
+            Otomatik (Tel/E-posta)
           </button>
         </div>
       </div>
 
       <div className="card p-0 overflow-hidden">
-        <table className="w-full text-sm">
+        <div className="w-full overflow-x-auto overscroll-x-contain">
+          <table className="customer-table min-w-[1500px] w-full text-sm">
           <thead className="sticky top-0 bg-stone-900/80 backdrop-blur">
             <tr className="[&>th]:px-3 [&>th]:py-2 text-left">
-              <th>Auswahl</th>
-              <th>Name</th>
-              <th>Tel</th>
-              <th>E-Mail</th>
+              <th>Seçim</th>
+              <th>İsim</th>
+              <th>Telefon</th>
+              <th>E-Posta</th>
               <th>PLZ</th>
-              <th>Adresse</th>
+              <th>Adres</th>
               <th>VIP</th>
-              <th>Gesperrt</th>
+              <th>Engelli</th>
               <th>Opt-in</th>
-              <th>Anzahl</th>
-              <th>Umsatz</th>
-              <th>Letzte</th>
-              <th className="text-right">Aktion</th>
+              <th>Adet</th>
+              <th>Ciro</th>
+              <th>Son</th>
+              <th className="sticky right-0 bg-stone-900/95 text-right shadow-[-12px_0_18px_rgba(0,0,0,0.35)]">İşlem</th>
             </tr>
           </thead>
 
@@ -1148,30 +1149,30 @@ export default function AdminCustomersPage() {
                     : "—"}
                 </td>
 
-                <td className="px-3 py-2">
-                  <div className="flex justify-end gap-2">
+                <td className="sticky right-0 bg-stone-950/95 px-3 py-2 shadow-[-12px_0_18px_rgba(0,0,0,0.35)]">
+                  <div className="flex min-w-max justify-end gap-2">
                     {customer.phone && (
                       <a
                         className="btn-ghost"
                         href={waHref(String(customer.phone), campaignMsg)}
                         target="_blank"
                         rel="noreferrer"
-                        title="WhatsApp an diesen Kunden"
+                        title="Bu müşteriye WhatsApp gönder"
                       >
                         WhatsApp
                       </a>
                     )}
 
-                    <button className="btn-ghost" onClick={() => copy(customer.id)} title="ID kopieren">
+                    <button className="btn-ghost" onClick={() => copy(customer.id)} title="ID kopyala">
                       ID
                     </button>
 
                     <button className="btn-ghost" onClick={() => loadToForm(customer)}>
-                      Bearbeiten
+                      Düzenle
                     </button>
 
                     <button className="btn-ghost" onClick={() => del(customer.id)}>
-                      Löschen
+                      Sil
                     </button>
                   </div>
                 </td>
@@ -1181,12 +1182,13 @@ export default function AdminCustomersPage() {
             {!list.length && (
               <tr>
                 <td className="px-3 py-4 text-sm opacity-70" colSpan={13}>
-                  Keine Einträge.
+                  Kayıt yok.
                 </td>
               </tr>
             )}
           </tbody>
-        </table>
+          </table>
+        </div>
       </div>
 
       <style>{`
@@ -1218,6 +1220,29 @@ export default function AdminCustomersPage() {
           font-weight: 600;
           background: #10b981;
           color: #00110a;
+        }
+
+        .customer-table th,
+        .customer-table td {
+          vertical-align: top;
+        }
+
+        .customer-table th,
+        .customer-table td {
+          white-space: nowrap;
+        }
+
+        .customer-table td:nth-child(6) {
+          white-space: normal;
+          min-width: 220px;
+        }
+
+        .customer-table td:nth-child(4) {
+          min-width: 190px;
+        }
+
+        .customer-table td:nth-child(13) {
+          min-width: 330px;
         }
 
         .btn-ghost:disabled,
