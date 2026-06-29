@@ -15,7 +15,6 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "module": "ESNext",
-    "baseUrl": ".",
     "paths": {
       "@/*": [
         "./*"
@@ -35,6 +34,17 @@
     ".next/types/**/*.ts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    ".next",
+    ".git",
+    "dist",
+    "build",
+    "coverage",
+    "burger-github",
+    "burgerBrothers",
+    "print-test",
+    "**/burger-github/**",
+    "**/burgerBrothers/**",
+    "**/print-test/**"
   ]
 }
