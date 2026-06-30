@@ -724,8 +724,21 @@ function normalizeOrders(data: any): StoredOrder[] {
           couponDiscount,
           coupon: source?.coupon ?? meta?.coupon ?? null,
           total,
-          driver: source?.driver ?? meta?.driver ?? null,
-          driverName: source?.driverName || source?.driver?.name || meta?.driver?.name || "",
+          driver:
+            source?.driver ??
+            meta?.driver ??
+            (meta?.driverId || meta?.driverName
+              ? {
+                  id: meta?.driverId ?? null,
+                  name: meta?.driverName ?? null,
+                }
+              : null),
+          driverName:
+            source?.driverName ||
+            source?.driver?.name ||
+            meta?.driver?.name ||
+            meta?.driverName ||
+            "",
           plz: plz ? String(plz) : null,
           note: String(note || ""),
           orderNote: source?.orderNote ? String(source.orderNote) : undefined,
@@ -739,15 +752,12 @@ function normalizeOrders(data: any): StoredOrder[] {
 
 async function fetchOrdersFromTvEndpoint(): Promise<StoredOrder[]> {
   const endpoints = [
-    "/api/orders/list?all=1&take=1000",
-    "/api/orders/list?take=1000",
-    "/api/orders?take=1000",
-    "/api/admin/orders?take=1000",
+    "/api/orders/list?view=tv&includeDone=1&take=1000",
+    "/api/orders/list?includeDone=1&take=1000",
+    "/api/orders?includeDone=1&take=1000",
   ];
 
-  const merged = new Map<string, StoredOrder>();
   let lastError: unknown = null;
-  let anyResponse = false;
 
   for (const endpoint of endpoints) {
     try {
@@ -764,46 +774,17 @@ async function fetchOrdersFromTvEndpoint(): Promise<StoredOrder[]> {
         throw new Error(data?.error || `HTTP ${res.status}`);
       }
 
-      anyResponse = true;
-
-      for (const order of normalizeOrders(data)) {
-        const previous = merged.get(order.id);
-
-        if (!previous) {
-          merged.set(order.id, order);
-          continue;
-        }
-
-        const previousTs = getOrderExactCreatedMs(previous, null) ?? previous.ts ?? 0;
-        const nextTs = getOrderExactCreatedMs(order, null) ?? order.ts ?? 0;
-        const stableTs =
-          previousTs > 0 && nextTs > 0
-            ? Math.min(previousTs, nextTs)
-            : previousTs || nextTs;
-
-        merged.set(order.id, {
-          ...previous,
-          ...order,
-          ts: stableTs || order.ts || previous.ts,
-          createdAt: previous.createdAt || order.createdAt || null,
-          updatedAt: order.updatedAt || previous.updatedAt || null,
-          customer: {
-            ...(previous.customer || {}),
-            ...(order.customer || {}),
-          },
-          meta: {
-            ...(previous.meta || {}),
-            ...(order.meta || {}),
-          },
-          items: order.items?.length ? order.items : previous.items,
-        });
-      }
+      /*
+        TV / Driver uyumu:
+        - Ana kaynak artık /api/orders/list?view=tv.
+        - all=1 ve /api/admin/orders ile bütün geçmişi çekmiyoruz.
+        - İlk çalışan endpoint yeterli görülür; böylece eski/arşiv siparişler TV'ye geri karışmaz.
+      */
+      return normalizeOrders(data);
     } catch (error) {
       lastError = error;
     }
   }
-
-  if (merged.size > 0 || anyResponse) return Array.from(merged.values());
 
   throw lastError instanceof Error ? lastError : new Error("TV_ORDERS_FETCH_FAILED");
 }
@@ -819,6 +800,7 @@ async function persistStatusToDb(id: string, status: OrderStatus, by = "tv") {
       id,
       status,
       by,
+      ...(status === "preparing" ? { clearDriver: true } : {}),
     }),
   });
 
@@ -839,6 +821,7 @@ async function persistStatusToDb(id: string, status: OrderStatus, by = "tv") {
       id,
       status,
       by,
+      ...(status === "preparing" ? { clearDriver: true } : {}),
     }),
   });
 
@@ -1095,6 +1078,165 @@ function getOrderTotals(order: StoredOrder): {
   };
 }
 
+function firstNonEmptyText(...values: any[]) {
+  for (const value of values) {
+    const text = String(value ?? "").trim();
+    if (text) return text;
+  }
+
+  return "";
+}
+
+function buildDiscountDetails(order: StoredOrder, totals: ReturnType<typeof getOrderTotals>): DiscountRow[] {
+  const meta = cleanObj(order?.meta);
+  const pricing = cleanObj(order?.pricing);
+  const fees = cleanObj(order?.fees);
+  const couponMeta = cleanObj(meta?.couponMeta);
+  const couponLifecycle = cleanObj(meta?.couponLifecycle);
+
+  const rows: DiscountRow[] = [];
+
+  const addRow = (label: string, amount: any) => {
+    const cleanLabel = firstNonEmptyText(label, "Rabatt");
+    const cleanAmount = Math.abs(num(amount));
+
+    if (!cleanLabel || cleanAmount <= 0) return;
+
+    const existing = rows.find(
+      (row) => row.label.toLowerCase() === cleanLabel.toLowerCase(),
+    );
+
+    if (existing) {
+      existing.amount = +(existing.amount + cleanAmount).toFixed(2);
+      return;
+    }
+
+    rows.push({
+      label: cleanLabel,
+      amount: +cleanAmount.toFixed(2),
+    });
+  };
+
+  const couponCode = firstNonEmptyText(
+    order?.coupon,
+    meta?.coupon,
+    couponMeta?.code,
+    couponMeta?.couponCode,
+    couponLifecycle?.code,
+    couponLifecycle?.couponCode,
+  );
+
+  const couponTitle = firstNonEmptyText(
+    couponMeta?.title,
+    couponMeta?.name,
+    couponLifecycle?.title,
+    couponLifecycle?.name,
+    meta?.couponTitle,
+    pricing?.couponTitle,
+  );
+
+  const couponAmount = Math.abs(
+    num(
+      order?.couponDiscount ??
+        meta?.couponDiscount ??
+        couponMeta?.discountAmount ??
+        couponMeta?.amount ??
+        couponLifecycle?.couponDiscount ??
+        couponLifecycle?.discountAmount ??
+        couponLifecycle?.amount,
+    ),
+  );
+
+  const directOrderDiscount = Math.abs(num(order?.discount));
+  const fallbackCouponAmount =
+    couponAmount > 0
+      ? couponAmount
+      : couponCode
+        ? Math.max(0, totals.discountSum - directOrderDiscount) || totals.discountSum
+        : 0;
+
+  if (couponCode || couponAmount > 0) {
+    const label = couponCode
+      ? `Gutschein (${couponCode})${couponTitle ? ` – ${couponTitle}` : ""}`
+      : `Gutschein${couponTitle ? ` – ${couponTitle}` : ""}`;
+
+    addRow(label, fallbackCouponAmount);
+  }
+
+  for (const adjustment of cleanArr((order as any)?.adjustments)) {
+    const type = String(adjustment?.type || "").toLowerCase();
+
+    if (type && type !== "discount") continue;
+
+    const amount = Math.abs(
+      num(adjustment?.amount ?? adjustment?.value ?? adjustment?.price ?? adjustment?.total),
+    );
+
+    if (amount <= 0) continue;
+
+    const code = firstNonEmptyText(adjustment?.code, adjustment?.couponCode);
+    const campaign = firstNonEmptyText(
+      adjustment?.campaignName,
+      adjustment?.campaignTitle,
+      adjustment?.campaign,
+      adjustment?.reason,
+      adjustment?.source,
+    );
+
+    const label = code
+      ? `Kampagne/Rabatt (${code})${campaign ? ` – ${campaign}` : ""}`
+      : campaign || "Kampagne/Rabatt";
+
+    addRow(label, amount);
+  }
+
+  const campaignName = firstNonEmptyText(
+    meta?.campaignName,
+    meta?.campaignTitle,
+    meta?.campaign,
+    meta?.discountReason,
+    meta?.discountLabel,
+    pricing?.campaignName,
+    pricing?.campaignTitle,
+    pricing?.campaign,
+    pricing?.discountReason,
+    pricing?.discountLabel,
+    fees?.discountReason,
+    fees?.discountLabel,
+  );
+
+  const campaignAmount = Math.abs(
+    num(
+      pricing?.campaignDiscount ??
+        pricing?.campaignDiscountAmount ??
+        pricing?.discountAmount ??
+        pricing?.discount ??
+        fees?.discountAmount ??
+        fees?.discount ??
+        order?.discount,
+    ),
+  );
+
+  if (campaignAmount > 0) {
+    addRow(campaignName || "Rabatt / Angebot", campaignAmount);
+  }
+
+  for (const discount of totals.discountItems) {
+    addRow(discount.label || "Rabatt", discount.amount);
+  }
+
+  const knownAmount = rows.reduce((sum, row) => sum + Math.abs(num(row.amount)), 0);
+  const missingAmount = Math.max(0, totals.discountSum - knownAmount);
+
+  if (totals.discountSum > 0 && rows.length === 0) {
+    addRow("Rabatt / Angebot", totals.discountSum);
+  } else if (missingAmount > 0.01) {
+    addRow("Weitere Rabatte", missingAmount);
+  }
+
+  return rows;
+}
+
 function extractOrderNote(order: any): string {
   const customer = order?.customer || {};
   const meta = order?.meta || {};
@@ -1263,7 +1405,16 @@ function brianStreetFromOrder(order: StoredOrder): string {
 }
 
 function getDriverName(order: any): string {
-  return (order?.driver && order.driver.name) || order?.driverName || "";
+  const meta = cleanObj(order?.meta);
+  const driver = order?.driver || meta?.driver || null;
+
+  return (
+    (driver && (driver.name || driver.id)) ||
+    order?.driverName ||
+    meta?.driverName ||
+    meta?.driverId ||
+    ""
+  );
 }
 
 function getPaymentKind(order: any): "online" | "cash" | "other" {
@@ -2555,6 +2706,7 @@ export default function TVPage() {
 
             {(() => {
               const totals = getOrderTotals(sel);
+              const discountDetails = buildDiscountDetails(sel, totals);
               const pickupTip = sel.mode === "pickup" ? findTipAmountDeep(sel) : 0;
 
               return (
@@ -2587,19 +2739,28 @@ export default function TVPage() {
                         </tr>
                       ) : null}
 
-                      <tr className="border-b border-white/10">
-                        <td className="p-2">Rabatte</td>
-                        <td className="p-2 text-right">
-                          {totals.discountSum ? `-${money(totals.discountSum)}` : money(0)}
-                        </td>
-                      </tr>
+                      {discountDetails.length > 0 || totals.discountSum > 0 ? (
+                        <>
+                          <tr className="border-b border-white/10">
+                            <td className="p-2">Rabatte</td>
+                            <td className="p-2 text-right">
+                              -{money(totals.discountSum)}
+                            </td>
+                          </tr>
 
-                      {totals.discountItems.map((discount, index) => (
-                        <tr key={index} className="border-b border-white/10 text-stone-300/90">
-                          <td className="p-2 pl-6">- {discount.label}</td>
-                          <td className="p-2 text-right">-{money(discount.amount)}</td>
-                        </tr>
-                      ))}
+                          {discountDetails.map((discount, index) => (
+                            <tr key={index} className="border-b border-white/10 text-emerald-200/95">
+                              <td className="p-2 pl-6">
+                                <div className="font-medium">- {discount.label}</div>
+                                <div className="mt-0.5 text-xs text-stone-400">
+                                  Grund der Ermäßigung
+                                </div>
+                              </td>
+                              <td className="p-2 text-right">-{money(discount.amount)}</td>
+                            </tr>
+                          ))}
+                        </>
+                      ) : null}
 
                       {pickupTip > 0 ? (
                         <tr className="border-b border-white/10">

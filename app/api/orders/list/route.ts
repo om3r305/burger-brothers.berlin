@@ -451,6 +451,39 @@ function parseBool(value: any) {
   return text === "1" || text === "true" || text === "yes" || text === "ja";
 }
 
+function readView(url: URL) {
+  const text = String(
+    url.searchParams.get("view") ||
+      url.searchParams.get("client") ||
+      url.searchParams.get("target") ||
+      url.searchParams.get("shape") ||
+      "",
+  )
+    .toLowerCase()
+    .trim();
+
+  if (text === "driver" || text === "kurier" || text === "courier" || text === "fahrer") {
+    return "driver";
+  }
+
+  if (text === "tv" || text === "dashboard" || text === "monitor") {
+    return "tv";
+  }
+
+  return "default";
+}
+
+function isArchivedOrder(order: any) {
+  const meta = ensureObj(order?.meta);
+
+  return Boolean(
+    order?.archivedAt ||
+      order?.anonymizedAt ||
+      meta?.archivedAt ||
+      meta?.anonymizedAt,
+  );
+}
+
 function normalizeCustomer(row: any): NormalizedCustomer {
   const customer = ensureObj(row?.customer);
 
@@ -547,6 +580,8 @@ function serializeOrder(row: any) {
     couponDiscount,
     couponMeta: rawMeta?.couponMeta ?? null,
     couponLifecycle: rawMeta?.couponLifecycle ?? null,
+    archivedAt: toIso(row?.archivedAt ?? rawMeta?.archivedAt),
+    anonymizedAt: toIso(row?.anonymizedAt ?? rawMeta?.anonymizedAt),
   });
 
   const payload = sanitizeJson({
@@ -597,6 +632,8 @@ function serializeOrder(row: any) {
     print: row?.print ?? rawMeta?.print ?? null,
     doneAt: toIso(row?.doneAt ?? rawMeta?.doneAt),
     cancelledAt: toIso(row?.cancelledAt ?? rawMeta?.cancelledAt),
+    archivedAt: toIso(row?.archivedAt ?? rawMeta?.archivedAt),
+    anonymizedAt: toIso(row?.anonymizedAt ?? rawMeta?.anonymizedAt),
     order: payload,
     item: payload,
   });
@@ -653,6 +690,8 @@ function buildOrderSelect() {
     "driver",
     "doneAt",
     "cancelledAt",
+    "archivedAt",
+    "anonymizedAt",
     "history",
     "print",
   ];
@@ -690,6 +729,8 @@ export async function GET(req: Request) {
     const url = new URL(req.url);
 
     const tz = url.searchParams.get("tz") || DEFAULT_TZ;
+    const view = readView(url);
+    const driverView = view === "driver";
 
     const all =
       parseBool(url.searchParams.get("all")) ||
@@ -697,6 +738,10 @@ export async function GET(req: Request) {
 
     const includeDone = url.searchParams.get("includeDone") !== "0";
     const onlyActive = parseBool(url.searchParams.get("active"));
+
+    const includeArchived =
+      parseBool(url.searchParams.get("includeArchived")) ||
+      parseBool(url.searchParams.get("archived"));
 
     const statusFilter = tryStatus(url.searchParams.get("status"));
     const modeFilter = tryMode(url.searchParams.get("mode"));
@@ -715,6 +760,10 @@ export async function GET(req: Request) {
     const where: any = {
       tenantId,
     };
+
+    if (hasOrderField("archivedAt") && !includeArchived) {
+      where.archivedAt = null;
+    }
 
     if (fromDate || toDateValue) {
       where.ts = {};
@@ -751,6 +800,15 @@ export async function GET(req: Request) {
 
     let allOrders = rows.map(serializeOrder);
 
+    /*
+      Güvenlik filtresi:
+      Eğer schema alanı yoksa veya eski siparişlerde arşiv bilgisi meta içinde duruyorsa,
+      DB where yetmeyebilir. Bu yüzden serialize sonrası da arşiv/anonymized temizliği yapıyoruz.
+    */
+    if (!includeArchived) {
+      allOrders = allOrders.filter((order) => !isArchivedOrder(order));
+    }
+
     if (statusFilter) {
       allOrders = allOrders.filter((order) => order.status === statusFilter);
     }
@@ -780,17 +838,37 @@ export async function GET(req: Request) {
     const tvOrders = activeOrders;
     const doneOrders = includeDone ? finishedOrders : [];
 
+    /*
+      view=driver:
+      Driver ekranı done siparişlerini de günlük sayaç için okuyabilsin diye,
+      driver view'da orders alanı delivery + includeDone mantığına göre döner.
+      Varsayılan/TV görünümü bozulmasın diye normalde orders hâlâ sadece aktif siparişlerdir.
+    */
+    const driverOrders = items.filter((order) => order.mode === "delivery");
+    const driverDoneOrders = includeDone
+      ? driverOrders.filter(
+          (order) => order.status === "done" || order.status === "cancelled",
+        )
+      : [];
+
+    const responseOrders = driverView ? driverOrders : tvOrders;
+    const responseDoneOrders = driverView ? driverDoneOrders : doneOrders;
+    const responseItems = driverView ? driverOrders : items;
+
     const counts = {
       ...channelCounts(allOrders),
       ...statusCounts(allOrders),
       active: activeOrders.length,
       done: finishedOrders.length,
       total: allOrders.length,
+      driver: driverOrders.length,
+      driverDone: driverDoneOrders.length,
     };
 
     return jsonResponse({
       ok: true,
       source: "db",
+      view,
       tz,
       now: day.nowMs,
       range: {
@@ -798,16 +876,26 @@ export async function GET(req: Request) {
         from: fromDate ? fromDate.toISOString() : !all ? day.start.toISOString() : null,
         to: toDateValue ? toDateValue.toISOString() : !all ? day.end.toISOString() : null,
       },
+      archived: {
+        included: includeArchived,
+      },
       counts,
 
       // TV / legacy shape
-      orders: tvOrders,
-      doneOrders,
+      orders: responseOrders,
+      doneOrders: responseDoneOrders,
+
+      // Extra safe shapes
+      tvOrders,
+      activeOrders,
+      finishedOrders,
+      driverOrders,
+      driverDoneOrders,
 
       // Generic shape
-      items,
+      items: responseItems,
       allOrders,
-      count: tvOrders.length,
+      count: responseOrders.length,
       totalCount: allOrders.length,
     });
   } catch (error: any) {

@@ -130,6 +130,11 @@ function ensureArr(value: any): any[] {
   return Array.isArray(value) ? value : [];
 }
 
+function cleanText(value: any, fallback = "") {
+  const text = String(value ?? "").trim();
+  return text || fallback;
+}
+
 function sanitizeJson(value: any): any {
   if (value === undefined) return null;
   if (value === null) return null;
@@ -321,6 +326,8 @@ function buildOrderSelect() {
     "driver",
     "doneAt",
     "cancelledAt",
+    "archivedAt",
+    "anonymizedAt",
     "history",
     "print",
   ];
@@ -413,10 +420,20 @@ function serializeOrder(row: any) {
     total,
     coupon: row?.coupon ?? meta?.coupon ?? null,
     couponDiscount,
-    driver: row?.driver ?? meta?.driver ?? null,
+    driver:
+      row?.driver ??
+      meta?.driver ??
+      (meta?.driverId || meta?.driverName
+        ? {
+            id: meta?.driverId ?? null,
+            name: meta?.driverName ?? null,
+          }
+        : null),
     print: row?.print ?? meta?.print ?? null,
     doneAt: toIso(row?.doneAt ?? meta?.doneAt),
     cancelledAt: toIso(row?.cancelledAt ?? meta?.cancelledAt),
+    archivedAt: toIso(row?.archivedAt ?? meta?.archivedAt),
+    anonymizedAt: toIso(row?.anonymizedAt ?? meta?.anonymizedAt),
     order: payload,
     item: payload,
   });
@@ -508,6 +525,23 @@ function hasEtaPatch(body: any) {
   );
 }
 
+function normalizeDriverPatch(driver: any) {
+  if (driver === null) return null;
+
+  const object = ensureObj(driver);
+  const id = cleanText(object?.id ?? object?.driverId ?? object?.deviceId, "");
+  const name = cleanText(object?.name ?? object?.driverName ?? object?.title, "");
+  const deviceId = cleanText(object?.deviceId, "");
+
+  return sanitizeJson({
+    ...object,
+    id: id || name || deviceId || null,
+    name: name || id || deviceId || null,
+    deviceId: deviceId || object?.deviceId || undefined,
+    assignedAt: object?.assignedAt ?? Date.now(),
+  });
+}
+
 function pickDriverPatch(body: any, meta: Record<string, any>) {
   if (body?.clearDriver === true || body?.driver === null) {
     return {
@@ -519,7 +553,7 @@ function pickDriverPatch(body: any, meta: Record<string, any>) {
   if (body?.driver && typeof body.driver === "object") {
     return {
       hasPatch: true,
-      driver: sanitizeJson(body.driver),
+      driver: normalizeDriverPatch(body.driver),
     };
   }
 
@@ -528,7 +562,7 @@ function pickDriverPatch(body: any, meta: Record<string, any>) {
 
     return {
       hasPatch: true,
-      driver: sanitizeJson({
+      driver: normalizeDriverPatch({
         ...previous,
         name: body?.driverName ? String(body.driverName) : previous?.name,
         id: body?.driverId ? String(body.driverId) : previous?.id,
@@ -542,6 +576,38 @@ function pickDriverPatch(body: any, meta: Record<string, any>) {
     hasPatch: false,
     driver: undefined,
   };
+}
+
+function applyDriverMetaPatch(
+  meta: Record<string, any>,
+  driver: any,
+  status: OrderStatus,
+  nowMs: number,
+  by: string,
+) {
+  if (driver === null) {
+    meta.driver = null;
+    meta.driverId = null;
+    meta.driverName = null;
+    meta.claimedAt = null;
+    meta.claimedBy = null;
+    meta.lastPos = null;
+    meta.lastDriverPos = null;
+    meta.lastDriverPosAt = null;
+    meta.lastDriverPosBy = null;
+    return;
+  }
+
+  const normalized = normalizeDriverPatch(driver);
+
+  meta.driver = normalized;
+  meta.driverId = normalized?.id ?? null;
+  meta.driverName = normalized?.name ?? null;
+
+  if (status === "out_for_delivery") {
+    meta.claimedAt = meta.claimedAt ?? nowMs;
+    meta.claimedBy = meta.claimedBy ?? by;
+  }
 }
 
 function hasDriverPatch(body: any) {
@@ -656,7 +722,14 @@ function buildStatusUpdateData(
   }
 
   if (driverPatch.hasPatch) {
-    nextMeta.driver = driverPatch.driver;
+    applyDriverMetaPatch(nextMeta, driverPatch.driver, next, nowMs, by);
+  }
+
+  if (statusChanged && isFinal) {
+    nextMeta.lastPos = null;
+    nextMeta.lastDriverPos = null;
+    nextMeta.lastDriverPosAt = null;
+    nextMeta.lastDriverPosBy = null;
   }
 
   const data: Record<string, any> = {

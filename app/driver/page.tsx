@@ -2,9 +2,8 @@
 "use client";
 
 import DriverLiveTracker from "@/components/DriverLiveTracker";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  fetchOrdersFromDb,
   upsertOrder,
   setOrderStatus,
   type StoredOrder,
@@ -14,12 +13,20 @@ import { readSettings } from "@/lib/settings";
 
 type Driver = { id: string; name: string; password: string };
 
+type DriverTab = "new" | "mine";
+
+type ApiOrderList = StoredOrder[];
+
 const DRIVERS_KEY = "bb_drivers_v1";
 const CURRENT_DRIVER_KEY = "bb_current_driver_v1";
 const REMEMBER_KEY = "bb_driver_remember";
 const LASTNAME_KEY = "bb_driver_lastname";
 const LASTPASS_KEY = "bb_driver_lastpass_v2";
+const DRIVER_LAST_REFRESH_KEY = "bb_driver_last_refresh_v1";
+
 const SALT = "bb$kurier!2025";
+const ACTIVE_UNKNOWN_GRACE_MS = 6 * 60 * 60 * 1000;
+const REFRESH_MS = 6500;
 
 function enc(s: string) {
   try {
@@ -48,7 +55,13 @@ function readDriversLocal(): Driver[] {
 
 async function readDriversFromDb(): Promise<Driver[]> {
   try {
-    const res = await fetch("/api/drivers", { cache: "no-store" });
+    const res = await fetch("/api/drivers", {
+      cache: "no-store",
+      headers: {
+        accept: "application/json",
+      },
+    });
+
     if (!res.ok) return readDriversLocal();
 
     const data = await res.json().catch(() => ({}));
@@ -61,12 +74,12 @@ async function readDriversFromDb(): Promise<Driver[]> {
           : [];
 
     const list = raw
-      .map((d: any) => ({
-        id: String(d?.id || d?.name || ""),
-        name: String(d?.name || d?.title || ""),
-        password: String(d?.password || d?.pin || d?.code || ""),
+      .map((driver: any) => ({
+        id: String(driver?.id || driver?.name || "").trim(),
+        name: String(driver?.name || driver?.title || "").trim(),
+        password: String(driver?.password || driver?.pin || driver?.code || "").trim(),
       }))
-      .filter((d: Driver) => d.id && d.name && d.password);
+      .filter((driver: Driver) => driver.id && driver.name && driver.password);
 
     if (list.length) {
       localStorage.setItem(DRIVERS_KEY, JSON.stringify(list));
@@ -87,41 +100,487 @@ function getCurrentDriver(): Driver | null {
   }
 }
 
-function setCurrentDriver(d: Driver | null) {
-  if (d) localStorage.setItem(CURRENT_DRIVER_KEY, JSON.stringify(d));
-  else localStorage.removeItem(CURRENT_DRIVER_KEY);
+function setCurrentDriver(driver: Driver | null) {
+  if (driver) {
+    localStorage.setItem(CURRENT_DRIVER_KEY, JSON.stringify(driver));
+  } else {
+    localStorage.removeItem(CURRENT_DRIVER_KEY);
+  }
 }
 
-function sanitizePhone(p?: string) {
-  return (p || "").replace(/[^+\d]/g, "");
+function sanitizePhone(phone?: string) {
+  return String(phone || "").replace(/[^+\d]/g, "");
 }
 
-function mapsQuery(addr: string) {
-  return addr
-    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addr)}`
+function mapsQuery(address: string) {
+  return address
+    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`
     : "https://www.google.com/maps";
 }
 
-function prettyDeliveryLine(o: StoredOrder) {
-  const raw = String(o?.customer?.address || o?.customer?.addressLine || "");
+function cleanObj(value: any): Record<string, any> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+function cleanArr(value: any): any[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function num(value: any, fallback = 0) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (value == null || value === "") return fallback;
+
+  const text = String(value)
+    .trim()
+    .replace(/[€\s]/g, "")
+    .replace(",", ".");
+
+  const match = text.match(/-?\d+(\.\d+)?/);
+  const parsed = match ? Number(match[0]) : Number(text);
+
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function toMsStrict(value: any): number | null {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    return value;
+  }
+
+  if (value instanceof Date && Number.isFinite(value.valueOf())) {
+    return value.getTime();
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    const text = value.trim();
+    const asNumber = Number(text);
+
+    if (Number.isFinite(asNumber) && asNumber > 0) return asNumber;
+
+    const date = new Date(text);
+    if (Number.isFinite(date.valueOf())) return date.getTime();
+  }
+
+  return null;
+}
+
+function normalizeStatus(value: any): OrderStatus {
+  const text = String(value || "").toLowerCase().trim();
+
+  if (text === "new" || text === "received" || text === "eingegangen") return "new";
+
+  if (
+    text === "preparing" ||
+    text === "prepare" ||
+    text === "zubereitung" ||
+    text === "in_vorbereitung" ||
+    text === "in vorbereitung"
+  ) {
+    return "preparing";
+  }
+
+  if (text === "ready" || text === "bereit" || text === "abholbereit") return "ready";
+
+  if (text === "out_for_delivery" || text === "on_the_way" || text === "unterwegs") {
+    return "out_for_delivery";
+  }
+
+  if (text === "done" || text === "completed" || text === "delivered" || text === "geliefert") {
+    return "done";
+  }
+
+  if (text === "cancelled" || text === "canceled" || text === "storniert") return "cancelled";
+
+  return "new";
+}
+
+function normalizeMode(value: any): StoredOrder["mode"] {
+  const text = String(value || "").toLowerCase().trim();
+
+  if (
+    text === "pickup" ||
+    text === "abholung" ||
+    text === "apollo" ||
+    text === "apollon"
+  ) {
+    return "pickup";
+  }
+
+  return "delivery";
+}
+
+function appTZ(settings: any) {
+  return String(settings?.hours?.timezone || settings?.hours?.tz || "Europe/Berlin");
+}
+
+function pad2(n: number) {
+  return n < 10 ? `0${n}` : String(n);
+}
+
+function dayKeyForMs(ms: number, tz: string) {
+  try {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: tz,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(new Date(ms));
+
+    const year = parts.find((part) => part.type === "year")?.value || "0000";
+    const month = parts.find((part) => part.type === "month")?.value || "00";
+    const day = parts.find((part) => part.type === "day")?.value || "00";
+
+    return `${year}-${month}-${day}`;
+  } catch {
+    const date = new Date(ms);
+    return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+  }
+}
+
+function todayKey(tz: string) {
+  return dayKeyForMs(Date.now(), tz);
+}
+
+function orderDateFromId(value: any): number | null {
+  const text = String(value || "").trim();
+  const match = text.match(/(?:ORD[-_])?(\d{4})(\d{2})(\d{2})/);
+
+  if (!match) return null;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+
+  if (!year || !month || !day) return null;
+
+  const date = new Date(year, month - 1, day, 0, 1, 0, 0);
+
+  return Number.isFinite(date.valueOf()) ? date.getTime() : null;
+}
+
+function firstHistoryMs(value: any): number | null {
+  const arr = Array.isArray(value) ? value : [];
+
+  for (const entry of arr) {
+    const ms = toMsStrict(
+      entry?.ts ??
+        entry?.at ??
+        entry?.createdAt ??
+        entry?.created_at ??
+        entry?.time,
+    );
+
+    if (ms != null) return ms;
+  }
+
+  return null;
+}
+
+function statusHistoryMs(value: any, status: OrderStatus): number | null {
+  const arr = Array.isArray(value) ? value : [];
+
+  for (let i = arr.length - 1; i >= 0; i -= 1) {
+    const entry = arr[i];
+
+    const rawStatus =
+      entry?.status ??
+      entry?.to ??
+      entry?.nextStatus ??
+      entry?.newStatus ??
+      entry?.value;
+
+    if (rawStatus && normalizeStatus(rawStatus) !== status) continue;
+
+    const ms = toMsStrict(
+      entry?.ts ??
+        entry?.at ??
+        entry?.createdAt ??
+        entry?.created_at ??
+        entry?.updatedAt ??
+        entry?.updated_at ??
+        entry?.time,
+    );
+
+    if (ms != null) return ms;
+  }
+
+  return null;
+}
+
+function getOrderCreatedMs(order: Partial<StoredOrder> | any): number | null {
+  const meta = cleanObj(order?.meta);
+
+  const candidates = [
+    order?.createdAt,
+    order?.created_at,
+    meta?.createdAt,
+    meta?.created_at,
+    meta?.orderCreatedAt,
+    meta?.order_created_at,
+    meta?.submittedAt,
+    meta?.submitted_at,
+    meta?.checkoutAt,
+    meta?.checkout_at,
+    firstHistoryMs(order?.history),
+    firstHistoryMs(meta?.history),
+    meta?.createdAtMs,
+    meta?.ts,
+    order?.ts,
+  ];
+
+  for (const candidate of candidates) {
+    const ms = toMsStrict(candidate);
+    if (ms != null) return ms;
+  }
+
+  return null;
+}
+
+function getOrderDoneMs(order: Partial<StoredOrder> | any): number | null {
+  const meta = cleanObj(order?.meta);
+
+  const candidates = [
+    order?.doneAt,
+    order?.done_at,
+    order?.completedAt,
+    order?.completed_at,
+    order?.deliveredAt,
+    order?.delivered_at,
+    meta?.doneAt,
+    meta?.done_at,
+    meta?.completedAt,
+    meta?.completed_at,
+    meta?.deliveredAt,
+    meta?.delivered_at,
+    meta?.deliveredAtMs,
+    statusHistoryMs(order?.history, "done"),
+    statusHistoryMs(meta?.history, "done"),
+    order?.updatedAt,
+    order?.updated_at,
+    meta?.updatedAt,
+    meta?.updated_at,
+  ];
+
+  for (const candidate of candidates) {
+    const ms = toMsStrict(candidate);
+    if (ms != null) return ms;
+  }
+
+  return null;
+}
+
+function isOrderForTodayOrFresh(order: StoredOrder, tz: string) {
+  const status = normalizeStatus(order.status);
+  const isFinal = status === "done" || status === "cancelled";
+  const now = Date.now();
+  const today = todayKey(tz);
+
+  const idDay = orderDateFromId((order as any).orderId || order.id);
+  const created = getOrderCreatedMs(order);
+  const done = getOrderDoneMs(order);
+  const mainMs = done ?? idDay ?? created ?? toMsStrict((order as any).ts);
+
+  if (mainMs != null) {
+    return dayKeyForMs(mainMs, tz) === today;
+  }
+
+  if (!isFinal) {
+    const firstSeen = toMsStrict((order as any).meta?.firstSeenAt);
+    if (firstSeen != null) return now - firstSeen <= ACTIVE_UNKNOWN_GRACE_MS;
+  }
+
+  return false;
+}
+
+function normalizeItems(value: any): StoredOrder["items"] {
+  return cleanArr(value).map((item: any, index) => ({
+    id: item?.id ? String(item.id) : `${item?.sku || item?.name || "item"}-${index}`,
+    sku: item?.sku ? String(item.sku) : undefined,
+    name: String(item?.name || item?.title || "Artikel"),
+    category: item?.category ? String(item.category) : undefined,
+    price: num(item?.price ?? item?.unitPrice),
+    qty: Math.max(1, num(item?.qty ?? item?.quantity ?? 1, 1)),
+    add: cleanArr(item?.add ?? item?.extras).map((extra: any) => ({
+      label: extra?.label ? String(extra.label) : extra?.name ? String(extra.name) : undefined,
+      name: extra?.name ? String(extra.name) : undefined,
+      price: num(extra?.price),
+    })),
+    rm: cleanArr(item?.rm ?? item?.remove).map((entry) => String(entry)),
+    note: item?.note ? String(item.note) : undefined,
+  })) as StoredOrder["items"];
+}
+
+function normalizeOrdersPayload(data: any): ApiOrderList {
+  const list = Array.isArray(data)
+    ? data
+    : Array.isArray(data?.orders)
+      ? data.orders
+      : Array.isArray(data?.items)
+        ? data.items
+        : Array.isArray(data?.allOrders)
+          ? data.allOrders
+          : Array.isArray(data?.doneOrders)
+            ? data.doneOrders
+            : Array.isArray(data?.data)
+              ? data.data
+              : Array.isArray(data?.data?.orders)
+                ? data.data.orders
+                : Array.isArray(data?.data?.items)
+                  ? data.data.items
+                  : [];
+
+  return list
+    .map((raw: any): StoredOrder | null => {
+      try {
+        const source =
+          raw?.order && typeof raw.order === "object"
+            ? raw.order
+            : raw?.item && typeof raw.item === "object"
+              ? raw.item
+              : raw?.data && typeof raw.data === "object"
+                ? raw.data
+                : raw;
+
+        const meta = cleanObj(source?.meta);
+        const customer = cleanObj(source?.customer);
+        const items = normalizeItems(source?.items);
+
+        const id = String(source?.id || source?.orderId || "").trim();
+        if (!id) return null;
+
+        const orderId = String(source?.orderId || id);
+        const mode = normalizeMode(source?.mode);
+        const status = normalizeStatus(meta?.statusManual ?? source?.status);
+
+        const customerName =
+          source?.customerName || customer?.name || customer?.customerName || "";
+
+        const phone = source?.phone || customer?.phone || customer?.telephone || "";
+
+        const addressLine =
+          source?.addressLine ||
+          customer?.addressLine ||
+          customer?.address ||
+          [customer?.street, customer?.house || customer?.houseNo].filter(Boolean).join(" ");
+
+        const plz =
+          source?.plz ??
+          customer?.plz ??
+          customer?.zip ??
+          customer?.postalCode ??
+          null;
+
+        const note =
+          source?.note ||
+          source?.orderNote ||
+          customer?.deliveryHint ||
+          customer?.note ||
+          meta?.note ||
+          meta?.orderNote ||
+          "";
+
+        const createdMs = getOrderCreatedMs({
+          ...source,
+          id,
+          orderId,
+          meta,
+        });
+
+        return {
+          ...(source as any),
+          id,
+          orderId,
+          ts: createdMs ?? toMsStrict(source?.ts) ?? 0,
+          createdAt: source?.createdAt || source?.created_at || meta?.createdAt || null,
+          updatedAt: source?.updatedAt || source?.updated_at || null,
+          mode,
+          channel: source?.channel ? String(source.channel) : "web",
+          status,
+          planned: source?.planned ?? null,
+          etaMin: source?.etaMin ?? null,
+          etaAdjustMin: source?.etaAdjustMin ?? meta?.etaAdjustMin ?? 0,
+          customer: {
+            ...customer,
+            name: String(customerName || ""),
+            phone: String(phone || ""),
+            addressLine: String(addressLine || ""),
+            address: String(addressLine || ""),
+            plz: plz ? String(plz) : null,
+            zip: plz ? String(plz) : null,
+            deliveryHint: String(note || ""),
+          },
+          items,
+          meta,
+          driver: source?.driver ?? meta?.driver ?? null,
+          driverName: source?.driverName || source?.driver?.name || meta?.driver?.name || "",
+          note: String(note || ""),
+          orderNote: source?.orderNote ? String(source.orderNote) : undefined,
+        } as StoredOrder;
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean) as ApiOrderList;
+}
+
+async function fetchDriverOrdersFromDb(signal?: AbortSignal): Promise<ApiOrderList> {
+  const endpoints = [
+    `/api/orders/list?includeDone=1&take=500&t=${Date.now()}`,
+    `/api/orders?includeDone=1&take=500&t=${Date.now()}`,
+  ];
+
+  let lastError: unknown = null;
+
+  for (const endpoint of endpoints) {
+    try {
+      const res = await fetch(endpoint, {
+        cache: "no-store",
+        signal,
+        headers: {
+          accept: "application/json",
+        },
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok || data?.ok === false) {
+        throw new Error(data?.error || `HTTP ${res.status}`);
+      }
+
+      return normalizeOrdersPayload(data);
+    } catch (error: any) {
+      if (error?.name === "AbortError") throw error;
+      lastError = error;
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error("DRIVER_ORDERS_FETCH_FAILED");
+}
+
+function prettyDeliveryLine(order: StoredOrder) {
+  const customer = cleanObj(order?.customer);
+  const raw = String(customer.address || customer.addressLine || "");
+
+  if (!raw && (customer.zip || customer.plz || customer.street)) {
+    return [
+      customer.zip || customer.plz,
+      [customer.street, customer.house].filter(Boolean).join(" "),
+    ]
+      .filter(Boolean)
+      .join(" ");
+  }
+
   if (!raw) return "";
 
-  const parts = raw.split("|").map((s) => s.trim());
+  const parts = raw.split("|").map((part) => part.trim());
 
   if (parts.length >= 2) {
     const street = parts[0] || "";
     const zipMatch = (parts[1] || "").match(/\b\d{5}\b/);
-    const zip = zipMatch ? zipMatch[0] : parts[1] || "";
+    const zip = zipMatch ? zipMatch[0] : parts[1] || customer.zip || customer.plz || "";
     return [zip, street].filter(Boolean).join(" ");
   }
 
   return raw;
-}
-
-function todayStartMs() {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d.getTime();
 }
 
 function clearPosKey(id: string | number) {
@@ -130,167 +589,84 @@ function clearPosKey(id: string | number) {
   } catch {}
 }
 
-function orderDriver(o: StoredOrder): any {
+function orderDriver(order: StoredOrder): any {
+  const meta = cleanObj((order as any).meta);
+
   return (
-    (o as any).driver ||
-    (o as any).meta?.driver ||
-    ((o as any).meta?.driverId || (o as any).meta?.driverName
+    (order as any).driver ||
+    meta?.driver ||
+    (meta?.driverId || meta?.driverName
       ? {
-          id: (o as any).meta?.driverId,
-          name: (o as any).meta?.driverName,
+          id: meta?.driverId,
+          name: meta?.driverName,
         }
       : null)
   );
 }
 
-function isDriverOrder(o: StoredOrder, current: Driver | null) {
+function isDriverOrder(order: StoredOrder, current: Driver | null) {
   if (!current) return false;
 
-  const d = orderDriver(o);
+  const driver = orderDriver(order);
 
   return (
-    String(d?.id || "") === String(current.id) ||
-    String(d?.name || "") === String(current.name)
+    String(driver?.id || "") === String(current.id) ||
+    String(driver?.name || "") === String(current.name)
   );
 }
 
-function isDeliveryOrder(o: StoredOrder) {
-  const raw = String((o as any).mode || (o as any).type || (o as any).meta?.mode || "")
-    .toLowerCase()
-    .trim();
-
-  return raw === "delivery" || raw === "lieferung" || raw.includes("liefer");
-}
-
-function moneyValue(value: any) {
-  if (value == null || value === "") return null;
-
-  if (typeof value === "object" && typeof value.toNumber === "function") {
-    const n = value.toNumber();
-    return Number.isFinite(n) ? n : null;
-  }
-
-  const n = Number(String(value).replace(",", "."));
-  return Number.isFinite(n) ? n : null;
-}
-
-function firstMoney(candidates: any[], fallback = 0) {
-  for (const value of candidates) {
-    const n = moneyValue(value);
-    if (n != null) return +n.toFixed(2);
-  }
-
-  return fallback;
-}
-
-function orderTipAmount(o: StoredOrder): number {
-  const meta = ((o as any).meta || {}) as Record<string, any>;
-  const payment = ((meta.payment || (o as any).payment || {}) as Record<string, any>);
-  const totals = ((o as any).totals || meta.totals || {}) as Record<string, any>;
-
-  return firstMoney(
-    [
-      payment.tip,
-      payment.trinkgeld,
-      totals.tip,
-      totals.trinkgeld,
-      meta.tip,
-      meta.trinkgeld,
-      (o as any).tip,
-      (o as any).trinkgeld,
-      (o as any).gratuity,
-    ],
-    0,
-  );
-}
-
-function orderItemsSubtotal(o: StoredOrder): number {
-  const items = Array.isArray((o as any).items) ? ((o as any).items as any[]) : [];
-
-  const sum = items.reduce((total, item) => {
-    const qty = Number(item?.qty || item?.quantity || 1);
-    const base = Number(item?.price || item?.unitPrice || 0);
-    const addSum = Array.isArray(item?.add)
-      ? item.add.reduce((s: number, extra: any) => s + Number(extra?.price || 0), 0)
-      : 0;
-
-    return total + (base + addSum) * qty;
-  }, 0);
-
-  return +sum.toFixed(2);
-}
-
-function orderPayableTotal(o: StoredOrder): number {
-  const meta = ((o as any).meta || {}) as Record<string, any>;
-  const payment = ((meta.payment || (o as any).payment || {}) as Record<string, any>);
-  const totals = ((o as any).totals || meta.totals || {}) as Record<string, any>;
-
-  const total = firstMoney(
-    [
-      payment.payableTotal,
-      payment.total,
-      payment.amount,
-      totals.payableTotal,
-      totals.total,
-      totals.grandTotal,
-      totals.amount,
-      meta.payableTotal,
-      meta.total,
-      (o as any).payable,
-      (o as any).toPay,
-      (o as any).total,
-      (o as any).amount,
-    ],
-    0,
-  );
-
-  return total > 0 ? total : orderItemsSubtotal(o);
-}
-
-function orderSalesTotal(o: StoredOrder): number {
-  const total = orderPayableTotal(o);
-  const tip = orderTipAmount(o);
-
-  if (total > 0 && tip > 0 && total >= tip) {
-    return +(total - tip).toFixed(2);
-  }
-
-  return total;
-}
-
-function doneTimeMs(o: StoredOrder): number {
-  const meta = ((o as any).meta || {}) as Record<string, any>;
+function orderTipAmount(order: StoredOrder): number {
+  const meta = cleanObj((order as any).meta);
+  const payment = cleanObj(meta.payment || (order as any).payment);
 
   const candidates = [
-    meta.deliveredAt,
-    meta.doneAt,
-    meta.completedAt,
-    meta.finishedAt,
-    (o as any).deliveredAt,
-    (o as any).doneAt,
-    (o as any).completedAt,
-    (o as any).updatedAt,
-    (o as any).createdAt,
-    (o as any).ts,
+    payment.tip,
+    payment.trinkgeld,
+    payment.tipAmount,
+    payment.trinkgeldAmount,
+    meta.tip,
+    meta.trinkgeld,
+    meta.tipAmount,
+    meta.trinkgeldAmount,
+    (order as any).tip,
+    (order as any).trinkgeld,
+    (order as any).gratuity,
   ];
 
   for (const value of candidates) {
-    if (typeof value === "number" && Number.isFinite(value) && value > 0) {
-      return value;
-    }
-
-    if (typeof value === "string" || value instanceof Date) {
-      const ms = new Date(value).valueOf();
-      if (Number.isFinite(ms) && ms > 0) return ms;
-    }
+    const n = num(value);
+    if (n > 0) return +n.toFixed(2);
   }
 
   return 0;
 }
 
-function orderNote(o: StoredOrder): string {
-  const meta = ((o as any).meta || {}) as Record<string, any>;
-  const customer = ((o as any).customer || {}) as Record<string, any>;
+function orderPayableTotal(order: StoredOrder): number {
+  const meta = cleanObj((order as any).meta);
+  const payment = cleanObj(meta.payment || (order as any).payment);
+
+  const candidates = [
+    payment.payableTotal,
+    payment.total,
+    meta.payableTotal,
+    meta.total,
+    (order as any).payable,
+    (order as any).toPay,
+    (order as any).total,
+    (order as any).amount,
+  ];
+
+  for (const value of candidates) {
+    const n = num(value);
+    if (n > 0) return +n.toFixed(2);
+  }
+
+  return 0;
+}
+
+function orderNote(order: StoredOrder): string {
+  const meta = cleanObj((order as any).meta);
+  const customer = cleanObj((order as any).customer);
 
   const candidates = [
     meta.lieferhinweis,
@@ -301,32 +677,38 @@ function orderNote(o: StoredOrder): string {
     customer.lieferhinweis,
     customer.deliveryNote,
     customer.orderNote,
+    customer.deliveryHint,
     customer.note,
-    (o as any).lieferhinweis,
-    (o as any).deliveryNote,
-    (o as any).orderNote,
-    (o as any).note,
+    (order as any).lieferhinweis,
+    (order as any).deliveryNote,
+    (order as any).orderNote,
+    (order as any).note,
   ];
 
-  for (const v of candidates) {
-    const s = String(v ?? "").trim();
-    if (s) return s;
+  for (const value of candidates) {
+    const text = String(value ?? "").trim();
+    if (text) return text;
   }
 
   return "";
 }
 
 function withDriverState(
-  o: StoredOrder,
+  order: StoredOrder,
   current: Driver | null,
   status: OrderStatus,
   metaPatch: Record<string, any> = {},
 ): StoredOrder {
-  const previousMeta = ((o as any).meta || {}) as Record<string, any>;
-  const driver = current ? { id: current.id, name: current.name } : null;
+  const previousMeta = cleanObj((order as any).meta);
+  const driver = current
+    ? {
+        id: current.id,
+        name: current.name,
+      }
+    : null;
 
   return {
-    ...(o as any),
+    ...(order as any),
     status,
     driver,
     meta: {
@@ -335,6 +717,8 @@ function withDriverState(
       driver,
       driverId: current ? current.id : null,
       driverName: current ? current.name : null,
+      statusManual: status,
+      statusUpdatedAt: Date.now(),
     },
   } as StoredOrder;
 }
@@ -352,7 +736,10 @@ async function persistDriverOrderSnapshot(
       "content-type": "application/json",
       accept: "application/json",
     },
-    body: JSON.stringify({ orders: [order], replace: false }),
+    body: JSON.stringify({
+      orders: [order],
+      replace: false,
+    }),
   });
 
   const data = await res.json().catch(() => ({}));
@@ -369,130 +756,125 @@ async function persistDriverOrderSnapshot(
   return data;
 }
 
-function normalizeOrdersPayload(data: any): StoredOrder[] {
-  const raw = Array.isArray(data)
-    ? data
-    : Array.isArray(data?.orders)
-      ? data.orders
-      : Array.isArray(data?.items)
-        ? data.items
-        : Array.isArray(data?.list)
-          ? data.list
-          : Array.isArray(data?.data)
-            ? data.data
-            : [];
+async function claimOrderOnServer(order: StoredOrder, current: Driver) {
+  const res = await fetch("/api/orders/claim", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      accept: "application/json",
+    },
+    body: JSON.stringify({
+      id: order.id,
+      orderId: (order as any).orderId || order.id,
+      driver: {
+        id: current.id,
+        name: current.name,
+      },
+      by: current.name,
+    }),
+  });
 
-  return raw.filter(Boolean) as StoredOrder[];
-}
+  const data = await res.json().catch(() => ({}));
 
-function mergeOrders(...lists: StoredOrder[][]) {
-  const map = new Map<string, StoredOrder>();
-
-  for (const list of lists) {
-    for (const order of list || []) {
-      const id = String((order as any)?.id || "");
-      if (!id) continue;
-      map.set(id, order);
-    }
+  if (!res.ok || data?.ok === false) {
+    throw new Error(
+      data?.message ||
+        data?.error ||
+        "Dieser Auftrag konnte nicht übernommen werden.",
+    );
   }
 
-  return Array.from(map.values()).sort((a, b) => Number((a as any).ts || 0) - Number((b as any).ts || 0));
-}
+  const claimed = (data?.order || data?.item || data?.data) as StoredOrder | undefined;
 
-async function fetchDriverOrders(): Promise<StoredOrder[]> {
-  let fromLib: StoredOrder[] = [];
+  if (!claimed?.id) {
+    throw new Error("Auftrag wurde übernommen, aber die Antwort war unvollständig.");
+  }
 
   try {
-    fromLib = await fetchOrdersFromDb();
-  } catch {
-    fromLib = [];
-  }
+    upsertOrder(claimed as any);
+    window.dispatchEvent(new CustomEvent("bb:refresh-orders"));
+  } catch {}
 
-  const urls = [
-    "/api/orders/list?includeDone=1&includeArchived=1&take=500",
-    "/api/orders?includeDone=1&includeArchived=1&take=500",
-  ];
-
-  for (const url of urls) {
-    try {
-      const res = await fetch(url, {
-        method: "GET",
-        cache: "no-store",
-        headers: {
-          accept: "application/json",
-        },
-      });
-
-      if (!res.ok) continue;
-
-      const data = await res.json().catch(() => ({}));
-      const fromApi = normalizeOrdersPayload(data);
-
-      if (fromApi.length) {
-        return mergeOrders(fromLib, fromApi);
-      }
-    } catch {}
-  }
-
-  return fromLib;
+  return claimed;
 }
 
 const glass =
-  "backdrop-blur-xl bg-white/5 border border-white/15 shadow-[inset_0_1px_0_0_rgba(255,255,255,.18)] ring-1 ring-black/20";
+  "backdrop-blur-xl bg-white/5 border border-white/15 " +
+  "shadow-[inset_0_1px_0_0_rgba(255,255,255,.18)] ring-1 ring-black/20";
 
-const pad2 = (n: number) => (n < 10 ? `0${n}` : String(n));
+function plannedStartMs(order: StoredOrder, tz: string) {
+  if (!order?.planned) return null;
 
-function appTZ(s: any) {
-  return String(s?.hours?.timezone || s?.hours?.tz || "Europe/Berlin");
-}
-
-function plannedStartMs(o: StoredOrder, tz: string) {
-  if (!o?.planned) return null;
-
-  const [hh, mm] = String(o.planned)
+  const [hh, mm] = String(order.planned)
     .split(":")
     .map((x) => parseInt(x, 10));
 
   if (Number.isNaN(hh)) return null;
 
   const base = new Date(new Date().toLocaleString("en-US", { timeZone: tz }));
-  const d = new Date(base);
+  const date = new Date(base);
 
-  d.setHours(hh || 0, mm || 0, 0, 0);
+  date.setHours(hh || 0, mm || 0, 0, 0);
 
-  return d.getTime();
+  return date.getTime();
 }
 
-function etaFor(o: StoredOrder, avgPickup: number, avgDelivery: number) {
-  return (o as any).etaMin ?? (o.mode === "pickup" ? avgPickup : avgDelivery);
+function etaFor(order: StoredOrder, avgPickup: number, avgDelivery: number) {
+  return (order as any).etaMin ?? (order.mode === "pickup" ? avgPickup : avgDelivery);
 }
 
 function remainingMinutes(
-  o: StoredOrder,
+  order: StoredOrder,
   avgPickup: number,
   avgDelivery: number,
   tz: string,
 ) {
-  const eta = etaFor(o, avgPickup, avgDelivery);
-  const p = plannedStartMs(o, tz);
-  const start = p && p > Date.now() ? p : o.ts || Date.now();
+  const eta = etaFor(order, avgPickup, avgDelivery);
+  const planned = plannedStartMs(order, tz);
+  const start = planned && planned > Date.now()
+    ? planned
+    : getOrderCreatedMs(order) ?? order.ts ?? Date.now();
 
   return Math.max(0, Math.floor((start + eta * 60_000 - Date.now()) / 60_000));
+}
+
+function formatMoney(value: number | undefined) {
+  const number = Number.isFinite(Number(value)) ? Number(value) : 0;
+  return `${number.toFixed(2)}€`;
+}
+
+function orderItemsTotal(order: StoredOrder) {
+  const items = Array.isArray(order.items) ? order.items : [];
+
+  return items.reduce((sum: number, item: any) => {
+    const qty = Math.max(1, num(item?.qty, 1));
+    const extras = cleanArr(item?.add).reduce((extraSum, extra: any) => {
+      return extraSum + num(extra?.price);
+    }, 0);
+
+    return sum + (num(item?.price) + extras) * qty;
+  }, 0);
+}
+
+function orderDisplayTotal(order: StoredOrder) {
+  const total = orderPayableTotal(order);
+  if (total > 0) return total;
+  return orderItemsTotal(order);
 }
 
 export default function DriverPage() {
   useEffect(() => {
     const footer = document.querySelector("footer") as HTMLElement | null;
-    const prev = footer?.style.display || "";
+    const previous = footer?.style.display || "";
 
     if (footer) footer.style.display = "none";
 
     return () => {
-      if (footer) footer.style.display = prev;
+      if (footer) footer.style.display = previous;
     };
   }, []);
 
-  const [tab, setTab] = useState<"new" | "mine">("new");
+  const [tab, setTab] = useState<DriverTab>("new");
   const [loading, setLoading] = useState(false);
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [current, setCurrent] = useState<Driver | null>(null);
@@ -507,30 +889,72 @@ export default function DriverPage() {
     tip: number;
     total: number;
   } | null>(null);
+  const [lastRefreshAt, setLastRefreshAt] = useState<number | null>(null);
+  const [refreshError, setRefreshError] = useState("");
+  const [manualRefreshing, setManualRefreshing] = useState(false);
 
   const settings = readSettings() as any;
   const tz = appTZ(settings);
   const avgPickup = Number(settings?.hours?.avgPickupMinutes ?? 15);
   const avgDelivery = Number(settings?.hours?.avgDeliveryMinutes ?? 35);
 
+  const refreshAbortRef = useRef<AbortController | null>(null);
+  const refreshRunningRef = useRef(false);
+  const latestOrdersRef = useRef<StoredOrder[]>([]);
+
   const [, setTick] = useState(0);
 
   useEffect(() => {
-    const id = setInterval(() => setTick((x) => x + 1), 30_000);
-    return () => clearInterval(id);
+    const id = window.setInterval(() => setTick((value) => value + 1), 30_000);
+    return () => window.clearInterval(id);
   }, []);
 
-  async function refresh() {
-    try {
-      const all = await fetchDriverOrders();
-      setOrders(
-        all.filter((o) => {
-          const status = String((o as any).status || "");
-          return status !== "cancelled" && status !== "canceled";
-        }),
-      );
-    } catch {}
-  }
+  const refresh = useCallback(
+    async (force = false) => {
+      if (refreshRunningRef.current && !force) return;
+
+      if (force && refreshAbortRef.current) {
+        refreshAbortRef.current.abort();
+      }
+
+      const controller = new AbortController();
+
+      refreshAbortRef.current = controller;
+      refreshRunningRef.current = true;
+
+      try {
+        const all = await fetchDriverOrdersFromDb(controller.signal);
+
+        const visible = all
+          .filter((order) => normalizeMode(order.mode) === "delivery")
+          .filter((order) => !((order as any).archivedAt || (order as any).anonymizedAt))
+          .filter((order) => isOrderForTodayOrFresh(order, tz));
+
+        latestOrdersRef.current = visible;
+        setOrders(visible);
+        setRefreshError("");
+
+        const now = Date.now();
+        setLastRefreshAt(now);
+
+        try {
+          localStorage.setItem(DRIVER_LAST_REFRESH_KEY, String(now));
+        } catch {}
+      } catch (error: any) {
+        if (error?.name !== "AbortError") {
+          console.error("Driver refresh failed", error);
+          setRefreshError("Siparişler yenilenemedi. Bağlantıyı kontrol et.");
+        }
+      } finally {
+        if (refreshAbortRef.current === controller) {
+          refreshAbortRef.current = null;
+        }
+
+        refreshRunningRef.current = false;
+      }
+    },
+    [tz],
+  );
 
   useEffect(() => {
     let alive = true;
@@ -539,64 +963,88 @@ export default function DriverPage() {
       if (alive) setDrivers(list);
     });
 
-    const r = localStorage.getItem(REMEMBER_KEY);
-    if (r !== null) setRemember(r === "1");
+    const remembered = localStorage.getItem(REMEMBER_KEY);
+    if (remembered !== null) setRemember(remembered === "1");
 
-    const ln = localStorage.getItem(LASTNAME_KEY);
-    if (ln) setLoginName(ln);
+    const lastName = localStorage.getItem(LASTNAME_KEY);
+    if (lastName) setLoginName(lastName);
 
-    const lp = localStorage.getItem(LASTPASS_KEY);
-    if (lp && r === "1") setLoginPass(dec(lp));
+    const lastPass = localStorage.getItem(LASTPASS_KEY);
+    if (lastPass && remembered === "1") setLoginPass(dec(lastPass));
 
-    const cur = getCurrentDriver();
-    if (cur) setCurrent(cur);
+    const currentDriver = getCurrentDriver();
+    if (currentDriver) setCurrent(currentDriver);
 
-    refresh();
+    const previousRefresh = toMsStrict(localStorage.getItem(DRIVER_LAST_REFRESH_KEY));
+    if (previousRefresh) setLastRefreshAt(previousRefresh);
 
-    const t = setInterval(refresh, 3000);
+    void refresh(true);
 
-    const onRefresh = () => refresh();
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === "visible") {
+        void refresh(false);
+      }
+    }, REFRESH_MS);
 
-    window.addEventListener("bb:refresh-orders", onRefresh as EventListener);
-    window.addEventListener("bb_orders_changed", onRefresh as EventListener);
+    const onFocus = () => {
+      void refresh(true);
+    };
+
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        void refresh(true);
+      }
+    };
+
+    const onOrders = () => {
+      void refresh(true);
+    };
+
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("bb:refresh-orders", onOrders as EventListener);
+    window.addEventListener("bb_orders_changed", onOrders as EventListener);
+    document.addEventListener("visibilitychange", onVisibility);
 
     return () => {
       alive = false;
-      clearInterval(t);
-      window.removeEventListener("bb:refresh-orders", onRefresh as EventListener);
-      window.removeEventListener("bb_orders_changed", onRefresh as EventListener);
+      window.clearInterval(interval);
+      refreshAbortRef.current?.abort();
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("bb:refresh-orders", onOrders as EventListener);
+      window.removeEventListener("bb_orders_changed", onOrders as EventListener);
+      document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, []);
+  }, [refresh]);
 
   useEffect(() => {
     if (!current) {
-      const r = localStorage.getItem(REMEMBER_KEY) === "1";
-      const ln = localStorage.getItem(LASTNAME_KEY);
-      const lp = localStorage.getItem(LASTPASS_KEY);
+      const remembered = localStorage.getItem(REMEMBER_KEY) === "1";
+      const lastName = localStorage.getItem(LASTNAME_KEY);
+      const lastPass = localStorage.getItem(LASTPASS_KEY);
 
-      if (ln) setLoginName(ln);
-      if (r && lp) setLoginPass(dec(lp));
+      if (lastName) setLoginName(lastName);
+      if (remembered && lastPass) setLoginPass(dec(lastPass));
     }
   }, [current]);
 
   const pending = useMemo(
     () =>
       orders
-        .filter((o) => {
-          const status = String((o as any).status || "");
-          const driver = orderDriver(o);
-
+        .filter((order) => {
+          const status = normalizeStatus(order.status);
           return (
-            isDeliveryOrder(o) &&
-            !driver?.id &&
-            !driver?.name &&
+            normalizeMode(order.mode) === "delivery" &&
+            !orderDriver(order)?.id &&
             status !== "out_for_delivery" &&
             status !== "done" &&
-            status !== "cancelled" &&
-            status !== "canceled"
+            status !== "cancelled"
           );
         })
-        .sort((a, b) => Number(a.ts || 0) - Number(b.ts || 0)),
+        .sort((a, b) => {
+          const left = getOrderCreatedMs(a) ?? a.ts ?? 0;
+          const right = getOrderCreatedMs(b) ?? b.ts ?? 0;
+          return left - right;
+        }),
     [orders],
   );
 
@@ -604,58 +1052,62 @@ export default function DriverPage() {
     if (!current) return [];
 
     return orders
-      .filter((o) => {
-        const status = String((o as any).status || "");
-
+      .filter((order) => {
+        const status = normalizeStatus(order.status);
         return (
-          isDeliveryOrder(o) &&
-          isDriverOrder(o, current) &&
+          isDriverOrder(order, current) &&
           status !== "done" &&
-          status !== "cancelled" &&
-          status !== "canceled"
+          status !== "cancelled"
         );
       })
-      .sort((a, b) => Number(a.ts || 0) - Number(b.ts || 0));
+      .sort((a, b) => {
+        const left = getOrderCreatedMs(a) ?? a.ts ?? 0;
+        const right = getOrderCreatedMs(b) ?? b.ts ?? 0;
+        return left - right;
+      });
   }, [orders, current]);
 
   const eod = useMemo(() => {
     if (!current) return { count: 0, total: 0, tip: 0 };
 
-    const start = todayStartMs();
+    const today = todayKey(tz);
 
-    const list = orders.filter((o) => {
-      const status = String((o as any).status || "");
-      const doneAt = doneTimeMs(o);
+    const list = orders.filter((order) => {
+      if (!isDriverOrder(order, current)) return false;
+      if (normalizeStatus(order.status) !== "done") return false;
 
-      return (
-        isDeliveryOrder(o) &&
-        isDriverOrder(o, current) &&
-        status === "done" &&
-        doneAt >= start
-      );
+      const doneMs = getOrderDoneMs(order);
+      if (doneMs == null) return false;
+
+      return dayKeyForMs(doneMs, tz) === today;
     });
 
     return {
       count: list.length,
-      total: list.reduce((s, o) => s + orderSalesTotal(o), 0),
-      tip: list.reduce((s, o) => s + orderTipAmount(o), 0),
+      total: list.reduce((sum, order) => sum + orderDisplayTotal(order), 0),
+      tip: list.reduce((sum, order) => sum + orderTipAmount(order), 0),
     };
-  }, [orders, current]);
+  }, [orders, current, tz]);
 
-  function handleLogin(e?: React.FormEvent) {
-    e?.preventDefault();
+  const liveTrackingActive = current && mine.length > 0;
 
-    const drv = drivers.find((d) => d.name === loginName && d.password === loginPass);
+  function handleLogin(event?: React.FormEvent) {
+    event?.preventDefault();
 
-    if (!drv) {
-      return alert("Ungültiger Benutzer / Passwort. Bitte Admin kontaktieren.");
+    const driver = drivers.find(
+      (item) => item.name === loginName && item.password === loginPass,
+    );
+
+    if (!driver) {
+      alert("Ungültiger Benutzer / Passwort. Bitte Admin kontaktieren.");
+      return;
     }
 
-    setCurrent(drv);
-    localStorage.setItem(LASTNAME_KEY, loginName || drv.name);
+    setCurrent(driver);
+    localStorage.setItem(LASTNAME_KEY, loginName || driver.name);
 
     if (remember) {
-      setCurrentDriver(drv);
+      setCurrentDriver(driver);
       localStorage.setItem(REMEMBER_KEY, "1");
       localStorage.setItem(LASTPASS_KEY, enc(loginPass));
     } else {
@@ -665,18 +1117,21 @@ export default function DriverPage() {
     }
 
     setLoginPass("");
-    setTab("new");
-    refresh();
+    void refresh(true);
   }
 
   function handleLogout() {
     try {
       const me = getCurrentDriver();
-      const active = orders.filter(
-        (o) => isDriverOrder(o, me) && o.status !== "done" && o.status !== "cancelled",
+
+      const active = latestOrdersRef.current.filter(
+        (order) =>
+          isDriverOrder(order, me) &&
+          normalizeStatus(order.status) !== "done" &&
+          normalizeStatus(order.status) !== "cancelled",
       );
 
-      for (const o of active) clearPosKey(o.id);
+      for (const order of active) clearPosKey(order.id);
     } catch {}
 
     setCurrent(null);
@@ -684,318 +1139,362 @@ export default function DriverPage() {
   }
 
   function toggleSelect(id: string | number) {
-    setSelected((s) => ({ ...s, [String(id)]: !s[String(id)] }));
+    setSelected((state) => ({
+      ...state,
+      [String(id)]: !state[String(id)],
+    }));
   }
 
   async function claimSelected() {
-    if (!current) return alert("Bitte zuerst anmelden.");
+    if (!current) {
+      alert("Bitte zuerst anmelden.");
+      return;
+    }
 
-    const ids = Object.keys(selected).filter((k) => selected[k]);
+    const ids = Object.keys(selected).filter((key) => selected[key]);
 
-    if (!ids.length) return alert("Keine Auswahl.");
+    if (!ids.length) {
+      alert("Keine Auswahl.");
+      return;
+    }
 
     setLoading(true);
 
     try {
+      const errors: string[] = [];
+
       for (const id of ids) {
-        const o = orders.find((x) => String(x.id) === id);
-        if (!o) continue;
+        const order = orders.find((item) => String(item.id) === id);
+        if (!order) continue;
 
-        const assigned = orderDriver(o);
+        try {
+          const claimed = await claimOrderOnServer(order, current);
 
-        if (assigned?.id && String(assigned.id) !== String(current.id)) continue;
-
-        await persistDriverOrderSnapshot(
-          withDriverState(o, current, "out_for_delivery", {
-            claimedAt: Date.now(),
-            lastPos: null,
-          }),
-          "out_for_delivery",
-          current.name,
-        );
+          setOrders((prev) =>
+            prev.map((item) => (String(item.id) === String(order.id) ? claimed : item)),
+          );
+        } catch (error: any) {
+          errors.push(`#${id}: ${error?.message || "konnte nicht übernommen werden"}`);
+        }
       }
 
       setSelected({});
-      await refresh();
+      await refresh(true);
       setTab("mine");
+
+      if (errors.length) {
+        alert(errors.join("\n"));
+      }
     } finally {
       setLoading(false);
     }
   }
 
-  async function claimOne(o: StoredOrder) {
-    if (!current) return alert("Bitte zuerst anmelden.");
-
-    const assigned = orderDriver(o);
-
-    if (assigned?.id && String(assigned.id) !== String(current.id)) {
-      return alert("Dieser Auftrag ist bereits zugewiesen.");
+  async function claimOne(order: StoredOrder) {
+    if (!current) {
+      alert("Bitte zuerst anmelden.");
+      return;
     }
 
-    await persistDriverOrderSnapshot(
-      withDriverState(o, current, "out_for_delivery", {
-        claimedAt: Date.now(),
-        lastPos: null,
-      }),
-      "out_for_delivery",
-      current.name,
-    );
+    setLoading(true);
 
-    await refresh();
-    setTab("mine");
+    try {
+      const claimed = await claimOrderOnServer(order, current);
+
+      setOrders((prev) =>
+        prev.map((item) => (String(item.id) === String(order.id) ? claimed : item)),
+      );
+
+      await refresh(true);
+      setTab("mine");
+    } catch (error: any) {
+      await refresh(true);
+      alert(error?.message || "Dieser Auftrag konnte nicht übernommen werden.");
+    } finally {
+      setLoading(false);
+    }
   }
 
-  async function releaseOne(o: StoredOrder) {
+  async function releaseOne(order: StoredOrder) {
     if (!current) return;
 
-    if (!isDriverOrder(o, current)) {
-      return alert("Dieser Auftrag gehört nicht Ihnen.");
+    if (!isDriverOrder(order, current)) {
+      alert("Dieser Auftrag gehört nicht Ihnen.");
+      return;
     }
 
-    clearPosKey(o.id);
+    setLoading(true);
 
-    const updated = withDriverState(o, null, "preparing", {
-      claimedAt: null,
-      lastPos: null,
-    });
+    try {
+      clearPosKey(order.id);
 
-    await persistDriverOrderSnapshot(updated, "preparing", current.name);
+      const updated = withDriverState(order, null, "preparing", {
+        claimedAt: null,
+        lastPos: null,
+      });
 
-    setOrders((prev) =>
-      prev.map((x) => (String(x.id) === String(o.id) ? updated : x)),
-    );
+      setOrders((prev) =>
+        prev.map((item) => (String(item.id) === String(order.id) ? updated : item)),
+      );
 
-    await refresh();
+      await persistDriverOrderSnapshot(updated, "preparing", current.name);
+      await refresh(true);
+      setTab("new");
+    } finally {
+      setLoading(false);
+    }
   }
 
-  async function finishOne(o: StoredOrder) {
+  async function finishOne(order: StoredOrder) {
     if (!current) return;
     if (!confirm("Bestätigung: Lieferung abgeschlossen?")) return;
 
-    clearPosKey(o.id);
-
-    const tip = orderTipAmount(o);
-    const total = orderSalesTotal(o);
-
-    const updated = withDriverState(o, current, "done", {
-      deliveredAt: Date.now(),
-      lastPos: null,
-    });
-
-    setOrders((prev) =>
-      prev.map((x) => (String(x.id) === String(o.id) ? updated : x)),
-    );
-
-    setCompletedInfo({ id: String(o.id), tip, total });
+    setLoading(true);
 
     try {
+      clearPosKey(order.id);
+
+      const tip = orderTipAmount(order);
+      const total = orderPayableTotal(order);
+      const updated = withDriverState(order, current, "done", {
+        deliveredAt: Date.now(),
+        doneAt: Date.now(),
+        lastPos: null,
+      });
+
+      setOrders((prev) =>
+        prev.map((item) => (String(item.id) === String(order.id) ? updated : item)),
+      );
+      setCompletedInfo({
+        id: String(order.id),
+        tip,
+        total,
+      });
+
       await persistDriverOrderSnapshot(updated, "done", current.name);
-      await setOrderStatus(o.id, "done", current.name);
-      await refresh();
+      await setOrderStatus(order.id, "done", current.name);
+      await refresh(true);
     } catch {
-      await refresh();
+      await refresh(true);
       alert("Status konnte nicht gespeichert werden. Bitte erneut prüfen.");
+    } finally {
+      setLoading(false);
     }
   }
 
   function callCustomer(phone?: string) {
-    const p = sanitizePhone(phone);
-    if (!p) return alert("Keine Telefonnummer.");
+    const clean = sanitizePhone(phone);
 
-    window.location.href = `tel:${p}`;
+    if (!clean) {
+      alert("Keine Telefonnummer.");
+      return;
+    }
+
+    window.location.href = `tel:${clean}`;
   }
 
-  function openMaps(o: StoredOrder) {
-    const addr = prettyDeliveryLine(o) || o.customer?.address || "";
-    window.open(mapsQuery(addr), "_blank");
+  function openMaps(order: StoredOrder) {
+    const address = prettyDeliveryLine(order) || order.customer?.address || "";
+    window.open(mapsQuery(address), "_blank");
   }
 
-  function TimeBadge({ o }: { o: StoredOrder }) {
-    const left = remainingMinutes(o, avgPickup, avgDelivery, tz);
-    const pMs = plannedStartMs(o, tz);
-    const plannedFuture = !!pMs && pMs > Date.now();
-    const created = o.ts
-      ? new Date(o.ts).toLocaleTimeString([], {
+  async function manualRefresh() {
+    setManualRefreshing(true);
+
+    try {
+      await refresh(true);
+    } finally {
+      setManualRefreshing(false);
+    }
+  }
+
+  function TimeBadge({ order }: { order: StoredOrder }) {
+    const left = remainingMinutes(order, avgPickup, avgDelivery, tz);
+    const plannedMs = plannedStartMs(order, tz);
+    const plannedFuture = !!plannedMs && plannedMs > Date.now();
+    const createdMs = getOrderCreatedMs(order) ?? order.ts;
+    const created = createdMs
+      ? new Date(createdMs).toLocaleTimeString("de-DE", {
           hour: "2-digit",
           minute: "2-digit",
         })
       : "-";
 
     return (
-      <div className="mt-1 flex flex-wrap gap-2 text-xs text-stone-300/90">
+      <div className="mt-2 flex flex-wrap gap-2 text-xs text-stone-300/90">
         {plannedFuture ? (
           <span className="rounded-full border border-amber-400/40 bg-amber-500/15 px-2 py-0.5">
-            Geplant: <b>{String(o.planned)}</b>
+            Geplant: <b>{String(order.planned)}</b>
           </span>
         ) : (
-          <span className="rounded-full border border-sky-400/40 bg-sky-500/15 px-2 py-0.5">
+          <span
+            className={`rounded-full border px-2 py-0.5 ${
+              left <= 5
+                ? "border-rose-400/50 bg-rose-500/15 text-rose-100"
+                : left <= 15
+                  ? "border-amber-400/50 bg-amber-500/15 text-amber-100"
+                  : "border-sky-400/40 bg-sky-500/15 text-sky-100"
+            }`}
+          >
             Rest: <b>{pad2(left)}′</b>
           </span>
         )}
 
-        <span className="py-0.5 opacity-80">Erstellt: {created}</span>
+        <span className="rounded-full border border-stone-500/40 bg-stone-500/10 px-2 py-0.5">
+          Erstellt: {created}
+        </span>
       </div>
     );
   }
 
-  function formatMoney(n: number | undefined) {
-    const v = Number.isFinite(Number(n)) ? Number(n) : 0;
-    return `${v.toFixed(2)}€`;
-  }
-
-  function OrderWithDetails({ o }: { o: StoredOrder }) {
-    const open = !!openMap[String(o.id)];
-    const items = Array.isArray(o.items) ? o.items : [];
-    const sum = orderSalesTotal(o);
-    const tip = orderTipAmount(o);
-    const noteText = orderNote(o);
+  function OrderWithDetails({ order }: { order: StoredOrder }) {
+    const open = !!openMap[String(order.id)];
+    const items = Array.isArray(order.items) ? order.items : [];
+    const sum = orderItemsTotal(order);
+    const noteText = orderNote(order);
 
     return (
-      <div className={`rounded-xl p-4 ${glass}`}>
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+      <div className={`rounded-2xl p-4 ${glass}`}>
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0 flex-1">
-            <div className="break-words font-semibold">#{o.id} · Lieferung</div>
-
-            <div className="mt-1 break-words text-sm">
-              {o.customer?.name || "-"} · {o.customer?.phone || "-"}
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="break-all text-base font-bold">#{order.id}</div>
+              <span className="rounded-full border border-orange-400/50 bg-orange-500/15 px-2 py-0.5 text-xs text-orange-100">
+                Lieferung
+              </span>
             </div>
 
-            <div className="mt-1 break-words text-sm opacity-80">
-              {prettyDeliveryLine(o)}
+            <div className="mt-2 text-sm">
+              {order.customer?.name || "-"} · {order.customer?.phone || "-"}
             </div>
 
-            <TimeBadge o={o} />
+            <div className="mt-1 text-sm font-medium text-stone-200">
+              {prettyDeliveryLine(order)}
+            </div>
+
+            <TimeBadge order={order} />
 
             <button
+              className="mt-3 text-sm underline underline-offset-4 opacity-90 hover:opacity-100"
               type="button"
-              className="mt-2 text-sm underline underline-offset-4 opacity-90"
-              onClick={() => setOpenMap((m) => ({ ...m, [String(o.id)]: !open }))}
+              onClick={() =>
+                setOpenMap((state) => ({
+                  ...state,
+                  [String(order.id)]: !open,
+                }))
+              }
             >
               {open ? "Details verbergen" : "Details anzeigen"}
             </button>
 
             {open && (
-              <div className="mt-3 space-y-2">
+              <div className="mt-3 space-y-3">
                 {noteText && (
-                  <div className="rounded-lg border border-amber-400/30 bg-amber-500/10 p-3 text-sm">
+                  <div className="rounded-xl border border-amber-400/30 bg-amber-500/10 p-3 text-sm">
                     <div className="font-semibold text-amber-100">Lieferhinweis</div>
-                    <div className="mt-1 whitespace-pre-wrap text-stone-100">
-                      {noteText}
-                    </div>
+                    <div className="mt-1 whitespace-pre-wrap text-stone-100">{noteText}</div>
                   </div>
                 )}
 
-                <div className="overflow-hidden rounded-lg border border-white/10">
-                  <div className="overflow-x-auto">
-                    <table className="w-full min-w-[460px] text-sm">
-                      <thead className="bg-white/5">
-                        <tr>
-                          <th className="p-2 text-left">Artikel</th>
-                          <th className="p-2 text-right">Menge</th>
-                          <th className="p-2 text-right">Summe</th>
-                        </tr>
-                      </thead>
+                <div className="overflow-hidden rounded-xl border border-white/10">
+                  <table className="w-full text-sm">
+                    <thead className="bg-white/5">
+                      <tr>
+                        <th className="p-2 text-left">Artikel</th>
+                        <th className="p-2 text-right">Menge</th>
+                        <th className="p-2 text-right">Summe</th>
+                      </tr>
+                    </thead>
 
-                      <tbody>
-                        {items.map((it: any, i: number) => {
-                          const qty = Number(it.qty || 1);
-                          const line = qty * Number(it.price || 0);
-                          const add = Array.isArray(it.add) ? it.add : [];
-                          const rm = Array.isArray(it.rm) ? it.rm : [];
-                          const itemNote = it.note ? String(it.note) : "";
+                    <tbody>
+                      {items.map((item: any, index: number) => {
+                        const qty = Math.max(1, num(item.qty, 1));
+                        const extras = cleanArr(item.add);
+                        const remove = cleanArr(item.rm);
+                        const extrasTotal = extras.reduce((total: number, extra: any) => {
+                          return total + num(extra?.price);
+                        }, 0);
+                        const line = qty * (num(item.price) + extrasTotal);
+                        const itemNote = item.note ? String(item.note) : "";
 
-                          return (
-                            <tr key={i} className="border-t border-white/10 align-top">
-                              <td className="p-2">
-                                <div className="font-medium">{it.name}</div>
+                        return (
+                          <tr key={`${item?.id || item?.sku || item?.name || "item"}-${index}`} className="border-t border-white/10 align-top">
+                            <td className="p-2">
+                              <div className="font-medium">{item.name}</div>
 
-                                {itemNote && (
-                                  <div className="mt-0.5 text-xs opacity-90">
-                                    Hinweis: {itemNote}
-                                  </div>
-                                )}
+                              {itemNote && (
+                                <div className="mt-0.5 text-xs opacity-90">
+                                  Hinweis: {itemNote}
+                                </div>
+                              )}
 
-                                {add.length > 0 && (
-                                  <div className="text-xs opacity-70">
-                                    Extras:{" "}
-                                    {add
-                                      .map((a: any) => a?.label || a?.name)
-                                      .filter(Boolean)
-                                      .join(", ")}
-                                  </div>
-                                )}
+                              {extras.length > 0 && (
+                                <div className="text-xs opacity-70">
+                                  Extras:{" "}
+                                  {extras
+                                    .map((extra: any) => extra?.label || extra?.name)
+                                    .filter(Boolean)
+                                    .join(", ")}
+                                </div>
+                              )}
 
-                                {rm.length > 0 && (
-                                  <div className="text-xs opacity-70">
-                                    Ohne: {rm.join(", ")}
-                                  </div>
-                                )}
-                              </td>
-
-                              <td className="p-2 text-right">{qty}</td>
-                              <td className="p-2 text-right">{formatMoney(line)}</td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-
-                      <tfoot>
-                        {tip > 0 && (
-                          <tr className="border-t border-white/10">
-                            <td className="p-2 text-right font-semibold" colSpan={2}>
-                              Trinkgeld
+                              {remove.length > 0 && (
+                                <div className="text-xs opacity-70">Ohne: {remove.join(", ")}</div>
+                              )}
                             </td>
-                            <td className="p-2 text-right font-semibold">
-                              {formatMoney(tip)}
-                            </td>
+
+                            <td className="p-2 text-right">{qty}</td>
+                            <td className="p-2 text-right">{formatMoney(line)}</td>
                           </tr>
-                        )}
+                        );
+                      })}
+                    </tbody>
 
-                        <tr className="border-t border-white/10">
-                          <td className="p-2 text-right font-semibold" colSpan={2}>
-                            Gesamt
-                          </td>
-                          <td className="p-2 text-right font-semibold">
-                            {formatMoney(sum)}
-                          </td>
-                        </tr>
-                      </tfoot>
-                    </table>
-                  </div>
+                    <tfoot>
+                      <tr className="border-t border-white/10">
+                        <td className="p-2 text-right font-semibold" colSpan={2}>
+                          Gesamt
+                        </td>
+                        <td className="p-2 text-right font-semibold">{formatMoney(sum)}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
                 </div>
               </div>
             )}
           </div>
 
-          <div className="grid w-full grid-cols-2 gap-2 sm:w-[220px] sm:min-w-[220px]">
+          <div className="grid shrink-0 grid-cols-2 gap-2 lg:min-w-[220px]">
             <button
+              className="rounded-xl border border-white/20 px-3 py-2 text-sm hover:bg-white/10"
               type="button"
-              className="rounded-md border border-white/20 px-3 py-2 text-sm hover:bg-white/10"
-              onClick={() => callCustomer(o.customer?.phone)}
+              onClick={() => callCustomer(order.customer?.phone)}
             >
               Anrufen
             </button>
 
             <button
+              className="rounded-xl border border-white/20 px-3 py-2 text-sm hover:bg-white/10"
               type="button"
-              className="rounded-md border border-white/20 px-3 py-2 text-sm hover:bg-white/10"
-              onClick={() => openMaps(o)}
+              onClick={() => openMaps(order)}
             >
               Karte
             </button>
 
             <button
+              className="rounded-xl bg-emerald-400 px-3 py-2 text-sm font-bold text-black hover:bg-emerald-300 disabled:opacity-50"
               type="button"
-              className="rounded-md bg-emerald-400 px-3 py-2 text-sm font-semibold text-black hover:bg-emerald-300"
-              onClick={() => finishOne(o)}
+              disabled={loading}
+              onClick={() => finishOne(order)}
             >
               Fertig
             </button>
 
             <button
+              className="rounded-xl border border-white/20 px-3 py-2 text-sm hover:bg-white/10 disabled:opacity-50"
               type="button"
-              className="rounded-md border border-white/20 px-3 py-2 text-sm hover:bg-white/10"
-              onClick={() => releaseOne(o)}
+              disabled={loading}
+              onClick={() => releaseOne(order)}
             >
               Zurückgeben
             </button>
@@ -1025,24 +1524,24 @@ export default function DriverPage() {
 
             <form onSubmit={handleLogin} className="space-y-3">
               <input
-                className="w-full rounded-md border border-white/20 bg-white/10 px-3 py-2 outline-none focus:ring-2 focus:ring-white/30"
+                className="w-full rounded-xl border border-white/20 bg-white/10 px-3 py-3 outline-none focus:ring-2 focus:ring-white/30"
                 placeholder="Benutzername"
                 value={loginName}
-                onChange={(e) => {
-                  setLoginName(e.target.value);
-                  localStorage.setItem(LASTNAME_KEY, e.target.value || "");
+                onChange={(event) => {
+                  setLoginName(event.target.value);
+                  localStorage.setItem(LASTNAME_KEY, event.target.value || "");
                 }}
                 autoComplete="username"
               />
 
               <input
                 type="password"
-                className="w-full rounded-md border border-white/20 bg-white/10 px-3 py-2 outline-none focus:ring-2 focus:ring-white/30"
+                className="w-full rounded-xl border border-white/20 bg-white/10 px-3 py-3 outline-none focus:ring-2 focus:ring-white/30"
                 placeholder="Passwort"
                 value={loginPass}
-                onChange={(e) => {
-                  setLoginPass(e.target.value);
-                  if (remember) localStorage.setItem(LASTPASS_KEY, enc(e.target.value));
+                onChange={(event) => {
+                  setLoginPass(event.target.value);
+                  if (remember) localStorage.setItem(LASTPASS_KEY, enc(event.target.value));
                 }}
                 autoComplete="current-password"
               />
@@ -1051,12 +1550,15 @@ export default function DriverPage() {
                 <input
                   type="checkbox"
                   checked={remember}
-                  onChange={(e) => {
-                    setRemember(e.target.checked);
-                    localStorage.setItem(REMEMBER_KEY, e.target.checked ? "1" : "0");
+                  onChange={(event) => {
+                    setRemember(event.target.checked);
+                    localStorage.setItem(REMEMBER_KEY, event.target.checked ? "1" : "0");
 
-                    if (e.target.checked) localStorage.setItem(LASTPASS_KEY, enc(loginPass));
-                    else localStorage.removeItem(LASTPASS_KEY);
+                    if (event.target.checked) {
+                      localStorage.setItem(LASTPASS_KEY, enc(loginPass));
+                    } else {
+                      localStorage.removeItem(LASTPASS_KEY);
+                    }
                   }}
                 />
                 Angemeldet bleiben
@@ -1064,7 +1566,7 @@ export default function DriverPage() {
 
               <button
                 type="submit"
-                className="w-full rounded-md bg-amber-500 py-2 font-semibold text-black transition hover:bg-amber-400"
+                className="w-full rounded-xl bg-amber-500 py-3 font-bold text-black transition hover:bg-amber-400"
               >
                 Anmelden
               </button>
@@ -1077,7 +1579,7 @@ export default function DriverPage() {
 
   return (
     <main className="min-h-screen text-stone-100 antialiased">
-      <DriverLiveTracker />
+      {liveTrackingActive ? <DriverLiveTracker /> : null}
 
       <div className="pointer-events-none fixed inset-0 -z-10">
         <div className="absolute inset-0 bg-[radial-gradient(1200px_700px_at_10%_-10%,rgba(59,130,246,.18),transparent),radial-gradient(1000px_600px_at_90%_0%,rgba(16,185,129,.14),transparent),linear-gradient(180deg,#0b0f14_0%,#0f1318_50%,#0a0d11_100%)]" />
@@ -1087,12 +1589,16 @@ export default function DriverPage() {
       <div className="mx-auto max-w-3xl space-y-4 p-4 sm:p-6">
         <div className={`rounded-2xl p-4 ${glass}`}>
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="min-w-0">
-              <div className="break-words text-lg font-semibold">
-                Willkommen, {current.name}
-              </div>
-              <div className="text-sm text-stone-300/90">
-                Nur Lieferaufträge werden angezeigt.
+            <div>
+              <div className="text-lg font-semibold">Willkommen, {current.name}</div>
+              <div className="text-sm text-stone-300/90">Nur Lieferaufträge von heute werden angezeigt.</div>
+
+              <div className="mt-2 text-xs text-stone-400">
+                {lastRefreshAt ? (
+                  <>Letzte Aktualisierung: {new Date(lastRefreshAt).toLocaleTimeString("de-DE")}</>
+                ) : (
+                  <>Wird geladen…</>
+                )}
               </div>
             </div>
 
@@ -1107,23 +1613,46 @@ export default function DriverPage() {
                 Trinkgeld: <b>{eod.tip.toFixed(2)}€</b>
               </div>
 
-              <button
-                type="button"
-                className="mt-2 rounded-md border border-white/20 px-3 py-1 text-sm hover:bg-white/10"
-                onClick={handleLogout}
-              >
-                Abmelden
-              </button>
+              <div className="mt-2 flex gap-2 sm:justify-end">
+                <button
+                  className="rounded-xl border border-white/20 px-3 py-1.5 text-sm hover:bg-white/10 disabled:opacity-50"
+                  type="button"
+                  disabled={manualRefreshing}
+                  onClick={manualRefresh}
+                >
+                  {manualRefreshing ? "Lädt…" : "Aktualisieren"}
+                </button>
+
+                <button
+                  className="rounded-xl border border-white/20 px-3 py-1.5 text-sm hover:bg-white/10"
+                  type="button"
+                  onClick={handleLogout}
+                >
+                  Abmelden
+                </button>
+              </div>
             </div>
           </div>
         </div>
+
+        {refreshError && (
+          <div className="rounded-2xl border border-rose-400/40 bg-rose-500/10 p-3 text-sm text-rose-100">
+            {refreshError}
+          </div>
+        )}
+
+        {!liveTrackingActive && (
+          <div className="rounded-2xl border border-sky-400/25 bg-sky-500/10 p-3 text-xs leading-relaxed text-sky-100">
+            Konum takibi sadece bir teslimatı üstlendiğinde açılır. Bu yüzden boş ekranda gereksiz konum uyarısı çıkmaz.
+          </div>
+        )}
 
         <div className={`rounded-2xl p-2 ${glass}`}>
           <div className="grid grid-cols-2 gap-2">
             <button
               type="button"
               onClick={() => setTab("new")}
-              className={`rounded-md py-2 font-medium ${
+              className={`rounded-xl py-2 font-medium ${
                 tab === "new" ? "bg-white/20" : "opacity-80 hover:bg-white/10"
               }`}
             >
@@ -1133,7 +1662,7 @@ export default function DriverPage() {
             <button
               type="button"
               onClick={() => setTab("mine")}
-              className={`rounded-md py-2 font-medium ${
+              className={`rounded-xl py-2 font-medium ${
                 tab === "mine" ? "bg-white/20" : "opacity-80 hover:bg-white/10"
               }`}
             >
@@ -1143,27 +1672,16 @@ export default function DriverPage() {
         </div>
 
         {completedInfo && (
-          <div
-            className={`rounded-2xl border border-emerald-400/40 bg-emerald-500/10 p-4 ${glass}`}
-          >
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className={`rounded-2xl border border-emerald-400/40 bg-emerald-500/10 p-4 ${glass}`}>
+            <div className="flex items-start justify-between gap-3">
               <div>
-                <div className="font-semibold text-emerald-100">
-                  Lieferung abgeschlossen ✅
-                </div>
-
+                <div className="font-semibold text-emerald-100">Lieferung abgeschlossen ✅</div>
                 <div className="mt-1 text-sm text-stone-200">
                   Bestellung <b>#{completedInfo.id}</b> wurde als fertig markiert.
                 </div>
-
                 <div className="mt-2 text-sm">
                   Trinkgeld:{" "}
-                  <b>
-                    {completedInfo.tip > 0
-                      ? `${completedInfo.tip.toFixed(2)}€`
-                      : "Kein Trinkgeld"}
-                  </b>
-
+                  <b>{completedInfo.tip > 0 ? `${completedInfo.tip.toFixed(2)}€` : "Kein Trinkgeld"}</b>
                   {completedInfo.total > 0 ? (
                     <>
                       <span className="mx-2 text-stone-500">•</span>
@@ -1175,7 +1693,7 @@ export default function DriverPage() {
 
               <button
                 type="button"
-                className="rounded-md border border-white/20 px-3 py-1 text-sm hover:bg-white/10"
+                className="rounded-xl border border-white/20 px-3 py-1 text-sm hover:bg-white/10"
                 onClick={() => setCompletedInfo(null)}
               >
                 Schließen
@@ -1187,7 +1705,7 @@ export default function DriverPage() {
         <section className="space-y-3">
           {tab === "new" ? (
             pending.length === 0 ? (
-              <div className={`rounded-xl p-4 text-sm text-stone-300/90 ${glass}`}>
+              <div className={`rounded-2xl p-4 text-sm text-stone-300/90 ${glass}`}>
                 Keine neuen Aufträge.
               </div>
             ) : (
@@ -1197,41 +1715,40 @@ export default function DriverPage() {
                     type="button"
                     onClick={claimSelected}
                     disabled={loading}
-                    className="rounded-md bg-indigo-400 px-4 py-2 font-semibold text-black hover:bg-indigo-300 disabled:pointer-events-none disabled:opacity-60"
+                    className="rounded-xl bg-indigo-400 px-4 py-2 font-bold text-black hover:bg-indigo-300 disabled:opacity-50"
                     title="Ausgewählte übernehmen"
                   >
                     ＋ Übernehmen
                   </button>
                 </div>
 
-                {pending.map((o) => (
-                  <div key={String(o.id)} className={`rounded-xl p-4 ${glass}`}>
+                {pending.map((order) => (
+                  <div key={String(order.id)} className={`rounded-2xl p-4 ${glass}`}>
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div className="min-w-0 flex-1">
-                        <div className="break-words font-semibold">#{o.id} · Lieferung</div>
-                        <div className="mt-1 break-words text-sm">
-                          {o.customer?.name || "-"} · {o.customer?.phone || "-"}
+                        <div className="break-all font-bold">#{order.id} · Lieferung</div>
+                        <div className="mt-1 text-sm">
+                          {order.customer?.name || "-"} · {order.customer?.phone || "-"}
                         </div>
-                        <div className="mt-1 break-words text-sm opacity-80">
-                          {prettyDeliveryLine(o)}
-                        </div>
-                        <TimeBadge o={o} />
+                        <div className="mt-1 text-sm opacity-80">{prettyDeliveryLine(order)}</div>
+                        <TimeBadge order={order} />
                       </div>
 
-                      <div className="flex w-full items-center justify-between gap-2 sm:w-auto sm:flex-col sm:items-end">
+                      <div className="flex items-center gap-2 sm:flex-col sm:items-end">
                         <label className="flex items-center gap-2 text-sm opacity-90">
                           <input
                             type="checkbox"
-                            checked={!!selected[String(o.id)]}
-                            onChange={() => toggleSelect(o.id)}
+                            checked={!!selected[String(order.id)]}
+                            onChange={() => toggleSelect(order.id)}
                           />
                           Auswählen
                         </label>
 
                         <button
+                          className="rounded-xl border border-white/20 px-4 py-2 hover:bg-white/10 disabled:opacity-50"
                           type="button"
-                          className="rounded-md border border-white/20 px-4 py-2 hover:bg-white/10"
-                          onClick={() => claimOne(o)}
+                          disabled={loading}
+                          onClick={() => claimOne(order)}
                           title="Übernehmen"
                         >
                           ＋
@@ -1243,11 +1760,11 @@ export default function DriverPage() {
               </>
             )
           ) : mine.length === 0 ? (
-            <div className={`rounded-xl p-4 text-sm text-stone-300/90 ${glass}`}>
+            <div className={`rounded-2xl p-4 text-sm text-stone-300/90 ${glass}`}>
               Keine übernommenen Aufträge.
             </div>
           ) : (
-            mine.map((o) => <OrderWithDetails key={String(o.id)} o={o} />)
+            mine.map((order) => <OrderWithDetails key={String(order.id)} order={order} />)
           )}
         </section>
       </div>
