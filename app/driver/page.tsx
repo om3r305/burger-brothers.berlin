@@ -618,7 +618,12 @@ function normalizeOrdersPayload(data: any): ApiOrderList {
           status,
           planned: source?.planned ?? null,
           etaMin: source?.etaMin ?? null,
-          etaAdjustMin: source?.etaAdjustMin ?? meta?.etaAdjustMin ?? 0,
+          etaAdjustMin:
+            source?.etaAdjustMin ??
+            meta?.etaAdjustMin ??
+            meta?.etaAdjust ??
+            meta?.etaDeltaMin ??
+            0,
           customer: {
             ...customer,
             name: String(customerName || ""),
@@ -1027,7 +1032,28 @@ function plannedStartMs(order: StoredOrder, tz: string) {
 }
 
 function etaFor(order: StoredOrder, avgPickup: number, avgDelivery: number) {
-  return (order as any).etaMin ?? (order.mode === "pickup" ? avgPickup : avgDelivery);
+  const meta = cleanObj((order as any).meta);
+  const base = num(
+    (order as any).etaMin ??
+      meta?.etaMin ??
+      meta?.eta ??
+      (order.mode === "pickup" ? avgPickup : avgDelivery),
+    order.mode === "pickup" ? avgPickup : avgDelivery,
+  );
+
+  /*
+    TV tarafındaki -5 / +5 genelde etaAdjustMin alanına yazılıyor.
+    Driver ekranı da aynı süreyi göstersin diye bu değeri burada hesaba katıyoruz.
+  */
+  const adjust = num(
+    (order as any).etaAdjustMin ??
+      meta?.etaAdjustMin ??
+      meta?.etaAdjust ??
+      meta?.etaDeltaMin,
+    0,
+  );
+
+  return Math.max(0, base + adjust);
 }
 
 function remainingMinutes(
@@ -2137,9 +2163,6 @@ export default function DriverPage() {
                 </div>
 
                 {pending.map((order) => {
-                  const noteText = orderNote(order);
-                  const notePreview = shortText(noteText);
-
                   return (
                     <div key={String(order.id)} className={`rounded-2xl p-3 sm:p-4 ${glass}`}>
                       <div className="flex flex-col gap-3">
@@ -2159,15 +2182,6 @@ export default function DriverPage() {
                           <div className="mt-0.5 text-sm font-semibold text-stone-200">
                             {prettyDeliveryLine(order)}
                           </div>
-
-                          {noteText && (
-                            <div className="mt-2 rounded-xl border border-amber-300/30 bg-amber-400/10 p-2.5 text-sm text-amber-50">
-                              <div className="mb-1 text-[11px] font-extrabold uppercase tracking-wide text-amber-200">
-                                Lieferhinweis
-                              </div>
-                              <div>{notePreview}</div>
-                            </div>
-                          )}
 
                           <TimeBadge order={order} />
                         </div>
