@@ -30,7 +30,7 @@ const REFRESH_MS = 6500;
 const PULL_REFRESH_TRIGGER_PX = 72;
 const PULL_REFRESH_MAX_PX = 96;
 const COMPLETE_TOAST_MS = 4500;
-const NOTE_PREVIEW_MAX = 120;
+const NOTE_PREVIEW_MAX = 92;
 
 function enc(s: string) {
   try {
@@ -921,6 +921,90 @@ async function claimOrderOnServer(order: StoredOrder, current: Driver) {
   return claimed;
 }
 
+async function updateOrderStatusOnServer(
+  order: StoredOrder,
+  status: OrderStatus,
+  current: Driver | null,
+  metaPatch: Record<string, any> = {},
+) {
+  const by = current?.name || "driver";
+  const driver = current
+    ? {
+        id: current.id,
+        name: current.name,
+      }
+    : null;
+
+  const nextMeta = {
+    ...cleanObj((order as any).meta),
+    ...metaPatch,
+    driver,
+    driverId: current ? current.id : null,
+    driverName: current ? current.name : null,
+    statusManual: status,
+    statusUpdatedAt: Date.now(),
+  };
+
+  const body = {
+    id: order.id,
+    orderId: (order as any).orderId || order.id,
+    status,
+    nextStatus: status,
+    by,
+    driver,
+    driverId: current ? current.id : null,
+    driverName: current ? current.name : null,
+    metaPatch,
+    meta: nextMeta,
+  };
+
+  const attempts: Array<{ url: string; method: "POST" | "PUT" | "PATCH" }> = [
+    { url: "/api/orders/status", method: "POST" },
+    { url: "/api/orders/status", method: "PUT" },
+    { url: "/api/orders/status", method: "PATCH" },
+  ];
+
+  let lastMessage = "";
+
+  for (const attempt of attempts) {
+    try {
+      const res = await fetch(attempt.url, {
+        method: attempt.method,
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (res.ok && data?.ok !== false) {
+        return (data?.order || data?.item || data?.data || null) as StoredOrder | null;
+      }
+
+      lastMessage =
+        data?.message ||
+        data?.error ||
+        `${attempt.method} ${attempt.url} HTTP ${res.status}`;
+    } catch (error: any) {
+      lastMessage = error?.message || String(error);
+    }
+  }
+
+  /*
+    Fallback:
+    Localde çalışan eski helper bazı ortamlarda yeterli oluyor.
+    Vercel'de asıl güvenli yol /api/orders/status olduğu için önce onu deniyoruz.
+  */
+  try {
+    await setOrderStatus(order.id, status, by);
+    return null;
+  } catch (error: any) {
+    throw new Error(lastMessage || error?.message || "Status konnte nicht gespeichert werden.");
+  }
+}
+
 const glass =
   "backdrop-blur-xl bg-white/5 border border-white/15 " +
   "shadow-[inset_0_1px_0_0_rgba(255,255,255,.18)] ring-1 ring-black/20";
@@ -995,14 +1079,14 @@ function shortText(value: string, max = NOTE_PREVIEW_MAX) {
 
 function actionButtonClass(kind: "ghost" | "map" | "finish" | "danger" = "ghost") {
   const base =
-    "rounded-xl px-3 py-2 text-sm font-semibold transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50";
+    "rounded-xl px-3 py-2.5 text-sm font-bold transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50";
 
   if (kind === "finish") {
-    return `${base} border border-emerald-300/50 bg-emerald-400 text-black shadow-[0_0_18px_rgba(52,211,153,.22)] hover:bg-emerald-300`;
+    return `${base} border border-emerald-300/60 bg-gradient-to-b from-emerald-300 to-emerald-500 text-black shadow-[0_0_20px_rgba(52,211,153,.24)] hover:from-emerald-200 hover:to-emerald-400`;
   }
 
   if (kind === "map") {
-    return `${base} border border-sky-300/40 bg-sky-400/15 text-sky-100 hover:bg-sky-400/25`;
+    return `${base} border border-sky-300/45 bg-sky-400/15 text-sky-100 shadow-[0_0_16px_rgba(56,189,248,.10)] hover:bg-sky-400/25`;
   }
 
   if (kind === "danger") {
@@ -1010,6 +1094,21 @@ function actionButtonClass(kind: "ghost" | "map" | "finish" | "danger" = "ghost"
   }
 
   return `${base} border border-white/15 bg-white/[0.06] text-stone-100 hover:bg-white/12`;
+}
+
+function tabButtonClass(active: boolean, tone: "new" | "mine") {
+  const base =
+    "rounded-2xl py-2 text-sm font-extrabold tracking-wide transition active:scale-[0.99]";
+
+  if (!active) {
+    return `${base} border border-transparent text-stone-300/90 hover:border-white/10 hover:bg-white/[0.06]`;
+  }
+
+  if (tone === "new") {
+    return `${base} border border-amber-300/45 bg-gradient-to-b from-amber-400/35 to-orange-500/25 text-amber-50 shadow-[0_0_18px_rgba(251,146,60,.18)]`;
+  }
+
+  return `${base} border border-emerald-300/45 bg-gradient-to-b from-emerald-400/30 to-sky-500/20 text-emerald-50 shadow-[0_0_18px_rgba(52,211,153,.16)]`;
 }
 
 export default function DriverPage() {
@@ -1428,32 +1527,74 @@ export default function DriverPage() {
 
     setLoading(true);
 
+    const before = order;
+
     try {
       clearPosKey(order.id);
 
+      const now = Date.now();
       const tip = orderTipAmount(order);
       const total = orderPayableTotal(order);
       const updated = withDriverState(order, current, "done", {
-        deliveredAt: Date.now(),
-        doneAt: Date.now(),
+        deliveredAt: now,
+        doneAt: now,
+        completedAt: now,
         lastPos: null,
+        lastDriverPos: null,
+        lastDriverPosAt: null,
       });
 
+      // Optimistisch aus "Meine" entfernen, damit der Fahrer sofort Feedback bekommt.
       setOrders((prev) =>
         prev.map((item) => (String(item.id) === String(order.id) ? updated : item)),
       );
+
+      const serverOrder = await updateOrderStatusOnServer(updated, "done", current, {
+        deliveredAt: now,
+        doneAt: now,
+        completedAt: now,
+        lastPos: null,
+        lastDriverPos: null,
+        lastDriverPosAt: null,
+      });
+
+      const normalizedServerOrder = serverOrder
+        ? normalizeOrdersPayload([serverOrder])[0]
+        : null;
+
+      const finalOrder = normalizedServerOrder || updated;
+
+      try {
+        upsertOrder(finalOrder as any);
+      } catch {}
+
+      setOrders((prev) =>
+        prev.map((item) => (String(item.id) === String(order.id) ? finalOrder : item)),
+      );
+
       showCompleteToast({
         id: String(order.id),
         tip,
         total,
       });
 
-      await persistDriverOrderSnapshot(updated, "done", current.name);
-      await setOrderStatus(order.id, "done", current.name);
-      await refresh(true);
-    } catch {
-      await refresh(true);
-      alert("Status konnte nicht gespeichert werden. Bitte erneut prüfen.");
+      try {
+        window.dispatchEvent(new CustomEvent("bb:refresh-orders"));
+        window.dispatchEvent(new CustomEvent("bb_orders_changed"));
+      } catch {}
+
+      await refresh(true).catch(() => undefined);
+    } catch (error: any) {
+      setOrders((prev) =>
+        prev.map((item) => (String(item.id) === String(order.id) ? before : item)),
+      );
+
+      await refresh(true).catch(() => undefined);
+
+      alert(
+        error?.message ||
+          "Status konnte nicht gespeichert werden. Bitte erneut prüfen.",
+      );
     } finally {
       setLoading(false);
     }
@@ -1556,7 +1697,7 @@ export default function DriverPage() {
       : "-";
 
     return (
-      <div className="mt-2 flex flex-wrap gap-2 text-xs text-stone-300/90">
+      <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] text-stone-300/90">
         {plannedFuture ? (
           <span className="rounded-full border border-amber-400/40 bg-amber-500/15 px-2 py-0.5">
             Geplant: <b>{String(order.planned)}</b>
@@ -1592,27 +1733,27 @@ export default function DriverPage() {
     const noteLong = noteText.trim().length > NOTE_PREVIEW_MAX;
 
     return (
-      <div className={`rounded-2xl p-4 ${glass}`}>
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+      <div className={`rounded-2xl p-3 sm:p-4 ${glass}`}>
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <div className="break-all text-base font-bold">#{order.id}</div>
+              <div className="break-all text-[15px] font-extrabold sm:text-base">#{order.id}</div>
               <span className="rounded-full border border-orange-400/50 bg-orange-500/15 px-2 py-0.5 text-xs text-orange-100">
                 Lieferung
               </span>
             </div>
 
-            <div className="mt-2 text-sm">
+            <div className="mt-1.5 text-sm">
               {order.customer?.name || "-"} · {order.customer?.phone || "-"}
             </div>
 
-            <div className="mt-1 text-sm font-medium text-stone-200">
+            <div className="mt-0.5 text-sm font-semibold text-stone-200">
               {prettyDeliveryLine(order)}
             </div>
 
             {noteText && (
-              <div className="mt-3 rounded-xl border border-amber-300/35 bg-amber-400/10 p-3 text-sm text-amber-50">
-                <div className="mb-1 text-xs font-bold uppercase tracking-wide text-amber-200">
+              <div className="mt-2 rounded-xl border border-amber-300/35 bg-amber-400/10 p-2.5 text-sm text-amber-50">
+                <div className="mb-1 text-[11px] font-extrabold uppercase tracking-wide text-amber-200">
                   Lieferhinweis
                 </div>
                 <div className="whitespace-pre-wrap leading-relaxed">
@@ -1639,7 +1780,7 @@ export default function DriverPage() {
             <TimeBadge order={order} />
 
             <button
-              className="mt-3 text-sm underline underline-offset-4 opacity-90 hover:opacity-100"
+              className="mt-2 text-sm underline underline-offset-4 opacity-90 hover:opacity-100"
               type="button"
               onClick={() =>
                 setOpenMap((state) => ({
@@ -1721,7 +1862,7 @@ export default function DriverPage() {
             )}
           </div>
 
-          <div className="grid shrink-0 grid-cols-2 gap-2 lg:min-w-[220px]">
+          <div className="grid shrink-0 grid-cols-2 gap-2 lg:min-w-[210px]">
             <button
               className={actionButtonClass("ghost")}
               type="button"
@@ -1867,7 +2008,7 @@ export default function DriverPage() {
       </div>
 
       {completeToast && (
-        <div className="fixed left-3 right-3 top-4 z-50 mx-auto max-w-md rounded-2xl border border-emerald-300/45 bg-emerald-500/95 px-4 py-3 text-sm text-black shadow-2xl">
+        <div className="fixed left-3 right-3 top-[max(1rem,env(safe-area-inset-top))] z-50 mx-auto max-w-md rounded-2xl border border-emerald-300/45 bg-emerald-500/95 px-4 py-3 text-sm text-black shadow-2xl">
           <div className="font-extrabold">Lieferung abgeschlossen ✅</div>
           <div className="mt-0.5">
             #{completeToast.id} · Trinkgeld: <b>{completeToast.tip.toFixed(2)}€</b>
@@ -1886,51 +2027,59 @@ export default function DriverPage() {
         <div className="absolute inset-0 bg-[radial-gradient(80%_80%_at_50%_20%,transparent,rgba(0,0,0,.45))]" />
       </div>
 
-      <div className="mx-auto max-w-3xl space-y-4 p-4 sm:p-6">
-        <div className={`rounded-2xl p-4 ${glass}`}>
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <div className="text-lg font-semibold">Willkommen, {current.name}</div>
-              <div className="text-sm text-stone-300/90">Nur Lieferaufträge von heute werden angezeigt.</div>
-
-              <div className="mt-2 text-xs text-stone-400">
+      <div className="mx-auto max-w-3xl space-y-3 px-3 py-3 sm:p-5">
+        <div className={`rounded-2xl p-3 sm:p-4 ${glass}`}>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-base font-extrabold sm:text-lg">
+                Willkommen, {current.name}
+              </div>
+              <div className="mt-0.5 text-xs text-stone-300/90 sm:text-sm">
+                Nur Lieferaufträge von heute werden angezeigt.
+              </div>
+              <div className="mt-1 text-[11px] text-stone-500">
                 {lastRefreshAt ? (
-                  <>Letzte Aktualisierung: {new Date(lastRefreshAt).toLocaleTimeString("de-DE")}</>
+                  <>Aktualisiert: {new Date(lastRefreshAt).toLocaleTimeString("de-DE")}</>
                 ) : (
                   <>Wird geladen…</>
                 )}
               </div>
             </div>
 
-            <div className="text-left sm:text-right">
-              <div className="text-sm">
-                Heute: <b>{eod.count}</b> Lieferungen
-              </div>
-              <div className="text-sm">
-                Umsatz: <b>{eod.total.toFixed(2)}€</b>
-              </div>
-              <div className="text-sm">
-                Trinkgeld: <b>{eod.tip.toFixed(2)}€</b>
-              </div>
+            <div className="flex shrink-0 gap-2">
+              <button
+                className="rounded-xl border border-amber-300/25 bg-amber-400/10 px-3 py-1.5 text-xs font-bold text-amber-100 transition hover:bg-amber-400/20 disabled:opacity-50"
+                type="button"
+                disabled={manualRefreshing}
+                onClick={manualRefresh}
+              >
+                {manualRefreshing ? "Lädt…" : "Aktualisieren"}
+              </button>
 
-              <div className="mt-2 flex gap-2 sm:justify-end">
-                <button
-                  className="rounded-xl border border-white/20 px-3 py-1.5 text-sm hover:bg-white/10 disabled:opacity-50"
-                  type="button"
-                  disabled={manualRefreshing}
-                  onClick={manualRefresh}
-                >
-                  {manualRefreshing ? "Lädt…" : "Aktualisieren"}
-                </button>
+              <button
+                className="rounded-xl border border-white/15 bg-white/[0.04] px-3 py-1.5 text-xs font-bold text-stone-200 transition hover:bg-white/10"
+                type="button"
+                onClick={handleLogout}
+              >
+                Abmelden
+              </button>
+            </div>
+          </div>
 
-                <button
-                  className="rounded-xl border border-white/20 px-3 py-1.5 text-sm hover:bg-white/10"
-                  type="button"
-                  onClick={handleLogout}
-                >
-                  Abmelden
-                </button>
-              </div>
+          <div className="mt-3 grid grid-cols-3 gap-2">
+            <div className="rounded-xl border border-white/10 bg-black/20 px-2.5 py-2">
+              <div className="text-[10px] uppercase tracking-wide text-stone-500">Heute</div>
+              <div className="mt-0.5 text-sm font-extrabold">{eod.count}</div>
+            </div>
+
+            <div className="rounded-xl border border-emerald-300/15 bg-emerald-400/10 px-2.5 py-2">
+              <div className="text-[10px] uppercase tracking-wide text-emerald-200/70">Umsatz</div>
+              <div className="mt-0.5 text-sm font-extrabold">{eod.total.toFixed(2)}€</div>
+            </div>
+
+            <div className="rounded-xl border border-amber-300/15 bg-amber-400/10 px-2.5 py-2">
+              <div className="text-[10px] uppercase tracking-wide text-amber-200/75">Trinkgeld</div>
+              <div className="mt-0.5 text-sm font-extrabold">{eod.tip.toFixed(2)}€</div>
             </div>
           </div>
         </div>
@@ -1942,19 +2091,17 @@ export default function DriverPage() {
         )}
 
         {!liveTrackingActive && (
-          <div className="rounded-2xl border border-sky-400/25 bg-sky-500/10 p-3 text-xs leading-relaxed text-sky-100">
-            Standort wird nur bei einer übernommenen Lieferung aktiviert. Keine unnötige Abfrage ohne aktive Lieferung.
+          <div className="rounded-xl border border-sky-400/20 bg-sky-500/10 px-3 py-2 text-[11px] leading-relaxed text-sky-100">
+            📍 Standort nur bei einer übernommenen Lieferung aktiv.
           </div>
         )}
 
-        <div className={`rounded-2xl p-2 ${glass}`}>
-          <div className="grid grid-cols-2 gap-2">
+        <div className={`rounded-2xl p-1.5 ${glass}`}>
+          <div className="grid grid-cols-2 gap-1.5">
             <button
               type="button"
               onClick={() => setTab("new")}
-              className={`rounded-xl py-2 font-medium ${
-                tab === "new" ? "bg-white/20" : "opacity-80 hover:bg-white/10"
-              }`}
+              className={tabButtonClass(tab === "new", "new")}
             >
               Neu ({pending.length})
             </button>
@@ -1962,9 +2109,7 @@ export default function DriverPage() {
             <button
               type="button"
               onClick={() => setTab("mine")}
-              className={`rounded-xl py-2 font-medium ${
-                tab === "mine" ? "bg-white/20" : "opacity-80 hover:bg-white/10"
-              }`}
+              className={tabButtonClass(tab === "mine", "mine")}
             >
               Meine ({mine.length})
             </button>
@@ -1991,41 +2136,66 @@ export default function DriverPage() {
                   </button>
                 </div>
 
-                {pending.map((order) => (
-                  <div key={String(order.id)} className={`rounded-2xl p-4 ${glass}`}>
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                      <div className="min-w-0 flex-1">
-                        <div className="break-all font-bold">#{order.id} · Lieferung</div>
-                        <div className="mt-1 text-sm">
-                          {order.customer?.name || "-"} · {order.customer?.phone || "-"}
+                {pending.map((order) => {
+                  const noteText = orderNote(order);
+                  const notePreview = shortText(noteText);
+
+                  return (
+                    <div key={String(order.id)} className={`rounded-2xl p-3 sm:p-4 ${glass}`}>
+                      <div className="flex flex-col gap-3">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <div className="break-all text-[15px] font-extrabold sm:text-base">
+                              #{order.id}
+                            </div>
+                            <span className="rounded-full border border-orange-400/50 bg-orange-500/15 px-2 py-0.5 text-xs text-orange-100">
+                              Lieferung
+                            </span>
+                          </div>
+
+                          <div className="mt-1.5 text-sm">
+                            {order.customer?.name || "-"} · {order.customer?.phone || "-"}
+                          </div>
+                          <div className="mt-0.5 text-sm font-semibold text-stone-200">
+                            {prettyDeliveryLine(order)}
+                          </div>
+
+                          {noteText && (
+                            <div className="mt-2 rounded-xl border border-amber-300/30 bg-amber-400/10 p-2.5 text-sm text-amber-50">
+                              <div className="mb-1 text-[11px] font-extrabold uppercase tracking-wide text-amber-200">
+                                Lieferhinweis
+                              </div>
+                              <div>{notePreview}</div>
+                            </div>
+                          )}
+
+                          <TimeBadge order={order} />
                         </div>
-                        <div className="mt-1 text-sm opacity-80">{prettyDeliveryLine(order)}</div>
-                        <TimeBadge order={order} />
-                      </div>
 
-                      <div className="flex items-center gap-2 sm:flex-col sm:items-end">
-                        <label className="flex items-center gap-2 text-sm opacity-90">
-                          <input
-                            type="checkbox"
-                            checked={!!selected[String(order.id)]}
-                            onChange={() => toggleSelect(order.id)}
-                          />
-                          Auswählen
-                        </label>
+                        <div className="grid grid-cols-[auto_1fr] items-center gap-2">
+                          <label className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-semibold text-stone-200">
+                            <input
+                              type="checkbox"
+                              checked={!!selected[String(order.id)]}
+                              onChange={() => toggleSelect(order.id)}
+                            />
+                            Auswahl
+                          </label>
 
-                        <button
-                          className="rounded-xl border border-white/20 px-4 py-2 hover:bg-white/10 disabled:opacity-50"
-                          type="button"
-                          disabled={loading}
-                          onClick={() => claimOne(order)}
-                          title="Übernehmen"
-                        >
-                          ＋
-                        </button>
+                          <button
+                            className="rounded-xl border border-amber-300/45 bg-gradient-to-b from-amber-300 to-orange-500 px-4 py-2 text-sm font-extrabold text-black shadow-[0_0_18px_rgba(251,146,60,.18)] transition hover:from-amber-200 hover:to-orange-400 disabled:opacity-50"
+                            type="button"
+                            disabled={loading}
+                            onClick={() => claimOne(order)}
+                            title="Übernehmen"
+                          >
+                            ＋ Übernehmen
+                          </button>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </>
             )
           ) : mine.length === 0 ? (
