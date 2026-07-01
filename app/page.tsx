@@ -593,25 +593,25 @@ export default function HomePage() {
   };
 
   return (
-    <main className="relative flex min-h-svh items-center justify-center overflow-hidden bg-black">
+    <main id="bb-landing-page" className="relative flex min-h-svh items-center justify-center overflow-hidden bg-black">
       {/* 🔥 Arka plan videosu — autoplay düşerse “Arka planı başlat” butonu çıkar */}
       <VideoBG
         src="/flames/flame-loop.mp4"
         poster="/flames/poster.jpg"
         lighten={0.35}
-        shiftY="-10%"
+        shiftY="-6%"
       />
 
       {/* Üstten hafif koyulaştırma: logonun okunaklı kalması için */}
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/45 via-black/20 to-transparent" />
 
       {/* Altta amber glow: canlılık + alttaki siyah bantı öldürür */}
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-amber-400/18 to-transparent mix-blend-screen" />
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-44 bg-gradient-to-t from-black/55 via-amber-400/14 to-transparent mix-blend-screen sm:h-40" />
 
       {/* Logo + Lokasyon + CTA */}
       <div
-        className="relative z-10 mx-auto flex max-w-screen-md flex-col items-center gap-4 p-6 text-center"
-        style={{ transform: "translateY(-6vh)" }}
+        className="relative z-10 mx-auto flex max-w-screen-md flex-col items-center gap-3 p-5 text-center sm:gap-4 sm:p-6"
+        style={{ transform: "translateY(-9vh)" }}
       >
         <Image
           src={siteConfig.brand.logoPath}
@@ -619,7 +619,7 @@ export default function HomePage() {
           width={560}
           height={560}
           priority
-          className="h-auto w-[56vh] max-w-[72vw] select-none drop-shadow-[0_8px_24px_rgba(0,0,0,0.6)]"
+          className="h-auto w-[44vh] max-w-[68vw] select-none drop-shadow-[0_8px_24px_rgba(0,0,0,0.6)] sm:w-[52vh] sm:max-w-[72vw]"
           draggable={false}
         />
 

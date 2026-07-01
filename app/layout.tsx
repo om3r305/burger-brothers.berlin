@@ -172,6 +172,28 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           }}
         />
 
+        {/* Ana giriş sayfasında mobil alt boşluğu kapatır, diğer sayfalarda korur */}
+        <style
+          id="bb-mobile-footer-gap-style"
+          dangerouslySetInnerHTML={{
+            __html: `
+.bb-mobile-footer-gap {
+  height: calc(env(safe-area-inset-bottom) + 96px);
+}
+
+@media (min-width: 640px) {
+  .bb-mobile-footer-gap {
+    display: none;
+  }
+}
+
+body:has(#bb-landing-page) .bb-mobile-footer-gap {
+  display: none;
+}
+`,
+          }}
+        />
+
         {/* Öffentliche Besucher-Statistik für Admin > Statistiken */}
         <AnalyticsPing />
 
@@ -186,8 +208,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           Büyük kampanya pop-up sadece app/page.tsx ana giriş sayfasında çalışır.
         */}
 
-        {/* Alt CTA boşluğu (yalnız mobil) */}
-        <div aria-hidden className="h-[calc(env(safe-area-inset-bottom)+96px)] sm:hidden" />
+        {/* Alt CTA boşluğu (mobilde menü/checkout için, ana giriş sayfasında CSS ile kapanır) */}
+        <div aria-hidden className="bb-mobile-footer-gap" />
 
         <Footer />
 
