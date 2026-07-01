@@ -112,10 +112,112 @@ function sanitizePhone(phone?: string) {
   return String(phone || "").replace(/[^+\d]/g, "");
 }
 
-function mapsQuery(address: string) {
+function mapsDirectionWebUrl(address: string) {
   return address
-    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`
+    ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}&travelmode=driving`
     : "https://www.google.com/maps";
+}
+
+function appleMapsUrl(address: string) {
+  return address
+    ? `https://maps.apple.com/?daddr=${encodeURIComponent(address)}&dirflg=d`
+    : "https://maps.apple.com/";
+}
+
+function androidGeoUrl(address: string) {
+  return address
+    ? `geo:0,0?q=${encodeURIComponent(address)}`
+    : "geo:0,0";
+}
+
+function googleNavigationUrl(address: string) {
+  return address
+    ? `google.navigation:q=${encodeURIComponent(address)}&mode=d`
+    : "google.navigation:q=";
+}
+
+function isIOSDevice() {
+  if (typeof navigator === "undefined") return false;
+
+  const ua = navigator.userAgent || "";
+  const platform = navigator.platform || "";
+
+  return (
+    /iPad|iPhone|iPod/i.test(ua) ||
+    (platform === "MacIntel" && Number((navigator as any).maxTouchPoints || 0) > 1)
+  );
+}
+
+function isAndroidDevice() {
+  if (typeof navigator === "undefined") return false;
+  return /Android/i.test(navigator.userAgent || "");
+}
+
+function isStandalonePwa() {
+  if (typeof window === "undefined") return false;
+
+  return (
+    window.matchMedia?.("(display-mode: standalone)")?.matches ||
+    window.matchMedia?.("(display-mode: fullscreen)")?.matches ||
+    Boolean((navigator as any).standalone)
+  );
+}
+
+function openExternalMap(address: string) {
+  const cleanAddress = String(address || "").trim();
+
+  if (!cleanAddress) {
+    alert("Keine Adresse gefunden.");
+    return;
+  }
+
+  /*
+    Wichtig für iPhone/Android Home-Screen-App:
+    Nicht window.open(..., "_blank") benutzen.
+    In iOS-PWA öffnet das manchmal eine leere Browser-Ansicht, aus der man erst mit X zurückkommt.
+    Deshalb auf Smartphones im gleichen Klick direkt in die jeweilige Maps-App / System-Maps wechseln.
+  */
+  if (isIOSDevice()) {
+    window.location.href = appleMapsUrl(cleanAddress);
+    return;
+  }
+
+  if (isAndroidDevice()) {
+    const fallback = mapsDirectionWebUrl(cleanAddress);
+
+    try {
+      window.location.href = googleNavigationUrl(cleanAddress);
+
+      window.setTimeout(() => {
+        if (document.visibilityState === "visible") {
+          window.location.href = androidGeoUrl(cleanAddress);
+        }
+      }, 700);
+
+      window.setTimeout(() => {
+        if (document.visibilityState === "visible") {
+          window.location.href = fallback;
+        }
+      }, 1500);
+    } catch {
+      window.location.href = fallback;
+    }
+
+    return;
+  }
+
+  const webUrl = mapsDirectionWebUrl(cleanAddress);
+
+  if (isStandalonePwa()) {
+    window.location.href = webUrl;
+    return;
+  }
+
+  const opened = window.open(webUrl, "_blank", "noopener,noreferrer");
+
+  if (!opened) {
+    window.location.href = webUrl;
+  }
 }
 
 function cleanObj(value: any): Record<string, any> {
@@ -431,14 +533,29 @@ function normalizeOrdersPayload(data: any): ApiOrderList {
   return list
     .map((raw: any): StoredOrder | null => {
       try {
-        const source =
-          raw?.order && typeof raw.order === "object"
+        /*
+          Önemli:
+          /api/orders/list response'unda top-level raw içinde id/status/mode var,
+          raw.order ise bazen sadece payload (items/customer/meta) oluyor ve id içermeyebiliyor.
+          Bu yüzden nested order/item/data sadece id veya orderId taşıyorsa ana kaynak yapılır.
+          Aksi halde top-level raw korunur ki driver ekranında sipariş düşmeme problemi olmasın.
+        */
+        const nestedOrder =
+          raw?.order && typeof raw.order === "object" && (raw.order.id || raw.order.orderId)
             ? raw.order
-            : raw?.item && typeof raw.item === "object"
-              ? raw.item
-              : raw?.data && typeof raw.data === "object"
-                ? raw.data
-                : raw;
+            : null;
+
+        const nestedItem =
+          raw?.item && typeof raw.item === "object" && (raw.item.id || raw.item.orderId)
+            ? raw.item
+            : null;
+
+        const nestedData =
+          raw?.data && typeof raw.data === "object" && (raw.data.id || raw.data.orderId)
+            ? raw.data
+            : null;
+
+        const source = nestedOrder || nestedItem || nestedData || raw;
 
         const meta = cleanObj(source?.meta);
         const customer = cleanObj(source?.customer);
@@ -524,6 +641,7 @@ function normalizeOrdersPayload(data: any): ApiOrderList {
 
 async function fetchDriverOrdersFromDb(signal?: AbortSignal): Promise<ApiOrderList> {
   const endpoints = [
+    `/api/orders/list?view=driver&includeDone=1&take=500&t=${Date.now()}`,
     `/api/orders/list?includeDone=1&take=500&t=${Date.now()}`,
     `/api/orders?includeDone=1&take=500&t=${Date.now()}`,
   ];
@@ -591,17 +709,18 @@ function clearPosKey(id: string | number) {
 
 function orderDriver(order: StoredOrder): any {
   const meta = cleanObj((order as any).meta);
+  const direct = cleanObj((order as any).driver);
+  const metaDriver = cleanObj(meta?.driver);
 
-  return (
-    (order as any).driver ||
-    meta?.driver ||
-    (meta?.driverId || meta?.driverName
-      ? {
-          id: meta?.driverId,
-          name: meta?.driverName,
-        }
-      : null)
-  );
+  if (direct?.id || direct?.name) return direct;
+  if (metaDriver?.id || metaDriver?.name) return metaDriver;
+
+  return meta?.driverId || meta?.driverName
+    ? {
+        id: meta?.driverId,
+        name: meta?.driverName,
+      }
+    : null;
 }
 
 function isDriverOrder(order: StoredOrder, current: Driver | null) {
@@ -1295,7 +1414,7 @@ export default function DriverPage() {
 
   function openMaps(order: StoredOrder) {
     const address = prettyDeliveryLine(order) || order.customer?.address || "";
-    window.open(mapsQuery(address), "_blank");
+    openExternalMap(address);
   }
 
   async function manualRefresh() {
@@ -1643,7 +1762,7 @@ export default function DriverPage() {
 
         {!liveTrackingActive && (
           <div className="rounded-2xl border border-sky-400/25 bg-sky-500/10 p-3 text-xs leading-relaxed text-sky-100">
-            Konum takibi sadece bir teslimatı üstlendiğinde açılır. Bu yüzden boş ekranda gereksiz konum uyarısı çıkmaz.
+            Standort wird nur bei einer übernommenen Lieferung aktiviert. Keine unnötige Abfrage ohne aktive Lieferung.
           </div>
         )}
 
