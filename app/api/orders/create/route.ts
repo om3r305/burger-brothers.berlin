@@ -36,6 +36,8 @@ const ORDER_SCHEMA_FIELDS = new Set([
   "history",
   "doneAt",
   "cancelledAt",
+  "archivedAt",
+  "anonymizedAt",
   "createdAt",
   "updatedAt",
 ]);
@@ -83,6 +85,20 @@ function normPhone(value: any) {
   return digits.length ? digits : null;
 }
 
+function normCouponCode(value: any) {
+  return String(value || "")
+    .replace(/[\s\u00A0\u2000-\u200B\u202F\u205F\u3000\uFEFF]/g, "")
+    .trim()
+    .toUpperCase();
+}
+
+function samePhone(left: any, right: any) {
+  const a = normPhone(left);
+  const b = normPhone(right);
+
+  return Boolean(a && b && a === b);
+}
+
 function toNum(value: any, fallback = 0) {
   if (typeof value === "number" && Number.isFinite(value)) return value;
 
@@ -97,6 +113,22 @@ function toNum(value: any, fallback = 0) {
   const number = match ? Number(match[0]) : Number(text);
 
   return Number.isFinite(number) ? number : fallback;
+}
+
+function toMs(value: any, fallback = 0) {
+  if (!value) return fallback;
+
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+
+  if (value instanceof Date && Number.isFinite(value.valueOf())) {
+    return value.getTime();
+  }
+
+  const asNumber = Number(value);
+  if (Number.isFinite(asNumber) && asNumber > 0) return asNumber;
+
+  const parsed = Date.parse(String(value));
+  return Number.isFinite(parsed) ? parsed : fallback;
 }
 
 function cleanText(value: any) {
@@ -185,6 +217,46 @@ function normalizeSource(value: any, mode?: OrderMode): OrderSource {
   if (text === "web" || text === "online" || text === "direct") return "web";
 
   return mode === "pickup" ? "apollo" : "web";
+}
+
+function normalizePaymentMethod(order: any) {
+  const meta = ensureObj(order?.meta);
+
+  const raw =
+    order?.paymentMethod ??
+    order?.payment?.method ??
+    meta?.paymentMethod ??
+    meta?.payment?.method ??
+    "";
+
+  const text = String(raw || "").toLowerCase().trim();
+
+  if (text === "cash" || text === "bar" || text === "barzahlung") return "cash";
+  if (text === "online" || text === "stripe" || text === "card" || text === "karte") return "online";
+  if (text === "contactless" || text === "kontaktlos" || text === "terminal") return "contactless";
+  if (text === "split" || text === "split_contactless" || text === "getrennt") return "split_contactless";
+
+  return text || null;
+}
+
+function normalizePaymentStatus(order: any) {
+  const meta = ensureObj(order?.meta);
+
+  const raw =
+    order?.paymentStatus ??
+    order?.payment?.status ??
+    meta?.paymentStatus ??
+    meta?.payment?.status ??
+    "";
+
+  const text = String(raw || "").toLowerCase().trim();
+
+  if (text === "paid" || text === "bezahlt") return "paid";
+  if (text === "failed" || text === "cancelled" || text === "canceled") return "failed";
+  if (text === "refunded") return "refunded";
+  if (text === "pending" || text === "offen") return "pending";
+
+  return text || "pending";
 }
 
 function normalizeCustomer(order: any) {
@@ -291,6 +363,91 @@ function normalizeHistory(value: any) {
   );
 }
 
+function normalizeLoadStatus(value: any) {
+  const text = String(value || "").toLowerCase().trim();
+
+  if (text === "received" || text === "eingegangen") return "new";
+
+  if (
+    text === "preparing" ||
+    text === "prepare" ||
+    text === "zubereitung" ||
+    text === "in_vorbereitung" ||
+    text === "in vorbereitung"
+  ) {
+    return "preparing";
+  }
+
+  if (text === "ready" || text === "bereit" || text === "abholbereit") return "ready";
+
+  if (text === "out_for_delivery" || text === "on_the_way" || text === "unterwegs") {
+    return "out_for_delivery";
+  }
+
+  if (text === "new") return "new";
+
+  return "";
+}
+
+function etaByDeliveryLoad(baseDelivery: number, load: number) {
+  const base = Math.max(1, Math.round(baseDelivery || 35));
+
+  if (load >= 9) return 60;
+  if (load >= 7) return Math.min(60, base + 20);
+  if (load >= 5) return Math.min(60, base + 15);
+  if (load >= 3) return Math.min(60, base + 10);
+
+  return Math.min(60, base);
+}
+
+async function computeDeliveryEtaMin(tenantId: string, baseDelivery: number) {
+  const where: Record<string, any> = {
+    tenantId,
+    mode: "delivery",
+    status: {
+      in: ["new", "preparing", "ready", "out_for_delivery"],
+    },
+  };
+
+  if (hasOrderField("archivedAt")) where.archivedAt = null;
+  if (hasOrderField("anonymizedAt")) where.anonymizedAt = null;
+
+  const rows = await prisma.order
+    .findMany({
+      where,
+      select: {
+        status: true,
+      },
+    })
+    .catch(() => []);
+
+  let kitchenLoad = 0;
+  let driverLoad = 0;
+
+  for (const row of rows) {
+    const status = normalizeLoadStatus((row as any)?.status);
+
+    if (status === "new" || status === "preparing") {
+      kitchenLoad += 1;
+      driverLoad += 0.75;
+    } else if (status === "ready") {
+      kitchenLoad += 0.5;
+      driverLoad += 2;
+    } else if (status === "out_for_delivery") {
+      driverLoad += 1.25;
+    }
+  }
+
+  /*
+    Yeni gelen sipariş de sıraya gireceği için hesaba dahil edilir.
+    Böylece 8 puanlık yoğunluğa gelen yeni Lieferung 9+ eşiğine girip 60 dk olabilir.
+  */
+  kitchenLoad += 1;
+  driverLoad += 0.75;
+
+  return etaByDeliveryLoad(baseDelivery, Math.max(kitchenLoad, driverLoad));
+}
+
 function buildOrderMeta(params: {
   order: any;
   source: OrderSource;
@@ -345,6 +502,9 @@ function buildOrderMeta(params: {
       }
     : null;
 
+  const paymentMethod = normalizePaymentMethod(order);
+  const paymentStatus = normalizePaymentStatus(order);
+
   return sanitizeJson({
     ...incomingMeta,
     source,
@@ -357,10 +517,220 @@ function buildOrderMeta(params: {
     couponDiscount,
     couponMeta,
     couponLifecycle,
+    paymentMethod,
+    paymentStatus,
+    paymentProvider:
+      order?.paymentProvider ??
+      order?.payment?.provider ??
+      incomingMeta?.paymentProvider ??
+      incomingMeta?.payment?.provider ??
+      null,
+    paymentId:
+      order?.paymentId ??
+      order?.paymentIntentId ??
+      order?.payment?.id ??
+      incomingMeta?.paymentId ??
+      incomingMeta?.paymentIntentId ??
+      incomingMeta?.payment?.id ??
+      null,
+    payment: {
+      ...(incomingMeta?.payment && typeof incomingMeta.payment === "object" ? incomingMeta.payment : {}),
+      method: paymentMethod,
+      status: paymentStatus,
+      provider:
+        order?.paymentProvider ??
+        order?.payment?.provider ??
+        incomingMeta?.paymentProvider ??
+        incomingMeta?.payment?.provider ??
+        null,
+      id:
+        order?.paymentId ??
+        order?.paymentIntentId ??
+        order?.payment?.id ??
+        incomingMeta?.paymentId ??
+        incomingMeta?.paymentIntentId ??
+        incomingMeta?.payment?.id ??
+        null,
+    },
     history,
     createdBy: source,
     createdAtMs: nowMs,
   });
+}
+
+function createCouponError(code: string, status = 409) {
+  const error = new Error(code) as Error & {
+    status?: number;
+    couponError?: boolean;
+    code?: string;
+  };
+
+  error.status = status;
+  error.couponError = true;
+  error.code = code;
+
+  return error;
+}
+
+function validateIssuedCouponForOrder(params: {
+  issued: any;
+  customerPhone: any;
+  nowMs: number;
+}) {
+  const { issued, customerPhone, nowMs } = params;
+
+  if (!issued) return;
+
+  if (issued.used === true) {
+    throw createCouponError("coupon_already_used");
+  }
+
+  if (issued.note === "cancelled") {
+    throw createCouponError("coupon_cancelled");
+  }
+
+  const issuedAtMs = toMs(issued.issuedAt, 0);
+
+  if (issued.note === "scheduled" && issuedAtMs > nowMs) {
+    throw createCouponError("coupon_not_available_yet");
+  }
+
+  const expiresAtMs = toMs(issued.expiresAt, 0);
+
+  if (expiresAtMs && expiresAtMs < nowMs) {
+    throw createCouponError("coupon_expired");
+  }
+
+  if (issued.assignedToPhone) {
+    const phone = normPhone(customerPhone);
+
+    if (!phone) {
+      throw createCouponError("coupon_phone_required");
+    }
+
+    if (!samePhone(issued.assignedToPhone, phone)) {
+      throw createCouponError("coupon_assigned_to_other_phone");
+    }
+  }
+}
+
+function markCouponRedeemedInMeta(params: {
+  meta: any;
+  issued: any;
+  coupon: string;
+  couponDiscount: number;
+  orderId: string;
+  nowMs: number;
+}) {
+  const { meta, issued, coupon, couponDiscount, orderId, nowMs } = params;
+
+  const currentMeta = ensureObj(meta);
+  const couponMeta = ensureObj(currentMeta?.couponMeta);
+  const couponLifecycle = ensureObj(currentMeta?.couponLifecycle);
+
+  return sanitizeJson({
+    ...currentMeta,
+    couponMeta: {
+      ...couponMeta,
+      issuedId: issued?.id ?? couponMeta?.issuedId ?? null,
+      couponId: issued?.couponId ?? couponMeta?.couponId ?? null,
+      code: coupon,
+      redeemedAt: nowMs,
+      redeemedOrderId: orderId,
+    },
+    couponLifecycle: {
+      ...couponLifecycle,
+      code: coupon,
+      issuedId: issued?.id ?? couponLifecycle?.issuedId ?? null,
+      couponId: issued?.couponId ?? couponLifecycle?.couponId ?? null,
+      state: "redeemed",
+      reservedAt: couponLifecycle?.reservedAt ?? nowMs,
+      reservedBy: couponLifecycle?.reservedBy ?? "checkout",
+      redeemedAt: nowMs,
+      redeemedOrderId: orderId,
+      couponDiscount,
+    },
+  });
+}
+
+async function redeemIssuedCouponIfNeeded(params: {
+  tx: any;
+  tenantId: string;
+  coupon: string | null;
+  customerPhone: any;
+  orderId: string;
+  couponDiscount: number;
+  nowMs: number;
+}) {
+  const { tx, tenantId, coupon, customerPhone, orderId, couponDiscount, nowMs } = params;
+  const code = normCouponCode(coupon);
+
+  if (!code) return null;
+
+  const issued = await tx.issuedCoupon
+    .findFirst({
+      where: {
+        tenantId,
+        code,
+      },
+      orderBy: {
+        issuedAt: "desc",
+      },
+    })
+    .catch(() => null);
+
+  if (!issued) {
+    return null;
+  }
+
+  validateIssuedCouponForOrder({
+    issued,
+    customerPhone,
+    nowMs,
+  });
+
+  const updated = await tx.issuedCoupon.updateMany({
+    where: {
+      id: issued.id,
+      tenantId,
+      used: false,
+    },
+    data: {
+      used: true,
+      usedAt: new Date(nowMs),
+    },
+  });
+
+  if (!updated?.count) {
+    throw createCouponError("coupon_already_used");
+  }
+
+  return {
+    ...issued,
+    used: true,
+    usedAt: new Date(nowMs),
+    redeemedOrderId: orderId,
+    couponDiscount,
+  };
+}
+
+function mapCouponErrorMessage(code: string) {
+  switch (code) {
+    case "coupon_already_used":
+      return "Dieser Gutschein wurde bereits verwendet.";
+    case "coupon_cancelled":
+      return "Dieser Gutschein wurde storniert.";
+    case "coupon_not_available_yet":
+      return "Dieser Gutschein ist noch nicht freigeschaltet.";
+    case "coupon_expired":
+      return "Dieser Gutschein ist abgelaufen.";
+    case "coupon_phone_required":
+      return "Für diesen Gutschein ist eine Telefonnummer erforderlich.";
+    case "coupon_assigned_to_other_phone":
+      return "Dieser Gutschein gehört zu einer anderen Telefonnummer.";
+    default:
+      return "Gutschein kann nicht verwendet werden.";
+  }
 }
 
 async function generateUniqueOrderId(length: number) {
@@ -466,6 +836,13 @@ function serializeOrder(row: any) {
     planned: row?.planned,
     etaMin: row?.etaMin,
     etaAdjustMin: row?.etaAdjustMin ?? 0,
+    driver: row?.driver,
+    history: row?.history,
+    print: row?.print,
+    doneAt: row?.doneAt,
+    cancelledAt: row?.cancelledAt,
+    archivedAt: row?.archivedAt,
+    anonymizedAt: row?.anonymizedAt,
     createdAt: row?.createdAt,
     updatedAt: row?.updatedAt,
   });
@@ -488,7 +865,10 @@ export async function POST(req: Request) {
     const avgDelivery = Math.max(1, Number(settings?.hours?.avgDeliveryMinutes ?? 35) || 35);
 
     const mode = normalizeMode(order?.mode);
-    const etaMin = mode === "pickup" ? avgPickup : avgDelivery;
+    const etaMin =
+      mode === "pickup"
+        ? avgPickup
+        : await computeDeliveryEtaMin(tenantId, avgDelivery);
 
     const source = normalizeSource(order?.source ?? order?.channel, mode);
     const nowMs = Date.now();
@@ -501,7 +881,7 @@ export async function POST(req: Request) {
     const discount = toNum(order?.discount, 0);
     const surcharges = toNum(order?.surcharges, 0);
 
-    const coupon = order?.coupon ? cleanText(order.coupon).toUpperCase() : null;
+    const coupon = order?.coupon ? normCouponCode(order.coupon) : null;
     const couponDiscount = toNum(order?.couponDiscount, 0);
 
     const total = toNum(
@@ -509,7 +889,7 @@ export async function POST(req: Request) {
       Math.max(0, merchandise + surcharges - discount - couponDiscount),
     );
 
-    const meta = buildOrderMeta({
+    const baseMeta = buildOrderMeta({
       order,
       source,
       nowMs,
@@ -532,7 +912,7 @@ export async function POST(req: Request) {
       couponDiscount,
       customer,
       items,
-      meta,
+      meta: baseMeta,
       ts: new Date(nowMs),
       planned: order?.planned ?? null,
       etaMin,
@@ -543,19 +923,51 @@ export async function POST(req: Request) {
     }
 
     if (hasOrderField("history")) {
-      data.history = sanitizeJson(meta?.history ?? []);
+      data.history = sanitizeJson(baseMeta?.history ?? []);
     }
 
     if (hasOrderField("driver")) {
-      data.driver = sanitizeJson(order?.driver ?? meta?.driver ?? null);
+      data.driver = sanitizeJson(order?.driver ?? baseMeta?.driver ?? null);
     }
 
     if (hasOrderField("print")) {
-      data.print = sanitizeJson(order?.print ?? meta?.print ?? null);
+      data.print = sanitizeJson(order?.print ?? baseMeta?.print ?? null);
     }
 
-    const created = await prisma.order.create({
-      data: data as any,
+    const created = await prisma.$transaction(async (tx) => {
+      const redeemedIssued = await redeemIssuedCouponIfNeeded({
+        tx,
+        tenantId,
+        coupon,
+        customerPhone: customer?.phone,
+        orderId: id,
+        couponDiscount,
+        nowMs,
+      });
+
+      const finalMeta = redeemedIssued
+        ? markCouponRedeemedInMeta({
+            meta: baseMeta,
+            issued: redeemedIssued,
+            coupon: coupon || "",
+            couponDiscount,
+            orderId: id,
+            nowMs,
+          })
+        : baseMeta;
+
+      const finalData: Record<string, any> = {
+        ...data,
+        meta: finalMeta,
+      };
+
+      if (hasOrderField("history")) {
+        finalData.history = sanitizeJson(ensureObj(finalMeta)?.history ?? []);
+      }
+
+      return tx.order.create({
+        data: finalData as any,
+      });
     });
 
     await upsertCustomerFromOrder(tenantId, order, total);
@@ -589,7 +1001,7 @@ export async function POST(req: Request) {
             phone: customer?.phone,
             address: customer?.addressLine || customer?.address,
             plz: customer?.plz || customer?.zip,
-            note: customer?.deliveryHint || customer?.note || meta?.note,
+            note: customer?.deliveryHint || customer?.note || baseMeta?.note,
           },
           planned: order?.planned,
         } as any);
@@ -623,14 +1035,20 @@ export async function POST(req: Request) {
   } catch (error: any) {
     console.error("❌ create order error", error);
 
+    const errorCode = error?.code || error?.message || "bad_request";
+    const isCouponError = Boolean(error?.couponError);
+    const status = Number(error?.status || (isCouponError ? 409 : 400));
+
     return NextResponse.json(
       {
         ok: false,
         source: "db",
-        error: error?.message || "bad_request",
+        error: errorCode,
+        message: isCouponError ? mapCouponErrorMessage(errorCode) : errorCode,
+        couponError: isCouponError,
       },
       {
-        status: 400,
+        status,
         headers: {
           "Cache-Control": "no-store, no-cache, must-revalidate",
         },
