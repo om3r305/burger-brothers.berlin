@@ -27,6 +27,10 @@ const DRIVER_LAST_REFRESH_KEY = "bb_driver_last_refresh_v1";
 const SALT = "bb$kurier!2025";
 const ACTIVE_UNKNOWN_GRACE_MS = 6 * 60 * 60 * 1000;
 const REFRESH_MS = 6500;
+const PULL_REFRESH_TRIGGER_PX = 72;
+const PULL_REFRESH_MAX_PX = 96;
+const COMPLETE_TOAST_MS = 4500;
+const NOTE_PREVIEW_MAX = 120;
 
 function enc(s: string) {
   try {
@@ -981,6 +985,33 @@ function orderDisplayTotal(order: StoredOrder) {
   return orderItemsTotal(order);
 }
 
+function shortText(value: string, max = NOTE_PREVIEW_MAX) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+
+  if (text.length <= max) return text;
+
+  return `${text.slice(0, max).trim()}…`;
+}
+
+function actionButtonClass(kind: "ghost" | "map" | "finish" | "danger" = "ghost") {
+  const base =
+    "rounded-xl px-3 py-2 text-sm font-semibold transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50";
+
+  if (kind === "finish") {
+    return `${base} border border-emerald-300/50 bg-emerald-400 text-black shadow-[0_0_18px_rgba(52,211,153,.22)] hover:bg-emerald-300`;
+  }
+
+  if (kind === "map") {
+    return `${base} border border-sky-300/40 bg-sky-400/15 text-sky-100 hover:bg-sky-400/25`;
+  }
+
+  if (kind === "danger") {
+    return `${base} border border-rose-300/35 bg-rose-500/10 text-rose-100 hover:bg-rose-500/20`;
+  }
+
+  return `${base} border border-white/15 bg-white/[0.06] text-stone-100 hover:bg-white/12`;
+}
+
 export default function DriverPage() {
   useEffect(() => {
     const footer = document.querySelector("footer") as HTMLElement | null;
@@ -1003,7 +1034,8 @@ export default function DriverPage() {
   const [orders, setOrders] = useState<StoredOrder[]>([]);
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [openMap, setOpenMap] = useState<Record<string, boolean>>({});
-  const [completedInfo, setCompletedInfo] = useState<{
+  const [noteExpanded, setNoteExpanded] = useState<Record<string, boolean>>({});
+  const [completeToast, setCompleteToast] = useState<{
     id: string;
     tip: number;
     total: number;
@@ -1011,6 +1043,8 @@ export default function DriverPage() {
   const [lastRefreshAt, setLastRefreshAt] = useState<number | null>(null);
   const [refreshError, setRefreshError] = useState("");
   const [manualRefreshing, setManualRefreshing] = useState(false);
+  const [pullDistance, setPullDistance] = useState(0);
+  const [pullRefreshing, setPullRefreshing] = useState(false);
 
   const settings = readSettings() as any;
   const tz = appTZ(settings);
@@ -1020,12 +1054,23 @@ export default function DriverPage() {
   const refreshAbortRef = useRef<AbortController | null>(null);
   const refreshRunningRef = useRef(false);
   const latestOrdersRef = useRef<StoredOrder[]>([]);
+  const pullStartYRef = useRef<number | null>(null);
+  const pullActiveRef = useRef(false);
+  const completeToastTimerRef = useRef<number | null>(null);
 
   const [, setTick] = useState(0);
 
   useEffect(() => {
     const id = window.setInterval(() => setTick((value) => value + 1), 30_000);
     return () => window.clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (completeToastTimerRef.current != null) {
+        window.clearTimeout(completeToastTimerRef.current);
+      }
+    };
   }, []);
 
   const refresh = useCallback(
@@ -1334,6 +1379,19 @@ export default function DriverPage() {
     }
   }
 
+  function showCompleteToast(info: { id: string; tip: number; total: number }) {
+    setCompleteToast(info);
+
+    if (completeToastTimerRef.current != null) {
+      window.clearTimeout(completeToastTimerRef.current);
+    }
+
+    completeToastTimerRef.current = window.setTimeout(() => {
+      setCompleteToast(null);
+      completeToastTimerRef.current = null;
+    }, COMPLETE_TOAST_MS);
+  }
+
   async function releaseOne(order: StoredOrder) {
     if (!current) return;
 
@@ -1384,7 +1442,7 @@ export default function DriverPage() {
       setOrders((prev) =>
         prev.map((item) => (String(item.id) === String(order.id) ? updated : item)),
       );
-      setCompletedInfo({
+      showCompleteToast({
         id: String(order.id),
         tip,
         total,
@@ -1424,6 +1482,64 @@ export default function DriverPage() {
       await refresh(true);
     } finally {
       setManualRefreshing(false);
+    }
+  }
+
+  async function pullRefresh() {
+    if (pullRefreshing || manualRefreshing) return;
+
+    setPullRefreshing(true);
+
+    try {
+      await refresh(true);
+    } finally {
+      setPullRefreshing(false);
+      setPullDistance(0);
+      pullStartYRef.current = null;
+      pullActiveRef.current = false;
+    }
+  }
+
+  function onPullStart(event: React.TouchEvent<HTMLElement>) {
+    if (window.scrollY > 0 || loading || pullRefreshing || manualRefreshing) return;
+
+    pullStartYRef.current = event.touches[0]?.clientY ?? null;
+    pullActiveRef.current = true;
+  }
+
+  function onPullMove(event: React.TouchEvent<HTMLElement>) {
+    if (!pullActiveRef.current || pullStartYRef.current == null) return;
+
+    if (window.scrollY > 0) {
+      setPullDistance(0);
+      pullActiveRef.current = false;
+      pullStartYRef.current = null;
+      return;
+    }
+
+    const currentY = event.touches[0]?.clientY ?? 0;
+    const diff = currentY - pullStartYRef.current;
+
+    if (diff <= 0) {
+      setPullDistance(0);
+      return;
+    }
+
+    setPullDistance(Math.min(PULL_REFRESH_MAX_PX, Math.round(diff * 0.55)));
+  }
+
+  function onPullEnd() {
+    if (!pullActiveRef.current) return;
+
+    const shouldRefresh = pullDistance >= PULL_REFRESH_TRIGGER_PX;
+
+    pullActiveRef.current = false;
+    pullStartYRef.current = null;
+
+    if (shouldRefresh) {
+      void pullRefresh();
+    } else {
+      setPullDistance(0);
     }
   }
 
@@ -1468,9 +1584,12 @@ export default function DriverPage() {
 
   function OrderWithDetails({ order }: { order: StoredOrder }) {
     const open = !!openMap[String(order.id)];
+    const noteOpen = !!noteExpanded[String(order.id)];
     const items = Array.isArray(order.items) ? order.items : [];
     const sum = orderItemsTotal(order);
     const noteText = orderNote(order);
+    const notePreview = shortText(noteText);
+    const noteLong = noteText.trim().length > NOTE_PREVIEW_MAX;
 
     return (
       <div className={`rounded-2xl p-4 ${glass}`}>
@@ -1491,6 +1610,32 @@ export default function DriverPage() {
               {prettyDeliveryLine(order)}
             </div>
 
+            {noteText && (
+              <div className="mt-3 rounded-xl border border-amber-300/35 bg-amber-400/10 p-3 text-sm text-amber-50">
+                <div className="mb-1 text-xs font-bold uppercase tracking-wide text-amber-200">
+                  Lieferhinweis
+                </div>
+                <div className="whitespace-pre-wrap leading-relaxed">
+                  {noteOpen ? noteText : notePreview}
+                </div>
+
+                {noteLong && (
+                  <button
+                    type="button"
+                    className="mt-2 text-xs font-semibold text-amber-200 underline underline-offset-4"
+                    onClick={() =>
+                      setNoteExpanded((state) => ({
+                        ...state,
+                        [String(order.id)]: !noteOpen,
+                      }))
+                    }
+                  >
+                    {noteOpen ? "Weniger anzeigen" : "Mehr anzeigen"}
+                  </button>
+                )}
+              </div>
+            )}
+
             <TimeBadge order={order} />
 
             <button
@@ -1508,13 +1653,6 @@ export default function DriverPage() {
 
             {open && (
               <div className="mt-3 space-y-3">
-                {noteText && (
-                  <div className="rounded-xl border border-amber-400/30 bg-amber-500/10 p-3 text-sm">
-                    <div className="font-semibold text-amber-100">Lieferhinweis</div>
-                    <div className="mt-1 whitespace-pre-wrap text-stone-100">{noteText}</div>
-                  </div>
-                )}
-
                 <div className="overflow-hidden rounded-xl border border-white/10">
                   <table className="w-full text-sm">
                     <thead className="bg-white/5">
@@ -1585,37 +1723,37 @@ export default function DriverPage() {
 
           <div className="grid shrink-0 grid-cols-2 gap-2 lg:min-w-[220px]">
             <button
-              className="rounded-xl border border-white/20 px-3 py-2 text-sm hover:bg-white/10"
+              className={actionButtonClass("ghost")}
               type="button"
               onClick={() => callCustomer(order.customer?.phone)}
             >
-              Anrufen
+              📞 Anrufen
             </button>
 
             <button
-              className="rounded-xl border border-white/20 px-3 py-2 text-sm hover:bg-white/10"
+              className={actionButtonClass("map")}
               type="button"
               onClick={() => openMaps(order)}
             >
-              Karte
+              🗺️ Karte
             </button>
 
             <button
-              className="rounded-xl bg-emerald-400 px-3 py-2 text-sm font-bold text-black hover:bg-emerald-300 disabled:opacity-50"
+              className={actionButtonClass("finish")}
               type="button"
               disabled={loading}
               onClick={() => finishOne(order)}
             >
-              Fertig
+              ✅ Fertig
             </button>
 
             <button
-              className="rounded-xl border border-white/20 px-3 py-2 text-sm hover:bg-white/10 disabled:opacity-50"
+              className={actionButtonClass("danger")}
               type="button"
               disabled={loading}
               onClick={() => releaseOne(order)}
             >
-              Zurückgeben
+              ↩ Zurück
             </button>
           </div>
         </div>
@@ -1696,9 +1834,52 @@ export default function DriverPage() {
     );
   }
 
+  const pullReady = pullDistance >= PULL_REFRESH_TRIGGER_PX;
+  const pullVisible = pullDistance > 8 || pullRefreshing;
+
   return (
-    <main className="min-h-screen text-stone-100 antialiased">
+    <main
+      className="min-h-screen text-stone-100 antialiased"
+      onTouchStart={onPullStart}
+      onTouchMove={onPullMove}
+      onTouchEnd={onPullEnd}
+      onTouchCancel={onPullEnd}
+    >
       {liveTrackingActive ? <DriverLiveTracker /> : null}
+
+      <div
+        className={`fixed left-1/2 top-3 z-50 -translate-x-1/2 rounded-full border px-4 py-2 text-xs font-semibold shadow-xl transition-all ${
+          pullVisible ? "translate-y-0 opacity-100" : "-translate-y-6 opacity-0"
+        } ${
+          pullRefreshing || pullReady
+            ? "border-emerald-300/50 bg-emerald-500/90 text-black"
+            : "border-white/15 bg-stone-900/90 text-stone-100"
+        }`}
+        style={{
+          transform: `translate(-50%, ${Math.max(0, Math.min(24, pullDistance / 4))}px)`,
+        }}
+      >
+        {pullRefreshing
+          ? "Aktualisiere…"
+          : pullReady
+            ? "Loslassen zum Aktualisieren"
+            : "Zum Aktualisieren nach unten ziehen"}
+      </div>
+
+      {completeToast && (
+        <div className="fixed left-3 right-3 top-4 z-50 mx-auto max-w-md rounded-2xl border border-emerald-300/45 bg-emerald-500/95 px-4 py-3 text-sm text-black shadow-2xl">
+          <div className="font-extrabold">Lieferung abgeschlossen ✅</div>
+          <div className="mt-0.5">
+            #{completeToast.id} · Trinkgeld: <b>{completeToast.tip.toFixed(2)}€</b>
+            {completeToast.total > 0 ? (
+              <>
+                <span className="mx-1">·</span>
+                Gesamt: <b>{completeToast.total.toFixed(2)}€</b>
+              </>
+            ) : null}
+          </div>
+        </div>
+      )}
 
       <div className="pointer-events-none fixed inset-0 -z-10">
         <div className="absolute inset-0 bg-[radial-gradient(1200px_700px_at_10%_-10%,rgba(59,130,246,.18),transparent),radial-gradient(1000px_600px_at_90%_0%,rgba(16,185,129,.14),transparent),linear-gradient(180deg,#0b0f14_0%,#0f1318_50%,#0a0d11_100%)]" />
@@ -1789,37 +1970,6 @@ export default function DriverPage() {
             </button>
           </div>
         </div>
-
-        {completedInfo && (
-          <div className={`rounded-2xl border border-emerald-400/40 bg-emerald-500/10 p-4 ${glass}`}>
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="font-semibold text-emerald-100">Lieferung abgeschlossen ✅</div>
-                <div className="mt-1 text-sm text-stone-200">
-                  Bestellung <b>#{completedInfo.id}</b> wurde als fertig markiert.
-                </div>
-                <div className="mt-2 text-sm">
-                  Trinkgeld:{" "}
-                  <b>{completedInfo.tip > 0 ? `${completedInfo.tip.toFixed(2)}€` : "Kein Trinkgeld"}</b>
-                  {completedInfo.total > 0 ? (
-                    <>
-                      <span className="mx-2 text-stone-500">•</span>
-                      Gesamt: <b>{completedInfo.total.toFixed(2)}€</b>
-                    </>
-                  ) : null}
-                </div>
-              </div>
-
-              <button
-                type="button"
-                className="rounded-xl border border-white/20 px-3 py-1 text-sm hover:bg-white/10"
-                onClick={() => setCompletedInfo(null)}
-              >
-                Schließen
-              </button>
-            </div>
-          </div>
-        )}
 
         <section className="space-y-3">
           {tab === "new" ? (
