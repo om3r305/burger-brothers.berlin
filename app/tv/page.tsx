@@ -27,6 +27,7 @@ type OrderStatus =
   | "cancelled";
 
 type OrderMode = "pickup" | "delivery";
+type TvSoundKind = "delivery" | "pickup";
 
 type StoredOrderItem = {
   id?: string;
@@ -109,6 +110,27 @@ const TV_CLOCK_KEY = "bb_tv_order_clock_v4";
 const TV_FIRST_SEEN_KEY = "bb_tv_order_first_seen_v1";
 const UNKNOWN_ORDER_GRACE_MS = 6 * 60 * 60 * 1000;
 const DONE_LOCK_AFTER_MS = 3 * 60 * 1000;
+
+const TV_SOUND_ENABLED_KEY = "bb_tv_sound_enabled_v1";
+const TV_SOUND_VOLUME_KEY = "bb_tv_sound_volume_v1";
+const TV_SOUND_SOURCES: Record<TvSoundKind, string[]> = {
+  delivery: [
+    "/sounds/delivery.mp3",
+    "/sounds/delivery.wav",
+    "/sounds/delivery.m4a",
+    "/sounds/delivery.ogg",
+    "/sounds/delivery.m3u",
+    "/sounds/delivery",
+  ],
+  pickup: [
+    "/sounds/pickup.mp3",
+    "/sounds/pickup.wav",
+    "/sounds/pickup.m4a",
+    "/sounds/pickup.ogg",
+    "/sounds/pickup.m3u",
+    "/sounds/pickup",
+  ],
+};
 
 /* ───────────────── UI classes ───────────────── */
 const glass =
@@ -523,6 +545,98 @@ function saveTvFirstSeenCache(cache: Record<string, TvFirstSeenEntry>) {
   try {
     localStorage.setItem(TV_FIRST_SEEN_KEY, JSON.stringify(cache));
   } catch {}
+}
+
+function readTvSoundEnabled() {
+  if (typeof window === "undefined") return false;
+
+  try {
+    return localStorage.getItem(TV_SOUND_ENABLED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function readTvSoundVolume() {
+  if (typeof window === "undefined") return 85;
+
+  try {
+    const raw = Number(localStorage.getItem(TV_SOUND_VOLUME_KEY) || "85");
+
+    if (!Number.isFinite(raw)) return 85;
+
+    return Math.max(0, Math.min(100, Math.round(raw)));
+  } catch {
+    return 85;
+  }
+}
+
+function saveTvSoundEnabled(enabled: boolean) {
+  if (typeof window === "undefined") return;
+
+  try {
+    localStorage.setItem(TV_SOUND_ENABLED_KEY, enabled ? "1" : "0");
+  } catch {}
+}
+
+function saveTvSoundVolume(volume: number) {
+  if (typeof window === "undefined") return;
+
+  try {
+    localStorage.setItem(TV_SOUND_VOLUME_KEY, String(Math.max(0, Math.min(100, Math.round(volume)))));
+  } catch {}
+}
+
+function isSoundCandidateOrder(order: StoredOrder) {
+  return order.status !== "done" && order.status !== "cancelled";
+}
+
+function getTvSoundKind(order: StoredOrder): TvSoundKind {
+  return order.mode === "pickup" ? "pickup" : "delivery";
+}
+
+function getTvSoundErrorMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error || "");
+
+  if (/notallowed|permission|interact|user gesture|gesture/i.test(message)) {
+    return "Ton blockiert: Bitte einmal auf „Ton freischalten“ klicken.";
+  }
+
+  return "Ton konnte nicht abgespielt werden. Bitte Datei und Lautstärke prüfen.";
+}
+
+function getTvSoundTitle(kind: TvSoundKind) {
+  return kind === "delivery" ? "Lieferung" : "Abholung";
+}
+
+function getOrderSoundId(order: StoredOrder) {
+  return String(order.id || order.orderId || "").trim();
+}
+
+function getOrderSoundStartMs(order: StoredOrder) {
+  return getOrderExactCreatedMs(order, null) ?? order.ts ?? 0;
+}
+
+function getOrderSoundKey(order: StoredOrder) {
+  const id = getOrderSoundId(order);
+  return id ? `${id}:${getTvSoundKind(order)}:${getOrderSoundStartMs(order)}` : "";
+}
+
+function getOrderSoundLabel(order: StoredOrder) {
+  const id = getOrderSoundId(order);
+  return id || "Bestellung";
+}
+
+function getSoundButtonLabel(enabled: boolean, unlocked: boolean) {
+  if (!enabled) return "🔇 Ton aus";
+  if (!unlocked) return "🔈 Ton freischalten";
+  return "🔊 Ton aktiv";
+}
+
+function getSoundButtonTitle(enabled: boolean, unlocked: boolean) {
+  if (!enabled) return "TV-Bestelltöne einschalten";
+  if (!unlocked) return "Browser-Tonsperre durch Klick öffnen";
+  return "TV-Bestelltöne ausschalten";
 }
 
 function getOrderDayMs(
@@ -1868,6 +1982,84 @@ async function silentPrint(order: StoredOrder) {
   }
 }
 
+function TvSoundControls({
+  enabled,
+  unlocked,
+  volume,
+  error,
+  onToggle,
+  onVolume,
+  onTestDelivery,
+  onTestPickup,
+}: {
+  enabled: boolean;
+  unlocked: boolean;
+  volume: number;
+  error: string;
+  onToggle: () => void | Promise<void>;
+  onVolume: (volume: number) => void;
+  onTestDelivery: () => void | Promise<void>;
+  onTestPickup: () => void | Promise<void>;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-2 py-1 text-xs">
+      <button
+        type="button"
+        onClick={onToggle}
+        className={`rounded-full border px-3 py-1 font-semibold transition ${
+          enabled
+            ? unlocked
+              ? "border-emerald-400/50 bg-emerald-500/15 text-emerald-100 hover:bg-emerald-500/25"
+              : "border-amber-400/50 bg-amber-500/15 text-amber-100 hover:bg-amber-500/25"
+            : "border-white/10 bg-white/5 text-stone-300 hover:bg-white/10"
+        }`}
+        title={getSoundButtonTitle(enabled, unlocked)}
+      >
+        {getSoundButtonLabel(enabled, unlocked)}
+      </button>
+
+      <label className="flex items-center gap-2 text-stone-300">
+        <span className="hidden sm:inline">Lautstärke</span>
+        <input
+          type="range"
+          min={0}
+          max={100}
+          step={5}
+          value={volume}
+          onChange={(event) => onVolume(Number(event.target.value))}
+          className="h-1 w-20 accent-emerald-400"
+          aria-label="Ton-Lautstärke"
+        />
+        <span className="w-8 text-right tabular-nums">{volume}%</span>
+      </label>
+
+      <button
+        type="button"
+        onClick={onTestDelivery}
+        className="rounded-full border border-orange-400/40 bg-orange-500/10 px-2 py-1 text-orange-100 hover:bg-orange-500/20"
+        title="Lieferungston testen"
+      >
+        L
+      </button>
+
+      <button
+        type="button"
+        onClick={onTestPickup}
+        className="rounded-full border border-cyan-400/40 bg-cyan-500/10 px-2 py-1 text-cyan-100 hover:bg-cyan-500/20"
+        title="Abholton testen"
+      >
+        A
+      </button>
+
+      {error ? (
+        <span className="max-w-[260px] truncate text-amber-300" title={error}>
+          {error}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
 export default function TVPage() {
   const router = useRouter();
 
@@ -1948,8 +2140,214 @@ export default function TVPage() {
   const minuteCacheRef = useRef<Record<string, MinuteCacheEntry>>({});
   const orderClockRef = useRef<Record<string, TvOrderClockEntry>>({});
 
+  const deliveryAudioRef = useRef<HTMLAudioElement | null>(null);
+  const pickupAudioRef = useRef<HTMLAudioElement | null>(null);
+  const soundSourceIndexRef = useRef<Record<TvSoundKind, number>>({
+    delivery: 0,
+    pickup: 0,
+  });
+  const soundKnownOrdersRef = useRef<Set<string> | null>(null);
+  const soundEnabledRef = useRef(false);
+  const soundVolumeRef = useRef(0.85);
+
+  const [soundEnabled, setSoundEnabled] = useState(false);
+  const [soundUnlocked, setSoundUnlocked] = useState(false);
+  const [soundVolume, setSoundVolume] = useState(85);
+  const [soundError, setSoundError] = useState("");
+
+  const getAudioRef = useCallback((kind: TvSoundKind) => {
+    return kind === "delivery" ? deliveryAudioRef : pickupAudioRef;
+  }, []);
+
+  const getAudioForKind = useCallback(
+    (kind: TvSoundKind) => {
+      if (typeof window === "undefined") return null;
+
+      const ref = getAudioRef(kind);
+      const sources = TV_SOUND_SOURCES[kind];
+      const index = soundSourceIndexRef.current[kind] % sources.length;
+      const src = sources[index];
+
+      if (!ref.current || ref.current.dataset.src !== src) {
+        const audio = new Audio(src);
+
+        audio.preload = "auto";
+        audio.dataset.src = src;
+        audio.volume = soundVolumeRef.current;
+
+        ref.current = audio;
+      }
+
+      return ref.current;
+    },
+    [getAudioRef],
+  );
+
+  const setSoundEnabledSafe = useCallback((enabled: boolean) => {
+    soundEnabledRef.current = enabled;
+    setSoundEnabled(enabled);
+    saveTvSoundEnabled(enabled);
+
+    if (!enabled) {
+      setSoundError("");
+    }
+  }, []);
+
+  const setSoundVolumeSafe = useCallback(
+    (volume: number) => {
+      const next = Math.max(0, Math.min(100, Math.round(volume)));
+      const asAudioVolume = next / 100;
+
+      soundVolumeRef.current = asAudioVolume;
+      setSoundVolume(next);
+      saveTvSoundVolume(next);
+
+      for (const kind of ["delivery", "pickup"] as TvSoundKind[]) {
+        const audio = getAudioRef(kind).current;
+        if (audio) audio.volume = asAudioVolume;
+      }
+    },
+    [getAudioRef],
+  );
+
+  const playTvSound = useCallback(
+    async (kind: TvSoundKind, force = false) => {
+      if (!force && !soundEnabledRef.current) return false;
+
+      const sources = TV_SOUND_SOURCES[kind];
+      let lastError: unknown = null;
+
+      for (let attempt = 0; attempt < sources.length; attempt += 1) {
+        const audio = getAudioForKind(kind);
+
+        if (!audio) return false;
+
+        try {
+          audio.pause();
+          audio.currentTime = 0;
+          audio.volume = soundVolumeRef.current;
+
+          await audio.play();
+
+          setSoundUnlocked(true);
+          setSoundError("");
+
+          return true;
+        } catch (error) {
+          lastError = error;
+
+          const message = error instanceof Error ? error.message : String(error || "");
+
+          if (/notallowed|permission|interact|user gesture|gesture/i.test(message)) {
+            setSoundError(getTvSoundErrorMessage(error));
+            return false;
+          }
+
+          const ref = getAudioRef(kind);
+
+          try {
+            ref.current?.pause();
+          } catch {}
+
+          ref.current = null;
+          soundSourceIndexRef.current[kind] =
+            (soundSourceIndexRef.current[kind] + 1) % sources.length;
+        }
+      }
+
+      console.warn(`${getTvSoundTitle(kind)} sound failed`, lastError);
+      setSoundError(getTvSoundErrorMessage(lastError));
+
+      return false;
+    },
+    [getAudioForKind, getAudioRef],
+  );
+
+  const unlockTvSounds = useCallback(async () => {
+    setSoundEnabledSafe(true);
+
+    /*
+      Chrome/Android TV gibi tarayıcılar kullanıcı tıklaması olmadan ses çaldırmaz.
+      Bu buton ilk tıklamada ses kilidini açar ve Abholung sesini test eder.
+    */
+    await playTvSound("pickup", true);
+  }, [playTvSound, setSoundEnabledSafe]);
+
+  const toggleTvSounds = useCallback(async () => {
+    if (!soundEnabledRef.current || !soundUnlocked) {
+      await unlockTvSounds();
+      return;
+    }
+
+    setSoundEnabledSafe(false);
+  }, [soundUnlocked, unlockTvSounds, setSoundEnabledSafe]);
+
+  useEffect(() => {
+    const enabled = readTvSoundEnabled();
+    const volume = readTvSoundVolume();
+
+    soundEnabledRef.current = enabled;
+    soundVolumeRef.current = volume / 100;
+
+    setSoundEnabled(enabled);
+    setSoundVolume(volume);
+  }, []);
+
+  const handleNewOrderSounds = useCallback(
+    (nextOrders: StoredOrder[]) => {
+      const candidates = nextOrders.filter(isSoundCandidateOrder);
+      const currentKeys = new Set(
+        candidates
+          .map(getOrderSoundKey)
+          .filter((key): key is string => Boolean(key)),
+      );
+
+      if (!soundKnownOrdersRef.current) {
+        soundKnownOrdersRef.current = currentKeys;
+        return;
+      }
+
+      const previousKeys = soundKnownOrdersRef.current;
+      const newOrders = candidates.filter((order) => {
+        const key = getOrderSoundKey(order);
+        return key && !previousKeys.has(key);
+      });
+
+      soundKnownOrdersRef.current = currentKeys;
+
+      if (!newOrders.length || !soundEnabledRef.current) return;
+
+      const hasDelivery = newOrders.some((order) => getTvSoundKind(order) === "delivery");
+      const hasPickup = newOrders.some((order) => getTvSoundKind(order) === "pickup");
+
+      if (hasDelivery) {
+        void playTvSound("delivery");
+      }
+
+      if (hasPickup) {
+        window.setTimeout(() => {
+          void playTvSound("pickup");
+        }, hasDelivery ? 900 : 0);
+      }
+
+      const labels = newOrders.map(getOrderSoundLabel).join(", ");
+      console.info(`TV order sound: ${labels}`);
+    },
+    [playTvSound],
+  );
+
   useEffect(() => {
     orderClockRef.current = readTvClockCache();
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      for (const audio of [deliveryAudioRef.current, pickupAudioRef.current]) {
+        try {
+          audio?.pause();
+        } catch {}
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -2258,6 +2656,7 @@ export default function TVPage() {
       saveTvClockCache(nextClock);
       saveTvFirstSeenCache(nextFirstSeen);
 
+      handleNewOrderSounds(today);
       setOrders(today);
 
       minuteCacheRef.current = Object.fromEntries(
@@ -2287,7 +2686,7 @@ export default function TVPage() {
     } catch (error) {
       console.error("TV refresh failed", error);
     }
-  }, [avgPickup, avgDelivery, newGraceMin, tz]);
+  }, [avgPickup, avgDelivery, newGraceMin, tz, handleNewOrderSounds]);
 
   useEffect(() => {
     void refresh();
@@ -2437,6 +2836,21 @@ export default function TVPage() {
         </div>
 
         <div className="flex items-center gap-3">
+          <TvSoundControls
+            enabled={soundEnabled}
+            unlocked={soundUnlocked}
+            volume={soundVolume}
+            error={soundError}
+            onToggle={toggleTvSounds}
+            onVolume={setSoundVolumeSafe}
+            onTestDelivery={async () => {
+              await playTvSound("delivery", true);
+            }}
+            onTestPickup={async () => {
+              await playTvSound("pickup", true);
+            }}
+          />
+
           <Clock />
 
           <button
