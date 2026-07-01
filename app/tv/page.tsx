@@ -174,6 +174,13 @@ const num = (value: any) => {
   return match ? parseFloat(match[0]) : 0;
 };
 
+const numOrNull = (value: any): number | null => {
+  if (value == null || value === "") return null;
+
+  const n = num(value);
+  return Number.isFinite(n) && n > 0 ? n : null;
+};
+
 const money = (value: any) => `${num(value).toFixed(2)}€`;
 
 function cleanObj(value: any): Record<string, any> {
@@ -595,14 +602,28 @@ function normalizeOrders(data: any): StoredOrder[] {
   return list
     .map((raw: any): StoredOrder | null => {
       try {
-        const source =
-          raw?.order && typeof raw.order === "object"
+        /*
+          /api/orders/list response'unda top-level raw içinde id/status/etaMin var.
+          raw.order ise bazen sadece payload (items/customer/meta) oluyor ve etaMin taşımayabiliyor.
+          Bu yüzden nested kaynak sadece kendi id/orderId taşıyorsa ana kaynak yapılır.
+          Aksi halde top-level raw korunur; böylece yoğunluğa göre oluşan etaMin TV'de kaybolmaz.
+        */
+        const nestedOrder =
+          raw?.order && typeof raw.order === "object" && (raw.order.id || raw.order.orderId)
             ? raw.order
-            : raw?.item && typeof raw.item === "object"
-              ? raw.item
-              : raw?.data && typeof raw.data === "object"
-                ? raw.data
-                : raw;
+            : null;
+
+        const nestedItem =
+          raw?.item && typeof raw.item === "object" && (raw.item.id || raw.item.orderId)
+            ? raw.item
+            : null;
+
+        const nestedData =
+          raw?.data && typeof raw.data === "object" && (raw.data.id || raw.data.orderId)
+            ? raw.data
+            : null;
+
+        const source = nestedOrder || nestedItem || nestedData || raw;
 
         const customer = cleanObj(source?.customer);
         const meta = cleanObj(source?.meta);
@@ -701,8 +722,8 @@ function normalizeOrders(data: any): StoredOrder[] {
           channel: source?.channel ? String(source.channel) : "web",
           status: normalizeStatus(meta?.statusManual ?? source?.status),
           planned: source?.planned ?? null,
-          etaMin: source?.etaMin ?? null,
-          etaAdjustMin: source?.etaAdjustMin ?? meta?.etaAdjustMin ?? 0,
+          etaMin: numOrNull(source?.etaMin ?? meta?.etaMin ?? meta?.eta),
+          etaAdjustMin: num(source?.etaAdjustMin ?? meta?.etaAdjustMin ?? meta?.etaAdjust ?? 0),
           customer: {
             ...customer,
             name: String(customerName || ""),
@@ -1292,10 +1313,13 @@ function plannedStartMs(order: StoredOrder, tz: string) {
 }
 
 function etaFor(order: StoredOrder, avgPickup: number, avgDelivery: number) {
-  const base = order.etaMin ?? (order.mode === "pickup" ? avgPickup : avgDelivery);
-  const adjust = Number(order.etaAdjustMin ?? order.meta?.etaAdjustMin ?? 0);
+  const meta = cleanObj(order?.meta);
+  const base =
+    numOrNull(order.etaMin ?? meta?.etaMin ?? meta?.eta) ??
+    (order.mode === "pickup" ? avgPickup : avgDelivery);
+  const adjust = num(order.etaAdjustMin ?? meta?.etaAdjustMin ?? meta?.etaAdjust ?? 0);
 
-  return Math.max(1, Number(base) + (Number.isFinite(adjust) ? adjust : 0));
+  return Math.max(1, base + adjust);
 }
 
 function remainingMinutes(
@@ -1313,6 +1337,24 @@ function remainingMinutes(
   const ms = end - nowMs;
 
   return Math.floor(ms / 60_000);
+}
+
+function sortLeftMinutes(
+  order: StoredOrder,
+  avgPickup: number,
+  avgDelivery: number,
+  tz: string,
+  nowMs: number,
+  etaOverride?: number | null,
+) {
+  const planned = plannedStartMs(order, tz);
+  const effectiveEta = etaOverride ?? etaFor(order, avgPickup, avgDelivery);
+
+  if (planned && planned > nowMs) {
+    return Math.floor((planned - nowMs) / 60_000);
+  }
+
+  return remainingMinutes(order, effectiveEta, tz, nowMs);
 }
 
 function autoDisplayStatus(
@@ -2094,6 +2136,8 @@ export default function TVPage() {
           ts: stableTs || order.ts || previous.ts,
           createdAt: previous.createdAt || order.createdAt || null,
           updatedAt: order.updatedAt || previous.updatedAt || null,
+          etaMin: order.etaMin ?? previous.etaMin ?? null,
+          etaAdjustMin: order.etaAdjustMin ?? previous.etaAdjustMin ?? 0,
           customer: {
             ...(previous.customer || {}),
             ...(order.customer || {}),
@@ -2314,11 +2358,22 @@ export default function TVPage() {
         return order.status === "done" || order.status === "cancelled";
       })
       .sort((a, b) => {
+        if (view === "finished") {
+          const aDone = getDoneAtMs(a) ?? getOrderStartMs(a, orderClockRef.current, a.ts) ?? a.ts ?? 0;
+          const bDone = getDoneAtMs(b) ?? getOrderStartMs(b, orderClockRef.current, b.ts) ?? b.ts ?? 0;
+          return bDone - aDone;
+        }
+
+        const aLeft = sortLeftMinutes(a, avgPickup, avgDelivery, tz, nowMs, etaOverrides[a.id]);
+        const bLeft = sortLeftMinutes(b, avgPickup, avgDelivery, tz, nowMs, etaOverrides[b.id]);
+
+        if (aLeft !== bLeft) return aLeft - bLeft;
+
         const aStart = getOrderStartMs(a, orderClockRef.current, a.ts) ?? a.ts ?? 0;
         const bStart = getOrderStartMs(b, orderClockRef.current, b.ts) ?? b.ts ?? 0;
-        return bStart - aStart;
+        return aStart - bStart;
       });
-  }, [orders, view]);
+  }, [orders, view, avgPickup, avgDelivery, tz, nowMs, etaOverrides]);
 
   const handleAdjust = async (order: StoredOrder, delta: number) => {
     const previous = etaOverrides[order.id];
