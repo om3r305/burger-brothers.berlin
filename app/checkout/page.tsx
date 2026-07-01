@@ -22,7 +22,7 @@ import {
   nowInTZ,
 } from "@/lib/availability";
 
-import { getStreets, searchStreets } from "@/lib/streets";
+import { getStreets, searchStreets, normalizePlz } from "@/lib/streets";
 import * as Coupons from "@/lib/coupons";
 
 import {
@@ -76,6 +76,45 @@ type FreebiesCfg = {
   tiers?: FreebieTier[];
   mode?: "pickup" | "delivery" | "both";
 } | null;
+
+type RouteDealReward = {
+  type?: "percent" | "fixed" | "free_delivery" | "free_sauce" | "free_drink" | string;
+  percent?: number;
+  amount?: number;
+  maxDiscount?: number;
+  freeItemName?: string;
+  freeItemCategory?: string;
+  [key: string]: any;
+};
+
+type ActiveRouteDeal = {
+  id?: string;
+  ruleId?: string;
+  name?: string;
+  plz?: string;
+  street?: string;
+  streets?: string[];
+  matchMode?: "plz" | "street" | string;
+  orderId?: string;
+  startedAt?: string;
+  expiresAt?: string;
+  durationMinutes?: number;
+  minTotal?: number;
+  reward?: RouteDealReward;
+  message?: string;
+  [key: string]: any;
+};
+
+type RouteDealBenefit = {
+  deal: ActiveRouteDeal | null;
+  applied: boolean;
+  unlocked: boolean;
+  discountAmount: number;
+  missingAmount: number;
+  label: string;
+  rewardType: string;
+  expiresMs: number;
+};
 
 type Variant = {
   id: string;
@@ -354,6 +393,156 @@ function readPaymentEnabled(settings: any, key: "cash" | "online" | "contactless
   }
 
   return fallback;
+}
+
+function routeDealStreetKey(value: any) {
+  return normalizeStreetChoice(value)
+    .replace(/straße/g, "strasse")
+    .replace(/\bstr\.?\b/g, "strasse")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function routeDealList(value: any): string[] {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item ?? "").trim()).filter(Boolean);
+  }
+
+  if (typeof value === "string") {
+    return value
+      .split(/[;,\n]/g)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
+  return [];
+}
+
+function routeDealExpiresMs(deal: any) {
+  const ms = Date.parse(String(deal?.expiresAt || ""));
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+function formatRouteDealLeft(expiresMs: number, nowMs: number) {
+  const totalSeconds = Math.max(0, Math.floor((expiresMs - nowMs) / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+
+  return `${pad2(minutes)}:${pad2(seconds)}`;
+}
+
+function routeDealRewardLabel(reward: any) {
+  const type = String(reward?.type || "percent");
+
+  if (type === "fixed") return `${fmt(toNum(reward?.amount, 0))} Rabatt`;
+  if (type === "free_delivery") return "Lieferaufschlag geschenkt";
+  if (type === "free_sauce") return reward?.freeItemName ? `${reward.freeItemName} gratis` : "Gratis Soße";
+  if (type === "free_drink") return reward?.freeItemName ? `${reward.freeItemName} gratis` : "Gratis Getränk";
+
+  return `${Math.round(toNum(reward?.percent, 15))}% Rabatt`;
+}
+
+function findActiveRouteDealForCheckout(params: {
+  routeDeals: any;
+  mode: Mode;
+  zip: string;
+  street: string;
+  nowMs: number;
+}): ActiveRouteDeal | null {
+  const { routeDeals, mode, zip, street, nowMs } = params;
+
+  if (mode !== "delivery") return null;
+  if (routeDeals?.enabled !== true) return null;
+
+  const code = normalizePlz(zip);
+  if (!code) return null;
+
+  const streetKey = routeDealStreetKey(street);
+
+  const active = Array.isArray(routeDeals?.active) ? routeDeals.active : [];
+
+  const matches = active
+    .filter((deal: any) => {
+      const expiresMs = routeDealExpiresMs(deal);
+      if (!expiresMs || expiresMs <= nowMs) return false;
+
+      const dealPlz = normalizePlz(deal?.plz);
+      if (!dealPlz || dealPlz !== code) return false;
+
+      const explicitStreets = routeDealList(deal?.streets);
+      const mustMatchStreet =
+        deal?.matchMode === "street" || deal?.requireStreet === true || explicitStreets.length > 0;
+
+      if (!mustMatchStreet) return true;
+
+      const allowed = explicitStreets.length > 0 ? explicitStreets : [deal?.street].filter(Boolean);
+
+      if (!allowed.length) return true;
+      if (!streetKey) return false;
+
+      return allowed.some((candidate) => routeDealStreetKey(candidate) === streetKey);
+    })
+    .sort((a: any, b: any) => routeDealExpiresMs(a) - routeDealExpiresMs(b));
+
+  return (matches[0] || null) as ActiveRouteDeal | null;
+}
+
+function computeRouteDealBenefit(params: {
+  deal: ActiveRouteDeal | null;
+  baseTotal: number;
+  netMerchandise: number;
+  deliverySurcharges: number;
+  nowMs: number;
+}): RouteDealBenefit {
+  const { deal, baseTotal, netMerchandise, deliverySurcharges, nowMs } = params;
+
+  if (!deal) {
+    return {
+      deal: null,
+      applied: false,
+      unlocked: false,
+      discountAmount: 0,
+      missingAmount: 0,
+      label: "",
+      rewardType: "",
+      expiresMs: 0,
+    };
+  }
+
+  const expiresMs = routeDealExpiresMs(deal);
+  const minTotal = Math.max(0, toNum(deal?.minTotal, 0));
+  const unlocked = expiresMs > nowMs && Math.round(baseTotal * 100) >= Math.round(minTotal * 100);
+  const reward = deal?.reward || {};
+  const rewardType = String(reward?.type || "percent");
+  let discountAmount = 0;
+
+  if (unlocked) {
+    if (rewardType === "fixed") {
+      discountAmount = Math.min(baseTotal, Math.max(0, toNum(reward?.amount, 0)));
+    } else if (rewardType === "free_delivery") {
+      discountAmount = Math.min(baseTotal, Math.max(0, deliverySurcharges));
+    } else if (rewardType === "percent") {
+      discountAmount = Math.max(0, netMerchandise) * (toNum(reward?.percent, 15) / 100);
+    }
+
+    const maxDiscount = Math.max(0, toNum(reward?.maxDiscount, 0));
+    if (maxDiscount > 0 && discountAmount > maxDiscount) {
+      discountAmount = maxDiscount;
+    }
+  }
+
+  discountAmount = +Math.min(baseTotal, Math.max(0, discountAmount)).toFixed(2);
+
+  return {
+    deal,
+    applied: unlocked && (discountAmount > 0 || rewardType === "free_sauce" || rewardType === "free_drink"),
+    unlocked,
+    discountAmount,
+    missingAmount: Math.max(0, minTotal - baseTotal),
+    label: routeDealRewardLabel(reward),
+    rewardType,
+    expiresMs,
+  };
 }
 
 /* ───────── catalog ───────── */
@@ -1053,6 +1242,12 @@ export default function CheckoutPage() {
   const [submitted, setSubmitted] = useState(false);
   const [confirm, setConfirm] = useState<{ id?: string; etaMin?: number } | null>(null);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [routeDealNowMs, setRouteDealNowMs] = useState(() => Date.now());
+
+  useEffect(() => {
+    const id = window.setInterval(() => setRouteDealNowMs(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
 
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cash");
   const [tipChoice, setTipChoice] = useState<TipChoice>("none");
@@ -1120,7 +1315,49 @@ export default function CheckoutPage() {
   );
 
   const couponAmount = Math.min(afterDiscount, Math.max(0, coupon.amount || 0));
-  const totalFinal = +((afterDiscount - couponAmount) + surcharges).toFixed(2);
+
+  const routeDealStreetValue = (addr.street || streetQuery || "").trim();
+  const activeRouteDeal = useMemo(
+    () =>
+      findActiveRouteDealForCheckout({
+        routeDeals: settingsRaw?.routeDeals,
+        mode: orderMode,
+        zip: addr.zip || plzStore || "",
+        street: routeDealStreetValue,
+        nowMs: routeDealNowMs,
+      }),
+    [
+      settingsRaw?.routeDeals,
+      orderMode,
+      addr.zip,
+      plzStore,
+      routeDealStreetValue,
+      routeDealNowMs,
+    ],
+  );
+
+  const routeDealBaseTotal = +((afterDiscount - couponAmount) + surcharges).toFixed(2);
+  const routeDealBenefit = useMemo(
+    () =>
+      computeRouteDealBenefit({
+        deal: activeRouteDeal,
+        baseTotal: routeDealBaseTotal,
+        netMerchandise: +(afterDiscount - couponAmount).toFixed(2),
+        deliverySurcharges: surcharges,
+        nowMs: routeDealNowMs,
+      }),
+    [
+      activeRouteDeal,
+      routeDealBaseTotal,
+      afterDiscount,
+      couponAmount,
+      surcharges,
+      routeDealNowMs,
+    ],
+  );
+
+  const routeDealDiscount = routeDealBenefit.discountAmount;
+  const totalFinal = +Math.max(0, routeDealBaseTotal - routeDealDiscount).toFixed(2);
 
   const tipAmount = useMemo(() => {
     if (tipChoice === "none") return 0;
@@ -1473,6 +1710,43 @@ export default function CheckoutPage() {
         </div>
       )}
 
+      {orderMode === "delivery" && routeDealBenefit.deal && (
+        <div className="rounded-2xl border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm text-emerald-100">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-400 text-xl text-black">
+                🚗
+              </div>
+
+              <div>
+                <div className="font-semibold">
+                  {routeDealBenefit.deal?.name || "Nachbarschafts-Angebot"}
+                </div>
+                <div className="mt-1 leading-relaxed">
+                  {routeDealBenefit.deal?.message ||
+                    "Unser Fahrer ist gleich in Ihrer Nähe. Bestellen Sie jetzt und sichern Sie sich Ihr Nachbarschafts-Angebot."}
+                </div>
+                <div className="mt-1 text-xs opacity-85">
+                  {routeDealBenefit.unlocked ? (
+                    <>
+                      Aktiviert: <b>{routeDealBenefit.label}</b>
+                    </>
+                  ) : (
+                    <>
+                      Noch <b>{fmt(routeDealBenefit.missingAmount)}</b> bis zum Angebot.
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="inline-flex w-full items-center justify-center rounded-full border border-emerald-400/40 bg-emerald-400/10 px-3 py-2 text-xs font-bold text-emerald-100 sm:w-auto">
+              {formatRouteDealLeft(routeDealBenefit.expiresMs, routeDealNowMs)}
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="space-y-1 text-sm">
         <div className="flex justify-between">
           <span>Warenwert</span>
@@ -1511,6 +1785,23 @@ export default function CheckoutPage() {
             </button>
           </div>
         )}
+
+        {routeDealBenefit.applied && routeDealDiscount > 0 && (
+          <div className="flex justify-between text-emerald-400">
+            <span>Nachbarschafts-Angebot</span>
+            <span>-{fmt(routeDealDiscount)}</span>
+          </div>
+        )}
+
+        {routeDealBenefit.applied &&
+          routeDealDiscount === 0 &&
+          (routeDealBenefit.rewardType === "free_sauce" ||
+            routeDealBenefit.rewardType === "free_drink") && (
+            <div className="flex justify-between text-emerald-400">
+              <span>Nachbarschafts-Angebot</span>
+              <span>{routeDealBenefit.label}</span>
+            </div>
+          )}
 
         {tipAmount > 0 && (
           <div className="flex justify-between text-emerald-300">
@@ -2564,7 +2855,28 @@ export default function CheckoutPage() {
       afterDiscount,
       Math.max(0, latestCoupon.amount || 0),
     );
-    const latestTotalFinal = +((afterDiscount - latestCouponAmount) + surcharges).toFixed(2);
+
+    const latestRouteDeal = findActiveRouteDealForCheckout({
+      routeDeals: settingsRaw?.routeDeals,
+      mode: orderMode,
+      zip: addr.zip || plzStore || "",
+      street: streetFinal,
+      nowMs: ts,
+    });
+
+    const latestRouteDealBaseTotal = +((afterDiscount - latestCouponAmount) + surcharges).toFixed(2);
+    const latestRouteDealBenefit = computeRouteDealBenefit({
+      deal: latestRouteDeal,
+      baseTotal: latestRouteDealBaseTotal,
+      netMerchandise: +(afterDiscount - latestCouponAmount).toFixed(2),
+      deliverySurcharges: surcharges,
+      nowMs: ts,
+    });
+    const latestRouteDealDiscount = latestRouteDealBenefit.discountAmount;
+    const latestTotalFinal = +Math.max(
+      0,
+      latestRouteDealBaseTotal - latestRouteDealDiscount,
+    ).toFixed(2);
     const latestTipAmount = +Math.max(0, tipAmount).toFixed(2);
     const latestPayableTotal = +(latestTotalFinal + latestTipAmount).toFixed(2);
 
@@ -2583,7 +2895,7 @@ export default function CheckoutPage() {
       plz: orderMode === "delivery" ? addr.zip || null : null,
       items: mapCartToOrderItems(),
       merchandise,
-      discount,
+      discount: +(discount + latestRouteDealDiscount).toFixed(2),
       surcharges,
       total: latestPayableTotal,
       coupon: activeCode || undefined,
@@ -2631,6 +2943,23 @@ export default function CheckoutPage() {
           baseTotal: latestTotalFinal,
           payableTotal: latestPayableTotal,
         },
+        routeDeal: latestRouteDealBenefit.applied
+          ? {
+              id: latestRouteDeal?.id || null,
+              ruleId: latestRouteDeal?.ruleId || null,
+              name: latestRouteDeal?.name || "Nachbarschafts-Deal",
+              plz: latestRouteDeal?.plz || addr.zip || null,
+              street: latestRouteDeal?.street || streetFinal || null,
+              reward: latestRouteDeal?.reward || null,
+              label: latestRouteDealBenefit.label,
+              discountAmount: latestRouteDealDiscount,
+              rewardType: latestRouteDealBenefit.rewardType,
+              baseTotal: latestRouteDealBaseTotal,
+              finalTotal: latestTotalFinal,
+              expiresAt: latestRouteDeal?.expiresAt || null,
+            }
+          : null,
+        routeDealDiscount: latestRouteDealDiscount,
         tip: latestTipAmount,
         couponLifecycle: activeCode
           ? {

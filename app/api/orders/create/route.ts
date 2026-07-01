@@ -2,8 +2,9 @@
 import { NextResponse } from "next/server";
 import { prisma, getTenantId } from "@/lib/db";
 import { generateOrderId } from "@/lib/order-id";
-import { getServerSettings } from "@/lib/server/settings";
+import { getServerSettings, saveServerSettings } from "@/lib/server/settings";
 import { sendTelegramNewOrder } from "@/lib/telegram";
+import { normalizePlz, routeDealMatchesAddress, routeDealStreetLabel } from "@/lib/streets";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -446,6 +447,171 @@ async function computeDeliveryEtaMin(tenantId: string, baseDelivery: number) {
   driverLoad += 0.75;
 
   return etaByDeliveryLoad(baseDelivery, Math.max(kitchenLoad, driverLoad));
+}
+
+function safeRouteDealList(value: any): string[] {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => cleanText(item))
+      .filter(Boolean);
+  }
+
+  if (typeof value === "string") {
+    return value
+      .split(/[;,\n]/g)
+      .map((item) => cleanText(item))
+      .filter(Boolean);
+  }
+
+  return [];
+}
+
+function normalizeRouteDealReward(value: any) {
+  const raw = ensureObj(value);
+  const type = ["percent", "fixed", "free_delivery", "free_sauce", "free_drink"].includes(
+    String(raw?.type || ""),
+  )
+    ? String(raw.type)
+    : "percent";
+
+  return sanitizeJson({
+    ...raw,
+    type,
+    percent: Math.min(100, Math.max(0, toNum(raw?.percent ?? raw?.value, 15))),
+    amount: Math.max(0, toNum(raw?.amount ?? raw?.fixedAmount, 0)),
+    maxDiscount: Math.max(0, toNum(raw?.maxDiscount, 0)),
+    freeItemName: cleanText(raw?.freeItemName),
+    freeItemCategory:
+      cleanText(raw?.freeItemCategory) ||
+      (type === "free_drink" ? "drinks" : type === "free_sauce" ? "sauces" : ""),
+  });
+}
+
+function cleanActiveRouteDeals(value: any, nowMs: number) {
+  return ensureArr(value).filter((deal) => {
+    const expiresAtMs = toMs(deal?.expiresAt, 0);
+    return expiresAtMs > nowMs;
+  });
+}
+
+function makeRouteDealId(ruleId: string, orderId: string, nowMs: number) {
+  const cleanRule = String(ruleId || "route-deal")
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 40);
+
+  return `rd-${cleanRule || "deal"}-${orderId}-${nowMs.toString(36)}`;
+}
+
+async function activateRouteDealIfNeeded(params: {
+  settings: any;
+  order: any;
+  customer: any;
+  orderId: string;
+  mode: OrderMode;
+  nowMs: number;
+}) {
+  const { settings, order, customer, orderId, mode, nowMs } = params;
+
+  if (mode !== "delivery") return null;
+
+  const cfg = ensureObj(settings?.routeDeals);
+  if (cfg?.enabled !== true) return null;
+
+  const rules = ensureArr(cfg?.rules)
+    .filter((rule) => rule?.enabled !== false)
+    .sort((a, b) => toNum(a?.priority, 0) - toNum(b?.priority, 0));
+
+  if (!rules.length) return null;
+
+  const address = {
+    plz: customer?.plz ?? customer?.zip ?? order?.plz ?? order?.zip ?? null,
+    zip: customer?.zip ?? customer?.plz ?? order?.zip ?? order?.plz ?? null,
+    postalCode: customer?.postalCode ?? null,
+    street: customer?.street ?? null,
+    addressLine: customer?.addressLine ?? order?.addressLine ?? null,
+    address: customer?.address ?? order?.address ?? null,
+  };
+
+  const matchedRule = rules.find((rule) => routeDealMatchesAddress(rule, address));
+  if (!matchedRule) return null;
+
+  const plz = normalizePlz(address.plz || address.zip || "");
+  if (!plz) return null;
+
+  const durationMinutes = Math.min(
+    60,
+    Math.max(1, toNum(matchedRule?.durationMinutes, toNum(cfg?.defaultDurationMinutes, 12))),
+  );
+
+  const startedAt = new Date(nowMs);
+  const expiresAt = new Date(nowMs + durationMinutes * 60_000);
+  const streetLabel = routeDealStreetLabel(address);
+  const ruleStreets = safeRouteDealList(matchedRule?.streets ?? matchedRule?.streetList);
+  const matchMode = ruleStreets.length > 0 ? "street" : "plz";
+
+  const ruleId = cleanText(matchedRule?.id) || `route-deal-${plz}`;
+  const activeDeal = sanitizeJson({
+    id: makeRouteDealId(ruleId, orderId, nowMs),
+    ruleId,
+    name: cleanText(matchedRule?.name) || "Nachbarschafts-Deal",
+    plz,
+    street: matchMode === "street" ? streetLabel || "" : "",
+    streets: ruleStreets,
+    matchMode,
+    requireStreet: matchMode === "street",
+    orderId,
+    startedAt: startedAt.toISOString(),
+    expiresAt: expiresAt.toISOString(),
+    durationMinutes,
+    minTotal: Math.max(0, toNum(matchedRule?.minTotal ?? matchedRule?.minimumTotal, 0)),
+    reward: normalizeRouteDealReward(matchedRule?.reward ?? matchedRule),
+    message:
+      cleanText(matchedRule?.message) ||
+      "Unser Fahrer ist gleich in Ihrer Nähe. Bestellen Sie jetzt und sichern Sie sich Ihr Nachbarschafts-Angebot.",
+    trigger: {
+      source: "order_create",
+      orderId,
+      plz,
+      street: streetLabel || "",
+    },
+  });
+
+  const existingActive = cleanActiveRouteDeals(cfg?.active, nowMs).filter((deal) => {
+    const sameRule = cleanText(deal?.ruleId) === ruleId;
+    const samePlz = normalizePlz(deal?.plz) === plz;
+    const dealStreets = safeRouteDealList(deal?.streets ?? deal?.streetList);
+    const dealMatchMode =
+      cleanText(deal?.matchMode) || (dealStreets.length > 0 ? "street" : "plz");
+    const sameStreet =
+      cleanText(deal?.street || "").toLowerCase() ===
+      cleanText(streetLabel || "").toLowerCase();
+    const sameScope = dealMatchMode === "street" ? sameStreet : true;
+
+    return !(sameRule && samePlz && sameScope);
+  });
+
+  const maxActiveDeals = Math.min(5, Math.max(1, toNum(cfg?.maxActiveDeals, 2)));
+
+  const nextRouteDeals = sanitizeJson({
+    ...cfg,
+    enabled: true,
+    maxActiveDeals,
+    defaultDurationMinutes: Math.min(
+      60,
+      Math.max(1, toNum(cfg?.defaultDurationMinutes, 12)),
+    ),
+    rules,
+    active: [activeDeal, ...existingActive].slice(0, maxActiveDeals),
+  });
+
+  await saveServerSettings({
+    routeDeals: nextRouteDeals,
+  } as any);
+
+  return activeDeal;
 }
 
 function buildOrderMeta(params: {
@@ -972,6 +1138,21 @@ export async function POST(req: Request) {
 
     await upsertCustomerFromOrder(tenantId, order, total);
 
+    let routeDealActivated: any = null;
+
+    try {
+      routeDealActivated = await activateRouteDealIfNeeded({
+        settings,
+        order,
+        customer,
+        orderId: id,
+        mode,
+        nowMs,
+      });
+    } catch (error) {
+      console.error("Route Deal activation failed (order still created):", error);
+    }
+
     let notifySent = false;
 
     if (notify) {
@@ -1022,6 +1203,7 @@ export async function POST(req: Request) {
         orderId: id,
         etaMin,
         notifySent,
+        routeDealActivated,
         order: serialized,
         item: serialized,
         data: serialized,

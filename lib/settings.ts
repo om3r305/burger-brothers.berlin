@@ -159,6 +159,62 @@ export type AnnItem = {
   endsAt?: string;
 };
 
+export type RouteDealRewardType =
+  | "percent"
+  | "fixed"
+  | "free_delivery"
+  | "free_sauce"
+  | "free_drink";
+
+export type RouteDealReward = {
+  type: RouteDealRewardType;
+  percent?: number;
+  amount?: number;
+  maxDiscount?: number;
+  freeItemName?: string;
+  freeItemCategory?: "sauces" | "drinks" | string;
+  [key: string]: any;
+};
+
+export type RouteDealRule = {
+  id: string;
+  name: string;
+  enabled: boolean;
+  plz: string[];
+  streets: string[];
+  durationMinutes: number;
+  minTotal: number;
+  reward: RouteDealReward;
+  message?: string;
+  priority?: number;
+  [key: string]: any;
+};
+
+export type ActiveRouteDeal = {
+  id: string;
+  ruleId: string;
+  name: string;
+  plz: string;
+  street?: string;
+  orderId?: string;
+  startedAt: string;
+  expiresAt: string;
+  durationMinutes: number;
+  minTotal: number;
+  reward: RouteDealReward;
+  message?: string;
+  [key: string]: any;
+};
+
+export type RouteDealsCfg = {
+  enabled: boolean;
+  maxActiveDeals: number;
+  defaultDurationMinutes: number;
+  rules: RouteDealRule[];
+  active: ActiveRouteDeal[];
+  [key: string]: any;
+};
+
 export type TVSettings = {
   autoRefreshSeconds: number;
   hideSensitive: boolean;
@@ -208,6 +264,7 @@ export type SettingsV6 = {
   freebies?: FreebiesCfg;
   coupons?: CouponRule[];
   announcements?: { enabled: boolean; items: AnnItem[] };
+  routeDeals?: RouteDealsCfg;
   printing?: Printing;
   tv?: TVSettings;
   security?: SecuritySettings;
@@ -399,6 +456,14 @@ const defaultSettings: SettingsV6 = {
   announcements: {
     enabled: false,
     items: [],
+  },
+
+  routeDeals: {
+    enabled: false,
+    maxActiveDeals: 2,
+    defaultDurationMinutes: 12,
+    rules: [],
+    active: [],
   },
 
   printing: {
@@ -754,6 +819,109 @@ function normalizeAnnouncements(value: any) {
   };
 }
 
+function cleanStringList(value: any): string[] {
+  const list = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? value.split(/[;,\n]/g)
+      : [];
+
+  return Array.from(
+    new Set(
+      list
+        .map((item) => cleanString(item, ""))
+        .filter(Boolean),
+    ),
+  );
+}
+
+function normalizeRouteDealReward(value: any): RouteDealReward {
+  const raw = value || {};
+  const type: RouteDealRewardType =
+    raw.type === "fixed" ||
+    raw.type === "free_delivery" ||
+    raw.type === "free_sauce" ||
+    raw.type === "free_drink"
+      ? raw.type
+      : "percent";
+
+  return {
+    ...raw,
+    type,
+    percent: Math.min(100, Math.max(0, num(raw.percent ?? raw.value, 15))),
+    amount: Math.max(0, num(raw.amount ?? raw.fixedAmount, 0)),
+    maxDiscount: Math.max(0, num(raw.maxDiscount, 0)),
+    freeItemName: cleanString(raw.freeItemName, ""),
+    freeItemCategory: cleanString(raw.freeItemCategory, ""),
+  };
+}
+
+function normalizeRouteDeals(value: any): RouteDealsCfg {
+  const raw = value || {};
+
+  const defaultDurationMinutes = Math.min(
+    60,
+    Math.max(1, num(raw.defaultDurationMinutes ?? raw.durationMinutes, 12)),
+  );
+
+  const rules = Array.isArray(raw.rules)
+    ? raw.rules.map((rule: any, index: number) => {
+        const id = cleanString(rule?.id, `route-deal-${index + 1}`);
+        const durationMinutes = Math.min(
+          60,
+          Math.max(1, num(rule?.durationMinutes, defaultDurationMinutes)),
+        );
+
+        return {
+          ...rule,
+          id,
+          name: cleanString(rule?.name, "Nachbarschafts-Deal"),
+          enabled: rule?.enabled !== false,
+          plz: cleanStringList(rule?.plz ?? rule?.plzList ?? rule?.postalCodes),
+          streets: cleanStringList(rule?.streets ?? rule?.streetList),
+          durationMinutes,
+          minTotal: Math.max(0, num(rule?.minTotal ?? rule?.minimumTotal, 0)),
+          reward: normalizeRouteDealReward(rule?.reward ?? rule),
+          message: cleanString(
+            rule?.message,
+            "Unser Fahrer ist gleich in Ihrer Nähe. Bestellen Sie jetzt und sichern Sie sich Ihr Nachbarschafts-Angebot.",
+          ),
+          priority: num(rule?.priority, index),
+        };
+      })
+    : [];
+
+  const active = Array.isArray(raw.active)
+    ? raw.active.map((deal: any, index: number) => ({
+        ...deal,
+        id: cleanString(deal?.id, `active-route-deal-${index + 1}`),
+        ruleId: cleanString(deal?.ruleId, ""),
+        name: cleanString(deal?.name, "Nachbarschafts-Deal"),
+        plz: cleanString(deal?.plz, ""),
+        street: cleanString(deal?.street, ""),
+        orderId: cleanString(deal?.orderId, ""),
+        startedAt: deal?.startedAt ? safeIso(deal.startedAt) : "",
+        expiresAt: deal?.expiresAt ? safeIso(deal.expiresAt) : "",
+        durationMinutes: Math.min(
+          60,
+          Math.max(1, num(deal?.durationMinutes, defaultDurationMinutes)),
+        ),
+        minTotal: Math.max(0, num(deal?.minTotal ?? deal?.minimumTotal, 0)),
+        reward: normalizeRouteDealReward(deal?.reward ?? deal),
+        message: cleanString(deal?.message, ""),
+      }))
+    : [];
+
+  return {
+    ...raw,
+    enabled: bool(raw.enabled, false),
+    maxActiveDeals: Math.min(5, Math.max(1, num(raw.maxActiveDeals, 2))),
+    defaultDurationMinutes,
+    rules,
+    active,
+  };
+}
+
 /** Legacy alanları normalize edip defaults ile birleştirir */
 function normalizeAndMerge(raw: any): SettingsV6 {
   const incoming = stripResponseMetadata(raw);
@@ -877,6 +1045,7 @@ function normalizeAndMerge(raw: any): SettingsV6 {
   };
 
   compat.announcements = normalizeAnnouncements(compat.announcements);
+  compat.routeDeals = normalizeRouteDeals(compat.routeDeals);
 
   const footerNote =
     compat?.printing?.footerNote ??

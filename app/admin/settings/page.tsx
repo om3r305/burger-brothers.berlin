@@ -194,6 +194,14 @@ const DEFAULT_MODEL: SettingsModel = {
     items: [],
   },
 
+  routeDeals: {
+    enabled: false,
+    maxActiveDeals: 2,
+    defaultDurationMinutes: 12,
+    rules: [],
+    active: [],
+  },
+
   features: {
     bubbleTea: {
       enabled: false,
@@ -334,6 +342,42 @@ function safeStringify(value: any) {
     return JSON.stringify(value);
   } catch {
     return "{}";
+  }
+}
+
+function cleanList(value: any): string[] {
+  const list = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? value.split(/[;,\n]/g)
+      : [];
+
+  return Array.from(
+    new Set(
+      list
+        .map((item) => String(item ?? "").trim())
+        .filter(Boolean)
+    )
+  );
+}
+
+function listToText(value: any) {
+  return cleanList(value).join("\n");
+}
+
+function rewardLabel(type: string) {
+  switch (type) {
+    case "fixed":
+      return "Sabit indirim";
+    case "free_delivery":
+      return "Teslimat ücreti bedava";
+    case "free_sauce":
+      return "Bedava sos";
+    case "free_drink":
+      return "Bedava içecek";
+    case "percent":
+    default:
+      return "Yüzde indirim";
   }
 }
 
@@ -659,6 +703,112 @@ function normalizeForSave(raw: any) {
           enabled: item?.enabled !== false,
           startsAt: item?.startsAt ? safeIso(item.startsAt) : "",
           endsAt: item?.endsAt ? safeIso(item.endsAt) : "",
+        }))
+      : [],
+  };
+
+  next.routeDeals = {
+    ...(next.routeDeals || {}),
+    enabled: bool(next.routeDeals?.enabled, false),
+    maxActiveDeals: Math.min(
+      5,
+      Math.max(1, num(next.routeDeals?.maxActiveDeals, 2))
+    ),
+    defaultDurationMinutes: Math.min(
+      60,
+      Math.max(1, num(next.routeDeals?.defaultDurationMinutes, 12))
+    ),
+    rules: Array.isArray(next.routeDeals?.rules)
+      ? next.routeDeals.rules.map((rule: any, index: number) => {
+          const rewardType = [
+            "percent",
+            "fixed",
+            "free_delivery",
+            "free_sauce",
+            "free_drink",
+          ].includes(String(rule?.reward?.type || rule?.type))
+            ? String(rule?.reward?.type || rule?.type)
+            : "percent";
+
+          return {
+            ...rule,
+            id: String(rule?.id || `route-deal-${index + 1}`).trim(),
+            name: String(rule?.name || "Nachbarschafts-Deal").trim(),
+            enabled: rule?.enabled !== false,
+            plz: cleanList(rule?.plz || rule?.plzList || rule?.postalCodes),
+            streets: cleanList(rule?.streets || rule?.streetList),
+            durationMinutes: Math.min(
+              60,
+              Math.max(
+                1,
+                num(
+                  rule?.durationMinutes,
+                  next.routeDeals?.defaultDurationMinutes || 12
+                )
+              )
+            ),
+            minTotal: Math.max(0, num(rule?.minTotal ?? rule?.minimumTotal, 0)),
+            reward: {
+              ...(rule?.reward || {}),
+              type: rewardType,
+              percent: Math.min(
+                100,
+                Math.max(0, num(rule?.reward?.percent ?? rule?.percent ?? 15))
+              ),
+              amount: Math.max(
+                0,
+                num(rule?.reward?.amount ?? rule?.amount ?? 0)
+              ),
+              maxDiscount: Math.max(
+                0,
+                num(rule?.reward?.maxDiscount ?? rule?.maxDiscount ?? 0)
+              ),
+              freeItemName: String(
+                rule?.reward?.freeItemName || rule?.freeItemName || ""
+              ).trim(),
+              freeItemCategory: String(
+                rule?.reward?.freeItemCategory ||
+                  rule?.freeItemCategory ||
+                  (rewardType === "free_drink" ? "drinks" : "sauces")
+              ).trim(),
+            },
+            message: String(
+              rule?.message ||
+                "Unser Fahrer ist gleich in Ihrer Nähe. Bestellen Sie jetzt und sichern Sie sich Ihr Nachbarschafts-Angebot."
+            ).trim(),
+            priority: num(rule?.priority, index),
+          };
+        })
+      : [],
+    active: Array.isArray(next.routeDeals?.active)
+      ? next.routeDeals.active.map((deal: any, index: number) => ({
+          ...deal,
+          id: String(deal?.id || `active-route-deal-${index + 1}`).trim(),
+          ruleId: String(deal?.ruleId || "").trim(),
+          name: String(deal?.name || "Nachbarschafts-Deal").trim(),
+          plz: String(deal?.plz || "").trim(),
+          street: String(deal?.street || "").trim(),
+          orderId: String(deal?.orderId || "").trim(),
+          startedAt: deal?.startedAt ? safeIso(deal.startedAt) : "",
+          expiresAt: deal?.expiresAt ? safeIso(deal.expiresAt) : "",
+          durationMinutes: Math.min(
+            60,
+            Math.max(1, num(deal?.durationMinutes, 12))
+          ),
+          minTotal: Math.max(0, num(deal?.minTotal, 0)),
+          reward: {
+            ...(deal?.reward || {}),
+            type: [
+              "percent",
+              "fixed",
+              "free_delivery",
+              "free_sauce",
+              "free_drink",
+            ].includes(String(deal?.reward?.type))
+              ? String(deal?.reward?.type)
+              : "percent",
+          },
+          message: String(deal?.message || "").trim(),
         }))
       : [],
   };
@@ -1949,6 +2099,25 @@ export default function AdminSettingsPage() {
           />
         </section>
 
+        {/* ROUTE DEALS */}
+        <section className="card">
+          <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <div className="text-lg font-medium">Akıllı Rota Fırsatı</div>
+              <p className="mt-1 text-sm text-stone-400">
+                Bu yeni alan alışana kadar Türkçe bırakıldı. Uzak PLZ veya sokaktan
+                sipariş gelince aynı bölgedeki müşteriye kısa süreli otomatik fırsat
+                gösterilecek.
+              </p>
+            </div>
+          </div>
+
+          <RouteDealsEditor
+            value={m.routeDeals || {}}
+            onChange={(value) => setNested(["routeDeals"], value)}
+          />
+        </section>
+
         {/* TELEGRAM */}
         <section className="card">
           <div className="mb-3 text-lg font-medium">Telegram Benachrichtigung</div>
@@ -2512,6 +2681,440 @@ function DateTimeWithPicker({
       >
         📅
       </button>
+    </div>
+  );
+}
+
+
+function RouteDealsEditor({
+  value,
+  onChange,
+}: {
+  value: any;
+  onChange: (value: any) => void;
+}) {
+  const safe = {
+    enabled: bool(value?.enabled, false),
+    maxActiveDeals: Math.min(5, Math.max(1, num(value?.maxActiveDeals, 2))),
+    defaultDurationMinutes: Math.min(
+      60,
+      Math.max(1, num(value?.defaultDurationMinutes, 12))
+    ),
+    rules: Array.isArray(value?.rules) ? value.rules : [],
+    active: Array.isArray(value?.active) ? value.active : [],
+  };
+
+  const updateRoot = (patch: Record<string, any>) => {
+    onChange({
+      ...(value || {}),
+      ...safe,
+      ...patch,
+    });
+  };
+
+  const updateRule = (index: number, patch: Record<string, any>) => {
+    const rules = safe.rules.map((rule: any, idx: number) =>
+      idx === index ? { ...rule, ...patch } : rule
+    );
+
+    updateRoot({ rules });
+  };
+
+  const updateReward = (index: number, patch: Record<string, any>) => {
+    const current = safe.rules[index] || {};
+    const reward = {
+      ...(current.reward || {}),
+      ...patch,
+    };
+
+    updateRule(index, { reward });
+  };
+
+  const addRule = () => {
+    const index = safe.rules.length + 1;
+
+    updateRoot({
+      rules: [
+        ...safe.rules,
+        {
+          id: `route-deal-${Date.now().toString(36)}`,
+          name: `Rota Fırsatı ${index}`,
+          enabled: true,
+          plz: [],
+          streets: [],
+          durationMinutes: safe.defaultDurationMinutes,
+          minTotal: 20,
+          reward: {
+            type: "percent",
+            percent: 15,
+            amount: 0,
+            maxDiscount: 5,
+            freeItemName: "",
+            freeItemCategory: "sauces",
+          },
+          message:
+            "Unser Fahrer ist gleich in Ihrer Nähe. Bestellen Sie jetzt und sichern Sie sich Ihr Nachbarschafts-Angebot.",
+          priority: index,
+        },
+      ],
+    });
+  };
+
+  const removeRule = (index: number) => {
+    updateRoot({
+      rules: safe.rules.filter((_: any, idx: number) => idx !== index),
+    });
+  };
+
+  const clearActiveDeals = () => {
+    if (!window.confirm("Aktif rota fırsatları temizlensin mi?")) return;
+    updateRoot({ active: [] });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-100">
+        <div className="font-medium">Mantık</div>
+        <p className="mt-1 leading-relaxed">
+          Örnek: 13469 veya seçtiğin sokaktan uzak sipariş geldiğinde sistem
+          bu bölge için 10-15 dakikalık fırsat açar. Aynı PLZ/sokak ile siteye
+          giren müşteri banner görür ve indirim sepete otomatik düşer.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <div className="rounded-md border border-stone-700/60 p-3">
+          <Toggle
+            label="Rota fırsatı aktif"
+            checked={safe.enabled}
+            onChange={(enabled) => updateRoot({ enabled })}
+          />
+          <p className="mt-2 text-xs text-stone-400">
+            Kapalı olursa sistem hiçbir bölge fırsatı oluşturmaz.
+          </p>
+        </div>
+
+        <Field label="Varsayılan süre dakika">
+          <input
+            type="number"
+            min={1}
+            max={60}
+            className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2 outline-none"
+            value={String(safe.defaultDurationMinutes)}
+            onChange={(event) =>
+              updateRoot({
+                defaultDurationMinutes: Math.min(
+                  60,
+                  Math.max(1, Number(event.target.value || 12))
+                ),
+              })
+            }
+          />
+        </Field>
+
+        <Field label="Aynı anda maksimum aktif bölge">
+          <input
+            type="number"
+            min={1}
+            max={5}
+            className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2 outline-none"
+            value={String(safe.maxActiveDeals)}
+            onChange={(event) =>
+              updateRoot({
+                maxActiveDeals: Math.min(
+                  5,
+                  Math.max(1, Number(event.target.value || 2))
+                ),
+              })
+            }
+          />
+        </Field>
+      </div>
+
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <div className="font-medium">Bölge kuralları</div>
+          <div className="text-xs text-stone-400">
+            PLZ zorunlu. Sokak boş kalırsa o PLZ içindeki tüm uygun müşteriler görür.
+          </div>
+        </div>
+
+        <button type="button" className="pill w-full sm:w-auto" onClick={addRule}>
+          Yeni rota kuralı ekle
+        </button>
+      </div>
+
+      {safe.rules.length === 0 ? (
+        <div className="rounded-md border border-stone-700/60 p-3 text-sm text-stone-400">
+          Henüz rota kuralı yok. Başlamak için örnek: PLZ 13469, indirim %15,
+          süre 12 dakika.
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {safe.rules.map((rule: any, index: number) => {
+            const reward = rule?.reward || {};
+            const rewardType = reward?.type || "percent";
+
+            return (
+              <div key={rule?.id || index} className="rounded-xl border border-stone-700/60 p-3">
+                <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <div className="font-medium">
+                      {rule?.name || `Rota Fırsatı ${index + 1}`}
+                    </div>
+                    <div className="text-xs text-stone-400">
+                      {cleanList(rule?.plz).join(", ") || "PLZ yok"} ·{" "}
+                      {rewardLabel(rewardType)}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                    <Toggle
+                      label="Kural aktif"
+                      checked={rule?.enabled !== false}
+                      onChange={(enabled) => updateRule(index, { enabled })}
+                    />
+                    <button
+                      type="button"
+                      className="btn-ghost"
+                      onClick={() => removeRule(index)}
+                    >
+                      Sil
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  <Field label="Kural adı">
+                    <input
+                      className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2 outline-none"
+                      value={rule?.name || ""}
+                      onChange={(event) =>
+                        updateRule(index, { name: event.target.value })
+                      }
+                      placeholder="Örn. 13469 Lotos çevresi"
+                    />
+                  </Field>
+
+                  <Field label="Müşteriye gösterilecek yazı">
+                    <input
+                      className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2 outline-none"
+                      value={rule?.message || ""}
+                      onChange={(event) =>
+                        updateRule(index, { message: event.target.value })
+                      }
+                      placeholder="Unser Fahrer ist gleich in Ihrer Nähe..."
+                    />
+                  </Field>
+
+                  <Field label="Posta kodları / PLZ">
+                    <textarea
+                      rows={4}
+                      className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2 outline-none"
+                      value={listToText(rule?.plz)}
+                      onChange={(event) =>
+                        updateRule(index, { plz: cleanList(event.target.value) })
+                      }
+                      placeholder={"13469\n13507"}
+                    />
+                    <p className="mt-1 text-xs text-stone-400">
+                      Her satıra bir PLZ yazabilirsin.
+                    </p>
+                  </Field>
+
+                  <Field label="Sokaklar opsiyonel">
+                    <textarea
+                      rows={4}
+                      className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2 outline-none"
+                      value={listToText(rule?.streets)}
+                      onChange={(event) =>
+                        updateRule(index, { streets: cleanList(event.target.value) })
+                      }
+                      placeholder={"Lotosweg\nBerliner Straße"}
+                    />
+                    <p className="mt-1 text-xs text-stone-400">
+                      Boş bırakırsan sadece PLZ eşleşmesi yeterli olur.
+                    </p>
+                  </Field>
+
+                  <Field label="Fırsat süresi dakika">
+                    <input
+                      type="number"
+                      min={1}
+                      max={60}
+                      className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2 outline-none"
+                      value={String(rule?.durationMinutes ?? safe.defaultDurationMinutes)}
+                      onChange={(event) =>
+                        updateRule(index, {
+                          durationMinutes: Math.min(
+                            60,
+                            Math.max(1, Number(event.target.value || safe.defaultDurationMinutes))
+                          ),
+                        })
+                      }
+                    />
+                  </Field>
+
+                  <Field label="Minimum sepet tutarı €">
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2 outline-none"
+                      value={String(rule?.minTotal ?? 0)}
+                      onChange={(event) =>
+                        updateRule(index, {
+                          minTotal: Math.max(0, Number(event.target.value || 0)),
+                        })
+                      }
+                    />
+                  </Field>
+
+                  <Field label="Fırsat tipi">
+                    <select
+                      className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2 outline-none"
+                      value={rewardType}
+                      onChange={(event) =>
+                        updateReward(index, { type: event.target.value })
+                      }
+                    >
+                      <option value="percent">Yüzde indirim</option>
+                      <option value="fixed">Sabit € indirim</option>
+                      <option value="free_delivery">Teslimat ücreti bedava</option>
+                      <option value="free_sauce">Bedava sos</option>
+                      <option value="free_drink">Bedava içecek</option>
+                    </select>
+                  </Field>
+
+                  {rewardType === "percent" && (
+                    <Field label="İndirim yüzdesi">
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        step="1"
+                        className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2 outline-none"
+                        value={String(reward?.percent ?? 15)}
+                        onChange={(event) =>
+                          updateReward(index, {
+                            percent: Math.min(
+                              100,
+                              Math.max(0, Number(event.target.value || 0))
+                            ),
+                          })
+                        }
+                      />
+                    </Field>
+                  )}
+
+                  {rewardType === "fixed" && (
+                    <Field label="Sabit indirim €">
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2 outline-none"
+                        value={String(reward?.amount ?? 0)}
+                        onChange={(event) =>
+                          updateReward(index, {
+                            amount: Math.max(0, Number(event.target.value || 0)),
+                          })
+                        }
+                      />
+                    </Field>
+                  )}
+
+                  {(rewardType === "free_sauce" || rewardType === "free_drink") && (
+                    <Field label="Bedava ürün adı">
+                      <input
+                        className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2 outline-none"
+                        value={reward?.freeItemName || ""}
+                        onChange={(event) =>
+                          updateReward(index, {
+                            freeItemName: event.target.value,
+                            freeItemCategory:
+                              rewardType === "free_drink" ? "drinks" : "sauces",
+                          })
+                        }
+                        placeholder={
+                          rewardType === "free_drink"
+                            ? "Örn. Coca-Cola 0,33l"
+                            : "Örn. Ketchup"
+                        }
+                      />
+                    </Field>
+                  )}
+
+                  {(rewardType === "percent" || rewardType === "fixed") && (
+                    <Field label="Maksimum indirim €">
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2 outline-none"
+                        value={String(reward?.maxDiscount ?? 0)}
+                        onChange={(event) =>
+                          updateReward(index, {
+                            maxDiscount: Math.max(
+                              0,
+                              Number(event.target.value || 0)
+                            ),
+                          })
+                        }
+                        placeholder="0 = sınırsız"
+                      />
+                    </Field>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <div className="rounded-xl border border-stone-700/60 p-3">
+        <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="font-medium">Şu an aktif fırsatlar</div>
+            <div className="text-xs text-stone-400">
+              Bunlar sipariş gelince backend tarafından otomatik açılacak. Gerekirse
+              buradan temizleyebilirsin.
+            </div>
+          </div>
+
+          <button
+            type="button"
+            className="btn-ghost w-full sm:w-auto"
+            onClick={clearActiveDeals}
+            disabled={safe.active.length === 0}
+          >
+            Aktifleri temizle
+          </button>
+        </div>
+
+        {safe.active.length === 0 ? (
+          <div className="text-sm text-stone-400">Şu an aktif rota fırsatı yok.</div>
+        ) : (
+          <div className="space-y-2">
+            {safe.active.map((deal: any, index: number) => (
+              <div
+                key={deal?.id || index}
+                className="rounded-md border border-stone-700/60 bg-stone-950/40 p-2 text-sm"
+              >
+                <div className="font-medium">
+                  {deal?.name || "Nachbarschafts-Deal"}
+                </div>
+                <div className="mt-1 text-xs text-stone-400">
+                  PLZ: {deal?.plz || "-"} · Sokak: {deal?.street || "-"} · Bitiş:{" "}
+                  {deal?.expiresAt
+                    ? new Date(deal.expiresAt).toLocaleString("de-DE")
+                    : "-"}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

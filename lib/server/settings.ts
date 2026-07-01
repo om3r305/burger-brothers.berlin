@@ -101,6 +101,49 @@ export type ServerSettings = {
     [key: string]: any;
   };
 
+  routeDeals?: {
+    enabled?: boolean;
+    maxActiveDeals?: number;
+    defaultDurationMinutes?: number;
+    rules?: Array<{
+      id?: string;
+      name?: string;
+      enabled?: boolean;
+      plz?: string[];
+      streets?: string[];
+      durationMinutes?: number;
+      minTotal?: number;
+      reward?: {
+        type?: "percent" | "fixed" | "free_delivery" | "free_sauce" | "free_drink";
+        percent?: number;
+        amount?: number;
+        maxDiscount?: number;
+        freeItemName?: string;
+        freeItemCategory?: string;
+        [key: string]: any;
+      };
+      message?: string;
+      priority?: number;
+      [key: string]: any;
+    }>;
+    active?: Array<{
+      id?: string;
+      ruleId?: string;
+      name?: string;
+      plz?: string;
+      street?: string;
+      orderId?: string;
+      startedAt?: string;
+      expiresAt?: string;
+      durationMinutes?: number;
+      minTotal?: number;
+      reward?: Record<string, any>;
+      message?: string;
+      [key: string]: any;
+    }>;
+    [key: string]: any;
+  };
+
   statusColors?: Record<string, any>;
 
   theme?: {
@@ -203,6 +246,14 @@ const DEFAULT_SETTINGS: ServerSettings = {
     paper: "80mm",
     showBarcode: true,
     showQR: true,
+  },
+
+  routeDeals: {
+    enabled: false,
+    maxActiveDeals: 2,
+    defaultDurationMinutes: 12,
+    rules: [],
+    active: [],
   },
 
   statusColors: {

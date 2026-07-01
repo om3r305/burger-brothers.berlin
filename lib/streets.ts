@@ -90,6 +90,117 @@ export function normalize(s: string): string {
     .trim();
 }
 
+export function normalizePlz(value?: string | null): string {
+  return plz5(value);
+}
+
+export function normalizeStreetForMatch(value: any): string {
+  return normalize(String(value || ""))
+    .replace(/\bstr\b/g, "strasse")
+    .replace(/\bstr\.\b/g, "strasse")
+    .replace(/\bstrae\b/g, "strasse")
+    .replace(/\bstrasze\b/g, "strasse")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function extractStreetName(value: any): string {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+
+  const first = raw
+    .split("|")[0]
+    .split(",")[0]
+    .replace(/^\s*\d{5}\s+/, "")
+    .replace(/\b\d{5}\b/g, "")
+    .replace(/\bberlin\b/gi, "")
+    .replace(/\s+\d+[a-zA-Z]?\s*$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return beautify(first);
+}
+
+function listFromAny(value: any): string[] {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => String(item || "").trim())
+      .filter(Boolean);
+  }
+
+  if (typeof value === "string") {
+    return value
+      .split(/[;,\n]/g)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
+  return [];
+}
+
+export function streetEquals(a: any, b: any): boolean {
+  const left = normalizeStreetForMatch(extractStreetName(a) || a);
+  const right = normalizeStreetForMatch(extractStreetName(b) || b);
+
+  return !!left && !!right && left === right;
+}
+
+export function streetListHas(streets: any, value: any): boolean {
+  const target = normalizeStreetForMatch(extractStreetName(value) || value);
+
+  if (!target) return false;
+
+  return listFromAny(streets).some(
+    (street) => normalizeStreetForMatch(extractStreetName(street) || street) === target,
+  );
+}
+
+export function routeDealMatchesAddress(
+  rule: any,
+  address: {
+    plz?: string | null;
+    zip?: string | null;
+    postalCode?: string | null;
+    street?: string | null;
+    addressLine?: string | null;
+    address?: string | null;
+  },
+): boolean {
+  const code = normalizePlz(address?.plz || address?.zip || address?.postalCode || "");
+  if (!code) return false;
+
+  const rulePlz = listFromAny(rule?.plz ?? rule?.plzList ?? rule?.postalCodes)
+    .map((item) => normalizePlz(item))
+    .filter(Boolean);
+
+  if (rulePlz.length > 0 && !rulePlz.includes(code)) {
+    return false;
+  }
+
+  const ruleStreets = listFromAny(rule?.streets ?? rule?.streetList);
+
+  if (ruleStreets.length === 0) {
+    return true;
+  }
+
+  const candidateStreet =
+    address?.street ||
+    extractStreetName(address?.addressLine) ||
+    extractStreetName(address?.address) ||
+    "";
+
+  return streetListHas(ruleStreets, candidateStreet);
+}
+
+export function routeDealStreetLabel(address: any): string {
+  return (
+    beautify(address?.street || "") ||
+    extractStreetName(address?.addressLine) ||
+    extractStreetName(address?.address) ||
+    ""
+  );
+}
+
 /** “Gerçek sokak adına benziyor mu?” — allowlist + denylist */
 export function isLikelyStreetName(name: string): boolean {
   const n = normalize(name);
@@ -209,6 +320,13 @@ const StreetsAPI = {
   searchStreets,
   hydrateFromBundledJSON,
   normalize,
+  normalizePlz,
+  normalizeStreetForMatch,
+  extractStreetName,
+  streetEquals,
+  streetListHas,
+  routeDealMatchesAddress,
+  routeDealStreetLabel,
   beautify,
   isLikelyStreetName,
   haversineKm,

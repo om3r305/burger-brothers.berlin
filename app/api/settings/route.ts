@@ -103,6 +103,14 @@ const DEFAULT_SETTINGS: PlainObject = {
     showQR: true,
   },
 
+  routeDeals: {
+    enabled: false,
+    maxActiveDeals: 2,
+    defaultDurationMinutes: 12,
+    rules: [],
+    active: [],
+  },
+
   statusColors: {
     new: "#f59e0b",
     preparing: "#3b82f6",
