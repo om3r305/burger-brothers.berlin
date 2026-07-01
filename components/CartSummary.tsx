@@ -8,7 +8,7 @@ import { useCart } from "@/components/store";
 import { loadNormalizedCampaigns } from "@/lib/campaigns-compat";
 import { priceWithCampaign } from "@/lib/catalog";
 import type { Campaign, Category } from "@/lib/catalog";
-import { getPricingOverrides } from "@/lib/settings";
+import { getPricingOverrides, readSettings, LS_SETTINGS } from "@/lib/settings";
 import * as Coupons from "@/lib/coupons";
 import { fetchOrdersFromDb } from "@/lib/orders"; // 🆕 DB’den sipariş çekme
 
@@ -29,6 +29,357 @@ function readPause(): PauseState {
   } catch {
     return { delivery: false, pickup: false };
   }
+}
+
+/* ───────── Akıllı Rota Fırsatı helpers ───────── */
+
+type RouteDealBenefit = {
+  deal: any | null;
+  applied: boolean;
+  unlocked: boolean;
+  discountAmount: number;
+  missingAmount: number;
+  label: string;
+  rewardType: string;
+  expiresMs: number;
+};
+
+const RESPONSE_META_KEYS = new Set([
+  "ok",
+  "source",
+  "tenant",
+  "count",
+  "counts",
+  "saved",
+  "keys",
+  "error",
+  "createdAt",
+  "updatedAt",
+]);
+
+function isPlainObject(value: any): value is Record<string, any> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function stripResponseMetadata(raw: any) {
+  const source =
+    isPlainObject(raw?.settings)
+      ? raw.settings
+      : isPlainObject(raw?.data)
+        ? raw.data
+        : raw;
+
+  if (!isPlainObject(source)) return source || {};
+
+  const out: Record<string, any> = {};
+
+  for (const [key, value] of Object.entries(source)) {
+    if (RESPONSE_META_KEYS.has(key)) continue;
+    if (!key || key === "__proto__" || key === "prototype" || key === "constructor") {
+      continue;
+    }
+
+    out[key] = value;
+  }
+
+  return out;
+}
+
+function dispatchSettingsChangedFromCart(next: any) {
+  try {
+    localStorage.setItem(LS_SETTINGS, JSON.stringify(next));
+  } catch {}
+
+  try {
+    window.dispatchEvent(
+      new StorageEvent("storage", {
+        key: LS_SETTINGS,
+        newValue: JSON.stringify(next),
+        storageArea: window.localStorage,
+      }),
+    );
+  } catch {
+    try {
+      window.dispatchEvent(new Event("storage"));
+    } catch {}
+  }
+
+  try {
+    window.dispatchEvent(new CustomEvent("bb_settings_changed", { detail: next }));
+    window.dispatchEvent(new CustomEvent("bb:settings-sync", { detail: next }));
+  } catch {}
+}
+
+function useSettingsRefreshTick() {
+  const [settingsTick, setSettingsTick] = useState(0);
+
+  useEffect(() => {
+    let stop = false;
+
+    const refreshRemoteSettings = async () => {
+      try {
+        const res = await fetch(`/api/settings?ts=${Date.now()}`, {
+          method: "GET",
+          cache: "no-store",
+          headers: {
+            accept: "application/json",
+          },
+        });
+
+        const json = await res.json().catch(() => ({}));
+
+        if (res.ok && json?.ok !== false) {
+          const settings = stripResponseMetadata(json);
+          dispatchSettingsChangedFromCart(settings);
+        }
+      } catch {
+        // localStorage fallback devam eder
+      } finally {
+        if (!stop) setSettingsTick((tick) => tick + 1);
+      }
+    };
+
+    refreshRemoteSettings();
+
+    const onStorage = (event: StorageEvent) => {
+      if (!event.key || event.key === LS_SETTINGS) {
+        setSettingsTick((tick) => tick + 1);
+      }
+    };
+
+    const onSettingsSync = () => setSettingsTick((tick) => tick + 1);
+
+    const onFocus = () => refreshRemoteSettings();
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        refreshRemoteSettings();
+      }
+    };
+
+    window.addEventListener("storage", onStorage);
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("bb_settings_changed", onSettingsSync as EventListener);
+    window.addEventListener("bb:settings-sync", onSettingsSync as EventListener);
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      stop = true;
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("bb_settings_changed", onSettingsSync as EventListener);
+      window.removeEventListener("bb:settings-sync", onSettingsSync as EventListener);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, []);
+
+  return settingsTick;
+}
+
+function normalizeRouteDealText(value: any) {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/ä/g, "ae")
+    .replace(/ö/g, "oe")
+    .replace(/ü/g, "ue")
+    .replace(/ß/g, "ss")
+    .replace(/straße/g, "strasse")
+    .replace(/\bstr\.?\b/g, "strasse")
+    .replace(/[^a-z0-9\s-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizeRouteDealPlz(value: any) {
+  return String(value || "").replace(/\D/g, "").slice(0, 5);
+}
+
+function routeDealList(value: any): string[] {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item ?? "").trim()).filter(Boolean);
+  }
+
+  if (typeof value === "string") {
+    return value
+      .split(/[;,\n]/g)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
+  return [];
+}
+
+function routeDealExpiresMs(deal: any) {
+  const ms = Date.parse(String(deal?.expiresAt || ""));
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+function formatRouteDealLeft(expiresMs: number, nowMs: number) {
+  const totalSeconds = Math.max(0, Math.floor((expiresMs - nowMs) / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+
+  return `${minutes < 10 ? `0${minutes}` : minutes}:${seconds < 10 ? `0${seconds}` : seconds}`;
+}
+
+function routeDealRewardLabel(reward: any) {
+  const type = String(reward?.type || "percent");
+
+  if (type === "fixed") return `${fmt(toNum(reward?.amount, 0))} Rabatt`;
+  if (type === "free_delivery") return "Lieferaufschlag geschenkt";
+  if (type === "free_sauce") return reward?.freeItemName ? `${reward.freeItemName} gratis` : "Gratis Soße";
+  if (type === "free_drink") return reward?.freeItemName ? `${reward.freeItemName} gratis` : "Gratis Getränk";
+
+  return `${Math.round(toNum(reward?.percent, 15))}% Rabatt`;
+}
+
+function findActiveRouteDealForCart(params: {
+  routeDeals: any;
+  mode: "pickup" | "delivery";
+  zip: string;
+  street?: string;
+  nowMs: number;
+}) {
+  const { routeDeals, mode, zip, street, nowMs } = params;
+
+  if (mode !== "delivery") return null;
+  if (routeDeals?.enabled !== true) return null;
+
+  const code = normalizeRouteDealPlz(zip);
+  if (!code) return null;
+
+  const streetKey = normalizeRouteDealText(street);
+  const active = Array.isArray(routeDeals?.active) ? routeDeals.active : [];
+
+  const matches = active
+    .filter((deal: any) => {
+      const expiresMs = routeDealExpiresMs(deal);
+      if (!expiresMs || expiresMs <= nowMs) return false;
+
+      const dealPlz = normalizeRouteDealPlz(deal?.plz);
+      if (!dealPlz || dealPlz !== code) return false;
+
+      const explicitStreets = routeDealList(deal?.streets);
+      const mustMatchStreet =
+        deal?.matchMode === "street" || deal?.requireStreet === true || explicitStreets.length > 0;
+
+      if (!mustMatchStreet) return true;
+
+      const allowed = explicitStreets.length > 0 ? explicitStreets : [deal?.street].filter(Boolean);
+
+      if (!allowed.length) return true;
+
+      /*
+        Menüde müşteriden sadece PLZ alıyoruz.
+        Sokak henüz bilinmiyorsa aynı PLZ'de fırsatı gösteriyoruz;
+        checkout'ta sokak seçilince son kontrol zaten tekrar yapılır.
+      */
+      if (!streetKey) return true;
+
+      return allowed.some((candidate) => normalizeRouteDealText(candidate) === streetKey);
+    })
+    .sort((a: any, b: any) => routeDealExpiresMs(a) - routeDealExpiresMs(b));
+
+  return matches[0] || null;
+}
+
+function computeRouteDealBenefit(params: {
+  deal: any | null;
+  baseTotal: number;
+  netMerchandise: number;
+  deliverySurcharges: number;
+  nowMs: number;
+}): RouteDealBenefit {
+  const { deal, baseTotal, netMerchandise, deliverySurcharges, nowMs } = params;
+
+  if (!deal) {
+    return {
+      deal: null,
+      applied: false,
+      unlocked: false,
+      discountAmount: 0,
+      missingAmount: 0,
+      label: "",
+      rewardType: "",
+      expiresMs: 0,
+    };
+  }
+
+  const expiresMs = routeDealExpiresMs(deal);
+  const minTotal = Math.max(0, toNum(deal?.minTotal, 0));
+  const unlocked =
+    expiresMs > nowMs &&
+    Math.round(Math.max(0, baseTotal) * 100) >= Math.round(minTotal * 100);
+
+  const reward = deal?.reward || {};
+  const rewardType = String(reward?.type || "percent");
+  let discountAmount = 0;
+
+  if (unlocked) {
+    if (rewardType === "fixed") {
+      discountAmount = Math.min(baseTotal, Math.max(0, toNum(reward?.amount, 0)));
+    } else if (rewardType === "free_delivery") {
+      discountAmount = Math.min(baseTotal, Math.max(0, deliverySurcharges));
+    } else if (rewardType === "percent") {
+      discountAmount = Math.max(0, netMerchandise) * (toNum(reward?.percent, 15) / 100);
+    }
+
+    const maxDiscount = Math.max(0, toNum(reward?.maxDiscount, 0));
+    if (maxDiscount > 0 && discountAmount > maxDiscount) {
+      discountAmount = maxDiscount;
+    }
+  }
+
+  discountAmount = +Math.min(baseTotal, Math.max(0, discountAmount)).toFixed(2);
+
+  return {
+    deal,
+    applied: unlocked && (discountAmount > 0 || rewardType === "free_sauce" || rewardType === "free_drink"),
+    unlocked,
+    discountAmount,
+    missingAmount: Math.max(0, minTotal - baseTotal),
+    label: routeDealRewardLabel(reward),
+    rewardType,
+    expiresMs,
+  };
+}
+
+function RouteDealMiniBanner({ benefit, nowMs }: { benefit: RouteDealBenefit; nowMs: number }) {
+  if (!benefit.deal) return null;
+
+  return (
+    <div className="mb-3 rounded-xl border border-emerald-500/35 bg-emerald-500/10 p-3 text-sm text-emerald-100">
+      <div className="flex items-start gap-3">
+        <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-emerald-400 text-lg text-black">
+          🚗
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+            <div className="font-semibold">{benefit.deal?.name || "Nachbarschafts-Angebot"}</div>
+            <div className="rounded-full border border-emerald-400/40 bg-emerald-400/10 px-2 py-0.5 text-center text-xs font-bold">
+              {formatRouteDealLeft(benefit.expiresMs, nowMs)}
+            </div>
+          </div>
+
+          <div className="mt-1 text-xs leading-relaxed opacity-95">
+            {benefit.deal?.message ||
+              "Unser Fahrer ist gleich in Ihrer Nähe. Bestellen Sie jetzt und sichern Sie sich Ihr Nachbarschafts-Angebot."}
+          </div>
+
+          {benefit.unlocked ? (
+            <div className="mt-1 text-xs font-semibold">
+              Aktiviert: {benefit.label}
+            </div>
+          ) : (
+            <div className="mt-1 text-xs">
+              Noch <b>{fmt(benefit.missingAmount)}</b> bis zum Angebot.
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 /* ───────── helpers ───────── */
@@ -264,15 +615,16 @@ function computePricingFromSettings_CS(
   return { merchandise, discount, surcharges, afterDiscount, totalPreCoupon, plzKnown, requiredMin: rec };
 }
 
-function getCheckoutZipAndPhone(): { zip: string; phone: string } {
+function getCheckoutZipAndPhone(): { zip: string; phone: string; street: string } {
   try {
     const raw = localStorage.getItem(LS_CHECKOUT);
-    if (!raw) return { zip: "", phone: "" };
+    if (!raw) return { zip: "", phone: "", street: "" };
     const obj = JSON.parse(raw);
     const zip = (obj?.addr?.zip || "").trim();
     const phone = String(obj?.addr?.phone || "").replace(/\D/g, "");
-    return { zip, phone };
-  } catch { return { zip: "", phone: "" }; }
+    const street = String(obj?.addr?.street || "").trim();
+    return { zip, phone, street };
+  } catch { return { zip: "", phone: "", street: "" }; }
 }
 
 function computeCouponDiscount(
@@ -433,11 +785,30 @@ export default function CartSummary() {
     return () => window.removeEventListener("storage", onSt);
   }, []);
 
+  const settingsTick = useSettingsRefreshTick();
+  const settingsRaw = useMemo(() => {
+    try {
+      return readSettings() as any;
+    } catch {
+      return {};
+    }
+  }, [settingsTick, lsTick]);
+
+  const [routeDealNowMs, setRouteDealNowMs] = useState(() => Date.now());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setRouteDealNowMs(Date.now());
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, []);
+
   const pause = useMemo<PauseState>(() => readPause(), [lsTick]);
   const pausedPickup = !!pause.pickup;
   const pausedDelivery = !!pause.delivery;
 
-  const { zip: checkoutZip, phone: checkoutPhone } = useMemo(() => getCheckoutZipAndPhone(), [lsTick]);
+  const { zip: checkoutZip, phone: checkoutPhone, street: checkoutStreet } = useMemo(() => getCheckoutZipAndPhone(), [lsTick]);
   const plzEffective = (String(plz ?? "").trim().length === 5 ? plz : (checkoutZip || null));
 
   const groups = useMemo(() => groupItems(items), [items]);
@@ -459,7 +830,41 @@ export default function CartSummary() {
     [activeCode, items, afterDiscount, checkoutPhone]
   );
   const couponAmount = Math.min(afterDiscount, Math.max(0, coupon.amount || 0));
-  const totalFinal = +((afterDiscount - couponAmount) + surcharges).toFixed(2);
+  const routeDealBaseTotal = +((afterDiscount - couponAmount) + surcharges).toFixed(2);
+
+  const activeRouteDeal = useMemo(
+    () =>
+      findActiveRouteDealForCart({
+        routeDeals: settingsRaw?.routeDeals,
+        mode: orderMode,
+        zip: String(plzEffective || ""),
+        street: checkoutStreet,
+        nowMs: routeDealNowMs,
+      }),
+    [settingsRaw?.routeDeals, orderMode, plzEffective, checkoutStreet, routeDealNowMs],
+  );
+
+  const routeDealBenefit = useMemo(
+    () =>
+      computeRouteDealBenefit({
+        deal: activeRouteDeal,
+        baseTotal: routeDealBaseTotal,
+        netMerchandise: +(afterDiscount - couponAmount).toFixed(2),
+        deliverySurcharges: surcharges,
+        nowMs: routeDealNowMs,
+      }),
+    [
+      activeRouteDeal,
+      routeDealBaseTotal,
+      afterDiscount,
+      couponAmount,
+      surcharges,
+      routeDealNowMs,
+    ],
+  );
+
+  const routeDealDiscount = routeDealBenefit.discountAmount;
+  const totalFinal = +Math.max(0, routeDealBaseTotal - routeDealDiscount).toFixed(2);
 
   const meetsMin =
     orderMode === "pickup"
@@ -594,6 +999,9 @@ export default function CartSummary() {
         {/* Freebie */}
         <FreeSauceBanner />
 
+        {/* Akıllı Rota Fırsatı */}
+        <RouteDealMiniBanner benefit={routeDealBenefit} nowMs={routeDealNowMs} />
+
         {/* Lines */}
         <div className="max-h-[50vh] space-y-4 overflow-auto pr-1">
           {isEmpty && <div className="text-sm text-stone-400">Noch keine Artikel im Warenkorb.</div>}
@@ -679,6 +1087,21 @@ export default function CartSummary() {
             </div>
           )}
 
+          {routeDealBenefit.applied && routeDealDiscount > 0 && (
+            <div className="flex justify-between text-emerald-400">
+              <span>Nachbarschafts-Angebot</span><span>-{fmt(routeDealDiscount)}</span>
+            </div>
+          )}
+
+          {routeDealBenefit.applied &&
+            routeDealDiscount === 0 &&
+            (routeDealBenefit.rewardType === "free_sauce" ||
+              routeDealBenefit.rewardType === "free_drink") && (
+              <div className="flex justify-between text-emerald-400">
+                <span>Nachbarschafts-Angebot</span><span>{routeDealBenefit.label}</span>
+              </div>
+            )}
+
           <div className="flex items-center justify-between font-semibold">
             <span>Gesamt</span><span>{fmt(totalFinal)}</span>
           </div>
@@ -757,12 +1180,34 @@ export function CartSummaryMobile() {
     return () => window.removeEventListener("storage", onSt);
   }, []);
 
+  const settingsTick = useSettingsRefreshTick();
+  const settingsRaw = useMemo(() => {
+    try {
+      return readSettings() as any;
+    } catch {
+      return {};
+    }
+  }, [settingsTick, lsTick]);
+
+  const [routeDealNowMs, setRouteDealNowMs] = useState(() => Date.now());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setRouteDealNowMs(Date.now());
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, []);
+
   const pause = useMemo<PauseState>(() => readPause(), [lsTick]);
   const pausedPickup = !!pause.pickup;
   const pausedDelivery = !!pause.delivery;
 
-  const { zip: checkoutZip, phone: checkoutPhone } = useMemo(() => getCheckoutZipAndPhone(), [lsTick]);
-  const plzEffective = String(plz ?? "").trim().length === 5 ? String(plz).trim() : null;
+  const { zip: checkoutZip, phone: checkoutPhone, street: checkoutStreet } = useMemo(() => getCheckoutZipAndPhone(), [lsTick]);
+  const plzEffective =
+    String(plz ?? "").trim().length === 5
+      ? String(plz).trim()
+      : checkoutZip || null;
 
   const groups = useMemo(() => groupItems(items), [items]);
   const campaigns = useMemo(() => loadNormalizedCampaigns(), [items, orderMode]);
@@ -783,7 +1228,41 @@ export function CartSummaryMobile() {
     [activeCode, items, afterDiscount, checkoutPhone]
   );
   const couponAmount = Math.min(afterDiscount, Math.max(0, coupon.amount || 0));
-  const totalFinal = +((afterDiscount - couponAmount) + surcharges).toFixed(2);
+  const routeDealBaseTotal = +((afterDiscount - couponAmount) + surcharges).toFixed(2);
+
+  const activeRouteDeal = useMemo(
+    () =>
+      findActiveRouteDealForCart({
+        routeDeals: settingsRaw?.routeDeals,
+        mode: orderMode,
+        zip: String(plzEffective || ""),
+        street: checkoutStreet,
+        nowMs: routeDealNowMs,
+      }),
+    [settingsRaw?.routeDeals, orderMode, plzEffective, checkoutStreet, routeDealNowMs],
+  );
+
+  const routeDealBenefit = useMemo(
+    () =>
+      computeRouteDealBenefit({
+        deal: activeRouteDeal,
+        baseTotal: routeDealBaseTotal,
+        netMerchandise: +(afterDiscount - couponAmount).toFixed(2),
+        deliverySurcharges: surcharges,
+        nowMs: routeDealNowMs,
+      }),
+    [
+      activeRouteDeal,
+      routeDealBaseTotal,
+      afterDiscount,
+      couponAmount,
+      surcharges,
+      routeDealNowMs,
+    ],
+  );
+
+  const routeDealDiscount = routeDealBenefit.discountAmount;
+  const totalFinal = +Math.max(0, routeDealBaseTotal - routeDealDiscount).toFixed(2);
 
   const meetsMin =
     orderMode === "pickup"
@@ -883,7 +1362,7 @@ export function CartSummaryMobile() {
           style={{ bottom: safeBottom }}
           className="fixed left-1/2 z-40 -translate-x-1/2 rounded-full bg-amber-600 px-5 py-3 text-black shadow-xl sm:hidden"
         >
-          Warenkorb ansehen • {fmt(totalFinal)}
+          Warenkorb ansehen {routeDealBenefit.applied ? "🎁" : ""} • {fmt(totalFinal)}
         </button>
       )}
 
@@ -973,6 +1452,9 @@ export function CartSummaryMobile() {
             {/* Freebie */}
             <FreeSauceBanner />
 
+            {/* Akıllı Rota Fırsatı */}
+            <RouteDealMiniBanner benefit={routeDealBenefit} nowMs={routeDealNowMs} />
+
             {/* Lines */}
             {isEmpty && <div className="mb-3 text-sm text-stone-400">Noch keine Artikel im Warenkorb.</div>}
 
@@ -1051,6 +1533,21 @@ export function CartSummaryMobile() {
                   <button onClick={clearCoupon} className="rounded-md border border-stone-700/60 px-2 py-0.5 text-xs">✕</button>
                 </div>
               )}
+
+              {routeDealBenefit.applied && routeDealDiscount > 0 && (
+                <div className="flex justify-between text-emerald-400">
+                  <span>Nachbarschafts-Angebot</span><span>-{fmt(routeDealDiscount)}</span>
+                </div>
+              )}
+
+              {routeDealBenefit.applied &&
+                routeDealDiscount === 0 &&
+                (routeDealBenefit.rewardType === "free_sauce" ||
+                  routeDealBenefit.rewardType === "free_drink") && (
+                  <div className="flex justify-between text-emerald-400">
+                    <span>Nachbarschafts-Angebot</span><span>{routeDealBenefit.label}</span>
+                  </div>
+                )}
 
               <div className="flex justify-between font-semibold"><span>Gesamt</span><span>{fmt(totalFinal)}</span></div>
 
