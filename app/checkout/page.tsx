@@ -234,6 +234,24 @@ const toNum = (value: any, fallback = 0) => {
 const normName = (value: string) =>
   value ? value.charAt(0).toLocaleUpperCase("de-DE") + value.slice(1) : value;
 
+function normalizeStreetChoice(value: any) {
+  return String(value ?? "")
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/strasse/g, "straße")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function findOfficialStreet(streets: string[], value: any) {
+  const target = normalizeStreetChoice(value);
+
+  if (!target) return "";
+
+  return streets.find((street) => normalizeStreetChoice(street) === target) || "";
+}
+
 function safeJsonParse(value: string | null) {
   if (!value) return null;
 
@@ -1147,11 +1165,18 @@ export default function CheckoutPage() {
       : "Lieferung ist vorübergehend pausiert. Online-Bestellungen sind aktuell nicht möglich."
     : "";
 
+  const streetValue = (streetQuery || addr.street || "").trim();
+  const officialStreet = useMemo(
+    () => findOfficialStreet(streetOptions, streetValue),
+    [streetOptions, streetValue],
+  );
+
   const nameOk = isFilled(addr.name);
   const phoneOk = digitsOnly(addr.phone).length === phoneDigits;
   const zipOk =
     orderMode === "pickup" ? true : digitsOnly(addr.zip).length === 5 && plzKnown;
-  const streetOk = orderMode === "pickup" ? true : isFilled(addr.street || streetQuery);
+  const streetOk =
+    orderMode === "pickup" ? true : zipOk && streetOptions.length > 0 && !!officialStreet;
   const houseOk = orderMode === "pickup" ? true : isFilled(addr.house);
 
   const requiredOk =
@@ -1699,20 +1724,35 @@ export default function CheckoutPage() {
                       value={streetQuery || addr.street}
                       onChange={(event) => {
                         const value = event.target.value;
+                        const match = findOfficialStreet(streetOptions, value);
+
                         setStreetQuery(value);
-                        setAddr((current) => ({ ...current, street: value }));
+                        setAddr((current) => ({
+                          ...current,
+                          street: match || "",
+                        }));
+                        setShowSug(true);
                       }}
                       onFocus={() => setShowSug(true)}
                       onBlur={() => {
                         window.setTimeout(() => setShowSug(false), 150);
-                        setAddr((current) => ({
-                          ...current,
-                          street: (streetQuery || current.street || "").trim(),
-                        }));
+                        setAddr((current) => {
+                          const value = (streetQuery || current.street || "").trim();
+                          const match = findOfficialStreet(streetOptions, value);
+
+                          if (match) {
+                            setStreetQuery(match);
+                          }
+
+                          return {
+                            ...current,
+                            street: match || "",
+                          };
+                        });
                       }}
                       placeholder={
                         streetOptions.length
-                          ? "Straße eingeben"
+                          ? "Straße aus der Liste auswählen"
                           : "Zuerst PLZ eingeben"
                       }
                       className={checkoutInputClass(streetOk)}
@@ -1720,8 +1760,14 @@ export default function CheckoutPage() {
                     />
                     <FieldHint
                       ok={streetOk}
-                      okText="Straße ist ausgefüllt."
-                      errorText="Bitte Straße eingeben."
+                      okText="Straße wurde aus der Liste ausgewählt."
+                      errorText={
+                        !zipOk
+                          ? "Bitte zuerst gültige PLZ eingeben."
+                          : streetOptions.length === 0
+                            ? "Für diese PLZ ist keine Straße hinterlegt."
+                            : "Bitte Straße aus der Liste auswählen."
+                      }
                     />
 
                     {showSug &&
@@ -1745,8 +1791,8 @@ export default function CheckoutPage() {
                           ))}
 
                           {filteredStreets.length === 0 && (
-                            <div className="px-3 py-2 text-sm text-stone-400">
-                              Keine Treffer.
+                            <div className="px-3 py-2 text-sm text-rose-300">
+                              Keine Treffer. Bitte eine Straße aus unserer Liste wählen.
                             </div>
                           )}
                         </div>
@@ -2412,12 +2458,21 @@ export default function CheckoutPage() {
       setSubmitBusy(true);
 
       const result = await handleLogBeforeNavigate(payment);
-      const etaMin =
-        result?.etaMin ?? (orderMode === "pickup" ? avgPickupMinutes : avgDeliveryMinutes);
+      const etaMin = Math.max(
+        1,
+        toNum(
+          result?.etaMin,
+          orderMode === "pickup" ? avgPickupMinutes : avgDeliveryMinutes,
+        ),
+      );
       const id = result?.id || String(Date.now());
 
       if (orderMode === "delivery") {
         rememberLastDeliveryTrackId(id);
+      }
+
+      if (activeCode) {
+        clearActiveCoupon();
       }
 
       setConfirm({ id, etaMin });
@@ -2465,7 +2520,18 @@ export default function CheckoutPage() {
     testMode: boolean;
   }) {
     const ts = Date.now();
-    const streetFinal = (addr.street || streetQuery || "").trim();
+    const officialStreetForOrder =
+      orderMode === "delivery"
+        ? findOfficialStreet(streetOptions, addr.street || streetQuery)
+        : "";
+    const streetFinal =
+      orderMode === "delivery"
+        ? officialStreetForOrder
+        : (addr.street || streetQuery || "").trim();
+
+    if (orderMode === "delivery" && !officialStreetForOrder) {
+      throw new Error("Bitte Straße aus der Liste auswählen.");
+    }
 
     const plannedValue =
       orderMode === "pickup"
@@ -2591,11 +2657,19 @@ export default function CheckoutPage() {
 
     if (!response.ok || created?.ok === false) {
       console.error("Order create failed", response.status, created);
-      throw new Error(created?.error || "ORDER_CREATE_FAILED");
+
+      if (created?.couponError) {
+        clearActiveCoupon();
+      }
+
+      throw new Error(created?.message || created?.error || "ORDER_CREATE_FAILED");
     }
 
     const id = created?.orderId || created?.id || created?.order?.id || String(Date.now());
-    const etaMin = created?.etaMin ?? created?.order?.etaMin;
+    const etaMin = toNum(
+      created?.etaMin ?? created?.order?.etaMin ?? created?.data?.etaMin,
+      orderMode === "pickup" ? avgPickupMinutes : avgDeliveryMinutes,
+    );
 
     return { id, etaMin };
   }
