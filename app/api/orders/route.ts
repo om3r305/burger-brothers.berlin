@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { prisma, getTenantId } from "@/lib/db";
 import { generateOrderId } from "@/lib/order-id";
+import { getServerSettings } from "@/lib/server/settings";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -406,6 +407,80 @@ function normalizeHistory(value: any) {
   );
 }
 
+function hasIncomingEtaMin(raw: any) {
+  const order = ensureObj(raw?.order);
+
+  return (
+    (raw?.etaMin !== undefined && raw?.etaMin !== null && raw?.etaMin !== "") ||
+    (order?.etaMin !== undefined && order?.etaMin !== null && order?.etaMin !== "")
+  );
+}
+
+function etaByDeliveryLoad(baseDelivery: number, load: number) {
+  const base = Math.max(1, Math.round(baseDelivery || 35));
+
+  if (load >= 9) return 60;
+  if (load >= 7) return Math.min(60, base + 20);
+  if (load >= 5) return Math.min(60, base + 15);
+  if (load >= 3) return Math.min(60, base + 10);
+
+  return Math.min(60, base);
+}
+
+async function readEtaSettings() {
+  const settings = await getServerSettings().catch(() => ({} as any));
+
+  return {
+    pickup: Math.max(1, Number(settings?.hours?.avgPickupMinutes ?? 15) || 15),
+    delivery: Math.max(1, Number(settings?.hours?.avgDeliveryMinutes ?? 35) || 35),
+  };
+}
+
+async function computeDeliveryEtaMin(tenantId: string, baseDelivery: number) {
+  const where: Record<string, any> = {
+    tenantId,
+    mode: "delivery",
+    status: {
+      in: ["new", "preparing", "ready", "out_for_delivery"],
+    },
+  };
+
+  if (hasOrderField("archivedAt")) where.archivedAt = null;
+  if (hasOrderField("anonymizedAt")) where.anonymizedAt = null;
+
+  const rows = await prisma.order
+    .findMany({
+      where,
+      select: {
+        status: true,
+      },
+    })
+    .catch(() => []);
+
+  let kitchenLoad = 0;
+  let driverLoad = 0;
+
+  for (const row of rows) {
+    const status = normalizeStatus((row as any)?.status);
+
+    if (status === "new" || status === "preparing") {
+      kitchenLoad += 1;
+      driverLoad += 0.75;
+    } else if (status === "ready") {
+      kitchenLoad += 0.5;
+      driverLoad += 2;
+    } else if (status === "out_for_delivery") {
+      driverLoad += 1.25;
+    }
+  }
+
+  // Yeni gelen Lieferung de sıraya gireceği için hesaba dahil edilir.
+  kitchenLoad += 1;
+  driverLoad += 0.75;
+
+  return etaByDeliveryLoad(baseDelivery, Math.max(kitchenLoad, driverLoad));
+}
+
 function buildOrderSelect() {
   const select: Record<string, boolean> = {
     id: true,
@@ -615,7 +690,15 @@ async function findOrder(tenantId: string, idRaw: string) {
   });
 }
 
-function buildCreateData(tenantId: string, raw: any, forcedId?: string) {
+function buildCreateData(
+  tenantId: string,
+  raw: any,
+  forcedId?: string,
+  etaFallback?: {
+    pickup: number;
+    delivery: number;
+  },
+) {
   const now = Date.now();
   const order = ensureObj(raw?.order);
   const rawMeta = ensureObj(raw?.meta ?? order?.meta);
@@ -674,6 +757,9 @@ function buildCreateData(tenantId: string, raw: any, forcedId?: string) {
     anonymizedAt: toIso(raw?.anonymizedAt ?? order?.anonymizedAt ?? rawMeta?.anonymizedAt),
   });
 
+  const fallbackPickup = Math.max(1, Math.round(toNum(etaFallback?.pickup, 15)));
+  const fallbackDelivery = Math.max(1, Math.round(toNum(etaFallback?.delivery, 35)));
+
   const data: Record<string, any> = {
     id,
     tenantId,
@@ -691,7 +777,7 @@ function buildCreateData(tenantId: string, raw: any, forcedId?: string) {
     meta,
     ts: toDate(raw?.ts ?? raw?.createdAt ?? order?.ts) || new Date(now),
     planned: raw?.planned ?? order?.planned ?? null,
-    etaMin: toNum(raw?.etaMin ?? order?.etaMin, mode === "pickup" ? 15 : 35),
+    etaMin: toNum(raw?.etaMin ?? order?.etaMin, mode === "pickup" ? fallbackPickup : fallbackDelivery),
   };
 
   if (hasOrderField("etaAdjustMin")) {
@@ -994,19 +1080,27 @@ export async function POST(req: Request) {
 
     if (!action) {
       const id = await generateUniqueOrderId(6);
+      const etaSettings = await readEtaSettings();
 
-      const data = buildCreateData(
-        tenantId,
-        {
-          ...body,
-          id,
-          meta: {
-            ...ensureObj(body?.meta),
-            source: ensureObj(body?.meta)?.source ?? "api",
-          },
-        },
+      const incoming = {
+        ...body,
         id,
-      );
+        meta: {
+          ...ensureObj(body?.meta),
+          source: ensureObj(body?.meta)?.source ?? "api",
+        },
+      };
+
+      const mode = normalizeMode(body?.mode ?? ensureObj(body?.order)?.mode);
+      const deliveryEta =
+        mode === "delivery" && !hasIncomingEtaMin(incoming)
+          ? await computeDeliveryEtaMin(tenantId, etaSettings.delivery)
+          : etaSettings.delivery;
+
+      const data = buildCreateData(tenantId, incoming, id, {
+        pickup: etaSettings.pickup,
+        delivery: deliveryEta,
+      });
 
       const created = await prisma.order.create({
         data: data as any,
@@ -1030,6 +1124,10 @@ export async function POST(req: Request) {
       const id = await generateUniqueOrderId(6);
       const now = Date.now();
       const delivery = Math.random() > 0.5;
+      const etaSettings = await readEtaSettings();
+      const etaMin = delivery
+        ? await computeDeliveryEtaMin(tenantId, etaSettings.delivery)
+        : etaSettings.pickup;
 
       await prisma.order.create({
         data: buildCreateData(
@@ -1059,7 +1157,7 @@ export async function POST(req: Request) {
             surcharges: delivery ? 1.5 : 0,
             total: 13.9 + (delivery ? 1.5 : 0),
             status: "new",
-            etaMin: delivery ? 35 : 15,
+            etaMin,
             meta: {
               source: "api",
               note: "Testbestellung",
