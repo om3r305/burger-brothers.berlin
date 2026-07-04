@@ -1,0 +1,21 @@
+{
+  "baseUrl": "https://burger-brothers-berlin-final.vercel.app",
+  "token": "BURAYA_PRINT_AGENT_TOKEN",
+  "agentName": "shop-tv-1",
+
+  "printerHost": "192.168.178.50",
+  "printerPort": 9100,
+  "printerName": "metapace-t3ii",
+
+  "pollSeconds": 5,
+  "maxJobs": 3,
+  "lookbackMinutes": 720,
+  "leaseSeconds": 180,
+  "maxAttempts": 5,
+  "socketTimeoutMs": 12000,
+
+  "receiptWidth": 42,
+  "printBarcode": true,
+  "cutPaper": true,
+  "cashDrawer": false
+}
