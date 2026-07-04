@@ -143,6 +143,9 @@ const LS_LAST_TRACK_ID = "bb_last_track_order_id";
 const LS_LAST_TRACK_ID_LEGACY = "bb_last_tracking_order_id";
 const TRACK_EVENT = "bb:last-track-order-updated";
 
+const ORDER_RETRY_TOTAL_MS = 5 * 60 * 1000;
+const ORDER_RETRY_INTERVAL_MS = 30 * 1000;
+
 const pad2 = (n: number) => (n < 10 ? `0${n}` : String(n));
 
 const normCode = (s: string) =>
@@ -299,6 +302,12 @@ function safeJsonParse(value: string | null) {
   } catch {
     return null;
   }
+}
+
+function sleep(ms: number) {
+  return new Promise<void>((resolve) => {
+    window.setTimeout(resolve, Math.max(0, ms));
+  });
 }
 
 function cleanTrackOrderId(value: any) {
@@ -1240,8 +1249,18 @@ export default function CheckoutPage() {
   const [lsTick, setLsTick] = useState(0);
   const [submitBusy, setSubmitBusy] = useState(false);
   const [submitted, setSubmitted] = useState(false);
-  const [confirm, setConfirm] = useState<{ id?: string; etaMin?: number } | null>(null);
+  const [confirm, setConfirm] = useState<{
+    id?: string;
+    etaMin?: number;
+    emergencyMode?: boolean;
+  } | null>(null);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [orderRetryState, setOrderRetryState] = useState<{
+    attempt: number;
+    elapsedSec: number;
+    nextRetryInSec: number;
+    emergencySending?: boolean;
+  } | null>(null);
   const [routeDealNowMs, setRouteDealNowMs] = useState(() => Date.now());
 
   useEffect(() => {
@@ -1707,6 +1726,31 @@ export default function CheckoutPage() {
       {modePaused && (
         <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-200">
           {pauseMessage}
+        </div>
+      )}
+
+      {orderRetryState && (
+        <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-100">
+          <div className="font-semibold">Technische Prüfung läuft</div>
+          {orderRetryState.emergencySending ? (
+            <div className="mt-1 leading-relaxed">
+              Die Datenbank ist weiterhin nicht erreichbar. Ihre Bestellung wird jetzt im
+              Notfallmodus direkt an unser Team übermittelt.
+            </div>
+          ) : (
+            <div className="mt-1 leading-relaxed">
+              Die Verbindung zur Datenbank ist gerade nicht stabil. Wir versuchen die
+              Bestellung bis zu 5 Minuten lang automatisch erneut. Bitte diese Seite nicht
+              schließen. Wenn die Verbindung nicht zurückkommt, wird die Bestellung als
+              <b> ACİL MOD SİPARİŞ</b> per Telegram an unser Team gesendet.
+            </div>
+          )}
+          {!orderRetryState.emergencySending && (
+            <div className="mt-2 text-xs text-amber-200/85">
+              Versuch: {orderRetryState.attempt} · vergangen: {orderRetryState.elapsedSec}s ·
+              nächste Prüfung in ca. {orderRetryState.nextRetryInSec}s
+            </div>
+          )}
         </div>
       )}
 
@@ -2433,7 +2477,11 @@ export default function CheckoutPage() {
             }
             disabled={disableSend || submitBusy || submitted}
           >
-            {paymentMethod === "online" ? "Online-Zahlung testen" : t("checkout.place_order")}
+            {submitBusy
+              ? "Bestellung wird verarbeitet..."
+              : paymentMethod === "online"
+                ? "Online-Zahlung testen"
+                : t("checkout.place_order")}
           </button>
 
           <button
@@ -2449,22 +2497,33 @@ export default function CheckoutPage() {
 
       {confirm && submitted && !showConfirm && (
         <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm text-emerald-200">
-          <div className="font-medium">Ihre Bestellung ist eingegangen ✅</div>
+          <div className="font-medium">
+            {confirm.emergencyMode
+              ? "Ihre Bestellung wurde im Notfallmodus übermittelt ✅"
+              : "Ihre Bestellung ist eingegangen ✅"}
+          </div>
           <div>
             Bestellnummer: <b>#{confirm.id}</b>
           </div>
-          <div>
-            {orderMode === "pickup" ? (
-              <>
-                Vorbereitungszeit: <b>{confirm.etaMin ?? avgPickupMinutes} Min</b>
-              </>
-            ) : (
-              <>
-                Voraussichtliche Lieferung:{" "}
-                <b>{confirm.etaMin ?? avgDeliveryMinutes} Min</b>
-              </>
-            )}
-          </div>
+          {confirm.emergencyMode ? (
+            <div>
+              Unser Team hat die Bestellung per Telegram erhalten. Wir melden uns bei
+              Rückfragen telefonisch.
+            </div>
+          ) : (
+            <div>
+              {orderMode === "pickup" ? (
+                <>
+                  Vorbereitungszeit: <b>{confirm.etaMin ?? avgPickupMinutes} Min</b>
+                </>
+              ) : (
+                <>
+                  Voraussichtliche Lieferung:{" "}
+                  <b>{confirm.etaMin ?? avgDeliveryMinutes} Min</b>
+                </>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -2482,27 +2541,42 @@ export default function CheckoutPage() {
               <div>
                 Bestellnummer: <b>#{confirm.id}</b>
               </div>
-              <div>
-                {orderMode === "pickup" ? (
-                  <>
-                    Vorbereitungszeit: <b>{confirm.etaMin ?? avgPickupMinutes} Min</b>
-                  </>
-                ) : (
-                  <>
-                    Voraussichtliche Lieferung:{" "}
-                    <b>{confirm.etaMin ?? avgDeliveryMinutes} Min</b>
-                  </>
-                )}
-              </div>
-              {orderMode === "delivery" ? (
-                <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-2 text-xs text-emerald-200">
-                  Hinweis: Der Code gehört zu Ihrer letzten Bestellung und wurde unten
-                  automatisch in die Sendungsverfolgung übernommen.
-                </div>
+              {confirm.emergencyMode ? (
+                <>
+                  <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-100">
+                    Notfallmodus: Die Datenbank war nicht erreichbar. Ihre Bestellung
+                    wurde direkt per Telegram an unser Team übermittelt und erscheint
+                    aktuell nicht automatisch auf dem TV/Admin-Dashboard.
+                  </div>
+                  <div className="text-stone-400">
+                    Wir melden uns bei Rückfragen telefonisch.
+                  </div>
+                </>
               ) : (
-                <div className="text-stone-400">
-                  Bitte notieren Sie diese Nummer für die Abholung.
-                </div>
+                <>
+                  <div>
+                    {orderMode === "pickup" ? (
+                      <>
+                        Vorbereitungszeit: <b>{confirm.etaMin ?? avgPickupMinutes} Min</b>
+                      </>
+                    ) : (
+                      <>
+                        Voraussichtliche Lieferung:{" "}
+                        <b>{confirm.etaMin ?? avgDeliveryMinutes} Min</b>
+                      </>
+                    )}
+                  </div>
+                  {orderMode === "delivery" ? (
+                    <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-2 text-xs text-emerald-200">
+                      Hinweis: Der Code gehört zu Ihrer letzten Bestellung und wurde unten
+                      automatisch in die Sendungsverfolgung übernommen.
+                    </div>
+                  ) : (
+                    <div className="text-stone-400">
+                      Bitte notieren Sie diese Nummer für die Abholung.
+                    </div>
+                  )}
+                </>
               )}
             </div>
 
@@ -2749,16 +2823,19 @@ export default function CheckoutPage() {
       setSubmitBusy(true);
 
       const result = await handleLogBeforeNavigate(payment);
-      const etaMin = Math.max(
-        1,
-        toNum(
-          result?.etaMin,
-          orderMode === "pickup" ? avgPickupMinutes : avgDeliveryMinutes,
-        ),
-      );
+      const emergencyMode = Boolean(result?.emergencyMode);
+      const etaMin = emergencyMode
+        ? undefined
+        : Math.max(
+            1,
+            toNum(
+              result?.etaMin,
+              orderMode === "pickup" ? avgPickupMinutes : avgDeliveryMinutes,
+            ),
+          );
       const id = result?.id || String(Date.now());
 
-      if (orderMode === "delivery") {
+      if (orderMode === "delivery" && !emergencyMode) {
         rememberLastDeliveryTrackId(id);
       }
 
@@ -2766,13 +2843,15 @@ export default function CheckoutPage() {
         clearActiveCoupon();
       }
 
-      setConfirm({ id, etaMin });
+      setOrderRetryState(null);
+      setConfirm({ id, etaMin, emergencyMode });
       setSubmitted(true);
       setShowConfirm(true);
     } catch (error: any) {
       console.error(error);
       alert(error?.message || "Es ist ein Fehler aufgetreten. Bitte erneut versuchen.");
     } finally {
+      setOrderRetryState(null);
       setSubmitBusy(false);
     }
   }
@@ -2972,35 +3051,118 @@ export default function CheckoutPage() {
       },
     };
 
-    const response = await fetch("/api/orders/create", {
+    return await createOrderWithRetryAndEmergency(orderBase);
+  }
+
+
+  async function createOrderWithRetryAndEmergency(orderBase: any) {
+    const startedAt = Date.now();
+    let attempt = 1;
+    let lastError: any = null;
+
+    const parseOrderCreateResponse = async (response: Response) => {
+      const created = (await response.json().catch(() => ({} as any))) as any;
+
+      if (!response.ok || created?.ok === false) {
+        console.error("Order create failed", response.status, created);
+
+        if (created?.couponError) {
+          clearActiveCoupon();
+          const couponError = new Error(
+            created?.message || created?.error || "COUPON_ERROR",
+          ) as Error & { couponError?: boolean };
+          couponError.couponError = true;
+          throw couponError;
+        }
+
+        throw new Error(created?.message || created?.error || "ORDER_CREATE_FAILED");
+      }
+
+      const id =
+        created?.orderId ||
+        created?.id ||
+        created?.order?.id ||
+        created?.data?.id ||
+        String(Date.now());
+      const etaMin = toNum(
+        created?.etaMin ?? created?.order?.etaMin ?? created?.data?.etaMin,
+        orderMode === "pickup" ? avgPickupMinutes : avgDeliveryMinutes,
+      );
+
+      return {
+        id,
+        etaMin,
+        emergencyMode: Boolean(created?.emergencyMode),
+      };
+    };
+
+    while (Date.now() - startedAt < ORDER_RETRY_TOTAL_MS) {
+      try {
+        const response = await fetch("/api/orders/create", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            order: orderBase,
+            notify: true,
+          }),
+          keepalive: true,
+        });
+
+        return await parseOrderCreateResponse(response);
+      } catch (error: any) {
+        if (error?.couponError) {
+          throw error;
+        }
+
+        lastError = error;
+        const elapsed = Date.now() - startedAt;
+        const remaining = ORDER_RETRY_TOTAL_MS - elapsed;
+
+        if (remaining <= 0) break;
+
+        const waitMs = Math.min(ORDER_RETRY_INTERVAL_MS, remaining);
+
+        setOrderRetryState({
+          attempt,
+          elapsedSec: Math.max(1, Math.round(elapsed / 1000)),
+          nextRetryInSec: Math.max(1, Math.ceil(waitMs / 1000)),
+        });
+
+        await sleep(waitMs);
+        attempt += 1;
+      }
+    }
+
+    setOrderRetryState({
+      attempt,
+      elapsedSec: Math.round((Date.now() - startedAt) / 1000),
+      nextRetryInSec: 0,
+      emergencySending: true,
+    });
+
+    const emergencyResponse = await fetch("/api/orders/create", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        order: orderBase,
+        order: {
+          ...orderBase,
+          meta: {
+            ...(orderBase?.meta || {}),
+            emergencyMode: true,
+            emergencyStartedAt: new Date(startedAt).toISOString(),
+            emergencySubmittedAt: new Date().toISOString(),
+            emergencyLastError: lastError?.message || String(lastError || "unknown"),
+          },
+        },
         notify: true,
+        emergencyMode: true,
+        emergencyReason: "DB bağlantısı 5 dakika boyunca kurulamadı.",
+        emergencyWaitMs: ORDER_RETRY_TOTAL_MS,
       }),
       keepalive: true,
     });
 
-    const created = (await response.json().catch(() => ({} as any))) as any;
-
-    if (!response.ok || created?.ok === false) {
-      console.error("Order create failed", response.status, created);
-
-      if (created?.couponError) {
-        clearActiveCoupon();
-      }
-
-      throw new Error(created?.message || created?.error || "ORDER_CREATE_FAILED");
-    }
-
-    const id = created?.orderId || created?.id || created?.order?.id || String(Date.now());
-    const etaMin = toNum(
-      created?.etaMin ?? created?.order?.etaMin ?? created?.data?.etaMin,
-      orderMode === "pickup" ? avgPickupMinutes : avgDeliveryMinutes,
-    );
-
-    return { id, etaMin };
+    return await parseOrderCreateResponse(emergencyResponse);
   }
 }
 

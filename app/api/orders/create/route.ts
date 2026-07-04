@@ -1014,11 +1014,337 @@ function serializeOrder(row: any) {
   });
 }
 
+
+function pad2(value: number) {
+  return String(value).padStart(2, "0");
+}
+
+function formatEuro(value: any) {
+  return new Intl.NumberFormat("de-DE", {
+    style: "currency",
+    currency: "EUR",
+  }).format(toNum(value, 0));
+}
+
+function makeEmergencyOrderId(nowMs = Date.now()) {
+  const d = new Date(nowMs);
+  const stamp = [
+    d.getFullYear(),
+    pad2(d.getMonth() + 1),
+    pad2(d.getDate()),
+    "-",
+    pad2(d.getHours()),
+    pad2(d.getMinutes()),
+    pad2(d.getSeconds()),
+  ].join("");
+  const rnd = Math.random().toString(36).slice(2, 6).toUpperCase();
+
+  return `NF-${stamp}-${rnd}`;
+}
+
+function formatEmergencyTelegramText(params: {
+  id: string;
+  order: any;
+  mode: OrderMode;
+  items: any[];
+  customer: any;
+  merchandise: number;
+  discount: number;
+  surcharges: number;
+  coupon: string | null;
+  couponDiscount: number;
+  total: number;
+  reason: string;
+  waitMs: number;
+}) {
+  const {
+    id,
+    order,
+    mode,
+    items,
+    customer,
+    merchandise,
+    discount,
+    surcharges,
+    coupon,
+    couponDiscount,
+    total,
+    reason,
+    waitMs,
+  } = params;
+
+  const note =
+    cleanText(order?.orderNote) ||
+    cleanText(order?.note) ||
+    cleanText(customer?.deliveryHint) ||
+    cleanText(customer?.note) ||
+    "-";
+
+  const address =
+    cleanText(customer?.addressLine) ||
+    cleanText(customer?.address) ||
+    [
+      [customer?.street, customer?.house].map(cleanText).filter(Boolean).join(" "),
+      [customer?.plz || customer?.zip, customer?.city].map(cleanText).filter(Boolean).join(" "),
+      [customer?.floor, customer?.entrance].map(cleanText).filter(Boolean).join(" • "),
+    ]
+      .map(cleanText)
+      .filter(Boolean)
+      .join(" | ") ||
+    "-";
+
+  const itemLines = items.length
+    ? items.map((item) => {
+        const extras = ensureArr(item?.add)
+          .map((extra) => cleanText(extra?.label || extra?.name))
+          .filter(Boolean)
+          .join(", ");
+        const removals = ensureArr(item?.rm)
+          .map((entry) => cleanText(entry))
+          .filter(Boolean)
+          .join(", ");
+        const itemNote = cleanText(item?.note);
+        const details = [
+          extras ? `Extras: ${extras}` : "",
+          removals ? `Ohne: ${removals}` : "",
+          itemNote ? `Notiz: ${itemNote}` : "",
+        ]
+          .filter(Boolean)
+          .join(" | ");
+
+        return `- ${toNum(item?.qty, 1)}x ${cleanText(item?.name) || "Artikel"}${
+          details ? ` (${details})` : ""
+        }`;
+      })
+    : ["- Keine Artikel übermittelt"];
+
+  return [
+    "🚨 ACİL MOD SİPARİŞ",
+    "",
+    reason || "DB bağlantısı kurulamadı.",
+    `Bekleme: ${Math.round(waitMs / 1000 / 60)} dakika`,
+    "Sipariş DB’ye kaydedilemedi.",
+    "",
+    `Order: ${id}`,
+    `Mod: ${mode === "pickup" ? "Abholung" : "Lieferung"}`,
+    `Zahlung: ${normalizePaymentMethod(order) || "cash"} / ${normalizePaymentStatus(order)}`,
+    order?.planned ? `Geplant: ${order.planned}` : "Geplant: -",
+    "",
+    `Ad: ${cleanText(customer?.name) || "-"}`,
+    `Telefon: ${cleanText(customer?.phone) || "-"}`,
+    `Adresse: ${mode === "delivery" ? address : "Abholung"}`,
+    `PLZ: ${cleanText(customer?.plz || customer?.zip || order?.plz) || "-"}`,
+    `Not: ${note}`,
+    "",
+    "Ürünler:",
+    ...itemLines,
+    "",
+    `Warenwert: ${formatEuro(merchandise)}`,
+    discount > 0 ? `Rabatt: -${formatEuro(discount)}` : "Rabatt: -",
+    coupon ? `Gutschein: ${coupon} (-${formatEuro(couponDiscount)})` : "Gutschein: -",
+    surcharges > 0 ? `Aufschläge: ${formatEuro(surcharges)}` : "Aufschläge: -",
+    `Toplam: ${formatEuro(total)}`,
+    "",
+    "ÖNEMLİ: Bu sipariş TV/Admin DB listesinde görünmez. Telegram’dan manuel takip edin.",
+  ].join("\n");
+}
+
+function readTelegramEnv() {
+  return {
+    token:
+      process.env.TELEGRAM_BOT_TOKEN ||
+      process.env.BB_TELEGRAM_BOT_TOKEN ||
+      process.env.TELEGRAM_TOKEN ||
+      process.env.BOT_TOKEN ||
+      "",
+    chatId:
+      process.env.TELEGRAM_CHAT_ID ||
+      process.env.BB_TELEGRAM_CHAT_ID ||
+      process.env.TELEGRAM_ORDER_CHAT_ID ||
+      process.env.TELEGRAM_ADMIN_CHAT_ID ||
+      "",
+  };
+}
+
+async function sendRawTelegramMessage(text: string) {
+  const { token, chatId } = readTelegramEnv();
+
+  if (!token || !chatId) {
+    throw new Error("telegram_env_missing");
+  }
+
+  const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      chat_id: chatId,
+      text,
+      disable_web_page_preview: true,
+    }),
+  });
+
+  if (!response.ok) {
+    const payload = await response.text().catch(() => "");
+    throw new Error(`telegram_http_${response.status}${payload ? `_${payload}` : ""}`);
+  }
+}
+
+async function sendEmergencyTelegramOrder(params: {
+  id: string;
+  order: any;
+  mode: OrderMode;
+  items: any[];
+  customer: any;
+  merchandise: number;
+  discount: number;
+  surcharges: number;
+  coupon: string | null;
+  couponDiscount: number;
+  total: number;
+  reason: string;
+  waitMs: number;
+}) {
+  const text = formatEmergencyTelegramText(params);
+
+  try {
+    await sendRawTelegramMessage(text);
+    return "raw";
+  } catch (rawError) {
+    console.error("Emergency raw Telegram failed, trying helper:", rawError);
+  }
+
+  await sendTelegramNewOrder({
+    id: params.id,
+    mode: params.mode,
+    items: [
+      {
+        name: "🚨 ACİL MOD SİPARİŞ - DB bağlantısı yok",
+        qty: 1,
+        price: 0,
+        note: params.reason,
+      },
+      ...params.items.map((item: any) => ({
+        name: item?.name || "Artikel",
+        qty: item?.qty || 1,
+        price: item?.price,
+        category: item?.category,
+        add: Array.isArray(item?.add) ? item.add : undefined,
+        rm: Array.isArray(item?.rm) ? item.rm : undefined,
+        note: item?.note,
+      })),
+    ],
+    totals: {
+      merchandise: params.merchandise,
+      discount: params.discount,
+      coupon: params.coupon || null,
+      couponDiscount: params.couponDiscount,
+      surcharges: params.surcharges,
+      total: params.total,
+    },
+    customer: {
+      name: params.customer?.name,
+      phone: params.customer?.phone,
+      address: params.customer?.addressLine || params.customer?.address,
+      plz: params.customer?.plz || params.customer?.zip,
+      note: `ACİL MOD SİPARİŞ — DB bağlantısı yok. ${params.customer?.deliveryHint || params.customer?.note || ""}`,
+    },
+    planned: params.order?.planned,
+  } as any);
+
+  return "helper";
+}
+
+async function handleEmergencyOrder(body: any, order: any) {
+  const nowMs = Date.now();
+  const id =
+    cleanText(body?.emergencyOrderId) ||
+    cleanText(order?.meta?.emergencyOrderId) ||
+    makeEmergencyOrderId(nowMs);
+
+  const mode = normalizeMode(order?.mode);
+  const items = normalizeItems(order);
+  const customer = normalizeCustomer(order);
+  const computedMerchandise = computeMerchandise(items);
+  const merchandise = toNum(order?.merchandise, computedMerchandise);
+  const discount = toNum(order?.discount, 0);
+  const surcharges = toNum(order?.surcharges, 0);
+  const coupon = order?.coupon ? normCouponCode(order.coupon) : null;
+  const couponDiscount = toNum(order?.couponDiscount, 0);
+  const total = toNum(
+    order?.total,
+    Math.max(0, merchandise + surcharges - discount - couponDiscount),
+  );
+  const reason = cleanText(body?.emergencyReason) || "DB bağlantısı kurulamadı.";
+  const waitMs = Math.max(0, toNum(body?.emergencyWaitMs, 5 * 60 * 1000));
+
+  const telegramVia = await sendEmergencyTelegramOrder({
+    id,
+    order,
+    mode,
+    items,
+    customer,
+    merchandise,
+    discount,
+    surcharges,
+    coupon,
+    couponDiscount,
+    total,
+    reason,
+    waitMs,
+  });
+
+  return NextResponse.json(
+    {
+      ok: true,
+      source: "telegram_emergency",
+      emergencyMode: true,
+      id,
+      orderId: id,
+      etaMin: null,
+      notifySent: true,
+      telegramVia,
+      message: "Order sent via emergency Telegram fallback.",
+    },
+    {
+      headers: {
+        "Cache-Control": "no-store, no-cache, must-revalidate",
+      },
+    },
+  );
+}
+
 export async function POST(req: Request) {
+  const body = await req.json().catch(() => ({} as any));
+  const order = body?.order && typeof body.order === "object" ? body.order : body;
+
+  if (body?.emergencyMode === true || body?.notfallMode === true) {
+    try {
+      return await handleEmergencyOrder(body, order);
+    } catch (error: any) {
+      console.error("❌ emergency order Telegram fallback failed", error);
+
+      return NextResponse.json(
+        {
+          ok: false,
+          source: "telegram_emergency",
+          emergencyMode: true,
+          error: error?.message || "EMERGENCY_TELEGRAM_FAILED",
+          message: "Notfall-Telegram konnte nicht gesendet werden.",
+        },
+        {
+          status: 503,
+          headers: {
+            "Cache-Control": "no-store, no-cache, must-revalidate",
+          },
+        },
+      );
+    }
+  }
+
   try {
     const tenantId = await getTenantId();
-    const body = await req.json().catch(() => ({} as any));
-    const order = body?.order && typeof body.order === "object" ? body.order : body;
 
     const notify = body?.notify !== false;
 
@@ -1219,7 +1545,7 @@ export async function POST(req: Request) {
 
     const errorCode = error?.code || error?.message || "bad_request";
     const isCouponError = Boolean(error?.couponError);
-    const status = Number(error?.status || (isCouponError ? 409 : 400));
+    const status = Number(error?.status || (isCouponError ? 409 : 503));
 
     return NextResponse.json(
       {
