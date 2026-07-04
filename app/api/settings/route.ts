@@ -1,6 +1,7 @@
 // app/api/settings/route.ts
 import { NextResponse } from "next/server";
 import { prisma, getTenantId } from "@/lib/db";
+import { readFallbackSnapshot, writeFallbackSnapshot } from "@/lib/server/fallback-snapshot";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -529,6 +530,23 @@ function errorResponse(error: any, fallback: string, status = 500) {
   );
 }
 
+
+async function readSettingsFallback() {
+  const fallback = await readFallbackSnapshot<PlainObject>("settings");
+
+  if (!isPlainObject(fallback)) return null;
+
+  return deepMerge(DEFAULT_SETTINGS, normalizeIncomingSettings(fallback));
+}
+
+async function writeSettingsFallback(settings: PlainObject) {
+  return writeFallbackSnapshot("settings", settings).catch((error) => {
+    console.warn("[settings:fallback] write failed", error);
+    return null;
+  });
+}
+
+
 async function readRequestBody(req: Request) {
   try {
     return await req.json();
@@ -547,6 +565,22 @@ export async function GET() {
     });
   } catch (error: any) {
     console.error("[settings:GET]", error);
+
+    const fallback = await readSettingsFallback();
+
+    if (fallback) {
+      return NextResponse.json(
+        {
+          ...fallback,
+          source: "fallback",
+          dbError: error?.message || "SETTINGS_GET_FAILED",
+        },
+        {
+          headers: NO_STORE_HEADERS,
+        },
+      );
+    }
+
     return errorResponse(error, "SETTINGS_GET_FAILED");
   }
 }
@@ -562,11 +596,13 @@ export async function POST(req: Request) {
 
     const result = await saveSettings(tenantId, payload, replace);
     const settings = await readSettingsMap(tenantId);
+    const fallbackSaved = await writeSettingsFallback(settings);
 
     return jsonResponse({
       ...settings,
       ok: true,
       source: "db",
+      fallbackSaved,
       saved: result.saved,
       keys: result.keys,
     });
@@ -587,11 +623,13 @@ export async function PUT(req: Request) {
 
     const result = await saveSettings(tenantId, payload, replace);
     const settings = await readSettingsMap(tenantId);
+    const fallbackSaved = await writeSettingsFallback(settings);
 
     return jsonResponse({
       ...settings,
       ok: true,
       source: "db",
+      fallbackSaved,
       saved: result.saved,
       keys: result.keys,
     });

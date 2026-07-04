@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma, getTenantId } from "@/lib/db";
+import { readFallbackSnapshot, writeFallbackSnapshot } from "@/lib/server/fallback-snapshot";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -510,6 +511,60 @@ async function listProducts(tenantId: string, categoryRaw?: string | null) {
   return products.map(serializeProduct);
 }
 
+
+function productsResponsePayload(items: any[], source: "db" | "fallback") {
+  return {
+    ok: true,
+    source,
+    items,
+    products: items,
+    count: items.length,
+  };
+}
+
+function filterProductItems(items: any[], categoryRaw?: string | null, activeOnly = false) {
+  let out = Array.isArray(items) ? items.slice() : [];
+
+  if (categoryRaw && !isAllFilter(categoryRaw)) {
+    const category = normalizeCategory(categoryRaw);
+    out = out.filter((item) => normalizeCategory(item?.category ?? item?.categoryKey) === category);
+  }
+
+  if (activeOnly) {
+    out = out.filter((item) => item?.active !== false);
+  }
+
+  return out;
+}
+
+async function readProductsFallback(categoryRaw?: string | null, activeOnly = false) {
+  const fallback = await readFallbackSnapshot<any>("products");
+
+  const rawItems = Array.isArray(fallback?.items)
+    ? fallback.items
+    : Array.isArray(fallback?.products)
+      ? fallback.products
+      : Array.isArray(fallback)
+        ? fallback
+        : [];
+
+  if (!rawItems.length) return null;
+
+  const items = filterProductItems(rawItems, categoryRaw, activeOnly);
+
+  return productsResponsePayload(items, "fallback");
+}
+
+async function writeProductsFallback(items: any[]) {
+  return writeFallbackSnapshot("products", productsResponsePayload(items, "fallback")).catch(
+    (error) => {
+      console.warn("[products:fallback] write failed", error);
+      return null;
+    },
+  );
+}
+
+
 export async function GET(req: Request) {
   try {
     const tenantId = await getTenantId();
@@ -534,6 +589,21 @@ export async function GET(req: Request) {
       count: items.length,
     });
   } catch (error: any) {
+    const url = new URL(req.url);
+    const category = url.searchParams.get("category") || url.searchParams.get("cat");
+    const activeOnly =
+      url.searchParams.get("active") === "1" ||
+      url.searchParams.get("active") === "true";
+
+    const fallback = await readProductsFallback(category, activeOnly);
+
+    if (fallback) {
+      return jsonResponse({
+        ...fallback,
+        dbError: error?.message || "PRODUCTS_GET_FAILED",
+      });
+    }
+
     return errorResponse(error, "PRODUCTS_GET_FAILED");
   }
 }
@@ -578,10 +648,12 @@ export async function PUT(req: Request) {
     });
 
     const serialized = await listProducts(tenantId);
+    const fallbackSaved = await writeProductsFallback(serialized);
 
     return jsonResponse({
       ok: true,
       source: "db",
+      fallbackSaved,
       counts: {
         input: items.length,
         saved: serialized.length,
@@ -640,10 +712,12 @@ export async function DELETE(req: Request) {
     });
 
     const items = await listProducts(tenantId);
+    const fallbackSaved = await writeProductsFallback(items);
 
     return jsonResponse({
       ok: true,
       source: "db",
+      fallbackSaved,
       items,
       products: items,
       count: items.length,

@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma, getTenantId } from "@/lib/db";
+import { readFallbackSnapshot, writeFallbackSnapshot } from "@/lib/server/fallback-snapshot";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -902,6 +903,93 @@ async function listCatalog(tenantId: string) {
   };
 }
 
+
+function catalogResponsePayload(
+  catalog: { products?: any[]; campaigns?: any[] },
+  source: "db" | "fallback",
+) {
+  const products = Array.isArray(catalog?.products) ? catalog.products : [];
+  const campaigns = Array.isArray(catalog?.campaigns) ? catalog.campaigns : [];
+
+  return {
+    ok: true,
+    source,
+    products,
+    items: products,
+    campaigns,
+    counts: {
+      products: products.length,
+      campaigns: campaigns.length,
+    },
+  };
+}
+
+async function readCatalogFallback() {
+  const catalog = await readFallbackSnapshot<any>("catalog");
+
+  if (
+    catalog &&
+    (Array.isArray(catalog?.products) ||
+      Array.isArray(catalog?.items) ||
+      Array.isArray(catalog?.campaigns))
+  ) {
+    return catalogResponsePayload(
+      {
+        products: Array.isArray(catalog.products) ? catalog.products : catalog.items,
+        campaigns: Array.isArray(catalog.campaigns) ? catalog.campaigns : [],
+      },
+      "fallback",
+    );
+  }
+
+  const products = await readFallbackSnapshot<any>("products");
+
+  const productItems = Array.isArray(products?.items)
+    ? products.items
+    : Array.isArray(products?.products)
+      ? products.products
+      : Array.isArray(products)
+        ? products
+        : [];
+
+  if (!productItems.length) return null;
+
+  return catalogResponsePayload(
+    {
+      products: productItems,
+      campaigns: [],
+    },
+    "fallback",
+  );
+}
+
+async function writeCatalogFallback(catalog: { products: any[]; campaigns: any[] }) {
+  const payload = catalogResponsePayload(catalog, "fallback");
+
+  const [catalogSaved, productsSaved] = await Promise.all([
+    writeFallbackSnapshot("catalog", payload).catch((error) => {
+      console.warn("[catalog:fallback] catalog write failed", error);
+      return null;
+    }),
+    writeFallbackSnapshot("products", {
+      ok: true,
+      source: "fallback",
+      items: payload.products,
+      products: payload.products,
+      count: payload.products.length,
+    }).catch((error) => {
+      console.warn("[catalog:fallback] products write failed", error);
+      return null;
+    }),
+  ]);
+
+  return {
+    catalog: catalogSaved,
+    products: productsSaved,
+  };
+}
+
+
 async function readBody(req: Request) {
   try {
     return await req.json();
@@ -915,18 +1003,17 @@ export async function GET() {
     const tenantId = await getTenantId();
     const catalog = await listCatalog(tenantId);
 
-    return jsonResponse({
-      ok: true,
-      source: "db",
-      products: catalog.products,
-      items: catalog.products,
-      campaigns: catalog.campaigns,
-      counts: {
-        products: catalog.products.length,
-        campaigns: catalog.campaigns.length,
-      },
-    });
+    return jsonResponse(catalogResponsePayload(catalog, "db"));
   } catch (error: any) {
+    const fallback = await readCatalogFallback();
+
+    if (fallback) {
+      return jsonResponse({
+        ...fallback,
+        dbError: error?.message || "CATALOG_GET_FAILED",
+      });
+    }
+
     return errorResponse(error, "CATALOG_GET_FAILED");
   }
 }
@@ -946,10 +1033,11 @@ export async function PUT(req: Request) {
     const saveResult = await persistCatalog(tenantId, productInputs, campaignInputs, replace);
 
     const catalog = await listCatalog(tenantId);
+    const fallbackSaved = await writeCatalogFallback(catalog);
 
     return jsonResponse({
-      ok: true,
-      source: "db",
+      ...catalogResponsePayload(catalog, "db"),
+      fallbackSaved,
       saveMode: saveResult.saveMode,
       counts: {
         inputProducts: products.length,
@@ -959,9 +1047,6 @@ export async function PUT(req: Request) {
         savedProducts: catalog.products.length,
         savedCampaigns: catalog.campaigns.length,
       },
-      products: catalog.products,
-      items: catalog.products,
-      campaigns: catalog.campaigns,
     });
   } catch (error: any) {
     return errorResponse(error, "CATALOG_PUT_FAILED");

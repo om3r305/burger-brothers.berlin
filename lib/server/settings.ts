@@ -1,6 +1,7 @@
 // lib/server/settings.ts
 import { Prisma } from "@prisma/client";
 import { prisma, getTenantId } from "@/lib/db";
+import { readFallbackSnapshot, writeFallbackSnapshot } from "@/lib/server/fallback-snapshot";
 
 export type ServerSettings = {
   security?: {
@@ -525,7 +526,18 @@ export async function getServerSettings(): Promise<ServerSettings> {
     const dbSettings = await readSettingsFromDb();
     return applyEnvFallback(dbSettings);
   } catch (error) {
-    console.error("[server/settings] DB read failed, using safe defaults:", error);
+    console.error("[server/settings] DB read failed, trying fallback snapshot:", error);
+
+    try {
+      const fallbackSettings = await readFallbackSnapshot<ServerSettings>("settings");
+
+      if (fallbackSettings && isPlainObject(fallbackSettings)) {
+        return applyEnvFallback(normalizeSettingsObject(fallbackSettings));
+      }
+    } catch (fallbackError) {
+      console.error("[server/settings] fallback snapshot read failed:", fallbackError);
+    }
+
     return applyEnvFallback({});
   }
 }
@@ -537,6 +549,13 @@ export async function getServerSettings(): Promise<ServerSettings> {
 export async function saveServerSettings(settings: ServerSettings): Promise<void> {
   try {
     await writeSettingsToDb(settings);
+
+    try {
+      const latest = await readSettingsFromDb();
+      await writeFallbackSnapshot("settings", applyEnvFallback(latest));
+    } catch (fallbackError) {
+      console.error("[server/settings] fallback snapshot write failed:", fallbackError);
+    }
   } catch (error) {
     console.error("[server/settings] DB write failed:", error);
   }
