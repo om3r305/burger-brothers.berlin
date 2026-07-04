@@ -54,3 +54,22 @@ prisma/data/
 Thumbs.db
 .vscode/
 .idea/
+# Local print agent secrets
+print-agent/config.json
+.env
+.env.local
+.env.*.local
+
+# Local print agent secrets
+print-agent/config.json
+.env
+.env.local
+.env.*.local
+
+# Local print/proxy secrets
+print-agent/config.json
+print-proxy/.env
+.env
+.env.local
+.env.*.local
+*.tsbuildinfo
