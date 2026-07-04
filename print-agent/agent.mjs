@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 // print-agent/agent.mjs
-// Burger Brothers Berlin local ESC/POS print agent.
+// Burger Brothers Berlin print bridge.
+// Amaç: Otomatik yazdırmayı TV'deki manuel yazdırma ile aynı tasarıma bağlamak.
+// Bu agent kendi fiş tasarımını üretmez; mevcut print-proxy /print/full endpointine gönderir.
+// Böylece manuel TV baskısı ve otomatik agent baskısı aynı logo/KDV/barkod dizaynını kullanır.
 // Node 20+ gerekir. Ek npm paketi gerekmez.
 
 import fs from "fs";
 import path from "path";
-import net from "net";
 import process from "process";
 
 const DEFAULT_CONFIG_PATH = path.join(process.cwd(), "print-agent", "config.json");
@@ -18,6 +20,10 @@ function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
 }
 
+function trimSlash(value) {
+  return String(value || "").trim().replace(/\/+$/, "");
+}
+
 function loadConfig() {
   const configPath = process.argv[2] || process.env.PRINT_AGENT_CONFIG || DEFAULT_CONFIG_PATH;
 
@@ -28,29 +34,44 @@ function loadConfig() {
   const fileCfg = readJson(configPath);
 
   const cfg = {
-    baseUrl: process.env.PRINT_BASE_URL || fileCfg.baseUrl || "",
+    // Gerçek domain / Vercel
+    baseUrl: trimSlash(process.env.PRINT_BASE_URL || fileCfg.baseUrl || ""),
+
+    // Vercel ENV'deki PRINT_AGENT_TOKEN ile aynı olmalı
     token: process.env.PRINT_AGENT_TOKEN || fileCfg.token || "",
+
+    // Agent adı DB print meta içinde görünür
     agentName: process.env.PRINT_AGENT_NAME || fileCfg.agentName || "shop-tv-1",
-    printerHost: process.env.PRINTER_HOST || fileCfg.printerHost || "",
-    printerPort: Number(process.env.PRINTER_PORT || fileCfg.printerPort || 9100),
-    printerName: process.env.PRINTER_NAME || fileCfg.printerName || "",
+
+    // Mevcut print-proxy adresi. Tasarım ve yazıcı IP ayarları print-proxy içinde kalır.
+    printProxyUrl: trimSlash(
+      process.env.PRINT_PROXY_URL || fileCfg.printProxyUrl || "http://127.0.0.1:7777",
+    ),
+
+    // /api/print/jobs tarafına bilgi amaçlı gönderilir
+    printerName: process.env.PRINTER_NAME || fileCfg.printerName || "print-proxy",
+
     pollSeconds: Number(process.env.PRINT_POLL_SECONDS || fileCfg.pollSeconds || 5),
     maxJobs: Number(process.env.PRINT_MAX_JOBS || fileCfg.maxJobs || 3),
     lookbackMinutes: Number(process.env.PRINT_LOOKBACK_MINUTES || fileCfg.lookbackMinutes || 720),
     leaseSeconds: Number(process.env.PRINT_LEASE_SECONDS || fileCfg.leaseSeconds || 180),
     maxAttempts: Number(process.env.PRINT_MAX_ATTEMPTS || fileCfg.maxAttempts || 5),
-    socketTimeoutMs: Number(process.env.PRINT_SOCKET_TIMEOUT_MS || fileCfg.socketTimeoutMs || 12000),
-    receiptWidth: Number(process.env.PRINT_RECEIPT_WIDTH || fileCfg.receiptWidth || 42),
-    printBarcode: fileCfg.printBarcode !== false,
-    cutPaper: fileCfg.cutPaper !== false,
-    cashDrawer: fileCfg.cashDrawer === true,
+
+    fetchTimeoutMs: Number(process.env.PRINT_FETCH_TIMEOUT_MS || fileCfg.fetchTimeoutMs || 30000),
+
+    // print-proxy /print/full options
+    options: {
+      paper: fileCfg?.options?.paper || "80mm",
+      copies: Number(fileCfg?.options?.copies || 1),
+      brand: fileCfg?.options?.brand || "Burger Brothers",
+      logoUrl: fileCfg?.options?.logoUrl || undefined,
+      maskName: fileCfg?.options?.maskName ?? false,
+      maskPhone: fileCfg?.options?.maskPhone ?? false,
+    },
   };
 
-  cfg.baseUrl = String(cfg.baseUrl).replace(/\/+$/, "");
-
   if (!cfg.baseUrl) throw new Error("baseUrl eksik.");
-  if (!cfg.printerHost) throw new Error("printerHost eksik.");
-  if (!Number.isFinite(cfg.printerPort) || cfg.printerPort <= 0) throw new Error("printerPort geçersiz.");
+  if (!cfg.printProxyUrl) throw new Error("printProxyUrl eksik.");
 
   return cfg;
 }
@@ -59,325 +80,308 @@ function log(...args) {
   console.log(new Date().toLocaleString("de-DE"), "-", ...args);
 }
 
-function ascii(input) {
-  return String(input ?? "")
-    .replace(/€/g, "EUR")
-    .replace(/Ä/g, "Ae")
-    .replace(/Ö/g, "Oe")
-    .replace(/Ü/g, "Ue")
-    .replace(/ä/g, "ae")
-    .replace(/ö/g, "oe")
-    .replace(/ü/g, "ue")
-    .replace(/ß/g, "ss")
-    .replace(/Ğ/g, "G")
-    .replace(/ğ/g, "g")
-    .replace(/Ş/g, "S")
-    .replace(/ş/g, "s")
-    .replace(/İ/g, "I")
-    .replace(/ı/g, "i")
-    .replace(/Ç/g, "C")
-    .replace(/ç/g, "c")
-    .replace(/[^\x09\x0A\x0D\x20-\x7E]/g, "?");
+function withTimeout(ms) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), ms);
+
+  return {
+    signal: controller.signal,
+    cancel: () => clearTimeout(timeout),
+  };
 }
 
-function clean(value) {
-  return ascii(String(value ?? "").trim());
-}
-
-function eur(value) {
-  const n = Number(value || 0);
-  if (!Number.isFinite(n)) return "0,00 EUR";
-  return `${n.toFixed(2).replace(".", ",")} EUR`;
-}
-
-function array(value) {
-  return Array.isArray(value) ? value : [];
-}
-
-function esc(...bytes) {
-  return Buffer.from(bytes);
-}
-
-function txt(value = "") {
-  return Buffer.from(ascii(value), "ascii");
-}
-
-function line(value = "") {
-  return txt(`${value}\n`);
-}
-
-function repeat(char, count) {
-  return char.repeat(Math.max(0, count));
-}
-
-function leftRight(left, right, width) {
-  const l = clean(left);
-  const r = clean(right);
-  const maxLeft = Math.max(0, width - r.length - 1);
-  const sliced = l.length > maxLeft ? l.slice(0, maxLeft) : l;
-  return `${sliced}${repeat(" ", Math.max(1, width - sliced.length - r.length))}${r}`;
-}
-
-function wrap(text, width) {
-  const words = clean(text).split(/\s+/).filter(Boolean);
-  const lines = [];
-  let current = "";
-
-  for (const word of words) {
-    if (!current) {
-      current = word.length > width ? word.slice(0, width) : word;
-    } else if ((current + " " + word).length <= width) {
-      current += " " + word;
-    } else {
-      lines.push(current);
-      current = word.length > width ? word.slice(0, width) : word;
-    }
-  }
-
-  if (current) lines.push(current);
-  return lines.length ? lines : [""];
-}
-
-function center(text, width) {
-  const value = clean(text);
-  const left = Math.floor(Math.max(0, width - value.length) / 2);
-  return `${repeat(" ", left)}${value}`;
-}
-
-function paymentLabel(value) {
-  const raw = clean(value).toLowerCase();
-
-  if (raw === "cash" || raw === "bar" || raw === "barzahlung") return "Barzahlung";
-  if (raw === "online" || raw === "stripe" || raw === "card") return "Online";
-  if (raw === "contactless" || raw === "kontaktlos") return "Kontaktlos";
-  if (raw === "split_contactless" || raw === "split") return "Getrennt/Kontaktlos";
-
-  return value ? clean(value) : "";
-}
-
-function barcode(orderId) {
-  const safe = clean(orderId).replace(/[^A-Za-z0-9_-]/g, "");
-  if (!safe) return line("");
-
-  const data = Buffer.from(`{B${safe}`, "ascii");
-
-  return Buffer.concat([
-    esc(0x1d, 0x48, 0x02), // HRI below
-    esc(0x1d, 0x68, 0x50), // height
-    esc(0x1d, 0x77, 0x02), // width
-    esc(0x1d, 0x6b, 0x49, data.length), // CODE128
-    data,
-    line(""),
-  ]);
-}
-
-function receipt(job, cfg) {
-  const width = cfg.receiptWidth;
-  const chunks = [];
-  const push = (b) => chunks.push(b);
-  const pushLine = (v = "") => push(line(v));
-
-  const id = clean(job.orderId || job.id || "");
-  const mode = job.mode === "pickup" ? "Abholung" : "Lieferung";
-  const totals = job.totals || {};
-  const customer = job.customer || {};
-  const pay = paymentLabel(job?.payment?.method || job?.meta?.paymentMethod || "");
-
-  push(esc(0x1b, 0x40)); // init
-  push(esc(0x1b, 0x61, 0x01)); // center
-  push(esc(0x1b, 0x45, 0x01)); // bold
-  pushLine(center("BURGER BROTHERS", width));
-  push(esc(0x1b, 0x45, 0x00));
-  pushLine(center("Berlin Tegel", width));
-  pushLine("");
-
-  push(esc(0x1b, 0x61, 0x00)); // left
-  push(esc(0x1b, 0x45, 0x01));
-  pushLine(`Bestellung #${id}`);
-  push(esc(0x1b, 0x45, 0x00));
-  pushLine(leftRight("Art", mode, width));
-
-  if (job.channel) pushLine(leftRight("Kanal", clean(job.channel), width));
-  if (job.planned) pushLine(leftRight("Geplant", clean(job.planned), width));
-
-  const eta = Number(job.etaMin || 0) + Number(job.etaAdjustMin || 0);
-  if (eta > 0) pushLine(leftRight("ETA", `~${eta} Min`, width));
-  if (pay) pushLine(leftRight("Zahlung", pay, width));
-
-  pushLine(repeat("-", width));
-
-  if (customer.name || customer.phone || customer.addressLine || customer.address) {
-    push(esc(0x1b, 0x45, 0x01));
-    pushLine("Kunde");
-    push(esc(0x1b, 0x45, 0x00));
-
-    if (customer.name) pushLine(clean(customer.name));
-    if (customer.phone) pushLine(clean(customer.phone));
-
-    const address = customer.addressLine || customer.address || "";
-    if (address) wrap(address, width).forEach(pushLine);
-
-    const zipLine = [customer.plz || customer.zip, customer.city].filter(Boolean).join(" ");
-    if (zipLine) pushLine(clean(zipLine));
-    if (customer.floor) pushLine(`Etage: ${clean(customer.floor)}`);
-    if (customer.entrance) pushLine(`Aufgang: ${clean(customer.entrance)}`);
-
-    const note = job.note || customer.deliveryHint || customer.note || "";
-    if (note) {
-      pushLine("");
-      push(esc(0x1b, 0x45, 0x01));
-      pushLine("Hinweis");
-      push(esc(0x1b, 0x45, 0x00));
-      wrap(note, width).forEach(pushLine);
-    }
-
-    pushLine(repeat("-", width));
-  }
-
-  push(esc(0x1b, 0x45, 0x01));
-  pushLine("Artikel");
-  push(esc(0x1b, 0x45, 0x00));
-
-  for (const item of array(job.items)) {
-    const qty = Number(item.qty || 1);
-    const name = clean(item.name || "Artikel");
-    const unit = Number(item.price || 0);
-    const right = unit > 0 ? eur(unit * qty) : "";
-
-    pushLine(leftRight(`${qty} x ${name}`, right, width));
-
-    for (const extra of array(item.add)) {
-      const extraName = clean(extra.label || extra.name || "Extra");
-      const extraPrice = Number(extra.price || 0);
-      pushLine(leftRight(`  + ${extraName}`, extraPrice > 0 ? `+${eur(extraPrice)}` : "", width));
-    }
-
-    const rm = array(item.rm).filter(Boolean);
-    if (rm.length) pushLine(`  Ohne: ${clean(rm.join(", "))}`);
-
-    if (item.note) wrap(`  Hinweis: ${item.note}`, width).forEach(pushLine);
-  }
-
-  pushLine(repeat("-", width));
-  pushLine(leftRight("Warenwert", eur(totals.merchandise), width));
-  if (Number(totals.discount || 0) > 0) pushLine(leftRight("Rabatt", `-${eur(totals.discount)}`, width));
-  if (Number(totals.couponDiscount || 0) > 0) {
-    pushLine(leftRight(totals.coupon ? `Gutschein ${totals.coupon}` : "Gutschein", `-${eur(totals.couponDiscount)}`, width));
-  }
-  if (Number(totals.surcharges || 0) > 0) pushLine(leftRight("Aufschlaege", eur(totals.surcharges), width));
-
-  push(esc(0x1b, 0x45, 0x01));
-  pushLine(leftRight("GESAMT", eur(totals.total), width));
-  push(esc(0x1b, 0x45, 0x00));
-  pushLine(repeat("-", width));
-
-  if (cfg.printBarcode && id) {
-    push(esc(0x1b, 0x61, 0x01));
-    pushLine(`#${id}`);
-    push(barcode(id));
-    push(esc(0x1b, 0x61, 0x00));
-  }
-
-  pushLine("");
-  pushLine("");
-  pushLine("");
-
-  if (cfg.cashDrawer) push(esc(0x1b, 0x70, 0x00, 0x32, 0x32));
-  if (cfg.cutPaper) push(esc(0x1d, 0x56, 0x42, 0x00));
-
-  return Buffer.concat(chunks);
-}
-
-function send(buffer, cfg) {
-  return new Promise((resolve, reject) => {
-    const socket = net.createConnection({ host: cfg.printerHost, port: cfg.printerPort }, () => {
-      socket.write(buffer, (error) => {
-        if (error) {
-          socket.destroy();
-          reject(error);
-          return;
-        }
-
-        socket.end();
-      });
-    });
-
-    socket.setTimeout(cfg.socketTimeoutMs || 12000);
-    socket.on("timeout", () => socket.destroy(new Error("printer_socket_timeout")));
-    socket.on("error", reject);
-    socket.on("close", resolve);
-  });
-}
-
-async function api(cfg, pathname, options = {}) {
-  const response = await fetch(`${cfg.baseUrl}${pathname}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      "x-print-agent-token": cfg.token,
-      "x-print-agent-name": cfg.agentName,
-      ...(options.headers || {}),
-    },
-  });
-
-  const text = await response.text();
-  let payload = null;
+async function fetchJson(url, options = {}, timeoutMs = 30000) {
+  const timeout = withTimeout(timeoutMs);
 
   try {
-    payload = text ? JSON.parse(text) : null;
-  } catch {
-    payload = { raw: text };
-  }
+    const response = await fetch(url, {
+      ...options,
+      signal: timeout.signal,
+    });
 
-  if (!response.ok) {
-    throw new Error(`${response.status} ${response.statusText}: ${JSON.stringify(payload)}`);
-  }
+    const text = await response.text();
+    let payload = null;
 
-  return payload;
+    try {
+      payload = text ? JSON.parse(text) : null;
+    } catch {
+      payload = { raw: text };
+    }
+
+    if (!response.ok) {
+      throw new Error(`${response.status} ${response.statusText}: ${JSON.stringify(payload)}`);
+    }
+
+    return payload;
+  } finally {
+    timeout.cancel();
+  }
 }
 
-async function jobs(cfg) {
+async function apiJson(cfg, pathname, options = {}) {
+  const url = `${cfg.baseUrl}${pathname}`;
+  const headers = {
+    "Content-Type": "application/json",
+    "x-print-agent-token": cfg.token,
+    "x-print-agent-name": cfg.agentName,
+    ...(options.headers || {}),
+  };
+
+  return fetchJson(
+    url,
+    {
+      ...options,
+      headers,
+    },
+    cfg.fetchTimeoutMs,
+  );
+}
+
+async function proxyJson(cfg, pathname, options = {}) {
+  const url = `${cfg.printProxyUrl}${pathname}`;
+  const headers = {
+    "Content-Type": "application/json",
+    ...(options.headers || {}),
+  };
+
+  return fetchJson(
+    url,
+    {
+      ...options,
+      headers,
+    },
+    cfg.fetchTimeoutMs,
+  );
+}
+
+async function fetchJobs(cfg) {
   const params = new URLSearchParams({
     agent: cfg.agentName,
-    printer: cfg.printerName || `${cfg.printerHost}:${cfg.printerPort}`,
+    printer: cfg.printerName,
     max: String(cfg.maxJobs),
     lookbackMinutes: String(cfg.lookbackMinutes),
     leaseSeconds: String(cfg.leaseSeconds),
     maxAttempts: String(cfg.maxAttempts),
   });
 
-  const payload = await api(cfg, `/api/print/jobs?${params.toString()}`, { method: "GET" });
+  const payload = await apiJson(cfg, `/api/print/jobs?${params.toString()}`, {
+    method: "GET",
+  });
+
   return Array.isArray(payload?.jobs) ? payload.jobs : [];
 }
 
-async function mark(cfg, job, status, extra = {}) {
-  return api(cfg, "/api/print/mark", {
+async function markJob(cfg, job, status, extra = {}) {
+  return apiJson(cfg, "/api/print/mark", {
     method: "POST",
     body: JSON.stringify({
       id: job.orderId || job.id,
       jobId: job.jobId,
       status,
       agent: cfg.agentName,
-      printer: cfg.printerName || `${cfg.printerHost}:${cfg.printerPort}`,
+      printer: cfg.printerName,
       ...extra,
     }),
   });
 }
 
-async function handle(cfg, job) {
-  const id = job.orderId || job.id;
-  log("Yazdiriliyor:", id);
+function num(value, fallback = 0) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (value == null || value === "") return fallback;
+
+  const text = String(value).trim().replace(/[€\s]/g, "").replace(",", ".");
+  const match = text.match(/-?\d+(\.\d+)?/);
+  const parsed = match ? Number(match[0]) : Number(text);
+
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function clean(value) {
+  return String(value ?? "").trim();
+}
+
+function normalizeCustomerForProxy(customer = {}) {
+  const addressLine = clean(
+    customer.addressLine ||
+      customer.address ||
+      [customer.street, customer.house || customer.houseNo].filter(Boolean).join(" "),
+  );
+
+  return {
+    ...customer,
+    name: clean(customer.name),
+    phone: clean(customer.phone),
+    email: clean(customer.email),
+    address: addressLine,
+    addressLine,
+    street: clean(customer.street),
+    house: clean(customer.house || customer.houseNo),
+    houseNo: clean(customer.houseNo || customer.house),
+    zip: clean(customer.zip || customer.plz || customer.postalCode),
+    plz: clean(customer.plz || customer.zip || customer.postalCode),
+    city: clean(customer.city),
+    floor: clean(customer.floor),
+    entrance: clean(customer.entrance),
+    deliveryHint: clean(customer.deliveryHint || customer.note),
+    note: clean(customer.note || customer.deliveryHint),
+  };
+}
+
+function normalizeItemsForProxy(items = []) {
+  return (Array.isArray(items) ? items : []).map((item) => ({
+    id: item.id ? String(item.id) : undefined,
+    sku: item.sku ? String(item.sku) : undefined,
+    name: clean(item.name || item.title || "Artikel"),
+    category: clean(item.category || item.group || item.type),
+    group: clean(item.group || item.category || item.type),
+    price: num(item.price ?? item.unitPrice, 0),
+    qty: Math.max(1, num(item.qty ?? item.quantity, 1)),
+    add: Array.isArray(item.add || item.extras)
+      ? (item.add || item.extras).map((extra) => ({
+          id: extra?.id ? String(extra.id) : undefined,
+          label: clean(extra?.label || extra?.name),
+          name: clean(extra?.name || extra?.label),
+          price: num(extra?.price, 0),
+        }))
+      : [],
+    rm: Array.isArray(item.rm || item.remove)
+      ? (item.rm || item.remove).map((entry) => String(entry))
+      : [],
+    note: clean(item.note),
+    taxRate: item.taxRate,
+  }));
+}
+
+/*
+  /api/print/jobs cevabını eski print-proxy /print/full'in beklediği order şekline çevirir.
+  Tasarım yine print-proxy içindeki buildTicketFromOrder fonksiyonundan gelir.
+*/
+function jobToProxyOrder(job) {
+  const totals = job.totals || {};
+  const customer = normalizeCustomerForProxy(job.customer || {});
+  const items = normalizeItemsForProxy(job.items || []);
+  const note = clean(job.note || customer.deliveryHint || customer.note);
+  const couponDiscount = num(totals.couponDiscount, 0);
+  const regularDiscount = num(totals.discount, 0);
+  const discountTotal = regularDiscount + couponDiscount;
+
+  const adjustments = [];
+
+  if (regularDiscount > 0) {
+    adjustments.push({
+      type: "discount",
+      source: "Rabatt",
+      reason: "Rabatt / Angebot",
+      amount: regularDiscount,
+    });
+  }
+
+  if (couponDiscount > 0) {
+    adjustments.push({
+      type: "discount",
+      source: "Gutschein",
+      code: totals.coupon || "",
+      reason: totals.coupon ? `Gutschein ${totals.coupon}` : "Gutschein",
+      amount: couponDiscount,
+    });
+  }
+
+  return {
+    id: job.orderId || job.id,
+    orderId: job.orderId || job.id,
+    ts: job.ts || Date.now(),
+    createdAt: job.createdAt || undefined,
+    updatedAt: job.updatedAt || undefined,
+    mode: job.mode || "delivery",
+    channel: job.channel || job?.meta?.source || "web",
+    status: job.status || "new",
+    planned: job.planned || undefined,
+    etaMin: job.etaMin ?? undefined,
+    etaAdjustMin: job.etaAdjustMin ?? 0,
+
+    customer,
+    items,
+    note,
+    orderNote: note,
+    deliveryNote: note,
+
+    merchandise: num(totals.merchandise, 0),
+    discount: regularDiscount,
+    coupon: totals.coupon || null,
+    couponDiscount,
+    surcharges: num(totals.surcharges, 0),
+    total: num(totals.total, 0),
+    amount: num(totals.total, 0),
+    payable: num(totals.total, 0),
+    toPay: num(totals.total, 0),
+
+    pricing: {
+      subtotal: num(totals.merchandise, 0),
+      discount: discountTotal,
+      total: num(totals.total, 0),
+      delivery: num(totals.surcharges, 0),
+      deliveryFee: num(totals.surcharges, 0),
+    },
+
+    fees: {
+      delivery: num(totals.surcharges, 0),
+      deliveryFee: num(totals.surcharges, 0),
+    },
+
+    adjustments,
+
+    meta: {
+      ...(job.meta || {}),
+      note,
+      orderNote: note,
+      paymentMethod: job?.payment?.method || job?.meta?.paymentMethod || null,
+      paymentStatus: job?.payment?.status || job?.meta?.paymentStatus || null,
+      coupon: totals.coupon || job?.meta?.coupon || null,
+      couponDiscount,
+    },
+  };
+}
+
+async function printViaProxy(cfg, job) {
+  const order = jobToProxyOrder(job);
+
+  return proxyJson(cfg, "/print/full", {
+    method: "POST",
+    body: JSON.stringify({
+      order,
+      options: cfg.options,
+    }),
+  });
+}
+
+async function checkProxy(cfg) {
+  try {
+    const health = await proxyJson(cfg, "/health", { method: "GET" }, 8000);
+    log("print-proxy OK:", JSON.stringify(health?.printer || health || {}));
+  } catch (error) {
+    log("print-proxy uyarı:", error?.message || error);
+    log("Agent yine başlar ama yazdırma için print-proxy açık olmalı.");
+  }
+}
+
+async function handleJob(cfg, job) {
+  const orderId = job.orderId || job.id;
+
+  log("Yazdiriliyor:", orderId);
 
   try {
-    await send(receipt(job, cfg), cfg);
-    await mark(cfg, job, "printed");
-    log("Basildi:", id);
+    await printViaProxy(cfg, job);
+    await markJob(cfg, job, "printed");
+    log("Basildi:", orderId);
   } catch (error) {
     const message = error?.message || String(error);
-    log("Yazdirma hatasi:", id, message);
+
+    log("Yazdirma hatasi:", orderId, message);
 
     try {
-      await mark(cfg, job, "failed", { error: message.slice(0, 500) });
+      await markJob(cfg, job, "failed", {
+        error: message.slice(0, 500),
+      });
     } catch (markError) {
       log("Hata DB'ye yazilamadi:", markError?.message || markError);
     }
@@ -399,19 +403,24 @@ process.on("SIGTERM", () => {
 async function main() {
   const cfg = loadConfig();
 
-  log("Print Agent basladi");
+  log("Print Agent Bridge basladi");
   log("Domain:", cfg.baseUrl);
-  log("Yazici:", `${cfg.printerHost}:${cfg.printerPort}`);
+  log("Print proxy:", cfg.printProxyUrl);
   log("Agent:", cfg.agentName);
+
+  await checkProxy(cfg);
 
   while (!stopped) {
     try {
-      const list = await jobs(cfg);
-      if (list.length) log(`${list.length} yeni yazdirma isi var.`);
+      const jobs = await fetchJobs(cfg);
 
-      for (const job of list) {
+      if (jobs.length) {
+        log(`${jobs.length} yeni yazdirma isi var.`);
+      }
+
+      for (const job of jobs) {
         if (stopped) break;
-        await handle(cfg, job);
+        await handleJob(cfg, job);
       }
     } catch (error) {
       log("Agent hata:", error?.message || error);
