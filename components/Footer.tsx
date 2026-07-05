@@ -11,6 +11,7 @@ const LS_KEYS = ["bb_site_config_override", "bb_settings_v1", "bb_settings_v6"] 
 const DEFAULT_INSTAGRAM =
   "https://www.instagram.com/burgerbrotherstegel?igsh=anNzZm10OHBjeWZi";
 const DEFAULT_TIKTOK = "https://www.tiktok.com/@burger.brothers.t";
+const DEFAULT_GOOGLE_REVIEWS = "https://g.page/r/CcInXgYas-3xEBE/review";
 
 type Contact = {
   phone?: string;
@@ -63,6 +64,16 @@ function isCorrectTikTok(value: any) {
   );
 }
 
+function isCorrectGoogleReviews(value: any) {
+  const url = normalizeSocialUrl(value).toLowerCase();
+
+  return (
+    url.includes("g.page/r/ccinxgyas-3xebe/review") ||
+    url.includes("google.com") ||
+    url.includes("maps.app.goo.gl")
+  );
+}
+
 function withDefaultSocialLinks(contact: Contact): Contact {
   return {
     ...contact,
@@ -76,6 +87,9 @@ function withDefaultSocialLinks(contact: Contact): Contact {
     tiktok: isCorrectTikTok(contact.tiktok)
       ? normalizeSocialUrl(contact.tiktok)
       : DEFAULT_TIKTOK,
+    googleReviews: isCorrectGoogleReviews(contact.googleReviews)
+      ? normalizeSocialUrl(contact.googleReviews)
+      : DEFAULT_GOOGLE_REVIEWS,
   };
 }
 
