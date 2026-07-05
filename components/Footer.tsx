@@ -43,7 +43,14 @@ function mergeContact(base: Contact, override?: Contact): Contact {
 }
 
 function normalizeSocialUrl(value: any) {
-  return String(value || "").trim();
+  const url = String(value || "").trim();
+
+  if (!url) return "";
+  if (/^(https?:|mailto:|tel:|sms:|whatsapp:)/i.test(url)) return url;
+
+  if (url.startsWith("//")) return `https:${url}`;
+
+  return `https://${url.replace(/^\/+/, "")}`;
 }
 
 function isCorrectInstagram(value: any) {
@@ -67,11 +74,7 @@ function isCorrectTikTok(value: any) {
 function isCorrectGoogleReviews(value: any) {
   const url = normalizeSocialUrl(value).toLowerCase();
 
-  return (
-    url.includes("g.page/r/ccinxgyas-3xebe/review") ||
-    url.includes("google.com") ||
-    url.includes("maps.app.goo.gl")
-  );
+  return url.includes("g.page/r/ccinxgyas-3xebe/review");
 }
 
 function withDefaultSocialLinks(contact: Contact): Contact {
