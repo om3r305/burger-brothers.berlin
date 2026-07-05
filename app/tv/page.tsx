@@ -548,26 +548,27 @@ function saveTvFirstSeenCache(cache: Record<string, TvFirstSeenEntry>) {
 }
 
 function readTvSoundEnabled() {
-  if (typeof window === "undefined") return false;
+  if (typeof window === "undefined") return true;
 
   try {
-    return localStorage.getItem(TV_SOUND_ENABLED_KEY) === "1";
+    const stored = localStorage.getItem(TV_SOUND_ENABLED_KEY);
+    return stored == null ? true : stored === "1";
   } catch {
-    return false;
+    return true;
   }
 }
 
 function readTvSoundVolume() {
-  if (typeof window === "undefined") return 85;
+  if (typeof window === "undefined") return 100;
 
   try {
-    const raw = Number(localStorage.getItem(TV_SOUND_VOLUME_KEY) || "85");
+    const raw = Number(localStorage.getItem(TV_SOUND_VOLUME_KEY) || "100");
 
-    if (!Number.isFinite(raw)) return 85;
+    if (!Number.isFinite(raw)) return 100;
 
     return Math.max(0, Math.min(100, Math.round(raw)));
   } catch {
-    return 85;
+    return 100;
   }
 }
 
@@ -1949,7 +1950,7 @@ async function silentPrint(order: StoredOrder) {
     const proxy =
       (typeof window !== "undefined" &&
         (localStorage.getItem("bb_print_proxy_url") || "")) ||
-      "https://www.burger-brothers.berlin";
+      "http://127.0.0.1:7777";
 
     const res = await fetch(`${proxy}/print/full`, {
       method: "POST",
@@ -1959,8 +1960,8 @@ async function silentPrint(order: StoredOrder) {
         options: {
           paper: "80mm",
           copies: 1,
-          maskName: true,
-          maskPhone: true,
+          maskName: false,
+          maskPhone: false,
         },
       }),
     });
@@ -2002,7 +2003,7 @@ function TvSoundControls({
   onTestPickup: () => void | Promise<void>;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-2 py-1 text-xs">
+    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-black/15 px-2 py-2 text-xs">
       <button
         type="button"
         onClick={onToggle}
@@ -2147,12 +2148,12 @@ export default function TVPage() {
     pickup: 0,
   });
   const soundKnownOrdersRef = useRef<Set<string> | null>(null);
-  const soundEnabledRef = useRef(false);
-  const soundVolumeRef = useRef(0.85);
+  const soundEnabledRef = useRef(true);
+  const soundVolumeRef = useRef(1);
 
-  const [soundEnabled, setSoundEnabled] = useState(false);
-  const [soundUnlocked, setSoundUnlocked] = useState(false);
-  const [soundVolume, setSoundVolume] = useState(85);
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [soundUnlocked, setSoundUnlocked] = useState(true);
+  const [soundVolume, setSoundVolume] = useState(100);
   const [soundError, setSoundError] = useState("");
 
   const getAudioRef = useCallback((kind: TvSoundKind) => {
@@ -2283,14 +2284,23 @@ export default function TVPage() {
   }, [soundUnlocked, unlockTvSounds, setSoundEnabledSafe]);
 
   useEffect(() => {
-    const enabled = readTvSoundEnabled();
-    const volume = readTvSoundVolume();
+    const enabled = true;
+    const volume = 100;
 
     soundEnabledRef.current = enabled;
     soundVolumeRef.current = volume / 100;
 
     setSoundEnabled(enabled);
+    setSoundUnlocked(true);
     setSoundVolume(volume);
+    saveTvSoundEnabled(true);
+    saveTvSoundVolume(volume);
+
+    try {
+      if (!localStorage.getItem("bb_print_proxy_url")) {
+        localStorage.setItem("bb_print_proxy_url", "http://127.0.0.1:7777");
+      }
+    } catch {}
   }, []);
 
   const handleNewOrderSounds = useCallback(
@@ -2836,21 +2846,6 @@ export default function TVPage() {
         </div>
 
         <div className="flex items-center gap-3">
-          <TvSoundControls
-            enabled={soundEnabled}
-            unlocked={soundUnlocked}
-            volume={soundVolume}
-            error={soundError}
-            onToggle={toggleTvSounds}
-            onVolume={setSoundVolumeSafe}
-            onTestDelivery={async () => {
-              await playTvSound("delivery", true);
-            }}
-            onTestPickup={async () => {
-              await playTvSound("pickup", true);
-            }}
-          />
-
           <Clock />
 
           <button
@@ -3302,7 +3297,7 @@ export default function TVPage() {
           aria-modal="true"
         >
           <div
-            className={`absolute left-0 top-0 h-full w-[320px] p-4 ${glass}`}
+            className={`absolute left-0 top-0 h-full w-[380px] max-w-[92vw] overflow-y-auto p-4 ${glass}`}
             onClick={(event) => event.stopPropagation()}
           >
             <div className="mb-3 flex items-center justify-between">
@@ -3318,6 +3313,31 @@ export default function TVPage() {
                   Zusammenfassung
                 </div>
                 <SummaryGrid orders={orders} />
+              </div>
+
+              <div>
+                <div className="mb-1 text-xs uppercase tracking-wider text-stone-300/70">
+                  Ton & Druck
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3">
+                  <TvSoundControls
+                    enabled={soundEnabled}
+                    unlocked={soundUnlocked}
+                    volume={soundVolume}
+                    error={soundError}
+                    onToggle={toggleTvSounds}
+                    onVolume={setSoundVolumeSafe}
+                    onTestDelivery={async () => {
+                      await playTvSound("delivery", true);
+                    }}
+                    onTestPickup={async () => {
+                      await playTvSound("pickup", true);
+                    }}
+                  />
+                  <div className="mt-2 text-xs text-stone-400">
+                    Standard: Ton aktiv, Lautstärke {soundVolume}%, Druck über lokalen Print-Proxy.
+                  </div>
+                </div>
               </div>
 
               <PauseBlock pause={pause} setPause={setPause} />
