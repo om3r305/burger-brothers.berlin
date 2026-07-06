@@ -348,6 +348,137 @@ function digitsOnly(value: any) {
   return String(value ?? "").replace(/\D/g, "");
 }
 
+function normalizeCheckoutZip(value: any) {
+  return String(value ?? "").replace(/\D/g, "").slice(0, 5);
+}
+
+function clearDeliveryAddressForZip(current: Address, zip: string): Address {
+  return {
+    ...current,
+    zip,
+    street: "",
+    house: "",
+    city: "",
+    floor: "",
+    entrance: "",
+    note: "",
+  };
+}
+
+function withPersonalCheckoutFields(current: Address, saved?: Partial<Address> | null): Address {
+  if (!saved || typeof saved !== "object") return current;
+
+  return {
+    ...current,
+    name: saved.name ?? current.name,
+    phone: saved.phone ?? current.phone,
+    email: saved.email ?? current.email,
+    emailOptIn: Boolean(saved.emailOptIn ?? current.emailOptIn),
+  };
+}
+
+function mergeAddressForCheckoutZip(
+  current: Address,
+  saved: Partial<Address> | null | undefined,
+  mode: Mode,
+  preferredZip?: any,
+): Address {
+  if (!saved || typeof saved !== "object") return current;
+
+  if (mode !== "delivery") {
+    return {
+      ...current,
+      ...saved,
+      email: saved.email ?? current.email,
+      emailOptIn: Boolean(saved.emailOptIn ?? current.emailOptIn),
+    };
+  }
+
+  const requestedZip = normalizeCheckoutZip(preferredZip);
+  const savedZip = normalizeCheckoutZip(saved.zip);
+  const targetZip = requestedZip || savedZip || normalizeCheckoutZip(current.zip);
+
+  /*
+    Sepette/menüde seçilen PLZ, kayıtlı adresteki PLZ'den farklıysa
+    eski sokak/kapı bilgilerini taşımıyoruz. Sadece isim/telefon/e-posta kalır.
+  */
+  if (requestedZip && savedZip !== requestedZip) {
+    return clearDeliveryAddressForZip(withPersonalCheckoutFields(current, saved), requestedZip);
+  }
+
+  return {
+    ...current,
+    ...saved,
+    zip: targetZip,
+    email: saved.email ?? current.email,
+    emailOptIn: Boolean(saved.emailOptIn ?? current.emailOptIn),
+  };
+}
+
+function checkoutProfileKey(mode: Mode, zip?: any) {
+  if (mode !== "delivery") return `${PROFILE_KEY}:pickup`;
+
+  const cleanZip = normalizeCheckoutZip(zip);
+  return cleanZip ? `${PROFILE_KEY}:delivery:${cleanZip}` : `${PROFILE_KEY}:delivery`;
+}
+
+function readCheckoutProfile(mode: Mode, zip?: any): Partial<Address> | null {
+  if (typeof window === "undefined") return null;
+
+  const keys =
+    mode === "delivery"
+      ? [
+          checkoutProfileKey("delivery", zip),
+          `${PROFILE_KEY}:delivery`,
+        ]
+      : [`${PROFILE_KEY}:pickup`];
+
+  for (const key of keys) {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+
+      const parsed = JSON.parse(raw);
+
+      if (parsed && typeof parsed === "object") {
+        if (mode === "delivery" && key === `${PROFILE_KEY}:delivery`) {
+          const profileZip = normalizeCheckoutZip((parsed as Partial<Address>)?.zip);
+          if (profileZip) {
+            try {
+              localStorage.setItem(
+                checkoutProfileKey("delivery", profileZip),
+                JSON.stringify(parsed),
+              );
+            } catch {}
+          }
+        }
+
+        return parsed as Partial<Address>;
+      }
+    } catch {}
+  }
+
+  return null;
+}
+
+function saveCheckoutProfile(mode: Mode, addr: Partial<Address>) {
+  if (typeof window === "undefined") return;
+
+  try {
+    if (mode === "delivery") {
+      const zip = normalizeCheckoutZip(addr.zip);
+      if (zip) {
+        localStorage.setItem(checkoutProfileKey("delivery", zip), JSON.stringify(addr));
+      }
+
+      localStorage.setItem(`${PROFILE_KEY}:delivery`, JSON.stringify(addr));
+      return;
+    }
+
+    localStorage.setItem(`${PROFILE_KEY}:pickup`, JSON.stringify(addr));
+  } catch {}
+}
+
 function checkoutInputClass(valid: boolean, extra = "") {
   return [
     "w-full rounded-md border p-2 outline-none transition",
@@ -1027,7 +1158,7 @@ export default function CheckoutPage() {
     emailOptIn: false,
     street: "",
     house: "",
-    zip: plzStore ?? "",
+    zip: normalizeCheckoutZip(plzStore),
     city: "",
     floor: "",
     entrance: "",
@@ -1138,15 +1269,19 @@ export default function CheckoutPage() {
       };
 
       const savedAddr = saved?.addr ?? null;
+      const preferredZip = normalizeCheckoutZip(plzStore);
 
       if (savedAddr) {
-        setAddr((current) => ({
-          ...current,
-          ...(savedAddr ?? {}),
-          zip: savedAddr?.zip ?? plzStore ?? "",
-          email: savedAddr?.email ?? "",
-          emailOptIn: Boolean(savedAddr?.emailOptIn ?? current.emailOptIn),
-        }));
+        setAddr((current) =>
+          mergeAddressForCheckoutZip(
+            current,
+            savedAddr,
+            saved?.orderMode === "pickup" || saved?.orderMode === "delivery"
+              ? saved.orderMode
+              : orderMode,
+            preferredZip,
+          ),
+        );
       }
 
       if (saved?.planned) {
@@ -1166,21 +1301,20 @@ export default function CheckoutPage() {
   }, []);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(`${PROFILE_KEY}:${orderMode}`);
-      if (!raw) return;
+    const preferredZip = normalizeCheckoutZip(plzStore);
+    const profile = readCheckoutProfile(orderMode, preferredZip || addr.zip);
+    if (!profile) return;
 
-      const profile = JSON.parse(raw) as Partial<Address>;
-
-      setAddr((current) => ({
-        ...current,
-        ...profile,
-        zip: profile?.zip ?? current.zip,
-        email: profile?.email ?? current.email,
-        emailOptIn: Boolean(profile?.emailOptIn ?? current.emailOptIn),
-      }));
-    } catch {}
-  }, [orderMode]);
+    setAddr((current) =>
+      mergeAddressForCheckoutZip(
+        current,
+        profile,
+        orderMode,
+        preferredZip || current.zip,
+      ),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orderMode, plzStore]);
 
   useEffect(() => {
     try {
@@ -1199,6 +1333,24 @@ export default function CheckoutPage() {
   const [streetOptions, setStreetOptions] = useState<string[]>([]);
   const [streetQuery, setStreetQuery] = useState("");
   const [showSug, setShowSug] = useState(false);
+
+  useEffect(() => {
+    if (orderMode !== "delivery") return;
+
+    const storeZip = normalizeCheckoutZip(plzStore);
+    if (!storeZip) return;
+
+    setAddr((current) => {
+      const currentZip = normalizeCheckoutZip(current.zip);
+      if (currentZip === storeZip) return current;
+
+      return clearDeliveryAddressForZip(current, storeZip);
+    });
+
+    setStreetOptions(getStreets(storeZip));
+    setStreetQuery("");
+    setShowSug(false);
+  }, [orderMode, plzStore]);
 
   useEffect(() => {
     if (profileTimer.current) {
@@ -1221,7 +1373,7 @@ export default function CheckoutPage() {
           note: addr.note,
         };
 
-        localStorage.setItem(`${PROFILE_KEY}:${orderMode}`, JSON.stringify(toSave));
+        saveCheckoutProfile(orderMode, toSave);
       } catch {}
     }, 400);
 
@@ -1468,32 +1620,47 @@ export default function CheckoutPage() {
   );
 
   const onZipChange = (value: string, resetStreet = true) => {
-    const only = value.replace(/[^\d]/g, "").slice(0, 5);
+    const only = normalizeCheckoutZip(value);
 
     setPLZ(only || null);
 
     const list = getStreets(only);
     setStreetOptions(list);
 
-    setAddr((current) => ({
-      ...current,
-      zip: only,
-      street: resetStreet ? "" : current.street,
-    }));
+    setAddr((current) => {
+      const changed = normalizeCheckoutZip(current.zip) !== only;
+
+      if (!resetStreet || !changed) {
+        return {
+          ...current,
+          zip: only,
+        };
+      }
+
+      return clearDeliveryAddressForZip(current, only);
+    });
 
     if (resetStreet) {
       setStreetQuery("");
+      setShowSug(false);
     }
   };
 
   useEffect(() => {
-    if (!addr.zip) return;
+    const zip = normalizeCheckoutZip(addr.zip);
 
-    const list = getStreets(addr.zip);
+    if (!zip) {
+      setStreetOptions([]);
+      setStreetQuery("");
+      return;
+    }
+
+    const list = getStreets(zip);
     setStreetOptions(list);
 
     if (!streetQuery && addr.street) {
-      setStreetQuery(addr.street);
+      const match = findOfficialStreet(list, addr.street);
+      setStreetQuery(match || "");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [addr.zip]);

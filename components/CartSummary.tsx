@@ -627,6 +627,63 @@ function getCheckoutZipAndPhone(): { zip: string; phone: string; street: string 
   } catch { return { zip: "", phone: "", street: "" }; }
 }
 
+function updateCheckoutZipFromCart(zip: string) {
+  try {
+    const cleanZip = normalizeRouteDealPlz(zip);
+    const raw = localStorage.getItem(LS_CHECKOUT);
+    const parsed = raw ? JSON.parse(raw) : {};
+    const currentAddr =
+      parsed?.addr && typeof parsed.addr === "object" && !Array.isArray(parsed.addr)
+        ? parsed.addr
+        : {};
+
+    const oldZip = normalizeRouteDealPlz(currentAddr?.zip);
+    const zipChanged = oldZip !== cleanZip;
+    const hasOldAddress =
+      !!currentAddr?.street ||
+      !!currentAddr?.house ||
+      !!currentAddr?.city ||
+      !!currentAddr?.floor ||
+      !!currentAddr?.entrance ||
+      !!currentAddr?.note;
+
+    const nextAddr = {
+      ...currentAddr,
+      zip: cleanZip,
+      ...(zipChanged && hasOldAddress
+        ? {
+            street: "",
+            house: "",
+            city: "",
+            floor: "",
+            entrance: "",
+            note: "",
+          }
+        : {}),
+    };
+
+    const next = {
+      ...parsed,
+      addr: nextAddr,
+      orderMode: "delivery",
+    };
+
+    localStorage.setItem(LS_CHECKOUT, JSON.stringify(next));
+
+    try {
+      window.dispatchEvent(
+        new StorageEvent("storage", {
+          key: LS_CHECKOUT,
+          newValue: JSON.stringify(next),
+          storageArea: window.localStorage,
+        }),
+      );
+    } catch {
+      window.dispatchEvent(new Event("storage"));
+    }
+  } catch {}
+}
+
 function computeCouponDiscount(
   code: string | null,
   items: any,
@@ -883,6 +940,8 @@ export default function CartSummary() {
   const onPLZChange = (v: string) => {
     const only = v.replace(/\D/g, "").slice(0, 5);
     setPLZ(only || null);
+    updateCheckoutZipFromCart(only);
+    setLsTick((t) => t + 1);
   };
 
   const clearCoupon = () => {
@@ -1281,6 +1340,8 @@ export function CartSummaryMobile() {
   const onPLZChange = (v: string) => {
     const only = v.replace(/\D/g, "").slice(0, 5);
     setPLZ(only || null);
+    updateCheckoutZipFromCart(only);
+    setLsTick((t) => t + 1);
   };
 
   const clearCoupon = () => {
