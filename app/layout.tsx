@@ -29,14 +29,24 @@ export const viewport = {
 export const metadata = {
   title: "Burger Brothers Berlin",
   description: "Premium Burger Experience.",
+  applicationName: "Burger Brothers Berlin",
+  manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
+    title: "Burger Brothers",
     statusBarStyle: "black-translucent",
   },
   formatDetection: { telephone: false },
   icons: {
     icon: "/favicon.ico",
+    shortcut: "/favicon.ico",
     apple: [{ url: "/apple-touch-icon.png?v=5", sizes: "180x180" }],
+  },
+  other: {
+    "mobile-web-app-capable": "yes",
+    "apple-mobile-web-app-capable": "yes",
+    "apple-mobile-web-app-title": "Burger Brothers",
+    "apple-mobile-web-app-status-bar-style": "black-translucent",
   },
 } as const;
 

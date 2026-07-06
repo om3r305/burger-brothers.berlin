@@ -1,17 +1,32 @@
 {
-  "name": "Burger Brothers",
+  "id": "/?app=home",
+  "name": "Burger Brothers Berlin",
   "short_name": "Burger",
-  "start_url": "/",
+  "description": "Burger Brothers Berlin – schnell bestellen.",
+  "start_url": "/?utm_source=home_screen",
   "scope": "/",
   "display": "standalone",
   "background_color": "#0b0f14",
   "theme_color": "#0b0f14",
+  "lang": "de-DE",
   "icons": [
+    {
+      "src": "/icon-kurier-512.png?v=5",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
     {
       "src": "/icon-kurier-512.png?v=5",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-kurier-512.png?v=5",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ]
 }
