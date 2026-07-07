@@ -1,6 +1,7 @@
 // app/api/groups/route.ts
 import { NextResponse } from "next/server";
 import { prisma, getTenantId } from "@/lib/db";
+import { readFallbackSnapshot, writeFallbackSnapshot } from "@/lib/server/fallback-snapshot";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -8,6 +9,7 @@ export const revalidate = 0;
 
 const KEY_DRINK_GROUPS = "bb_drink_groups_v1";
 const KEY_EXTRA_GROUPS = "bb_extra_groups_v1";
+const SNAPSHOT_GROUPS = "groups";
 
 const NO_STORE_HEADERS = {
   "Cache-Control": "no-store, no-cache, must-revalidate",
@@ -38,11 +40,11 @@ type GroupsPayload = {
   };
 };
 
-function jsonOk(data: Record<string, any>, status = 200) {
+function jsonOk(data: Record<string, any>, status = 200, source = "db") {
   return NextResponse.json(
     {
       ok: true,
-      source: "db",
+      source,
       ...data,
     },
     {
@@ -387,13 +389,68 @@ function groupsResponse(drinkGroups: any[], extraGroups: any[]) {
   };
 }
 
+function normalizeGroupsSnapshot(value: any) {
+  const drinkGroups = readDrinkGroupsFromBody(value || {}) ?? [];
+  const extraGroups = readExtraGroupsFromBody(value || {}) ?? [];
+
+  return {
+    drinkGroups,
+    extraGroups,
+  };
+}
+
+function isUsableGroupsData(value: any) {
+  const { drinkGroups, extraGroups } = normalizeGroupsSnapshot(value);
+  return drinkGroups.length > 0 || extraGroups.length > 0;
+}
+
+async function writeGroupsSnapshot(drinkGroups: any[], extraGroups: any[]) {
+  const payload = groupsResponse(drinkGroups, extraGroups);
+
+  if (!isUsableGroupsData(payload)) return;
+
+  try {
+    await writeFallbackSnapshot(SNAPSHOT_GROUPS, payload);
+  } catch (error) {
+    console.warn("[groups] fallback snapshot write failed:", error);
+  }
+}
+
+async function readGroupsSnapshot() {
+  try {
+    const snapshot = await readFallbackSnapshot<GroupsPayload>(SNAPSHOT_GROUPS);
+
+    if (!snapshot || !isUsableGroupsData(snapshot)) return null;
+
+    return normalizeGroupsSnapshot(snapshot);
+  } catch (error) {
+    console.warn("[groups] fallback snapshot read failed:", error);
+    return null;
+  }
+}
+
 export async function GET() {
   try {
     const tenantId = await getTenantId();
     const { drinkGroups, extraGroups } = await readAllGroups(tenantId);
 
-    return jsonOk(groupsResponse(drinkGroups, extraGroups));
+    await writeGroupsSnapshot(drinkGroups, extraGroups);
+
+    return jsonOk(groupsResponse(drinkGroups, extraGroups), 200, "db");
   } catch (error: any) {
+    const fallback = await readGroupsSnapshot();
+
+    if (fallback) {
+      return jsonOk(
+        {
+          ...groupsResponse(fallback.drinkGroups, fallback.extraGroups),
+          fallbackReason: error?.message || "GROUPS_GET_FAILED",
+        },
+        200,
+        "cache_fallback",
+      );
+    }
+
     return jsonError(error, "GROUPS_GET_FAILED");
   }
 }
@@ -427,7 +484,9 @@ export async function PUT(req: Request) {
 
     const saved = await readAllGroups(tenantId);
 
-    return jsonOk(groupsResponse(saved.drinkGroups, saved.extraGroups));
+    await writeGroupsSnapshot(saved.drinkGroups, saved.extraGroups);
+
+    return jsonOk(groupsResponse(saved.drinkGroups, saved.extraGroups), 200, "db");
   } catch (error: any) {
     return jsonError(error, "GROUPS_PUT_FAILED");
   }
