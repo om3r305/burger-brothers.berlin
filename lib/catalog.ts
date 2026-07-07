@@ -19,6 +19,8 @@ export type Mode = "delivery" | "pickup";
 /** Admin/DB/cache ürün modeli */
 export type ProductLike = {
   id: string;
+  sku?: string;
+  code?: string;
   name: string;
   price: number;
   category: Category;
@@ -294,17 +296,38 @@ const LS_SETTINGS = "bb_settings_v6";
 type OrderLine = {
   id?: string;
   sku?: string;
+  productId?: string;
+  productSku?: string;
+  code?: string;
+  name?: string;
+  title?: string;
   qty?: number;
+  quantity?: number;
+  category?: string;
   item?: {
     id?: string;
     sku?: string;
+    code?: string;
+    name?: string;
+    title?: string;
+  };
+  product?: {
+    id?: string;
+    sku?: string;
+    code?: string;
+    name?: string;
+    title?: string;
   };
 };
 
 type OrderLike = {
   items?: OrderLine[];
-  ts?: number;
-  createdAt?: number;
+  ts?: number | string | Date;
+  createdAt?: number | string | Date;
+  created_at?: number | string | Date;
+  status?: string;
+  mode?: string;
+  meta?: Record<string, any>;
 };
 
 /** Ayarlardan popularity.startAt oku */
@@ -327,20 +350,99 @@ function readPopularityStartAtFromSettings(): number | null {
   }
 }
 
-/** Sistemdeki ilk sipariş + offset gün */
-function inferStartAtFromOrders(orders: OrderLike[], offsetDays = 14): number | null {
-  if (!orders.length) return null;
+function toMs(value: any): number | null {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    return value;
+  }
 
-  const values = orders
-    .map((order) => Number(order?.createdAt ?? order?.ts ?? NaN))
-    .filter((n) => Number.isFinite(n));
+  if (value instanceof Date && Number.isFinite(value.valueOf())) {
+    return value.getTime();
+  }
 
-  if (!values.length) return null;
+  if (typeof value === "string" && value.trim()) {
+    const text = value.trim();
+    const asNumber = Number(text);
 
-  const min = Math.min(...values);
-  if (!Number.isFinite(min)) return null;
+    if (Number.isFinite(asNumber) && asNumber > 0) return asNumber;
 
-  return min + offsetDays * 24 * 60 * 60 * 1000;
+    const parsed = Date.parse(text);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+
+  return null;
+}
+
+function normalizeKey(value: any) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function uniq(values: string[]) {
+  return Array.from(new Set(values.filter(Boolean)));
+}
+
+function productKeys(p: Partial<ProductLike> | any): string[] {
+  return uniq([
+    normalizeKey(p?.id),
+    normalizeKey(p?.sku),
+    normalizeKey(p?.code),
+    normalizeKey(p?.name),
+  ]);
+}
+
+function lineKeys(li: OrderLine | any): string[] {
+  return uniq([
+    normalizeKey(li?.productId),
+    normalizeKey(li?.productSku),
+    normalizeKey(li?.sku),
+    normalizeKey(li?.id),
+    normalizeKey(li?.code),
+    normalizeKey(li?.item?.sku),
+    normalizeKey(li?.item?.id),
+    normalizeKey(li?.item?.code),
+    normalizeKey(li?.product?.sku),
+    normalizeKey(li?.product?.id),
+    normalizeKey(li?.product?.code),
+    normalizeKey(li?.name),
+    normalizeKey(li?.title),
+    normalizeKey(li?.item?.name),
+    normalizeKey(li?.item?.title),
+    normalizeKey(li?.product?.name),
+    normalizeKey(li?.product?.title),
+  ]);
+}
+
+function lineQty(li: OrderLine | any) {
+  const raw = Number(li?.qty ?? li?.quantity ?? 1);
+  return Number.isFinite(raw) && raw > 0 ? raw : 1;
+}
+
+function normalizeOrderStatus(value: any) {
+  const text = String(value || "").toLowerCase().trim();
+
+  if (
+    text === "cancelled" ||
+    text === "canceled" ||
+    text === "storniert" ||
+    text === "storno" ||
+    text === "iptal"
+  ) {
+    return "cancelled";
+  }
+
+  return text;
+}
+
+function isCancelledPopularityOrder(order: OrderLike | any) {
+  const meta = order?.meta && typeof order.meta === "object" ? order.meta : {};
+  const status = normalizeOrderStatus(meta?.statusManual ?? order?.status ?? meta?.status);
+
+  return status === "cancelled";
 }
 
 /** fromMs verilirse o tarihten sonrasını, verilmezse tüm siparişleri getirir */
@@ -352,22 +454,28 @@ function readOrdersSince(fromMs?: number): OrderLike[] {
     const arr = raw ? JSON.parse(raw) : [];
 
     if (!Array.isArray(arr)) return [];
-    if (!fromMs) return arr;
 
-    return arr.filter((order) => {
-      const t = Number(order?.createdAt ?? order?.ts ?? NaN);
-      return Number.isFinite(t) ? t >= fromMs : false;
+    const withoutCancelled = arr.filter((order) => !isCancelledPopularityOrder(order));
+
+    if (!fromMs) return withoutCancelled;
+
+    return withoutCancelled.filter((order) => {
+      const t = toMs(order?.createdAt ?? order?.created_at ?? order?.ts);
+      return t != null ? t >= fromMs : false;
     });
   } catch {
     return [];
   }
 }
 
-/** Kümülatif popülerlik: settings veya ilk sipariş +14 gün */
-function readOrdersCumulative(defaultOffsetDays = 14): OrderLike[] {
+/**
+ * Kümülatif popülerlik.
+ * Admin ayarlarında popularity.startAt varsa o tarihten sonrası sayılır.
+ * Yoksa tüm siparişler sayılır; böylece ilk 14 gün ürünler sahte boş sıralamaya düşmez.
+ */
+function readOrdersCumulative(_defaultOffsetDays = 14): OrderLike[] {
   const all = readOrdersSince();
-  const fromSettings = readPopularityStartAtFromSettings();
-  const startAt = fromSettings ?? inferStartAtFromOrders(all, defaultOffsetDays);
+  const startAt = readPopularityStartAtFromSettings();
 
   return startAt ? readOrdersSince(startAt) : all;
 }
@@ -380,21 +488,65 @@ export function readOrdersLastNDays(days = 14): OrderLike[] {
   return readOrdersSince(since);
 }
 
-/** Ürün id → toplam adet */
+/** Ürün anahtarı → toplam adet */
 export function computePopularityCounts(orders: OrderLike[]): Map<string, number> {
   const m = new Map<string, number>();
 
   for (const order of orders || []) {
-    for (const li of order.items || []) {
-      const id = String(li?.item?.id ?? li?.id ?? li?.sku ?? "").trim();
-      if (!id) continue;
+    if (isCancelledPopularityOrder(order)) continue;
 
-      const qty = Number(li?.qty ?? 1);
-      m.set(id, (m.get(id) || 0) + (Number.isFinite(qty) ? qty : 1));
+    for (const li of order.items || []) {
+      const keys = lineKeys(li);
+      if (!keys.length) continue;
+
+      const qty = lineQty(li);
+
+      for (const key of keys) {
+        m.set(key, (m.get(key) || 0) + qty);
+      }
     }
   }
 
   return m;
+}
+
+function sameProductKey(left: Partial<ProductLike> | any, rightId: string) {
+  const target = normalizeKey(rightId);
+
+  if (!target) return false;
+
+  return productKeys(left).includes(target);
+}
+
+function computeProductPopularityCounts<T extends ProductLike>(
+  products: T[],
+  orders: OrderLike[],
+): Map<string, number> {
+  const out = new Map<string, number>();
+  const keyToProductId = new Map<string, string>();
+
+  for (const product of products || []) {
+    for (const key of productKeys(product)) {
+      if (!keyToProductId.has(key)) {
+        keyToProductId.set(key, product.id);
+      }
+    }
+  }
+
+  for (const order of orders || []) {
+    if (isCancelledPopularityOrder(order)) continue;
+
+    for (const li of order.items || []) {
+      const keys = lineKeys(li);
+      const productId = keys.map((key) => keyToProductId.get(key)).find(Boolean);
+
+      if (!productId) continue;
+
+      out.set(productId, (out.get(productId) || 0) + lineQty(li));
+    }
+  }
+
+  return out;
 }
 
 /** Aktif kampanyalardaki tüm ürün id’leri */
@@ -417,12 +569,35 @@ export function activeCampaignProductIds(
             : [];
 
       for (const id of ids) {
-        if (id) out.add(String(id));
+        const key = normalizeKey(id);
+        if (key) out.add(key);
       }
     }
   }
 
   return out;
+}
+
+function productIsPinned(p: ProductLike, pins: Set<string>) {
+  return productKeys(p).some((key) => pins.has(key));
+}
+
+function popularProductsForCategory<T extends ProductLike>(
+  products: T[],
+  counts: Map<string, number>,
+  category: Category,
+): T[] {
+  return products
+    .filter((p) => normalizeCategory(p.category) === category)
+    .filter((p) => (counts.get(p.id) || 0) > 0)
+    .sort((a, b) => {
+      const ca = counts.get(a.id) || 0;
+      const cb = counts.get(b.id) || 0;
+
+      if (ca !== cb) return cb - ca;
+
+      return a.name.localeCompare(b.name, "de");
+    });
 }
 
 /** Menü listesi için sıralama */
@@ -433,13 +608,11 @@ export function sortProductsForMenu<T extends ProductLike>(
   now = new Date()
 ): T[] {
   const pins = activeCampaignProductIds(campaigns, mode, now);
-  const counts = computePopularityCounts(readOrdersCumulative(14));
-
-  const isBurgerOrVegan = (x: ProductLike) =>
-    normalizeCategory(x.category) === "burger" || normalizeCategory(x.category) === "vegan";
+  const orders = readOrdersCumulative(14);
+  const counts = computeProductPopularityCounts(list, orders);
 
   const pinArr = list
-    .filter((p) => pins.has(p.id))
+    .filter((p) => productIsPinned(p, pins))
     .sort((a, b) => {
       const ca = counts.get(a.id) || 0;
       const cb = counts.get(b.id) || 0;
@@ -449,44 +622,61 @@ export function sortProductsForMenu<T extends ProductLike>(
       return a.name.localeCompare(b.name, "de");
     });
 
-  const rest = list.filter((p) => !pins.has(p.id));
+  const rest = list.filter((p) => !productIsPinned(p, pins));
 
-  const bvRest = rest.filter(isBurgerOrVegan);
-  const bvSortedByCount = [...bvRest].sort(
-    (a, b) => (counts.get(b.id) || 0) - (counts.get(a.id) || 0)
-  );
+  const topIds = new Set<string>();
 
-  const topIds = Array.from(new Set(bvSortedByCount.map((p) => p.id))).slice(0, 3);
+  for (const category of ["burger", "vegan"] as Category[]) {
+    for (const p of popularProductsForCategory(rest, counts, category).slice(0, 3)) {
+      topIds.add(p.id);
+    }
+  }
 
   const topArr = rest
-    .filter((p) => topIds.includes(p.id))
-    .sort((a, b) => topIds.indexOf(a.id) - topIds.indexOf(b.id));
+    .filter((p) => topIds.has(p.id))
+    .sort((a, b) => {
+      const catA = normalizeCategory(a.category);
+      const catB = normalizeCategory(b.category);
+
+      if (catA !== catB) {
+        return catA.localeCompare(catB, "de");
+      }
+
+      const ca = counts.get(a.id) || 0;
+      const cb = counts.get(b.id) || 0;
+
+      if (ca !== cb) return cb - ca;
+
+      return a.name.localeCompare(b.name, "de");
+    });
 
   const remaining = rest
-    .filter((p) => !topIds.includes(p.id))
+    .filter((p) => !topIds.has(p.id))
     .sort((a, b) => a.name.localeCompare(b.name, "de"));
 
   return [...pinArr, ...topArr, ...remaining];
 }
 
-/** Top 3 rozeti — Burger & Vegan için */
+/** Top 3 rozeti — Burger ve Vegan ayrı ayrı */
 export function popularityBadgeFor(
   id: string,
   products: ProductLike[]
 ): "gold" | "silver" | "bronze" | null {
-  const counts = computePopularityCounts(readOrdersCumulative(14));
+  const current = products.find((p) => sameProductKey(p, id));
+  if (!current) return null;
 
-  const bv = products.filter(
-    (p) => normalizeCategory(p.category) === "burger" || normalizeCategory(p.category) === "vegan"
-  );
+  const category = normalizeCategory(current.category);
+  if (category !== "burger" && category !== "vegan") return null;
 
-  const sorted = [...bv].sort((a, b) => (counts.get(b.id) || 0) - (counts.get(a.id) || 0));
+  const counts = computeProductPopularityCounts(products, readOrdersCumulative(14));
 
-  const top = sorted.slice(0, 3).map((p) => p.id);
+  const sorted = popularProductsForCategory(products, counts, category).slice(0, 3);
 
-  if (top[0] === id) return "gold";
-  if (top[1] === id) return "silver";
-  if (top[2] === id) return "bronze";
+  if (!sorted.length) return null;
+
+  if (sameProductKey(sorted[0], id)) return "gold";
+  if (sorted[1] && sameProductKey(sorted[1], id)) return "silver";
+  if (sorted[2] && sameProductKey(sorted[2], id)) return "bronze";
 
   return null;
 }
