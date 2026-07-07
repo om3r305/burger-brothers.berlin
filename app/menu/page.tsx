@@ -44,9 +44,22 @@ type Product = {
   activeTo?: string;
 };
 
+type ProductAvailabilityEntry = {
+  disabled?: boolean;
+  mode?: "today" | "manual" | string;
+  until?: string | null;
+  by?: string;
+  updatedAt?: number;
+  productId?: string;
+  name?: string;
+};
+
+type ProductAvailabilityMap = Record<string, ProductAvailabilityEntry | null | undefined>;
+
 type FeatureFlags = {
   donuts: boolean;
   bubbleTea: boolean;
+  productAvailability: ProductAvailabilityMap;
 };
 
 /* === Sekmeler / başlıklar === */
@@ -131,6 +144,83 @@ function toArray(value: any): any[] {
   if (Array.isArray(value?.products)) return value.products;
   if (Array.isArray(value?.campaigns)) return value.campaigns;
   return [];
+}
+
+function normalizeProductKey(value: any) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function productAvailabilityLookupKeys(product: Partial<Product> | any) {
+  return [
+    product?.id,
+    product?.sku,
+    product?.code,
+    product?.name,
+  ]
+    .map(normalizeProductKey)
+    .filter(Boolean);
+}
+
+function normalizeProductAvailabilityMap(value: any): ProductAvailabilityMap {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+
+  const out: ProductAvailabilityMap = {};
+
+  for (const [key, entry] of Object.entries(value)) {
+    const cleanKey = normalizeProductKey(key);
+    if (!cleanKey) continue;
+
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      out[cleanKey] = null;
+      continue;
+    }
+
+    out[cleanKey] = {
+      disabled: (entry as any)?.disabled === true,
+      mode: String((entry as any)?.mode || "manual"),
+      until: (entry as any)?.until ? String((entry as any).until) : null,
+      by: (entry as any)?.by ? String((entry as any).by) : undefined,
+      updatedAt: Number((entry as any)?.updatedAt) || undefined,
+      productId: (entry as any)?.productId ? String((entry as any).productId) : undefined,
+      name: (entry as any)?.name ? String((entry as any).name) : undefined,
+    };
+  }
+
+  return out;
+}
+
+function getProductAvailabilityEntry(
+  product: Partial<Product> | any,
+  availability: ProductAvailabilityMap,
+) {
+  for (const key of productAvailabilityLookupKeys(product)) {
+    const entry = availability[key];
+    if (entry) return entry;
+  }
+
+  return null;
+}
+
+function isProductClosedByTv(
+  product: Partial<Product> | any,
+  availability: ProductAvailabilityMap,
+  now = new Date(),
+) {
+  const entry = getProductAvailabilityEntry(product, availability);
+
+  if (!entry?.disabled) return false;
+  if (!entry.until) return true;
+
+  const untilMs = Date.parse(String(entry.until));
+  if (!Number.isFinite(untilMs)) return true;
+
+  return untilMs > now.getTime();
 }
 
 function toIso(input: any): string | undefined {
@@ -532,13 +622,12 @@ function readFlag(value: any, fallback: boolean): boolean {
 
 function parseFeatureFlags(settings: any): FeatureFlags | null {
   const root = settings?.settings ?? settings?.data ?? settings;
-  const features = root?.features;
-
-  if (!features || typeof features !== "object") return null;
+  const features = root?.features || {};
 
   return {
     donuts: readFlag(features?.donuts, true),
     bubbleTea: readFlag(features?.bubbleTea, true),
+    productAvailability: normalizeProductAvailabilityMap(root?.productAvailability),
   };
 }
 
@@ -587,6 +676,7 @@ export default function MenuPage() {
   const [features, setFeatures] = useState<FeatureFlags>({
     donuts: true,
     bubbleTea: true,
+    productAvailability: {},
   });
   const [products, setProducts] = useState<Product[]>([]);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
@@ -793,7 +883,9 @@ export default function MenuPage() {
           activeTo: p.activeTo,
         } as any;
 
-        const available = isProductAvailable(availProbe, now);
+        const available =
+          isProductAvailable(availProbe, now) &&
+          !isProductClosedByTv(p, features.productAvailability, now);
 
         const pr = priceWithCampaign(
           {
@@ -840,7 +932,16 @@ export default function MenuPage() {
         countdown: string | null;
         topSellerRank?: 1 | 2 | 3;
       }>;
-  }, [sortedForMenu, byId, campaigns, orderMode, now, tab, baseListForTab]);
+  }, [
+    sortedForMenu,
+    byId,
+    campaigns,
+    orderMode,
+    now,
+    tab,
+    baseListForTab,
+    features.productAvailability,
+  ]);
 
   const emptyMsgMap: Record<TabKey, string> = {
     burger:

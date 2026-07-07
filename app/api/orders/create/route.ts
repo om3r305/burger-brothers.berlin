@@ -338,6 +338,86 @@ function normalizeItems(order: any) {
   });
 }
 
+function normalizeProductKey(value: any) {
+  return cleanText(value)
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function productAvailabilityLookupKeys(item: any) {
+  return [
+    item?.id,
+    item?.sku,
+    item?.code,
+    item?.name,
+    item?.title,
+  ]
+    .map(normalizeProductKey)
+    .filter(Boolean);
+}
+
+function normalizeProductAvailabilityMap(value: any): Record<string, any> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+
+  const out: Record<string, any> = {};
+
+  for (const [key, entry] of Object.entries(value)) {
+    const cleanKey = normalizeProductKey(key);
+    if (!cleanKey) continue;
+
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      out[cleanKey] = null;
+      continue;
+    }
+
+    out[cleanKey] = sanitizeJson({
+      disabled: (entry as any)?.disabled === true,
+      mode: cleanText((entry as any)?.mode) || "manual",
+      until: (entry as any)?.until ? String((entry as any).until) : null,
+      by: cleanText((entry as any)?.by) || undefined,
+      updatedAt: toNum((entry as any)?.updatedAt, 0) || undefined,
+      productId: cleanText((entry as any)?.productId) || undefined,
+      name: cleanText((entry as any)?.name) || undefined,
+    });
+  }
+
+  return out;
+}
+
+function isAvailabilityEntryClosed(entry: any, nowMs: number) {
+  if (!entry?.disabled) return false;
+  if (!entry?.until) return true;
+
+  const untilMs = Date.parse(String(entry.until));
+  if (!Number.isFinite(untilMs)) return true;
+
+  return untilMs > nowMs;
+}
+
+function isOrderItemTemporarilyUnavailable(
+  item: any,
+  availability: Record<string, any>,
+  nowMs: number,
+) {
+  for (const key of productAvailabilityLookupKeys(item)) {
+    if (isAvailabilityEntryClosed(availability[key], nowMs)) return true;
+  }
+
+  return false;
+}
+
+function findUnavailableOrderItems(items: any[], settings: any, nowMs: number) {
+  const availability = normalizeProductAvailabilityMap(settings?.productAvailability);
+
+  return items
+    .filter((item) => isOrderItemTemporarilyUnavailable(item, availability, nowMs))
+    .map((item) => cleanText(item?.name || item?.title || item?.sku || item?.id || "Artikel"))
+    .filter(Boolean);
+}
+
 function lineTotal(item: any) {
   const qty = Math.max(1, toNum(item?.qty ?? item?.quantity ?? 1, 1));
   const base = toNum(item?.price ?? item?.unitPrice, 0);
@@ -1358,6 +1438,25 @@ export async function POST(req: Request) {
 
     const items = normalizeItems(order);
     const customer = normalizeCustomer(order);
+
+    const unavailableItems = findUnavailableOrderItems(items, settings, nowMs);
+    if (unavailableItems.length) {
+      return NextResponse.json(
+        {
+          ok: false,
+          source: "db",
+          error: "product_unavailable",
+          message: "Einige Artikel sind aktuell nicht verfügbar.",
+          unavailableItems,
+        },
+        {
+          status: 409,
+          headers: {
+            "Cache-Control": "no-store, no-cache, must-revalidate",
+          },
+        },
+      );
+    }
 
     const computedMerchandise = computeMerchandise(items);
     const merchandise = toNum(order?.merchandise, computedMerchandise);

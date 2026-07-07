@@ -215,6 +215,21 @@ export type RouteDealsCfg = {
   [key: string]: any;
 };
 
+export type ProductAvailabilityMode = "today" | "manual";
+
+export type ProductAvailabilityEntry = {
+  disabled?: boolean;
+  mode?: ProductAvailabilityMode | string;
+  until?: string | null;
+  by?: string;
+  updatedAt?: number;
+  productId?: string;
+  name?: string;
+  [key: string]: any;
+};
+
+export type ProductAvailabilityMap = Record<string, ProductAvailabilityEntry | null | undefined>;
+
 export type TVSettings = {
   autoRefreshSeconds: number;
   hideSensitive: boolean;
@@ -265,6 +280,7 @@ export type SettingsV6 = {
   coupons?: CouponRule[];
   announcements?: { enabled: boolean; items: AnnItem[] };
   routeDeals?: RouteDealsCfg;
+  productAvailability?: ProductAvailabilityMap;
   printing?: Printing;
   tv?: TVSettings;
   security?: SecuritySettings;
@@ -465,6 +481,8 @@ const defaultSettings: SettingsV6 = {
     rules: [],
     active: [],
   },
+
+  productAvailability: {},
 
   printing: {
     logoUrl: "/logo.png",

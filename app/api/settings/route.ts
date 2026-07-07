@@ -18,6 +18,16 @@ const NO_STORE_HEADERS = {
 };
 
 const ADMIN_COOKIE = process.env.ADMIN_COOKIE_NAME || "bb_admin_sess";
+const TV_COOKIE_NAMES = Array.from(
+  new Set(
+    [
+      process.env.TV_COOKIE_NAME || "bb_tv_sess",
+      "bb_tv_session",
+      "bb_tv_auth",
+    ].filter(Boolean),
+  ),
+);
+const TV_WRITABLE_SETTING_KEYS = new Set(["productAvailability"]);
 
 const DEFAULT_SETTINGS: PlainObject = {
   orders: {
@@ -112,6 +122,8 @@ const DEFAULT_SETTINGS: PlainObject = {
     active: [],
   },
 
+  productAvailability: {},
+
   statusColors: {
     new: "#f59e0b",
     preparing: "#3b82f6",
@@ -169,6 +181,39 @@ function hasAdminSession(req: Request) {
   }
 
   return false;
+}
+
+function hasTvSession(req: Request) {
+  const cookieHeader = req.headers.get("cookie") || "";
+  const cookies = cookieHeader
+    .split(";")
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  for (const cookie of cookies) {
+    const index = cookie.indexOf("=");
+    const name = index >= 0 ? cookie.slice(0, index).trim() : cookie.trim();
+    const rawValue = index >= 0 ? cookie.slice(index + 1).trim() : "";
+    const value = decodeCookieValue(rawValue);
+
+    if (
+      TV_COOKIE_NAMES.includes(name) &&
+      (value.startsWith("ok:") || value === "1" || value === "true")
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function isTvWritableSettingsPayload(payload: PlainObject, replace: boolean) {
+  if (replace) return false;
+
+  const keys = Object.keys(payload || {});
+  if (!keys.length) return false;
+
+  return keys.every((key) => TV_WRITABLE_SETTING_KEYS.has(key));
 }
 
 function sanitizeJson(value: any): any {
@@ -587,12 +632,15 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
-    if (!hasAdminSession(req)) return unauthorizedResponse();
-
     const tenantId = await getTenantId();
     const body = await readRequestBody(req);
     const payload = normalizeIncomingSettings(body);
     const replace = body?.replace === true;
+    const isAdmin = hasAdminSession(req);
+
+    if (!isAdmin && (!hasTvSession(req) || !isTvWritableSettingsPayload(payload, replace))) {
+      return unauthorizedResponse();
+    }
 
     const result = await saveSettings(tenantId, payload, replace);
     const settings = await readSettingsMap(tenantId);
@@ -614,12 +662,15 @@ export async function POST(req: Request) {
 
 export async function PUT(req: Request) {
   try {
-    if (!hasAdminSession(req)) return unauthorizedResponse();
-
     const tenantId = await getTenantId();
     const body = await readRequestBody(req);
     const payload = normalizeIncomingSettings(body);
     const replace = body?.replace === true;
+    const isAdmin = hasAdminSession(req);
+
+    if (!isAdmin && (!hasTvSession(req) || !isTvWritableSettingsPayload(payload, replace))) {
+      return unauthorizedResponse();
+    }
 
     const result = await saveSettings(tenantId, payload, replace);
     const settings = await readSettingsMap(tenantId);

@@ -82,6 +82,31 @@ type StoredOrder = {
   comments?: string;
 };
 
+type TvProduct = {
+  id?: string;
+  sku?: string;
+  code?: string;
+  name: string;
+  category?: string;
+  active?: boolean;
+  price?: number;
+};
+
+type ProductAvailabilityEntry = {
+  disabled?: boolean;
+  mode?: "today" | "manual" | string;
+  until?: string | null;
+  by?: string;
+  updatedAt?: number;
+  productId?: string;
+  name?: string;
+};
+
+type ProductAvailabilityMap = Record<string, ProductAvailabilityEntry | null | undefined>;
+
+type ProductAvailabilityAction = "open" | "today" | "manual";
+type LeftPanel = "overview" | "articles";
+
 type DiscountRow = {
   label: string;
   amount: number;
@@ -211,6 +236,172 @@ function cleanObj(value: any): Record<string, any> {
 
 function cleanArr(value: any): any[] {
   return Array.isArray(value) ? value : [];
+}
+
+function normalizeProductText(value: any) {
+  return String(value ?? "").trim();
+}
+
+function normalizeProductKey(value: any) {
+  return normalizeProductText(value)
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function productAvailabilityKey(product: Partial<TvProduct> | any) {
+  return (
+    normalizeProductKey(product?.id) ||
+    normalizeProductKey(product?.sku) ||
+    normalizeProductKey(product?.code) ||
+    normalizeProductKey(product?.name)
+  );
+}
+
+function normalizeTvProducts(value: any): TvProduct[] {
+  const list = Array.isArray(value)
+    ? value
+    : Array.isArray(value?.products)
+      ? value.products
+      : Array.isArray(value?.items)
+        ? value.items
+        : Array.isArray(value?.data)
+          ? value.data
+          : Array.isArray(value?.data?.products)
+            ? value.data.products
+            : Array.isArray(value?.data?.items)
+              ? value.data.items
+              : [];
+
+  return list
+    .filter((item: any) => item && (item.id || item.sku || item.code || item.name))
+    .map((item: any) => ({
+      id: item?.id != null ? String(item.id) : undefined,
+      sku: item?.sku != null ? String(item.sku) : undefined,
+      code: item?.code != null ? String(item.code) : undefined,
+      name: normalizeProductText(item?.name || item?.title || "Artikel"),
+      category: normalizeProductText(item?.category || "burger") || "burger",
+      active: item?.active !== false,
+      price: num(item?.price),
+    }));
+}
+
+function normalizeProductAvailabilityMap(value: any): ProductAvailabilityMap {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+
+  const out: ProductAvailabilityMap = {};
+
+  for (const [key, entry] of Object.entries(value)) {
+    const cleanKey = normalizeProductKey(key);
+    if (!cleanKey) continue;
+
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      out[cleanKey] = null;
+      continue;
+    }
+
+    out[cleanKey] = {
+      disabled: (entry as any)?.disabled === true,
+      mode: normalizeProductText((entry as any)?.mode) || "manual",
+      until: (entry as any)?.until ? String((entry as any).until) : null,
+      by: normalizeProductText((entry as any)?.by) || undefined,
+      updatedAt: Number((entry as any)?.updatedAt) || undefined,
+      productId: normalizeProductText((entry as any)?.productId) || undefined,
+      name: normalizeProductText((entry as any)?.name) || undefined,
+    };
+  }
+
+  return out;
+}
+
+function productAvailabilityLookupKeys(product: Partial<TvProduct> | any) {
+  return [
+    product?.id,
+    product?.sku,
+    product?.code,
+    product?.name,
+  ]
+    .map(normalizeProductKey)
+    .filter(Boolean);
+}
+
+function getProductAvailabilityEntry(
+  product: Partial<TvProduct> | any,
+  availability: ProductAvailabilityMap,
+) {
+  for (const key of productAvailabilityLookupKeys(product)) {
+    const entry = availability[key];
+    if (entry) return entry;
+  }
+
+  return null;
+}
+
+function isProductClosedByEntry(entry: ProductAvailabilityEntry | null | undefined, nowMs = Date.now()) {
+  if (!entry?.disabled) return false;
+
+  if (!entry.until) return true;
+
+  const untilMs = Date.parse(String(entry.until));
+  if (!Number.isFinite(untilMs)) return true;
+
+  return untilMs > nowMs;
+}
+
+function isProductTemporarilyClosed(
+  product: Partial<TvProduct> | any,
+  availability: ProductAvailabilityMap,
+  nowMs = Date.now(),
+) {
+  return isProductClosedByEntry(getProductAvailabilityEntry(product, availability), nowMs);
+}
+
+function productCloseLabel(entry: ProductAvailabilityEntry | null | undefined, nowMs = Date.now()) {
+  if (!isProductClosedByEntry(entry, nowMs)) return "Verfügbar";
+  if (entry?.mode === "today") return "Heute geschlossen";
+  return "Dauerhaft geschlossen";
+}
+
+function endOfTodayIso(tz: string) {
+  try {
+    const now = new Date();
+    const local = new Date(now.toLocaleString("en-US", { timeZone: tz }));
+    local.setHours(23, 59, 59, 999);
+    return local.toISOString();
+  } catch {
+    const local = new Date();
+    local.setHours(23, 59, 59, 999);
+    return local.toISOString();
+  }
+}
+
+const TV_PRODUCT_CATEGORY_ORDER = [
+  "burger",
+  "vegan",
+  "hotdogs",
+  "extras",
+  "sauces",
+  "drinks",
+  "donuts",
+  "bubbletea",
+];
+
+const TV_PRODUCT_CATEGORY_LABELS: Record<string, string> = {
+  burger: "Burger",
+  vegan: "Vegan",
+  hotdogs: "Hot Dogs",
+  extras: "Extras",
+  sauces: "Soßen",
+  drinks: "Getränke",
+  donuts: "Donuts",
+  bubbletea: "Bubble Tea",
+};
+
+function productCategoryLabel(value: any) {
+  const key = normalizeProductText(value || "burger").toLowerCase();
+  return TV_PRODUCT_CATEGORY_LABELS[key] || key || "Artikel";
 }
 
 function normalizeStatus(value: any): OrderStatus {
@@ -2132,6 +2323,11 @@ export default function TVPage() {
   const [view, setView] = useState<View>("incoming");
 
   const [leftOpen, setLeftOpen] = useState(false);
+  const [leftPanel, setLeftPanel] = useState<LeftPanel>("overview");
+
+  const [products, setProducts] = useState<TvProduct[]>([]);
+  const [productBusyKey, setProductBusyKey] = useState("");
+  const [productError, setProductError] = useState("");
 
   const [pause, setPause] = useState<PauseState>({ delivery: false, pickup: false });
   const [brianData, setBrianData] = useState<BrianData | null>(null);
@@ -2384,10 +2580,120 @@ export default function TVPage() {
   }, []);
 
   const settings = useMemo(() => readSettings() as any, [settingsTick]);
+  const productAvailability = useMemo(
+    () => normalizeProductAvailabilityMap(settings?.productAvailability),
+    [settings?.productAvailability],
+  );
   const tz = appTZ(settings);
   const avgPickup = Number(settings?.hours?.avgPickupMinutes ?? 15);
   const avgDelivery = Number(settings?.hours?.avgDeliveryMinutes ?? 35);
   const newGraceMin = Math.max(0, Number(settings?.hours?.newGraceMinutes ?? 5));
+
+  const refreshProducts = useCallback(async () => {
+    try {
+      const res = await fetch("/api/products", {
+        method: "GET",
+        cache: "no-store",
+        headers: {
+          accept: "application/json",
+        },
+      });
+
+      if (!res.ok) throw new Error(`products_${res.status}`);
+
+      const json = await res.json();
+      setProducts(normalizeTvProducts(json));
+    } catch (error) {
+      console.error("TV products load failed", error);
+      setProductError("Artikel konnten nicht geladen werden.");
+    }
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    const load = async () => {
+      if (!active) return;
+      await refreshProducts();
+    };
+
+    load();
+
+    const onFocus = () => load();
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") load();
+    };
+
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      active = false;
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [refreshProducts]);
+
+  const updateProductAvailability = useCallback(
+    async (product: TvProduct, action: ProductAvailabilityAction) => {
+      const key = productAvailabilityKey(product);
+      if (!key) return;
+
+      const nextEntry =
+        action === "open"
+          ? null
+          : {
+              disabled: true,
+              mode: action === "today" ? "today" : "manual",
+              until: action === "today" ? endOfTodayIso(tz) : null,
+              by: "tv",
+              updatedAt: Date.now(),
+              productId: key,
+              name: product.name,
+            };
+
+      const nextAvailability = {
+        ...productAvailability,
+        [key]: nextEntry,
+      };
+
+      setProductBusyKey(key);
+      setProductError("");
+
+      try {
+        const res = await fetch("/api/settings", {
+          method: "POST",
+          cache: "no-store",
+          headers: {
+            "Content-Type": "application/json",
+            accept: "application/json",
+          },
+          body: JSON.stringify({
+            productAvailability: nextAvailability,
+          }),
+        });
+
+        if (!res.ok) {
+          const payload = await res.json().catch(() => null);
+          throw new Error(payload?.message || payload?.error || `settings_${res.status}`);
+        }
+
+        await fetchAndApplyRemoteSettings();
+        setSettingsTick((x) => x + 1);
+
+        try {
+          window.dispatchEvent(new Event("bb_settings_changed"));
+          window.dispatchEvent(new Event("bb:settings-sync"));
+        } catch {}
+      } catch (error) {
+        console.error("TV product availability update failed", error);
+        setProductError("Artikel-Status konnte nicht gespeichert werden.");
+      } finally {
+        setProductBusyKey("");
+      }
+    },
+    [productAvailability, tz],
+  );
 
   useEffect(() => {
     let active = true;
@@ -2835,7 +3141,14 @@ export default function TVPage() {
 
       <header className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <button className={`${iconBtn} mr-1`} onClick={() => setLeftOpen(true)} title="Menü">
+          <button
+            className={`${iconBtn} mr-1`}
+            onClick={() => {
+              setLeftPanel("overview");
+              setLeftOpen(true);
+            }}
+            title="Menü"
+          >
             ☰
           </button>
 
@@ -3307,41 +3620,82 @@ export default function TVPage() {
               </button>
             </div>
 
-            <div className="space-y-4">
-              <div>
-                <div className="mb-1 text-xs uppercase tracking-wider text-stone-300/70">
-                  Zusammenfassung
-                </div>
-                <SummaryGrid orders={orders} />
-              </div>
+            <div className="mb-4 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setLeftPanel("overview")}
+                className={`rounded-xl border px-3 py-2 text-sm font-semibold ${
+                  leftPanel === "overview"
+                    ? "border-emerald-400/50 bg-emerald-500/15 text-emerald-100"
+                    : "border-white/10 bg-white/5 text-stone-200"
+                }`}
+              >
+                Übersicht
+              </button>
 
-              <div>
-                <div className="mb-1 text-xs uppercase tracking-wider text-stone-300/70">
-                  Ton & Druck
+              <button
+                type="button"
+                onClick={() => {
+                  setLeftPanel("articles");
+                  refreshProducts();
+                }}
+                className={`rounded-xl border px-3 py-2 text-sm font-semibold ${
+                  leftPanel === "articles"
+                    ? "border-emerald-400/50 bg-emerald-500/15 text-emerald-100"
+                    : "border-white/10 bg-white/5 text-stone-200"
+                }`}
+              >
+                Artikel
+              </button>
+            </div>
+
+            {leftPanel === "overview" ? (
+              <div className="space-y-4">
+                <div>
+                  <div className="mb-1 text-xs uppercase tracking-wider text-stone-300/70">
+                    Zusammenfassung
+                  </div>
+                  <SummaryGrid orders={orders} />
                 </div>
-                <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3">
-                  <TvSoundControls
-                    enabled={soundEnabled}
-                    unlocked={soundUnlocked}
-                    volume={soundVolume}
-                    error={soundError}
-                    onToggle={toggleTvSounds}
-                    onVolume={setSoundVolumeSafe}
-                    onTestDelivery={async () => {
-                      await playTvSound("delivery", true);
-                    }}
-                    onTestPickup={async () => {
-                      await playTvSound("pickup", true);
-                    }}
-                  />
-                  <div className="mt-2 text-xs text-stone-400">
-                    Standard: Ton aktiv, Lautstärke {soundVolume}%, Druck über lokalen Print-Proxy.
+
+                <div>
+                  <div className="mb-1 text-xs uppercase tracking-wider text-stone-300/70">
+                    Ton & Druck
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3">
+                    <TvSoundControls
+                      enabled={soundEnabled}
+                      unlocked={soundUnlocked}
+                      volume={soundVolume}
+                      error={soundError}
+                      onToggle={toggleTvSounds}
+                      onVolume={setSoundVolumeSafe}
+                      onTestDelivery={async () => {
+                        await playTvSound("delivery", true);
+                      }}
+                      onTestPickup={async () => {
+                        await playTvSound("pickup", true);
+                      }}
+                    />
+                    <div className="mt-2 text-xs text-stone-400">
+                      Standard: Ton aktiv, Lautstärke {soundVolume}%, Druck über lokalen Print-Proxy.
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <PauseBlock pause={pause} setPause={setPause} />
-            </div>
+                <PauseBlock pause={pause} setPause={setPause} />
+              </div>
+            ) : (
+              <ProductAvailabilityBlock
+                products={products}
+                availability={productAvailability}
+                nowMs={nowMs}
+                busyKey={productBusyKey}
+                error={productError}
+                onChange={updateProductAvailability}
+                onRefresh={refreshProducts}
+              />
+            )}
           </div>
         </div>
       )}
@@ -3433,6 +3787,157 @@ function SummaryGrid({ orders }: { orders: StoredOrder[] }) {
       <Item label="Bar" value={stats.cash} />
       <Item label="Lieferung" value={stats.lifa} />
       <Item label="Abholung" value={stats.apollon} />
+    </div>
+  );
+}
+
+function ProductAvailabilityBlock({
+  products,
+  availability,
+  nowMs,
+  busyKey,
+  error,
+  onChange,
+  onRefresh,
+}: {
+  products: TvProduct[];
+  availability: ProductAvailabilityMap;
+  nowMs: number;
+  busyKey: string;
+  error: string;
+  onChange: (product: TvProduct, action: ProductAvailabilityAction) => void | Promise<void>;
+  onRefresh: () => void | Promise<void>;
+}) {
+  const grouped = useMemo(() => {
+    const map = new Map<string, TvProduct[]>();
+
+    for (const product of products) {
+      const key = normalizeProductText(product.category || "burger").toLowerCase() || "burger";
+      const arr = map.get(key) || [];
+      arr.push(product);
+      map.set(key, arr);
+    }
+
+    for (const arr of map.values()) {
+      arr.sort((a, b) => normalizeProductText(a.name).localeCompare(normalizeProductText(b.name), "de"));
+    }
+
+    const keys = Array.from(map.keys()).sort((a, b) => {
+      const ai = TV_PRODUCT_CATEGORY_ORDER.indexOf(a);
+      const bi = TV_PRODUCT_CATEGORY_ORDER.indexOf(b);
+      const ax = ai >= 0 ? ai : 999;
+      const bx = bi >= 0 ? bi : 999;
+
+      if (ax !== bx) return ax - bx;
+
+      return a.localeCompare(b);
+    });
+
+    return keys.map((key) => ({
+      key,
+      label: productCategoryLabel(key),
+      items: map.get(key) || [],
+    }));
+  }, [products]);
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <div className="text-xs uppercase tracking-wider text-stone-300/70">Artikel</div>
+        <div className="mt-1 text-xs text-stone-400">
+          Admin-Aktiv bleibt unverändert. TV schließt Produkte nur temporär über DB-Settings.
+        </div>
+      </div>
+
+      <button
+        type="button"
+        onClick={() => onRefresh()}
+        className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs hover:bg-white/10"
+      >
+        Aktualisieren
+      </button>
+
+      {error && (
+        <div className="rounded-xl border border-rose-400/40 bg-rose-500/15 p-2 text-xs text-rose-100">
+          {error}
+        </div>
+      )}
+
+      {grouped.length === 0 ? (
+        <div className="rounded-xl border border-white/10 bg-white/[0.04] p-3 text-sm text-stone-300">
+          Keine Artikel gefunden.
+        </div>
+      ) : (
+        grouped.map((group) => (
+          <div key={group.key} className="rounded-2xl border border-white/10 bg-white/[0.04] p-3">
+            <div className="mb-2 text-sm font-semibold">{group.label}</div>
+
+            <div className="space-y-2">
+              {group.items.map((product) => {
+                const key = productAvailabilityKey(product);
+                const entry = getProductAvailabilityEntry(product, availability);
+                const closed = isProductClosedByEntry(entry, nowMs);
+                const busy = busyKey === key;
+                const adminPassive = product.active === false;
+
+                return (
+                  <div key={key || product.name} className="rounded-xl border border-white/10 bg-black/20 p-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <div className="font-medium leading-tight">{product.name}</div>
+                        <div className="mt-0.5 text-[11px] text-stone-400">
+                          {adminPassive ? "Admin: passiv" : productCloseLabel(entry, nowMs)}
+                        </div>
+                      </div>
+
+                      <span
+                        className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
+                          adminPassive
+                            ? "border-stone-500/60 bg-stone-500/20 text-stone-200"
+                            : closed
+                              ? "border-rose-400/50 bg-rose-500/15 text-rose-100"
+                              : "border-emerald-400/50 bg-emerald-500/15 text-emerald-100"
+                        }`}
+                      >
+                        {adminPassive ? "Passiv" : closed ? "Zu" : "Offen"}
+                      </span>
+                    </div>
+
+                    <div className="mt-2 grid grid-cols-3 gap-1.5 text-[11px]">
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => onChange(product, "open")}
+                        className="rounded-lg border border-emerald-400/40 bg-emerald-500/10 px-2 py-1 text-emerald-100 disabled:opacity-40"
+                      >
+                        Aç
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={busy || adminPassive}
+                        onClick={() => onChange(product, "today")}
+                        className="rounded-lg border border-amber-400/40 bg-amber-500/10 px-2 py-1 text-amber-100 disabled:opacity-40"
+                      >
+                        Bugün kapat
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={busy || adminPassive}
+                        onClick={() => onChange(product, "manual")}
+                        className="rounded-lg border border-rose-400/40 bg-rose-500/10 px-2 py-1 text-rose-100 disabled:opacity-40"
+                      >
+                        Her zaman kapat
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))
+      )}
     </div>
   );
 }
