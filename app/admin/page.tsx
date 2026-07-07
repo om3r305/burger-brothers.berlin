@@ -210,7 +210,7 @@ function statusOf(p: Product, now = new Date()) {
  * ========================= */
 type ProductLoadResult = {
   products: any[];
-  source: "db" | "local" | "empty";
+  source: "db" | "cache_fallback" | "local" | "empty";
   dbOk: boolean;
 };
 
@@ -237,11 +237,14 @@ async function dbLoadProducts(): Promise<ProductLoadResult> {
           ? j.data.products
           : [];
 
+    const apiSource = String(j?.source || "db");
+    const dbOk = apiSource === "db";
+
     if (products.length > 0) {
       return {
         products,
-        source: "db",
-        dbOk: true,
+        source: dbOk ? "db" : "cache_fallback",
+        dbOk,
       };
     }
 
@@ -250,7 +253,7 @@ async function dbLoadProducts(): Promise<ProductLoadResult> {
     return {
       products: Array.isArray(local) ? local : [],
       source: local.length ? "local" : "empty",
-      dbOk: true,
+      dbOk,
     };
   } catch {
     const local = safeJsonParse<any[]>(localStorage.getItem(LS_PRODUCTS), []);
@@ -500,6 +503,7 @@ function normalizeVariantGroups(arr: any[]): VariantGroup[] {
 type VariantGroupsLoadResult = {
   drinkGroups: VariantGroup[];
   extraGroups: VariantGroup[];
+  source: "db" | "cache_fallback" | "local" | "empty";
   dbOk: boolean;
 };
 
@@ -518,15 +522,20 @@ async function dbLoadVariantGroups(): Promise<VariantGroupsLoadResult> {
       throw new Error(j?.error || `GROUPS_${res.status}`);
     }
 
+    const apiSource = String(j?.source || "db");
+    const dbOk = apiSource === "db";
+
     return {
       drinkGroups: normalizeVariantGroups(Array.isArray(j.drinkGroups) ? j.drinkGroups : []),
       extraGroups: normalizeVariantGroups(Array.isArray(j.extraGroups) ? j.extraGroups : []),
-      dbOk: true,
+      source: dbOk ? "db" : "cache_fallback",
+      dbOk,
     };
   } catch {
     return {
       drinkGroups: [],
       extraGroups: [],
+      source: "empty",
       dbOk: false,
     };
   }
@@ -614,6 +623,13 @@ export default function AdminPage() {
   const [imgPickerOpen, setImgPickerOpen] = useState<null | "product" | "drink" | "extra">(null);
   const [imgDraft, setImgDraft] = useState("");
 
+  const [catalogDbOk, setCatalogDbOk] = useState(true);
+  const [groupsDbOk, setGroupsDbOk] = useState(true);
+  const [catalogSource, setCatalogSource] = useState("db");
+  const [groupsSource, setGroupsSource] = useState("db");
+
+  const adminReadOnly = !catalogDbOk || !groupsDbOk;
+
   const skipNextProductsSaveRef = useRef(false);
   const skipNextGroupsSaveRef = useRef(false);
 
@@ -621,6 +637,8 @@ export default function AdminPage() {
   useEffect(() => {
     (async () => {
       const productsResult = await dbLoadProducts();
+      setCatalogDbOk(productsResult.dbOk);
+      setCatalogSource(productsResult.source);
 
       if (productsResult.products.length > 0) {
         const mapped = normalizeOrders(productsResult.products.map(normalizeProductFromDb));
@@ -638,6 +656,8 @@ export default function AdminPage() {
 
       try {
         const groupsResult = await dbLoadVariantGroups();
+        setGroupsDbOk(groupsResult.dbOk);
+        setGroupsSource(groupsResult.source);
 
         if (groupsResult.drinkGroups.length || groupsResult.extraGroups.length) {
           setDrinkGroups(groupsResult.drinkGroups);
@@ -686,6 +706,8 @@ export default function AdminPage() {
       return;
     }
 
+    if (!catalogDbOk) return;
+
     (async () => {
       const normalized = normalizeOrders(items);
       const products = normalized.map(productForDb);
@@ -695,7 +717,7 @@ export default function AdminPage() {
         writeLocalCache(LS_PRODUCTS, normalized);
       }
     })();
-  }, [items], 300);
+  }, [items, catalogDbOk], 300);
 
   useDebouncedEffect(() => {
     try {
@@ -710,6 +732,8 @@ export default function AdminPage() {
       return;
     }
 
+    if (!groupsDbOk) return;
+
     (async () => {
       const ok = await dbSaveVariantGroups(drinkGroups, extraGroups);
 
@@ -718,7 +742,7 @@ export default function AdminPage() {
         writeLocalCache(LS_EXTRA_GROUPS, extraGroups);
       }
     })();
-  }, [drinkGroups, extraGroups], 400);
+  }, [drinkGroups, extraGroups, groupsDbOk], 400);
 
   /* ====== FILTERED LIST (PRODUCTS) ====== */
   const list = useMemo(() => {
@@ -1262,13 +1286,17 @@ export default function AdminPage() {
           <button className="btn-ghost" onClick={doExportAll}>
             Export (JSON)
           </button>
-          <label className="btn-ghost cursor-pointer">
+          <label
+            className={`btn-ghost cursor-pointer ${adminReadOnly ? "pointer-events-none opacity-50" : ""}`}
+            title={adminReadOnly ? "DB-Verbindung gestört – Import ist gesperrt." : undefined}
+          >
             Import
             <input
               id="file-import"
               type="file"
               accept=".json,application/json"
               onChange={doImportAll}
+              disabled={adminReadOnly}
               hidden
             />
           </label>
@@ -1278,7 +1306,19 @@ export default function AdminPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[240px_1fr]">
+      {adminReadOnly && (
+        <div className="mb-5 rounded-xl border border-amber-400/40 bg-amber-500/10 p-4 text-sm text-amber-100">
+          <div className="font-semibold">
+            DB-Verbindung vorübergehend gestört. Letzte gespeicherte Admin-Daten werden angezeigt.
+          </div>
+          <div className="mt-1 text-amber-100/80">
+            Produkte: {catalogSource}, Gruppen: {groupsSource}. Änderungen, Import und automatisches
+            Speichern sind gesperrt, damit keine falschen Daten überschrieben werden.
+          </div>
+        </div>
+      )}
+
+      <div className={`grid grid-cols-1 gap-6 lg:grid-cols-[240px_1fr] ${adminReadOnly ? "opacity-80" : ""}`}>
         <aside className="h-full rounded-xl border border-stone-700/60 bg-stone-900/60 p-3 lg:sticky lg:top-4 lg:self-start">
           <div className="mb-3">
             <input

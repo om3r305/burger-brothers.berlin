@@ -52,6 +52,8 @@ type PlanEntry = {
 
 type SettingsModel = Record<string, any>;
 
+type SettingsSource = "db" | "cache_fallback" | "local_fallback" | "default_fallback" | "error";
+
 const DEFAULT_MODEL: SettingsModel = {
   site: {
     closed: false,
@@ -390,6 +392,9 @@ const RESPONSE_META_KEYS = new Set([
   "saved",
   "keys",
   "error",
+  "message",
+  "dbError",
+  "fallbackSaved",
   "createdAt",
   "updatedAt",
 ]);
@@ -1099,6 +1104,10 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 export default function AdminSettingsPage() {
   const [mounted, setMounted] = useState(false);
   const [model, setModel] = useState<any>(null);
+  const [settingsSource, setSettingsSource] = useState<SettingsSource>("db");
+  const [settingsDbError, setSettingsDbError] = useState("");
+
+  const settingsReadOnly = settingsSource !== "db";
 
   useEffect(() => {
     let cancelled = false;
@@ -1118,6 +1127,18 @@ export default function AdminSettingsPage() {
 
         if (!res.ok || data?.ok === false) {
           throw new Error(data?.error || `SETTINGS_${res.status}`);
+        }
+
+        const source =
+          data?.source === "cache_fallback"
+            ? "cache_fallback"
+            : data?.source === "default_fallback"
+              ? "default_fallback"
+              : "db";
+
+        if (!cancelled) {
+          setSettingsSource(source);
+          setSettingsDbError(String(data?.dbError || ""));
         }
 
         const rawSettings = stripResponseMetadata(data);
@@ -1166,10 +1187,14 @@ export default function AdminSettingsPage() {
           });
 
           if (!cancelled) {
+            setSettingsSource("local_fallback");
+            setSettingsDbError(error instanceof Error ? error.message : String(error || ""));
             setModel(initModel);
           }
         } catch {
           if (!cancelled) {
+            setSettingsSource("default_fallback");
+            setSettingsDbError(error instanceof Error ? error.message : String(error || ""));
             setModel(normalizeForSave({}));
           }
         }
@@ -1183,7 +1208,7 @@ export default function AdminSettingsPage() {
     };
   }, []);
 
-  useDebouncedAutosave(model, mounted && model != null, 400);
+  useDebouncedAutosave(model, mounted && model != null && !settingsReadOnly, 400);
 
   const setNested = (path: string[], value: any) =>
     setModel((current: any) => {
@@ -1215,6 +1240,12 @@ export default function AdminSettingsPage() {
   };
 
   const doImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (settingsReadOnly) {
+      event.target.value = "";
+      alert("DB-Verbindung ist gestört. Einstellungen werden nur angezeigt und können erst gespeichert/importiert werden, wenn die Datenbank wieder erreichbar ist.");
+      return;
+    }
+
     const file = event.target.files?.[0];
     if (!file) return;
 
@@ -1249,6 +1280,11 @@ export default function AdminSettingsPage() {
   };
 
   const saveNow = async () => {
+    if (settingsReadOnly) {
+      alert("DB-Verbindung ist gestört. Letzte gespeicherte Einstellungen werden angezeigt. Speichern ist erst wieder möglich, wenn source=db ist.");
+      return;
+    }
+
     try {
       const next = normalizeForSave(model);
 
@@ -1309,17 +1345,47 @@ export default function AdminSettingsPage() {
           <button className="btn-ghost" onClick={doExport}>
             Export
           </button>
-          <label className="btn-ghost cursor-pointer">
+          <label
+            className={`btn-ghost cursor-pointer ${
+              settingsReadOnly ? "pointer-events-none opacity-50" : ""
+            }`}
+            title={settingsReadOnly ? "DB-Verbindung gestört – Import ist gesperrt." : undefined}
+          >
             Import
-            <input type="file" accept="application/json,.json" hidden onChange={doImport} />
+            <input
+              type="file"
+              accept="application/json,.json"
+              hidden
+              disabled={settingsReadOnly}
+              onChange={doImport}
+            />
           </label>
-          <button className="pill" onClick={saveNow}>
+          <button
+            className={`pill ${settingsReadOnly ? "cursor-not-allowed opacity-50" : ""}`}
+            onClick={saveNow}
+            disabled={settingsReadOnly}
+            title={settingsReadOnly ? "DB-Verbindung gestört – Speichern ist gesperrt." : undefined}
+          >
             Speichern
           </button>
         </div>
       </div>
 
-      <div className="grid gap-6">
+      {settingsReadOnly && (
+        <div className="mb-5 rounded-xl border border-amber-400/40 bg-amber-500/10 p-4 text-sm text-amber-100">
+          <div className="font-semibold">
+            DB-Verbindung vorübergehend gestört. Letzte gespeicherte Einstellungen werden angezeigt.
+          </div>
+          <div className="mt-1 text-amber-100/80">
+            Quelle: {settingsSource}. Speichern und Import sind gesperrt, damit keine falschen Daten
+            überschrieben werden. Sobald die DB wieder erreichbar ist, lädt die Seite automatisch wieder
+            mit source=db nach einem Refresh.
+            {settingsDbError ? ` Fehler: ${settingsDbError}` : ""}
+          </div>
+        </div>
+      )}
+
+      <div className={`grid gap-6 ${settingsReadOnly ? "pointer-events-none opacity-70" : ""}`}>
         {/* SITE STATUS */}
         <section className="card">
           <div className="mb-3 text-lg font-medium">Shop-Status</div>
