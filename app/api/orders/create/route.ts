@@ -396,6 +396,7 @@ function normalizeLoadStatus(value: any) {
 const DELIVERY_MAX_MINUTES = 60;
 const DELIVERY_LOAD_STEP_MINUTES = 5;
 const DELIVERY_ORDERS_PER_STEP = 2;
+const DELIVERY_ACTIVE_LOOKBACK_MINUTES = 12 * 60;
 
 function etaByDeliveryLoad(baseDelivery: number, activeOrders: number) {
   const base = Math.min(
@@ -415,9 +416,13 @@ function etaByDeliveryLoad(baseDelivery: number, activeOrders: number) {
 }
 
 async function computeDeliveryEtaMin(tenantId: string, baseDelivery: number) {
+  const nowMs = Date.now();
+  const since = new Date(nowMs - DELIVERY_ACTIVE_LOOKBACK_MINUTES * 60_000);
+
   const where: Record<string, any> = {
     tenantId,
     mode: "delivery",
+    ts: { gte: since },
     status: {
       in: ["new", "preparing", "ready", "out_for_delivery"],
     },
