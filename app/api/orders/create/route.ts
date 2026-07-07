@@ -319,6 +319,7 @@ function normalizeItems(order: any) {
       id: item?.id != null ? String(item.id) : undefined,
       sku: item?.sku != null ? String(item.sku) : item?.id != null ? String(item.id) : undefined,
       name: cleanText(item?.name || item?.title || "Artikel"),
+      description: cleanText(item?.description ?? item?.desc ?? item?.itemDescription) || undefined,
       category: item?.category != null ? String(item.category) : undefined,
       price: toNum(item?.price ?? item?.unitPrice, 0),
       qty: Math.max(1, toNum(item?.qty ?? item?.quantity ?? 1, 1)),
@@ -385,20 +386,32 @@ function normalizeLoadStatus(value: any) {
     return "out_for_delivery";
   }
 
+  if (text === "done" || text === "delivered" || text === "completed" || text === "fertig") return "done";
+  if (text === "cancelled" || text === "canceled" || text === "storniert") return "cancelled";
   if (text === "new") return "new";
 
   return "";
 }
 
-function etaByDeliveryLoad(baseDelivery: number, load: number) {
-  const base = Math.max(1, Math.round(baseDelivery || 35));
+const DELIVERY_MAX_MINUTES = 60;
+const DELIVERY_LOAD_STEP_MINUTES = 5;
+const DELIVERY_ORDERS_PER_STEP = 2;
 
-  if (load >= 9) return 60;
-  if (load >= 7) return Math.min(60, base + 20);
-  if (load >= 5) return Math.min(60, base + 15);
-  if (load >= 3) return Math.min(60, base + 10);
+function etaByDeliveryLoad(baseDelivery: number, activeOrders: number) {
+  const base = Math.min(
+    DELIVERY_MAX_MINUTES,
+    Math.max(1, Math.round(baseDelivery || 35)),
+  );
 
-  return Math.min(60, base);
+  const activeCount = Math.max(0, Math.floor(activeOrders || 0));
+
+  if (activeCount <= 0) {
+    return base;
+  }
+
+  const extra = Math.ceil(activeCount / DELIVERY_ORDERS_PER_STEP) * DELIVERY_LOAD_STEP_MINUTES;
+
+  return Math.min(DELIVERY_MAX_MINUTES, base + extra);
 }
 
 async function computeDeliveryEtaMin(tenantId: string, baseDelivery: number) {
@@ -413,40 +426,13 @@ async function computeDeliveryEtaMin(tenantId: string, baseDelivery: number) {
   if (hasOrderField("archivedAt")) where.archivedAt = null;
   if (hasOrderField("anonymizedAt")) where.anonymizedAt = null;
 
-  const rows = await prisma.order
-    .findMany({
+  const activeOrders = await prisma.order
+    .count({
       where,
-      select: {
-        status: true,
-      },
     })
-    .catch(() => []);
+    .catch(() => 0);
 
-  let kitchenLoad = 0;
-  let driverLoad = 0;
-
-  for (const row of rows) {
-    const status = normalizeLoadStatus((row as any)?.status);
-
-    if (status === "new" || status === "preparing") {
-      kitchenLoad += 1;
-      driverLoad += 0.75;
-    } else if (status === "ready") {
-      kitchenLoad += 0.5;
-      driverLoad += 2;
-    } else if (status === "out_for_delivery") {
-      driverLoad += 1.25;
-    }
-  }
-
-  /*
-    Yeni gelen sipariş de sıraya gireceği için hesaba dahil edilir.
-    Böylece 8 puanlık yoğunluğa gelen yeni Lieferung 9+ eşiğine girip 60 dk olabilir.
-  */
-  kitchenLoad += 1;
-  driverLoad += 0.75;
-
-  return etaByDeliveryLoad(baseDelivery, Math.max(kitchenLoad, driverLoad));
+  return etaByDeliveryLoad(baseDelivery, activeOrders);
 }
 
 function safeRouteDealList(value: any): string[] {
