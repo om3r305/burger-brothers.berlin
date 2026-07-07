@@ -906,7 +906,7 @@ async function listCatalog(tenantId: string) {
 
 function catalogResponsePayload(
   catalog: { products?: any[]; campaigns?: any[] },
-  source: "db" | "fallback",
+  source: "db" | "cache_fallback" | "default_fallback",
 ) {
   const products = Array.isArray(catalog?.products) ? catalog.products : [];
   const campaigns = Array.isArray(catalog?.campaigns) ? catalog.campaigns : [];
@@ -938,7 +938,7 @@ async function readCatalogFallback() {
         products: Array.isArray(catalog.products) ? catalog.products : catalog.items,
         campaigns: Array.isArray(catalog.campaigns) ? catalog.campaigns : [],
       },
-      "fallback",
+      "cache_fallback",
     );
   }
 
@@ -959,12 +959,19 @@ async function readCatalogFallback() {
       products: productItems,
       campaigns: [],
     },
-    "fallback",
+    "cache_fallback",
   );
 }
 
 async function writeCatalogFallback(catalog: { products: any[]; campaigns: any[] }) {
-  const payload = catalogResponsePayload(catalog, "fallback");
+  const payload = catalogResponsePayload(catalog, "cache_fallback");
+
+  if (!payload.products.length) {
+    return {
+      skipped: true,
+      reason: "empty_products",
+    };
+  }
 
   const [catalogSaved, productsSaved] = await Promise.all([
     writeFallbackSnapshot("catalog", payload).catch((error) => {
@@ -973,7 +980,7 @@ async function writeCatalogFallback(catalog: { products: any[]; campaigns: any[]
     }),
     writeFallbackSnapshot("products", {
       ok: true,
-      source: "fallback",
+      source: "cache_fallback",
       items: payload.products,
       products: payload.products,
       count: payload.products.length,
@@ -1002,8 +1009,12 @@ export async function GET() {
   try {
     const tenantId = await getTenantId();
     const catalog = await listCatalog(tenantId);
+    const fallbackSaved = await writeCatalogFallback(catalog);
 
-    return jsonResponse(catalogResponsePayload(catalog, "db"));
+    return jsonResponse({
+      ...catalogResponsePayload(catalog, "db"),
+      fallbackSaved,
+    });
   } catch (error: any) {
     const fallback = await readCatalogFallback();
 

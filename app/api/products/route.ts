@@ -512,7 +512,7 @@ async function listProducts(tenantId: string, categoryRaw?: string | null) {
 }
 
 
-function productsResponsePayload(items: any[], source: "db" | "fallback") {
+function productsResponsePayload(items: any[], source: "db" | "cache_fallback" | "default_fallback") {
   return {
     ok: true,
     source,
@@ -552,11 +552,18 @@ async function readProductsFallback(categoryRaw?: string | null, activeOnly = fa
 
   const items = filterProductItems(rawItems, categoryRaw, activeOnly);
 
-  return productsResponsePayload(items, "fallback");
+  return productsResponsePayload(items, "cache_fallback");
 }
 
 async function writeProductsFallback(items: any[]) {
-  return writeFallbackSnapshot("products", productsResponsePayload(items, "fallback")).catch(
+  if (!Array.isArray(items) || !items.length) {
+    return {
+      skipped: true,
+      reason: "empty_products",
+    };
+  }
+
+  return writeFallbackSnapshot("products", productsResponsePayload(items, "cache_fallback")).catch(
     (error) => {
       console.warn("[products:fallback] write failed", error);
       return null;
@@ -581,9 +588,13 @@ export async function GET(req: Request) {
       items = items.filter((item) => item.active !== false);
     }
 
+    const fallbackSaved =
+      !category && !activeOnly ? await writeProductsFallback(items) : null;
+
     return jsonResponse({
       ok: true,
       source: "db",
+      fallbackSaved,
       items,
       products: items,
       count: items.length,

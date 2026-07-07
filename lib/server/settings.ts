@@ -145,6 +145,8 @@ export type ServerSettings = {
     [key: string]: any;
   };
 
+  productAvailability?: Record<string, any>;
+
   statusColors?: Record<string, any>;
 
   theme?: {
@@ -256,6 +258,8 @@ const DEFAULT_SETTINGS: ServerSettings = {
     rules: [],
     active: [],
   },
+
+  productAvailability: {},
 
   statusColors: {
     new: "#f59e0b",

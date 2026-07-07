@@ -604,10 +604,19 @@ export async function GET() {
   try {
     const tenantId = await getTenantId();
     const settings = await readSettingsMap(tenantId);
+    const fallbackSaved = await writeSettingsFallback(settings);
 
-    return NextResponse.json(settings, {
-      headers: NO_STORE_HEADERS,
-    });
+    return NextResponse.json(
+      {
+        ...settings,
+        ok: true,
+        source: "db",
+        fallbackSaved,
+      },
+      {
+        headers: NO_STORE_HEADERS,
+      },
+    );
   } catch (error: any) {
     console.error("[settings:GET]", error);
 
@@ -617,7 +626,7 @@ export async function GET() {
       return NextResponse.json(
         {
           ...fallback,
-          source: "fallback",
+          source: "cache_fallback",
           dbError: error?.message || "SETTINGS_GET_FAILED",
         },
         {
