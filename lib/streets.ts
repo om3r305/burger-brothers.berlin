@@ -20,6 +20,15 @@ export const DELIVERY_RADIUS_KM = 8;
 let STREET_DB: StreetDB = {};
 let HYDRATE_STARTED = false;
 
+/*
+  Bazı resmi Berlin sokak adları klasik "Straße/Weg/Damm" eki taşımaz.
+  Eski POI filtresi bunları yanlışlıkla eleyebildiği için küçük, kontrollü resmi sokak patch listesi.
+  Market/POI isimleri buraya eklenmez.
+*/
+const STREET_PATCHES: StreetDB = {
+  "13503": ["Alt-Heiligensee"],
+};
+
 /* ───────────── yardımcılar ───────────── */
 
 function tryParse<T>(s: any, fb: T): T {
@@ -41,6 +50,27 @@ function plz5(v?: string | null): string {
   return String(v || "").replace(/[^\d]/g, "").slice(0, 5);
 }
 
+function mergeStreetPatches(plz: string, streets: string[]): string[] {
+  const base = Array.isArray(streets) ? streets : [];
+  const patches = Array.isArray(STREET_PATCHES[plz]) ? STREET_PATCHES[plz] : [];
+
+  if (!patches.length) {
+    return base;
+  }
+
+  const byKey = new Map<string, string>();
+
+  for (const street of [...base, ...patches]) {
+    const pretty = beautify(String(street || ""));
+    if (!pretty) continue;
+    if (!isLikelyStreetName(pretty)) continue;
+
+    byKey.set(normalizeStreetForMatch(pretty), pretty);
+  }
+
+  return Array.from(byKey.values()).sort((a, b) => a.localeCompare(b, "de"));
+}
+
 export function setStreetDB(db: StreetDB) {
   // hepsini normalize ederek POI’leri ele, tekrar yaz
   const cleaned: StreetDB = {};
@@ -53,7 +83,7 @@ export function setStreetDB(db: StreetDB) {
       const trimmed = beautify(name);
       if (trimmed) uniq.add(trimmed);
     }
-    cleaned[plz] = Array.from(uniq).sort((a, b) => a.localeCompare(b, "de"));
+    cleaned[plz] = mergeStreetPatches(plz, Array.from(uniq));
   }
   STREET_DB = cleaned;
   saveToLS(STREET_DB);
@@ -75,7 +105,7 @@ export function getStreets(plz?: string | null): string[] {
   const db = getStreetDB();
   const raw = Array.isArray(db?.[code]) ? db[code] : [];
   // DB boşsa ilk çağrıda hydrate başlatılmış olur; kısa süre boş dönebilir.
-  return raw.filter(isLikelyStreetName);
+  return mergeStreetPatches(code, raw).filter(isLikelyStreetName);
 }
 
 /** Harfleri normalize et (ä→ae, ö→oe, ü→ue, ß→ss, aksanları at) */
@@ -205,24 +235,88 @@ export function routeDealStreetLabel(address: any): string {
 export function isLikelyStreetName(name: string): boolean {
   const n = normalize(name);
 
-  // tipik son ekler + bazı önekler
-  const streetType = /(strasse|straße|allee|damm|weg|platz|ufer|gasse|zeile|chaussee|ring|steig|stieg|pfad|promenade|bruecke|brücke|kai|bogen|winkel|grund|anger|markt)$/i;
-  const prefixes = /^(am|an|auf|in|zum|zur|zu|alt|neu)\s/i;
+  if (!n) return false;
 
-  const looksStreet = streetType.test(n) || prefixes.test(n);
+  /*
+    Tipik Berlin sokak yapıları:
+    - Schulzendorfer Straße / Schwarzer Weg / Eichborndamm
+    - Alt-Heiligensee gibi resmi ama klasik son ek taşımayan "Alt-/Neu-" adları
+    - Am Bärensprung / Zum Klotzhain gibi edatla başlayan sokak adları
+  */
+  const streetType =
+    /(strasse|straße|allee|damm|weg|platz|ufer|gasse|zeile|chaussee|ring|steig|stieg|pfad|promenade|bruecke|brücke|kai|bogen|winkel|grund|anger|markt)$/i;
 
-  // işletme/POI kara listesi
-  const poiBad = [
-    "gmbh","logistics","apotheke","hotel","schule","kita","kindergarten","werkstatt","autohaus",
-    "shisha","lounge","pizzeria","kiosk","bar","restaurant","supermarkt","markt","lidl","aldi",
-    "netto","rewe","edeka","dm","rossmann","fitness","studio","praxis","klinik","arzt",
-    "zentrum","halle","werk","werks","bahnhof","campus","universitaet","universität",
-    "lager","depot","parkplatz","parkcenter","passage"
+  const prepositionPrefix = /^(am|an|auf|in|zum|zur|zu)[\s-]+/i;
+  const officialAltNeuPrefix = /^(alt|neu)[\s-]+[a-z0-9]/i;
+
+  const looksStreet =
+    streetType.test(n) ||
+    prepositionPrefix.test(n) ||
+    officialAltNeuPrefix.test(n);
+
+  /*
+    POI / işletme kara listesi:
+    Eskiden "bar" gibi kısa kelimeler substring olarak aranıyordu.
+    Bu, "Bärensprung" → "barensprung" gibi gerçek sokakları yanlış eleyebilir.
+    Bu yüzden kelime bazlı kontrol kullanıyoruz.
+  */
+  const poiBadWords = [
+    "gmbh",
+    "logistics",
+    "apotheke",
+    "hotel",
+    "schule",
+    "kita",
+    "kindergarten",
+    "werkstatt",
+    "autohaus",
+    "shisha",
+    "lounge",
+    "pizzeria",
+    "kiosk",
+    "bar",
+    "restaurant",
+    "supermarkt",
+    "markt",
+    "lidl",
+    "aldi",
+    "netto",
+    "rewe",
+    "edeka",
+    "dm",
+    "rossmann",
+    "fitness",
+    "studio",
+    "praxis",
+    "klinik",
+    "arzt",
+    "zentrum",
+    "halle",
+    "werk",
+    "werks",
+    "bahnhof",
+    "campus",
+    "universitaet",
+    "universität",
+    "lager",
+    "depot",
+    "parkplatz",
+    "parkcenter",
+    "passage",
   ];
-  if (poiBad.some((w) => n.includes(w))) return false;
 
-  // çok kısa tek kelime ve tip yoksa at
-  if (n.split(" ").length === 1 && !streetType.test(n)) return false;
+  const tokens = n
+    .split(/[\s,.;:|/()\[\]{}]+/g)
+    .map((token) => token.trim())
+    .filter(Boolean);
+
+  if (poiBadWords.some((word) => tokens.includes(word))) {
+    return false;
+  }
+
+  // Çok kısa tek kelime ve tip/prefix yoksa at. Hyphen'lı Alt-Heiligensee gibi resmi adlar korunur.
+  const nameParts = n.split(/[\s-]+/g).filter(Boolean);
+  if (nameParts.length === 1 && !looksStreet) return false;
 
   return looksStreet;
 }
