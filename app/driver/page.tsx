@@ -821,6 +821,130 @@ function orderNote(order: StoredOrder): string {
   return "";
 }
 
+function compactText(value: any) {
+  return String(value ?? "")
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[ä]/g, "a")
+    .replace(/[ö]/g, "o")
+    .replace(/[ü]/g, "u")
+    .replace(/[ß]/g, "ss")
+    .trim();
+}
+
+function isDrinkLikeItem(item: any) {
+  const category = compactText(
+    item?.category ??
+      item?.categoryKey ??
+      item?.cat ??
+      item?.type ??
+      item?.group ??
+      item?.section,
+  ).replace(/[\s_-]+/g, "");
+
+  if (
+    [
+      "drink",
+      "drinks",
+      "getrank",
+      "getranke",
+      "getraenk",
+      "getraenke",
+      "beverage",
+      "beverages",
+      "bubbletea",
+      "bubbleteas",
+      "boba",
+      "milktea",
+    ].includes(category)
+  ) {
+    return true;
+  }
+
+  const text = compactText(
+    [
+      item?.sku,
+      item?.code,
+      item?.id,
+      item?.name,
+      item?.title,
+      item?.label,
+      item?.variant,
+      item?.variantName,
+    ]
+      .filter(Boolean)
+      .join(" "),
+  );
+
+  return /\b(drink|drinks|getrank|getranke|getraenk|getraenke|cola|coca|fanta|sprite|mezzo|wasser|water|ayran|uludag|jarritos|mate|club\s*mate|nestea|lipton|eistee|iced\s*tea|ice\s*tea|bubble\s*tea|bubbletea|boba|milk\s*tea|milktea|pepsi|capri|red\s*bull|vitamalz|fritz|schorle|saft|juice|limonade)\b/i.test(
+    text,
+  );
+}
+
+function orderHasDrinks(order: StoredOrder) {
+  return cleanArr((order as any)?.items).some(isDrinkLikeItem);
+}
+
+function plannedValue(order: StoredOrder) {
+  const meta = cleanObj((order as any).meta);
+
+  return String(
+    (order as any)?.planned ??
+      meta?.planned ??
+      meta?.plannedTime ??
+      meta?.planned_time ??
+      meta?.preorderTime ??
+      meta?.preorder_time ??
+      "",
+  ).trim();
+}
+
+function isPlannedClaimOrder(order: StoredOrder) {
+  return Boolean(plannedValue(order));
+}
+
+function confirmPlannedClaim(ordersToClaim: StoredOrder[]) {
+  const plannedOrders = ordersToClaim.filter(isPlannedClaimOrder);
+
+  if (!plannedOrders.length) return true;
+
+  const lines = plannedOrders.slice(0, 6).map((order) => {
+    const planned = plannedValue(order);
+    const address = prettyDeliveryLine(order);
+    return `#${(order as any).orderId || order.id}${planned ? ` · Geplant: ${planned}` : ""}${
+      address ? ` · ${address}` : ""
+    }`;
+  });
+
+  const rest =
+    plannedOrders.length > lines.length
+      ? [`… und ${plannedOrders.length - lines.length} weitere geplante Bestellung(en).`]
+      : [];
+
+  return window.confirm(
+    [
+      "Achtung: Sie übernehmen eine geplante Bestellung.",
+      "Bitte prüfen, ob der Kunde die Lieferung wirklich jetzt möchte.",
+      "",
+      ...lines,
+      ...rest,
+      "",
+      "Möchten Sie wirklich übernehmen?",
+    ].join("\n"),
+  );
+}
+
+function DrinkOrderNotice({ order }: { order: StoredOrder }) {
+  if (!orderHasDrinks(order)) return null;
+
+  return (
+    <div className="mt-2 rounded-xl border border-amber-300/35 bg-amber-400/10 px-3 py-2 text-sm font-semibold text-amber-50">
+      ⚠️ Getränke dabei – bitte beachten.
+    </div>
+  );
+}
+
 function withDriverState(
   order: StoredOrder,
   current: Driver | null,
@@ -1447,14 +1571,21 @@ export default function DriverPage() {
       return;
     }
 
+    const selectedOrders = ids
+      .map((id) => orders.find((item) => String(item.id) === id))
+      .filter(Boolean) as StoredOrder[];
+
+    if (!confirmPlannedClaim(selectedOrders)) {
+      return;
+    }
+
     setLoading(true);
 
     try {
       const errors: string[] = [];
 
-      for (const id of ids) {
-        const order = orders.find((item) => String(item.id) === id);
-        if (!order) continue;
+      for (const order of selectedOrders) {
+        const id = String(order.id);
 
         try {
           const claimed = await claimOrderOnServer(order, current);
@@ -1482,6 +1613,10 @@ export default function DriverPage() {
   async function claimOne(order: StoredOrder) {
     if (!current) {
       alert("Bitte zuerst anmelden.");
+      return;
+    }
+
+    if (!confirmPlannedClaim([order])) {
       return;
     }
 
@@ -1776,6 +1911,8 @@ export default function DriverPage() {
             <div className="mt-0.5 text-sm font-semibold text-stone-200">
               {prettyDeliveryLine(order)}
             </div>
+
+            <DrinkOrderNotice order={order} />
 
             {noteText && (
               <div className="mt-2 rounded-xl border border-amber-300/35 bg-amber-400/10 p-2.5 text-sm text-amber-50">
@@ -2182,6 +2319,8 @@ export default function DriverPage() {
                           <div className="mt-0.5 text-sm font-semibold text-stone-200">
                             {prettyDeliveryLine(order)}
                           </div>
+
+                          <DrinkOrderNotice order={order} />
 
                           <TimeBadge order={order} />
                         </div>
