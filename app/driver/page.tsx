@@ -710,6 +710,160 @@ function prettyDeliveryLine(order: StoredOrder) {
   return raw;
 }
 
+
+const STORE_ADDRESS_FALLBACK = "Burger Brothers Berlin, Berlin Tegel";
+
+const ROUTE_PLZ_PRIORITY = [
+  "13403",
+  "13405",
+  "13407",
+  "13409",
+  "13437",
+  "13469",
+  "13467",
+  "13505",
+  "13503",
+  "13507",
+];
+
+function orderPlzValue(order: StoredOrder) {
+  const customer = cleanObj(order?.customer);
+  const direct = String(customer.plz || customer.zip || (order as any)?.plz || "").trim();
+  if (/^\d{5}$/.test(direct)) return direct;
+
+  const line = prettyDeliveryLine(order);
+  const match = line.match(/\b\d{5}\b/);
+  return match ? match[0] : "";
+}
+
+function routeRankForOrder(order: StoredOrder) {
+  const plz = orderPlzValue(order);
+  const index = ROUTE_PLZ_PRIORITY.indexOf(plz);
+  return index >= 0 ? index : ROUTE_PLZ_PRIORITY.length + 99;
+}
+
+function getOrderRouteAddress(order: StoredOrder) {
+  const customer = cleanObj(order?.customer);
+  const line = prettyDeliveryLine(order);
+  const address = String(
+    line ||
+      customer.address ||
+      customer.addressLine ||
+      [customer.plz || customer.zip, customer.street, customer.house].filter(Boolean).join(" "),
+  ).trim();
+
+  return address;
+}
+
+function storeOriginFromSettings(settings: any) {
+  const contact = cleanObj(settings?.contact);
+  const candidates = [
+    contact.mapsAddress,
+    contact.routeOrigin,
+    contact.address,
+    settings?.storeAddress,
+    settings?.restaurantAddress,
+    STORE_ADDRESS_FALLBACK,
+  ];
+
+  for (const candidate of candidates) {
+    const text = String(candidate ?? "").trim();
+    if (text) return text;
+  }
+
+  return STORE_ADDRESS_FALLBACK;
+}
+
+function sortOrdersForRoute(ordersToRoute: StoredOrder[]) {
+  return ordersToRoute
+    .map((order, index) => ({ order, index }))
+    .sort((a, b) => {
+      const rankDiff = routeRankForOrder(a.order) - routeRankForOrder(b.order);
+      if (rankDiff !== 0) return rankDiff;
+
+      const aPlz = orderPlzValue(a.order);
+      const bPlz = orderPlzValue(b.order);
+      if (aPlz !== bPlz) return aPlz.localeCompare(bPlz);
+
+      const aCreated = getOrderCreatedMs(a.order) ?? a.order.ts ?? 0;
+      const bCreated = getOrderCreatedMs(b.order) ?? b.order.ts ?? 0;
+      if (aCreated !== bCreated) return aCreated - bCreated;
+
+      return a.index - b.index;
+    })
+    .map((entry) => entry.order);
+}
+
+function uniqueRouteAddresses(ordersToRoute: StoredOrder[]) {
+  const seen = new Set<string>();
+  const addresses: string[] = [];
+
+  for (const order of sortOrdersForRoute(ordersToRoute)) {
+    const address = getOrderRouteAddress(order);
+    const key = address.toLowerCase().replace(/\s+/g, " ").trim();
+
+    if (!address || seen.has(key)) continue;
+
+    seen.add(key);
+    addresses.push(address);
+  }
+
+  return addresses;
+}
+
+function buildMultiStopMapsUrl(ordersToRoute: StoredOrder[], settings: any) {
+  const stops = uniqueRouteAddresses(ordersToRoute);
+
+  if (!stops.length) return "";
+
+  if (stops.length === 1) {
+    return mapsDirectionWebUrl(stops[0]);
+  }
+
+  const origin = storeOriginFromSettings(settings);
+  const destination = stops[stops.length - 1];
+  const waypoints = stops.slice(0, -1);
+  const params = new URLSearchParams();
+
+  params.set("api", "1");
+  params.set("origin", origin);
+  params.set("destination", destination);
+  params.set("travelmode", "driving");
+
+  if (waypoints.length) {
+    params.set("waypoints", waypoints.join("|"));
+  }
+
+  return `https://www.google.com/maps/dir/?${params.toString()}`;
+}
+
+function openMultiStopMapsRoute(ordersToRoute: StoredOrder[], settings: any) {
+  const validOrders = ordersToRoute.filter((order) => getOrderRouteAddress(order));
+
+  if (!validOrders.length) {
+    alert("Keine Adresse für die Route gefunden.");
+    return;
+  }
+
+  const url = buildMultiStopMapsUrl(validOrders, settings);
+
+  if (!url) {
+    alert("Route konnte nicht erstellt werden.");
+    return;
+  }
+
+  if (isStandalonePwa() || isIOSDevice() || isAndroidDevice()) {
+    window.location.href = url;
+    return;
+  }
+
+  const opened = window.open(url, "_blank", "noopener,noreferrer");
+
+  if (!opened) {
+    window.location.href = url;
+  }
+}
+
 function clearPosKey(id: string | number) {
   try {
     localStorage.removeItem(`bb_driverpos_${id}`);
@@ -831,6 +985,93 @@ function compactText(value: any) {
     .replace(/[ü]/g, "u")
     .replace(/[ß]/g, "ss")
     .trim();
+}
+
+function paymentTextFromOrder(order: StoredOrder) {
+  const meta = cleanObj((order as any).meta);
+  const payment = cleanObj(meta?.payment || (order as any)?.payment);
+  const checkout = cleanObj(meta?.checkout || (order as any)?.checkout);
+
+  return compactText(
+    [
+      (order as any)?.paymentMethod,
+      (order as any)?.payment_method,
+      (order as any)?.paymentType,
+      (order as any)?.payment_type,
+      (order as any)?.paymentProvider,
+      (order as any)?.payment_provider,
+      (order as any)?.paymentStatus,
+      (order as any)?.payment_status,
+      payment?.method,
+      payment?.type,
+      payment?.provider,
+      payment?.status,
+      payment?.paymentMethod,
+      payment?.payment_method,
+      payment?.paymentStatus,
+      payment?.payment_status,
+      checkout?.paymentMethod,
+      checkout?.payment_method,
+      checkout?.paymentStatus,
+      checkout?.payment_status,
+      meta?.paymentMethod,
+      meta?.payment_method,
+      meta?.paymentType,
+      meta?.payment_type,
+      meta?.paymentProvider,
+      meta?.payment_provider,
+      meta?.paymentStatus,
+      meta?.payment_status,
+      meta?.stripePaymentIntentId,
+      meta?.paymentIntentId,
+      meta?.checkoutSessionId,
+    ]
+      .filter((value) => value !== undefined && value !== null && value !== "")
+      .join(" "),
+  );
+}
+
+function orderIsOnlinePaid(order: StoredOrder) {
+  const paymentText = paymentTextFromOrder(order);
+
+  const cashLike =
+    /(^|\b)(cash|bar|barzahlung|bargeld|bei\s*lieferung|zahlung\s*bei\s*lieferung)(\b|$)/i.test(
+      paymentText,
+    );
+
+  if (cashLike) return false;
+
+  const onlineLike =
+    /(^|\b)(online|stripe|card|karte|kreditkarte|debit|klarna|sofort|paypal|apple\s*pay|applepay|google\s*pay|googlepay|kontaktlos|contactless|paymentintent|checkoutsession)(\b|$)/i.test(
+      paymentText,
+    );
+
+  const paidLike =
+    /(^|\b)(paid|bezahlt|bezahlt_online|succeeded|success|successful|completed|complete|captured|approved|erfolgreich)(\b|$)/i.test(
+      paymentText,
+    );
+
+  return onlineLike || paidLike;
+}
+
+function DriverPaymentBadge({ order }: { order: StoredOrder }) {
+  if (orderIsOnlinePaid(order)) {
+    return (
+      <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-emerald-300/45 bg-emerald-400/15 px-2.5 py-1 text-[11px] font-extrabold uppercase tracking-wide text-emerald-100 shadow-[0_0_16px_rgba(52,211,153,.12)]">
+        <span aria-hidden="true">💶</span>
+        Online
+      </span>
+    );
+  }
+
+  return (
+    <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-rose-300/45 bg-rose-500/15 px-2.5 py-1 text-[11px] font-extrabold uppercase tracking-wide text-rose-100 shadow-[0_0_16px_rgba(244,63,94,.12)]">
+      <span>Bar</span>
+      <span className="rounded-full bg-rose-300/20 px-1.5 py-0.5 text-[9px] leading-none text-rose-100">
+        offen
+      </span>
+    </span>
+  );
 }
 
 function isDrinkLikeItem(item: any) {
@@ -1261,6 +1502,59 @@ function tabButtonClass(active: boolean, tone: "new" | "mine") {
   return `${base} border border-emerald-300/45 bg-gradient-to-b from-emerald-400/30 to-sky-500/20 text-emerald-50 shadow-[0_0_18px_rgba(52,211,153,.16)]`;
 }
 
+
+function DriverStatCard({
+  icon,
+  label,
+  value,
+  tone,
+}: {
+  icon: string;
+  label: string;
+  value: React.ReactNode;
+  tone: "blue" | "gold" | "green";
+}) {
+  const toneClass = {
+    blue: {
+      card: "border-sky-300/15 bg-sky-500/10",
+      icon: "border-sky-300/25 bg-sky-400/15 text-sky-200 shadow-[0_0_16px_rgba(56,189,248,.10)]",
+      label: "text-sky-100/70",
+    },
+    gold: {
+      card: "border-amber-300/15 bg-amber-400/10",
+      icon: "border-amber-300/25 bg-amber-400/15 text-amber-200 shadow-[0_0_16px_rgba(251,191,36,.10)]",
+      label: "text-amber-100/70",
+    },
+    green: {
+      card: "border-emerald-300/15 bg-emerald-400/10",
+      icon: "border-emerald-300/25 bg-emerald-400/15 text-emerald-200 shadow-[0_0_16px_rgba(52,211,153,.10)]",
+      label: "text-emerald-100/70",
+    },
+  }[tone];
+
+  return (
+    <div className={`rounded-xl border px-2.5 py-2 ${toneClass.card}`}>
+      <div className="flex items-center gap-2.5">
+        <div
+          className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl border text-lg ${toneClass.icon}`}
+          aria-hidden="true"
+        >
+          {icon}
+        </div>
+
+        <div className="min-w-0">
+          <div className={`text-[10px] font-bold uppercase tracking-wide ${toneClass.label}`}>
+            {label}
+          </div>
+          <div className="mt-0.5 truncate text-sm font-extrabold text-stone-50 sm:text-base">
+            {value}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function DriverPage() {
   useEffect(() => {
     const footer = document.querySelector("footer") as HTMLElement | null;
@@ -1282,6 +1576,7 @@ export default function DriverPage() {
   const [loginPass, setLoginPass] = useState("");
   const [orders, setOrders] = useState<StoredOrder[]>([]);
   const [selected, setSelected] = useState<Record<string, boolean>>({});
+  const [routeSelected, setRouteSelected] = useState<Record<string, boolean>>({});
   const [openMap, setOpenMap] = useState<Record<string, boolean>>({});
   const [noteExpanded, setNoteExpanded] = useState<Record<string, boolean>>({});
   const [completeToast, setCompleteToast] = useState<{
@@ -1480,6 +1775,11 @@ export default function DriverPage() {
       });
   }, [orders, current]);
 
+  const selectedRouteOrders = useMemo(
+    () => mine.filter((order) => routeSelected[String(order.id)]),
+    [mine, routeSelected],
+  );
+
   const eod = useMemo(() => {
     if (!current) return { count: 0, total: 0, tip: 0 };
 
@@ -1556,6 +1856,27 @@ export default function DriverPage() {
       ...state,
       [String(id)]: !state[String(id)],
     }));
+  }
+
+
+  function toggleRouteSelect(id: string | number) {
+    setRouteSelected((state) => ({
+      ...state,
+      [String(id)]: !state[String(id)],
+    }));
+  }
+
+  function clearRouteSelection() {
+    setRouteSelected({});
+  }
+
+  function openSelectedRoute() {
+    if (!selectedRouteOrders.length) {
+      alert("Bitte zuerst eine oder mehrere Lieferungen für die Route auswählen.");
+      return;
+    }
+
+    openMultiStopMapsRoute(selectedRouteOrders, settings);
   }
 
   async function claimSelected() {
@@ -1884,7 +2205,15 @@ export default function DriverPage() {
     );
   }
 
-  function OrderWithDetails({ order }: { order: StoredOrder }) {
+  function OrderWithDetails({
+    order,
+    routeSelected: isRouteSelected,
+    onToggleRouteSelect,
+  }: {
+    order: StoredOrder;
+    routeSelected: boolean;
+    onToggleRouteSelect: (id: string | number) => void;
+  }) {
     const open = !!openMap[String(order.id)];
     const noteOpen = !!noteExpanded[String(order.id)];
     const items = Array.isArray(order.items) ? order.items : [];
@@ -1897,11 +2226,23 @@ export default function DriverPage() {
       <div className={`rounded-2xl p-3 sm:p-4 ${glass}`}>
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-start gap-2">
               <div className="break-all text-[15px] font-extrabold sm:text-base">#{order.id}</div>
               <span className="rounded-full border border-orange-400/50 bg-orange-500/15 px-2 py-0.5 text-xs text-orange-100">
                 Lieferung
               </span>
+              <div className="ml-auto flex shrink-0 items-center gap-2">
+                <label className="inline-flex items-center gap-1.5 rounded-full border border-sky-300/25 bg-sky-400/10 px-2.5 py-1 text-[11px] font-extrabold uppercase tracking-wide text-sky-100">
+                  <input
+                    type="checkbox"
+                    className="h-3.5 w-3.5 accent-sky-400"
+                    checked={isRouteSelected}
+                    onChange={() => onToggleRouteSelect(order.id)}
+                  />
+                  Route
+                </label>
+                <DriverPaymentBadge order={order} />
+              </div>
             </div>
 
             <div className="mt-1.5 text-sm">
@@ -2230,20 +2571,9 @@ export default function DriverPage() {
           </div>
 
           <div className="mt-3 grid grid-cols-3 gap-2">
-            <div className="rounded-xl border border-white/10 bg-black/20 px-2.5 py-2">
-              <div className="text-[10px] uppercase tracking-wide text-stone-500">Heute</div>
-              <div className="mt-0.5 text-sm font-extrabold">{eod.count}</div>
-            </div>
-
-            <div className="rounded-xl border border-emerald-300/15 bg-emerald-400/10 px-2.5 py-2">
-              <div className="text-[10px] uppercase tracking-wide text-emerald-200/70">Umsatz</div>
-              <div className="mt-0.5 text-sm font-extrabold">{eod.total.toFixed(2)}€</div>
-            </div>
-
-            <div className="rounded-xl border border-amber-300/15 bg-amber-400/10 px-2.5 py-2">
-              <div className="text-[10px] uppercase tracking-wide text-amber-200/75">Trinkgeld</div>
-              <div className="mt-0.5 text-sm font-extrabold">{eod.tip.toFixed(2)}€</div>
-            </div>
+            <DriverStatCard icon="📅" label="Heute" value={eod.count} tone="blue" />
+            <DriverStatCard icon="🪙" label="Umsatz" value={`${eod.total.toFixed(2)}€`} tone="gold" />
+            <DriverStatCard icon="🤲" label="Trinkgeld" value={`${eod.tip.toFixed(2)}€`} tone="green" />
           </div>
         </div>
 
@@ -2304,13 +2634,16 @@ export default function DriverPage() {
                     <div key={String(order.id)} className={`rounded-2xl p-3 sm:p-4 ${glass}`}>
                       <div className="flex flex-col gap-3">
                         <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
+                          <div className="flex flex-wrap items-start gap-2">
                             <div className="break-all text-[15px] font-extrabold sm:text-base">
                               #{order.id}
                             </div>
                             <span className="rounded-full border border-orange-400/50 bg-orange-500/15 px-2 py-0.5 text-xs text-orange-100">
                               Lieferung
                             </span>
+                            <div className="ml-auto shrink-0">
+                              <DriverPaymentBadge order={order} />
+                            </div>
                           </div>
 
                           <div className="mt-1.5 text-sm">
@@ -2356,7 +2689,50 @@ export default function DriverPage() {
               Keine übernommenen Aufträge.
             </div>
           ) : (
-            mine.map((order) => <OrderWithDetails key={String(order.id)} order={order} />)
+            <>
+              <div className={`rounded-2xl p-3 ${glass}`}>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="text-sm text-stone-200">
+                    <div className="font-extrabold">🗺️ Route planen</div>
+                    <div className="mt-0.5 text-xs text-stone-400">
+                      {selectedRouteOrders.length
+                        ? `${selectedRouteOrders.length} Lieferung(en) ausgewählt`
+                        : "Lieferungen markieren und gemeinsame Google-Route starten."}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    {selectedRouteOrders.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={clearRouteSelection}
+                        className="rounded-xl border border-white/15 bg-white/[0.04] px-3 py-2 text-xs font-bold text-stone-200 transition hover:bg-white/10"
+                      >
+                        Auswahl löschen
+                      </button>
+                    )}
+
+                    <button
+                      type="button"
+                      disabled={selectedRouteOrders.length === 0}
+                      onClick={openSelectedRoute}
+                      className="rounded-xl border border-sky-300/45 bg-sky-400/15 px-3 py-2 text-xs font-extrabold text-sky-100 transition hover:bg-sky-400/25 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      🗺️ Ausgewählte Route starten
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {mine.map((order) => (
+                <OrderWithDetails
+                  key={String(order.id)}
+                  order={order}
+                  routeSelected={!!routeSelected[String(order.id)]}
+                  onToggleRouteSelect={toggleRouteSelect}
+                />
+              ))}
+            </>
           )}
         </section>
       </div>
