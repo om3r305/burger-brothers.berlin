@@ -1609,13 +1609,10 @@ function extractOrderNote(order: any): string {
 }
 
 function plannedStartMs(order: StoredOrder, tz: string) {
-  if (!order?.planned) return null;
+  const planned = normalizePlannedHHMM(order?.planned);
+  if (!planned) return null;
 
-  const [hh, mm] = String(order.planned)
-    .split(":")
-    .map((x) => parseInt(x, 10));
-
-  if (Number.isNaN(hh)) return null;
+  const [hh, mm] = planned.split(":").map((x) => parseInt(x, 10));
 
   const base = new Date(new Date().toLocaleString("en-US", { timeZone: tz }));
   const date = new Date(base);
@@ -1642,10 +1639,12 @@ function remainingMinutes(
   nowMs = Date.now(),
 ) {
   const planned = plannedStartMs(order, tz);
-  const start = planned && planned > nowMs
-    ? planned
-    : getOrderExactCreatedMs(order, null) ?? order.ts ?? nowMs;
 
+  if (planned) {
+    return Math.floor((planned - nowMs) / 60_000);
+  }
+
+  const start = getOrderExactCreatedMs(order, null) ?? order.ts ?? nowMs;
   const end = start + etaMinutes * 60_000;
   const ms = end - nowMs;
 
@@ -2155,14 +2154,45 @@ function roundEtaStep(value: any, step = 5) {
   return Math.max(step, Math.min(180, Math.round(n / step) * step));
 }
 
+function normalizePlannedHHMM(value: any): string {
+  const match = String(value || "")
+    .trim()
+    .match(/^(\d{1,2}):(\d{2})$/);
+
+  if (!match) return "";
+
+  const hours = Math.max(0, Math.min(23, Number(match[1]) || 0));
+  const minutes = Math.max(0, Math.min(59, Number(match[2]) || 0));
+
+  return `${pad2(hours)}:${pad2(minutes)}`;
+}
+
+function addMinutesToHHMM(value: any, deltaMin: number): string {
+  const clean = normalizePlannedHHMM(value) || "00:00";
+  const [hours, minutes] = clean.split(":").map((part) => Number(part) || 0);
+  const dayMinutes = 24 * 60;
+  const total = (((hours * 60 + minutes + deltaMin) % dayMinutes) + dayMinutes) % dayMinutes;
+
+  return `${pad2(Math.floor(total / 60))}:${pad2(total % 60)}`;
+}
+
+function isPlannedOrder(order: StoredOrder) {
+  return Boolean(normalizePlannedHHMM(order?.planned));
+}
+
+function plannedAcceptLabel(order: StoredOrder) {
+  return order.mode === "pickup" ? "Geplante Abholzeit" : "Geplante Lieferzeit";
+}
+
 function acceptanceTitle(order: StoredOrder) {
-  const planned = order.planned ? `Geplant ${order.planned}` : "";
+  const planned = normalizePlannedHHMM(order.planned);
+  const plannedLabel = planned ? `Geplant ${planned}` : "";
 
   if (order.mode === "pickup") {
-    return planned ? `${planned} · Abholung` : "Abholung";
+    return plannedLabel ? `${plannedLabel} · Abholung` : "Abholung";
   }
 
-  return planned ? `${planned} · Lieferung` : "Lieferung";
+  return plannedLabel ? `${plannedLabel} · Lieferung` : "Lieferung";
 }
 
 function acceptanceSubtitle(order: StoredOrder) {
@@ -2188,15 +2218,19 @@ function acceptanceZip(order: StoredOrder) {
 function AcceptOrderOverlay({
   order,
   etaValue,
+  plannedValue,
   busy,
   onEtaChange,
+  onPlannedChange,
   onAccept,
   onCancel,
 }: {
   order: StoredOrder;
   etaValue: number;
+  plannedValue?: string;
   busy: boolean;
   onEtaChange: (value: number) => void;
+  onPlannedChange?: (value: string) => void;
   onAccept: () => void | Promise<void>;
   onCancel: () => void | Promise<void>;
 }) {
@@ -2206,8 +2240,15 @@ function AcceptOrderOverlay({
   const subtitle = acceptanceSubtitle(order);
   const totals = getOrderTotals(order);
   const itemCount = order.items.reduce((sum, item) => sum + Math.max(1, num(item.qty || 1)), 0);
+  const plannedMode = isPlannedOrder(order);
+  const visiblePlannedValue = normalizePlannedHHMM(plannedValue || order.planned) || "00:00";
 
   const changeEta = (delta: number) => {
+    if (plannedMode) {
+      onPlannedChange?.(addMinutesToHHMM(visiblePlannedValue, delta));
+      return;
+    }
+
     onEtaChange(clampAcceptEta(etaValue + delta));
   };
 
@@ -2310,33 +2351,33 @@ function AcceptOrderOverlay({
 
           <div className="rounded-3xl border border-emerald-300/20 bg-emerald-500/10 p-5">
             <div className="text-center text-xs font-semibold uppercase tracking-[0.2em] text-emerald-100/80">
-              Zeit bestätigen
+              {plannedMode ? plannedAcceptLabel(order) : "Zeit bestätigen"}
             </div>
 
             <div className="mt-4 flex items-center justify-center gap-4">
               <button
                 type="button"
                 disabled={busy}
-                onClick={() => changeEta(-5)}
+                onClick={() => changeEta(plannedMode ? -15 : -5)}
                 className="h-20 w-20 rounded-3xl border border-white/15 bg-white/10 text-5xl font-black hover:bg-white/15 disabled:opacity-40"
                 aria-label="Zeit reduzieren"
               >
                 −
               </button>
 
-              <div className="min-w-[190px] rounded-[2rem] border border-emerald-300/30 bg-black/35 px-6 py-5 text-center shadow-inner">
-                <div className="text-7xl font-black leading-none text-white tabular-nums">
-                  {etaValue}
+              <div className="min-w-[210px] rounded-[2rem] border border-emerald-300/30 bg-black/35 px-6 py-5 text-center shadow-inner">
+                <div className={`${plannedMode ? "text-6xl" : "text-7xl"} font-black leading-none text-white tabular-nums`}>
+                  {plannedMode ? visiblePlannedValue : etaValue}
                 </div>
                 <div className="mt-1 text-lg font-bold uppercase tracking-wider text-emerald-100">
-                  Min
+                  {plannedMode ? "Uhr" : "Min"}
                 </div>
               </div>
 
               <button
                 type="button"
                 disabled={busy}
-                onClick={() => changeEta(+5)}
+                onClick={() => changeEta(plannedMode ? 15 : 5)}
                 className="h-20 w-20 rounded-3xl border border-white/15 bg-white/10 text-5xl font-black hover:bg-white/15 disabled:opacity-40"
                 aria-label="Zeit erhöhen"
               >
@@ -2345,21 +2386,38 @@ function AcceptOrderOverlay({
             </div>
 
             <div className="mt-5 grid grid-cols-4 gap-2">
-              {[25, 35, 45, 60].map((minute) => (
-                <button
-                  key={minute}
-                  type="button"
-                  disabled={busy}
-                  onClick={() => onEtaChange(minute)}
-                  className={`rounded-2xl border px-3 py-2 text-sm font-bold transition disabled:opacity-40 ${
-                    etaValue === minute
-                      ? "border-emerald-300/60 bg-emerald-400/20 text-emerald-50"
-                      : "border-white/10 bg-white/5 text-stone-200 hover:bg-white/10"
-                  }`}
-                >
-                  {minute}′
-                </button>
-              ))}
+              {plannedMode
+                ? [
+                    { label: "−30′", delta: -30 },
+                    { label: "−15′", delta: -15 },
+                    { label: "+15′", delta: 15 },
+                    { label: "+30′", delta: 30 },
+                  ].map((item) => (
+                    <button
+                      key={item.label}
+                      type="button"
+                      disabled={busy}
+                      onClick={() => changeEta(item.delta)}
+                      className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-sm font-bold text-stone-200 transition hover:bg-white/10 disabled:opacity-40"
+                    >
+                      {item.label}
+                    </button>
+                  ))
+                : [25, 35, 45, 60].map((minute) => (
+                    <button
+                      key={minute}
+                      type="button"
+                      disabled={busy}
+                      onClick={() => onEtaChange(minute)}
+                      className={`rounded-2xl border px-3 py-2 text-sm font-bold transition disabled:opacity-40 ${
+                        etaValue === minute
+                          ? "border-emerald-300/60 bg-emerald-400/20 text-emerald-50"
+                          : "border-white/10 bg-white/5 text-stone-200 hover:bg-white/10"
+                      }`}
+                    >
+                      {minute}′
+                    </button>
+                  ))}
             </div>
 
             <button
@@ -2602,6 +2660,7 @@ export default function TVPage() {
 
   const [etaOverrides, setEtaOverrides] = useState<Record<string, number>>({});
   const [acceptEtaDrafts, setAcceptEtaDrafts] = useState<Record<string, number>>({});
+  const [acceptPlannedDrafts, setAcceptPlannedDrafts] = useState<Record<string, string>>({});
   const [acceptBusyId, setAcceptBusyId] = useState("");
   const [outSince, setOutSince] = useState<Record<string, number>>({});
   const minuteCacheRef = useRef<Record<string, MinuteCacheEntry>>({});
@@ -3396,6 +3455,10 @@ export default function TVPage() {
       roundEtaStep(etaFor(pendingAcceptOrder, avgPickup, avgDelivery))
     : 0;
 
+  const pendingAcceptPlanned = pendingAcceptOrder
+    ? acceptPlannedDrafts[pendingAcceptOrder.id] ?? normalizePlannedHHMM(pendingAcceptOrder.planned)
+    : "";
+
   useEffect(() => {
     if (!pendingAcceptOrder) return;
 
@@ -3407,6 +3470,18 @@ export default function TVPage() {
         [pendingAcceptOrder.id]: roundEtaStep(etaFor(pendingAcceptOrder, avgPickup, avgDelivery)),
       };
     });
+
+    const planned = normalizePlannedHHMM(pendingAcceptOrder.planned);
+    if (planned) {
+      setAcceptPlannedDrafts((prev) => {
+        if (prev[pendingAcceptOrder.id]) return prev;
+
+        return {
+          ...prev,
+          [pendingAcceptOrder.id]: planned,
+        };
+      });
+    }
   }, [pendingAcceptOrder?.id, pendingAcceptOrder, avgPickup, avgDelivery]);
 
   useEffect(() => {
@@ -3432,6 +3507,10 @@ export default function TVPage() {
   }, [pendingAcceptOrder?.id, pendingAcceptOrder?.mode, acceptBusyId, playTvSound]);
 
   const handleAcceptAndPrint = async (order: StoredOrder) => {
+    const plannedTime = normalizePlannedHHMM(
+      acceptPlannedDrafts[order.id] || order.planned,
+    );
+    const plannedMode = Boolean(plannedTime);
     const etaMin = clampAcceptEta(
       acceptEtaDrafts[order.id] ?? roundEtaStep(etaFor(order, avgPickup, avgDelivery)),
     );
@@ -3443,6 +3522,7 @@ export default function TVPage() {
     const acceptedLocal: StoredOrder = {
       ...order,
       status: "preparing",
+      planned: plannedMode ? plannedTime : order.planned,
       etaMin,
       etaAdjustMin: 0,
       meta: {
@@ -3450,6 +3530,13 @@ export default function TVPage() {
         etaMin,
         finalEtaMin: etaMin,
         acceptedEtaMin: etaMin,
+        ...(plannedMode
+          ? {
+              planned: plannedTime,
+              confirmedPlanned: plannedTime,
+              acceptedPlanned: plannedTime,
+            }
+          : {}),
         acceptedAt: Date.now(),
         acceptedBy: "tv",
       },
@@ -3462,6 +3549,13 @@ export default function TVPage() {
       const data = await updateOrderStatusDbFirst(order.id, "preparing", "tv", {
         etaMin,
         etaAdjustMin: 0,
+        ...(plannedMode
+          ? {
+              planned: plannedTime,
+              confirmedPlanned: plannedTime,
+              acceptedPlanned: plannedTime,
+            }
+          : {}),
         accepted: true,
         acceptAndPrint: true,
         acceptSource: "tv",
@@ -3474,6 +3568,7 @@ export default function TVPage() {
       await silentPrint(
         {
           ...printCandidate,
+          planned: plannedMode ? plannedTime : printCandidate.planned,
           etaMin,
           etaAdjustMin: 0,
           status: "preparing",
@@ -3482,12 +3577,24 @@ export default function TVPage() {
             etaMin,
             finalEtaMin: etaMin,
             acceptedEtaMin: etaMin,
+            ...(plannedMode
+              ? {
+                  planned: plannedTime,
+                  confirmedPlanned: plannedTime,
+                  acceptedPlanned: plannedTime,
+                }
+              : {}),
           },
         },
         { showSuccessAlert: false, throwOnError: true },
       );
 
       setAcceptEtaDrafts((prev) => {
+        const next = { ...prev };
+        delete next[order.id];
+        return next;
+      });
+      setAcceptPlannedDrafts((prev) => {
         const next = { ...prev };
         delete next[order.id];
         return next;
@@ -3584,11 +3691,18 @@ export default function TVPage() {
         <AcceptOrderOverlay
           order={pendingAcceptOrder}
           etaValue={pendingAcceptEta}
+          plannedValue={pendingAcceptPlanned}
           busy={acceptBusyId === pendingAcceptOrder.id}
           onEtaChange={(value) => {
             setAcceptEtaDrafts((prev) => ({
               ...prev,
               [pendingAcceptOrder.id]: clampAcceptEta(value),
+            }));
+          }}
+          onPlannedChange={(value) => {
+            setAcceptPlannedDrafts((prev) => ({
+              ...prev,
+              [pendingAcceptOrder.id]: normalizePlannedHHMM(value),
             }));
           }}
           onAccept={() => handleAcceptAndPrint(pendingAcceptOrder)}

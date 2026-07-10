@@ -551,6 +551,36 @@ function normalizeEtaMinPatch(body: any, fallback = 35) {
   return Math.max(1, Math.min(240, Math.round(minutes || fallback || 35)));
 }
 
+function hasPlannedPatch(body: any) {
+  return (
+    body?.planned !== undefined ||
+    body?.plannedTime !== undefined ||
+    body?.confirmedPlanned !== undefined ||
+    body?.acceptedPlanned !== undefined ||
+    body?.scheduledTime !== undefined
+  );
+}
+
+function normalizePlannedPatch(body: any): string | null {
+  const raw =
+    body?.planned ??
+    body?.plannedTime ??
+    body?.confirmedPlanned ??
+    body?.acceptedPlanned ??
+    body?.scheduledTime ??
+    null;
+
+  if (raw == null || raw === false) return null;
+
+  const match = String(raw).trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return null;
+
+  const hours = Math.max(0, Math.min(23, Number(match[1]) || 0));
+  const minutes = Math.max(0, Math.min(59, Number(match[2]) || 0));
+
+  return `${hours < 10 ? `0${hours}` : String(hours)}:${minutes < 10 ? `0${minutes}` : String(minutes)}`;
+}
+
 function normalizeDriverPatch(driver: any) {
   if (driver === null) return null;
 
@@ -666,6 +696,8 @@ function buildStatusUpdateData(
 
   const etaPatch = hasEtaPatch(body);
   const etaMinPatch = hasEtaMinPatch(body);
+  const plannedPatch = hasPlannedPatch(body);
+  const plannedValue = plannedPatch ? normalizePlannedPatch(body) : null;
   const currentEtaAdjust = toNumber(row?.etaAdjustMin ?? metaObj?.etaAdjustMin, 0);
   const currentEtaMin = toNumber(row?.etaMin ?? metaObj?.etaMin ?? metaObj?.eta, 35);
   let etaAdjustMin: number | undefined;
@@ -694,13 +726,15 @@ function buildStatusUpdateData(
     ? `status:${next}`
     : etaMinPatch
       ? `etaMin:${etaMin ?? currentEtaMin}`
-      : etaPatch
-        ? `eta:${etaAdjustMin ?? currentEtaAdjust}`
-        : driverPatch.hasPatch
-          ? driverPatch.driver === null
-            ? "driver:clear"
-            : "driver:set"
-          : "order:touch";
+      : plannedPatch
+        ? `planned:${plannedValue || "clear"}`
+        : etaPatch
+          ? `eta:${etaAdjustMin ?? currentEtaAdjust}`
+          : driverPatch.hasPatch
+            ? driverPatch.driver === null
+              ? "driver:clear"
+              : "driver:set"
+            : "order:touch";
 
   const historyEntry = {
     ts: nowMs,
@@ -772,6 +806,14 @@ function buildStatusUpdateData(
     nextMeta.etaAdjustMin = etaAdjustMin ?? 0;
   }
 
+  if (plannedPatch) {
+    nextMeta.planned = plannedValue;
+    nextMeta.confirmedPlanned = plannedValue;
+    nextMeta.acceptedPlanned = plannedValue;
+    nextMeta.plannedConfirmedAt = nowMs;
+    nextMeta.plannedConfirmedBy = by;
+  }
+
   if (driverPatch.hasPatch) {
     applyDriverMetaPatch(nextMeta, driverPatch.driver, next, nowMs, by);
   }
@@ -806,6 +848,10 @@ function buildStatusUpdateData(
 
   if ((etaPatch || etaMinPatch) && hasOrderField("etaAdjustMin")) {
     data.etaAdjustMin = etaAdjustMin ?? 0;
+  }
+
+  if (plannedPatch && hasOrderField("planned")) {
+    data.planned = plannedValue;
   }
 
   if (driverPatch.hasPatch && hasOrderField("driver")) {
@@ -912,6 +958,7 @@ async function handleStatusUpdate(req: Request) {
     const requestedStatus = normalizeStatus(body?.status ?? body?.nextStatus);
     const etaPatch = hasEtaPatch(body);
     const etaMinPatch = hasEtaMinPatch(body);
+    const plannedPatch = hasPlannedPatch(body);
     const driverPatch = hasDriverPatch(body);
 
     if (!id) {
@@ -938,13 +985,13 @@ async function handleStatusUpdate(req: Request) {
       );
     }
 
-    if (!statusProvided && !etaPatch && !etaMinPatch && !driverPatch) {
+    if (!statusProvided && !etaPatch && !etaMinPatch && !plannedPatch && !driverPatch) {
       return jsonResponse(
         {
           ok: false,
           source: "db",
           error: "bad_request",
-          message: "status, ETA oder Fahrer-Patch ist erforderlich.",
+          message: "status, ETA, geplante Zeit oder Fahrer-Patch ist erforderlich.",
         },
         400,
       );

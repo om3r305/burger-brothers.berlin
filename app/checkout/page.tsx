@@ -176,6 +176,27 @@ function todayAt(hhmm: string, tz: string) {
   return new Date(new Date(`${iso} GMT`).toLocaleString("en-US", { timeZone: tz }));
 }
 
+function normalizePlannedHHMM(value: any): string {
+  const match = String(value || "")
+    .trim()
+    .match(/^(\d{1,2}):(\d{2})$/);
+
+  if (!match) return "";
+
+  const hours = Math.max(0, Math.min(23, Number(match[1]) || 0));
+  const minutes = Math.max(0, Math.min(59, Number(match[2]) || 0));
+
+  return `${pad2(hours)}:${pad2(minutes)}`;
+}
+
+function plannedConfirmationLabel(mode: Mode) {
+  return mode === "pickup" ? "Geplante Abholung" : "Geplante Lieferung";
+}
+
+function plannedEtaLabel(mode: Mode) {
+  return mode === "pickup" ? "Vorbereitungszeit" : "Voraussichtliche Lieferung";
+}
+
 function getMinTotal(tier: any) {
   return Number(tier?.minTotal ?? tier?.MinTotal ?? tier?.["Min.Total"] ?? 0);
 }
@@ -1137,6 +1158,16 @@ export default function CheckoutPage() {
     return cfg;
   }, [settingsRaw]);
 
+  const plannedSlotMinutes = Math.max(
+    1,
+    toNum(
+      orderMode === "pickup"
+        ? settingsRaw?.hours?.slotMinutesPickup
+        : settingsRaw?.hours?.slotMinutesDelivery,
+      toNum(settingsRaw?.hours?.slotMinutes, planCfg.slotMinutes || 15),
+    ),
+  );
+
   const phoneDigits = toNum(settingsRaw?.validation?.phoneDigits, 11) || 11;
 
   const paymentSettings = useMemo(
@@ -1182,7 +1213,7 @@ export default function CheckoutPage() {
   const buildSlotConfig = () => ({
     plan: planCfg.plan,
     tz: planCfg.tz,
-    slotMinutes: planCfg.slotMinutes,
+    slotMinutes: plannedSlotMinutes,
     leadPickupMin: avgPickupMinutes,
     leadDeliveryMin: avgDeliveryMinutes,
     lastOrderBufferMin: 15,
@@ -1216,7 +1247,7 @@ export default function CheckoutPage() {
     orderMode,
     planCfg.plan,
     planCfg.tz,
-    planCfg.slotMinutes,
+    plannedSlotMinutes,
     avgPickupMinutes,
     avgDeliveryMinutes,
   ]);
@@ -1230,7 +1261,7 @@ export default function CheckoutPage() {
     orderMode,
     planCfg.plan,
     planCfg.tz,
-    planCfg.slotMinutes,
+    plannedSlotMinutes,
     planCfg.daysAhead,
     avgPickupMinutes,
     avgDeliveryMinutes,
@@ -1405,6 +1436,8 @@ export default function CheckoutPage() {
     id?: string;
     etaMin?: number;
     emergencyMode?: boolean;
+    mode?: Mode;
+    plannedTime?: string | null;
   } | null>(null);
   const [showConfirm, setShowConfirm] = useState(false);
   const [orderRetryState, setOrderRetryState] = useState<{
@@ -1601,8 +1634,9 @@ export default function CheckoutPage() {
       : mustPlanNow || planned.enabledDelivery;
 
   const plannedTime = orderMode === "pickup" ? planned.timePickup : planned.timeDelivery;
-  const plannedOk = !mustPlanNow || (plannedEnabledVirtual && !!plannedTime);
-  const noSlotsToday = mustPlanNow && (slotOptions?.length ?? 0) === 0;
+  const normalizedPlannedTime = normalizePlannedHHMM(plannedTime);
+  const plannedOk = plannedEnabledVirtual ? !!normalizedPlannedTime : true;
+  const noSlotsToday = plannedEnabledVirtual && (slotOptions?.length ?? 0) === 0;
 
   const disableSend =
     items.length === 0 ||
@@ -1689,7 +1723,9 @@ export default function CheckoutPage() {
     if (!mustPlanNow) return true;
 
     const tz = planCfg.tz;
-    const selectedHHMM = orderMode === "pickup" ? planned.timePickup : planned.timeDelivery;
+    const selectedHHMM = normalizePlannedHHMM(
+      orderMode === "pickup" ? planned.timePickup : planned.timeDelivery,
+    );
 
     const candidate =
       plannedEnabledVirtual && selectedHHMM ? todayAt(selectedHHMM, tz) : nowInTZ(tz);
@@ -2679,14 +2715,19 @@ export default function CheckoutPage() {
             </div>
           ) : (
             <div>
-              {orderMode === "pickup" ? (
+              {confirm.plannedTime ? (
                 <>
-                  Vorbereitungszeit: <b>{confirm.etaMin ?? avgPickupMinutes} Min</b>
+                  {plannedConfirmationLabel(confirm.mode || orderMode)}:{" "}
+                  <b>{confirm.plannedTime} Uhr</b>
                 </>
               ) : (
                 <>
-                  Voraussichtliche Lieferung:{" "}
-                  <b>{confirm.etaMin ?? avgDeliveryMinutes} Min</b>
+                  {plannedEtaLabel(confirm.mode || orderMode)}:{" "}
+                  <b>
+                    {confirm.etaMin ??
+                      ((confirm.mode || orderMode) === "pickup" ? avgPickupMinutes : avgDeliveryMinutes)}{" "}
+                    Min
+                  </b>
                 </>
               )}
             </div>
@@ -2722,14 +2763,19 @@ export default function CheckoutPage() {
               ) : (
                 <>
                   <div>
-                    {orderMode === "pickup" ? (
+                    {confirm.plannedTime ? (
                       <>
-                        Vorbereitungszeit: <b>{confirm.etaMin ?? avgPickupMinutes} Min</b>
+                        {plannedConfirmationLabel(confirm.mode || orderMode)}:{" "}
+                        <b>{confirm.plannedTime} Uhr</b>
                       </>
                     ) : (
                       <>
-                        Voraussichtliche Lieferung:{" "}
-                        <b>{confirm.etaMin ?? avgDeliveryMinutes} Min</b>
+                        {plannedEtaLabel(confirm.mode || orderMode)}:{" "}
+                        <b>
+                          {confirm.etaMin ??
+                            ((confirm.mode || orderMode) === "pickup" ? avgPickupMinutes : avgDeliveryMinutes)}{" "}
+                          Min
+                        </b>
                       </>
                     )}
                   </div>
@@ -3010,8 +3056,19 @@ export default function CheckoutPage() {
         clearActiveCoupon();
       }
 
+      const confirmedPlannedTime = normalizePlannedHHMM(
+        result?.planned ||
+          (orderMode === "pickup" ? planned.timePickup : planned.timeDelivery),
+      );
+
       setOrderRetryState(null);
-      setConfirm({ id, etaMin, emergencyMode });
+      setConfirm({
+        id,
+        etaMin,
+        emergencyMode,
+        mode: orderMode,
+        plannedTime: confirmedPlannedTime || null,
+      });
       setSubmitted(true);
       setShowConfirm(true);
     } catch (error: any) {
@@ -3035,6 +3092,7 @@ export default function CheckoutPage() {
         id: ci?.item?.id || ci?.id,
         sku: ci?.item?.sku || ci?.item?.id || ci?.id,
         name: ci?.item?.name || "Artikel",
+        description: ci?.item?.description || ci?.item?.desc || undefined,
         category: ci?.item?.category || undefined,
         price: toNum(ci?.item?.price, 0) + addSum,
         qty: toNum(ci?.qty, 1),
@@ -3072,11 +3130,11 @@ export default function CheckoutPage() {
 
     const plannedValue =
       orderMode === "pickup"
-        ? planned.enabledPickup && planned.timePickup
-          ? planned.timePickup
+        ? plannedEnabledVirtual && normalizePlannedHHMM(planned.timePickup)
+          ? normalizePlannedHHMM(planned.timePickup)
           : undefined
-        : planned.enabledDelivery && planned.timeDelivery
-          ? planned.timeDelivery
+        : plannedEnabledVirtual && normalizePlannedHHMM(planned.timeDelivery)
+          ? normalizePlannedHHMM(planned.timeDelivery)
           : undefined;
 
     if (activeCode) {
@@ -3255,10 +3313,14 @@ export default function CheckoutPage() {
         created?.etaMin ?? created?.order?.etaMin ?? created?.data?.etaMin,
         orderMode === "pickup" ? avgPickupMinutes : avgDeliveryMinutes,
       );
+      const plannedFromResponse = normalizePlannedHHMM(
+        created?.planned ?? created?.order?.planned ?? created?.data?.planned,
+      );
 
       return {
         id,
         etaMin,
+        planned: plannedFromResponse,
         emergencyMode: Boolean(created?.emergencyMode),
       };
     };

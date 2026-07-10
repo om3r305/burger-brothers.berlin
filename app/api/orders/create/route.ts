@@ -473,6 +473,19 @@ function normalizeLoadStatus(value: any) {
   return "";
 }
 
+function normalizePlannedHHMM(value: any): string | null {
+  const match = String(value || "")
+    .trim()
+    .match(/^(\d{1,2}):(\d{2})$/);
+
+  if (!match) return null;
+
+  const hours = Math.max(0, Math.min(23, Number(match[1]) || 0));
+  const minutes = Math.max(0, Math.min(59, Number(match[2]) || 0));
+
+  return `${hours < 10 ? `0${hours}` : String(hours)}:${minutes < 10 ? `0${minutes}` : String(minutes)}`;
+}
+
 const DELIVERY_MAX_MINUTES = 60;
 const DELIVERY_LOAD_STEP_MINUTES = 5;
 const DELIVERY_ORDERS_PER_STEP = 2;
@@ -1473,6 +1486,7 @@ export async function POST(req: Request) {
       mode === "pickup"
         ? avgPickup
         : await computeDeliveryEtaMin(tenantId, avgDelivery);
+    const planned = normalizePlannedHHMM(order?.planned);
 
     const source = normalizeSource(order?.source ?? order?.channel, mode);
     const nowMs = Date.now();
@@ -1523,6 +1537,8 @@ export async function POST(req: Request) {
       }),
       suggestedEtaMin: etaMin,
       etaMin,
+      planned,
+      plannedTime: planned,
       finalEtaMin: null,
       acceptedEtaMin: null,
       acceptStatus: "waiting_accept",
@@ -1545,7 +1561,7 @@ export async function POST(req: Request) {
       items,
       meta: baseMeta,
       ts: new Date(nowMs),
-      planned: order?.planned ?? null,
+      planned,
       etaMin,
     };
 
@@ -1649,7 +1665,7 @@ export async function POST(req: Request) {
             plz: customer?.plz || customer?.zip,
             note: customer?.deliveryHint || customer?.note || baseMeta?.note,
           },
-          planned: order?.planned,
+          planned,
         } as any);
 
         notifySent = true;
@@ -1667,6 +1683,7 @@ export async function POST(req: Request) {
         id,
         orderId: id,
         etaMin,
+        planned,
         notifySent,
         routeDealActivated,
         order: serialized,
