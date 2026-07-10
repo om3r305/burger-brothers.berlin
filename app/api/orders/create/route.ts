@@ -476,7 +476,15 @@ function normalizeLoadStatus(value: any) {
 const DELIVERY_MAX_MINUTES = 60;
 const DELIVERY_LOAD_STEP_MINUTES = 5;
 const DELIVERY_ORDERS_PER_STEP = 2;
-const DELIVERY_ACTIVE_LOOKBACK_MINUTES = 12 * 60;
+
+/*
+  Checkout tahmini Lieferzeit mantığı:
+  - Hiç aktif sipariş yoksa Admin'deki avgDeliveryMinutes aynen döner. Örn. 35 -> 35.
+  - Eski/stale "new" siparişler yoğunluk gibi sayılmasın diye yeni siparişleri kısa pencereyle sayarız.
+  - Mutfakta/teslimatta gerçekten aktif olan siparişleri ise biraz daha uzun pencereyle sayarız.
+*/
+const DELIVERY_BUSY_LOOKBACK_MINUTES = 6 * 60;
+const DELIVERY_FRESH_NEW_LOOKBACK_MINUTES = 45;
 
 function etaByDeliveryLoad(baseDelivery: number, activeOrders: number) {
   const base = Math.min(
@@ -495,29 +503,62 @@ function etaByDeliveryLoad(baseDelivery: number, activeOrders: number) {
   return Math.min(DELIVERY_MAX_MINUTES, base + extra);
 }
 
-async function computeDeliveryEtaMin(tenantId: string, baseDelivery: number) {
-  const nowMs = Date.now();
-  const since = new Date(nowMs - DELIVERY_ACTIVE_LOOKBACK_MINUTES * 60_000);
+function orderDateSinceWhere(since: Date): Record<string, any> {
+  const or: Record<string, any>[] = [];
 
+  if (hasOrderField("ts")) {
+    or.push({ ts: { gte: since } });
+  }
+
+  if (hasOrderField("createdAt")) {
+    or.push({ createdAt: { gte: since } });
+  }
+
+  return or.length ? { OR: or } : {};
+}
+
+async function countDeliveryOrdersByStatus(params: {
+  tenantId: string;
+  statuses: string[];
+  since: Date;
+}) {
   const where: Record<string, any> = {
-    tenantId,
+    tenantId: params.tenantId,
     mode: "delivery",
-    ts: { gte: since },
     status: {
-      in: ["new", "preparing", "ready", "out_for_delivery"],
+      in: params.statuses,
     },
+    ...orderDateSinceWhere(params.since),
   };
 
   if (hasOrderField("archivedAt")) where.archivedAt = null;
   if (hasOrderField("anonymizedAt")) where.anonymizedAt = null;
 
-  const activeOrders = await prisma.order
-    .count({
-      where,
-    })
+  return prisma.order
+    .count({ where })
     .catch(() => 0);
+}
 
-  return etaByDeliveryLoad(baseDelivery, activeOrders);
+async function computeDeliveryEtaMin(tenantId: string, baseDelivery: number) {
+  const nowMs = Date.now();
+
+  const busySince = new Date(nowMs - DELIVERY_BUSY_LOOKBACK_MINUTES * 60_000);
+  const freshNewSince = new Date(nowMs - DELIVERY_FRESH_NEW_LOOKBACK_MINUTES * 60_000);
+
+  const [busyOrders, freshNewOrders] = await Promise.all([
+    countDeliveryOrdersByStatus({
+      tenantId,
+      statuses: ["preparing", "ready", "out_for_delivery"],
+      since: busySince,
+    }),
+    countDeliveryOrdersByStatus({
+      tenantId,
+      statuses: ["new"],
+      since: freshNewSince,
+    }),
+  ]);
+
+  return etaByDeliveryLoad(baseDelivery, busyOrders + freshNewOrders);
 }
 
 function safeRouteDealList(value: any): string[] {

@@ -2730,6 +2730,19 @@ export default function TVPage() {
     [getAudioForKind, getAudioRef],
   );
 
+  const stopTvSounds = useCallback(() => {
+    for (const kind of ["delivery", "pickup"] as TvSoundKind[]) {
+      const audio = getAudioRef(kind).current;
+
+      if (!audio) continue;
+
+      try {
+        audio.pause();
+        audio.currentTime = 0;
+      } catch {}
+    }
+  }, [getAudioRef]);
+
   const unlockTvSounds = useCallback(async () => {
     setSoundEnabledSafe(true);
 
@@ -2767,7 +2780,14 @@ export default function TVPage() {
         localStorage.setItem("bb_print_proxy_url", "http://127.0.0.1:7777");
       }
     } catch {}
-  }, []);
+
+    // Sipariş ekrana düştüğü anda ses gecikmesin diye dosyaları TV açılışında ısıtıyoruz.
+    for (const kind of ["delivery", "pickup"] as TvSoundKind[]) {
+      try {
+        getAudioForKind(kind)?.load();
+      } catch {}
+    }
+  }, [getAudioForKind]);
 
   const handleNewOrderSounds = useCallback(
     (nextOrders: StoredOrder[]) => {
@@ -3242,8 +3262,8 @@ export default function TVPage() {
       saveTvClockCache(nextClock);
       saveTvFirstSeenCache(nextFirstSeen);
 
-      handleNewOrderSounds(today);
       setOrders(today);
+      handleNewOrderSounds(today);
 
       minuteCacheRef.current = Object.fromEntries(
         Object.entries(minuteCacheRef.current).filter(([id]) =>
@@ -3401,6 +3421,7 @@ export default function TVPage() {
       void playTvSound(kind);
     };
 
+    // İlk zil modal açılır açılmaz çalsın; sonraki uyarılar 4 saniyede bir devam etsin.
     ring();
     const id = window.setInterval(ring, 4000);
 
@@ -3416,6 +3437,7 @@ export default function TVPage() {
     );
 
     setAcceptBusyId(order.id);
+    stopTvSounds();
     delete minuteCacheRef.current[order.id];
 
     const acceptedLocal: StoredOrder = {
