@@ -1471,13 +1471,21 @@ export async function POST(req: Request) {
       Math.max(0, merchandise + surcharges - discount - couponDiscount),
     );
 
-    const baseMeta = buildOrderMeta({
-      order,
-      source,
-      nowMs,
-      coupon,
-      couponDiscount,
-      orderId: id,
+    const baseMeta = sanitizeJson({
+      ...buildOrderMeta({
+        order,
+        source,
+        nowMs,
+        coupon,
+        couponDiscount,
+        orderId: id,
+      }),
+      suggestedEtaMin: etaMin,
+      etaMin,
+      finalEtaMin: null,
+      acceptedEtaMin: null,
+      acceptStatus: "waiting_accept",
+      printStatus: "waiting_accept",
     });
 
     const data: Record<string, any> = {

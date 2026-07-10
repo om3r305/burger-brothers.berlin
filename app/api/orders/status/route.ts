@@ -525,6 +525,32 @@ function hasEtaPatch(body: any) {
   );
 }
 
+function hasEtaMinPatch(body: any) {
+  return (
+    body?.etaMin !== undefined ||
+    body?.eta !== undefined ||
+    body?.finalEtaMin !== undefined ||
+    body?.acceptedEtaMin !== undefined ||
+    body?.confirmedEtaMin !== undefined ||
+    body?.deliveryEtaMin !== undefined
+  );
+}
+
+function normalizeEtaMinPatch(body: any, fallback = 35) {
+  const raw =
+    body?.etaMin ??
+    body?.eta ??
+    body?.finalEtaMin ??
+    body?.acceptedEtaMin ??
+    body?.confirmedEtaMin ??
+    body?.deliveryEtaMin ??
+    fallback;
+
+  const minutes = toNumber(raw, fallback);
+
+  return Math.max(1, Math.min(240, Math.round(minutes || fallback || 35)));
+}
+
 function normalizeDriverPatch(driver: any) {
   if (driver === null) return null;
 
@@ -639,10 +665,20 @@ function buildStatusUpdateData(
   const by = body?.by ? String(body.by) : "api";
 
   const etaPatch = hasEtaPatch(body);
+  const etaMinPatch = hasEtaMinPatch(body);
   const currentEtaAdjust = toNumber(row?.etaAdjustMin ?? metaObj?.etaAdjustMin, 0);
+  const currentEtaMin = toNumber(row?.etaMin ?? metaObj?.etaMin ?? metaObj?.eta, 35);
   let etaAdjustMin: number | undefined;
+  let etaMin: number | undefined;
 
-  if (etaPatch) {
+  if (etaMinPatch) {
+    etaMin = normalizeEtaMinPatch(body, currentEtaMin || 35);
+    etaAdjustMin = body?.etaAdjustMin !== undefined || body?.etaAdjust !== undefined
+      ? toNumber(body?.etaAdjustMin ?? body?.etaAdjust, 0)
+      : 0;
+  }
+
+  if (etaPatch && !etaMinPatch) {
     if (body?.etaAdjustMin !== undefined || body?.etaAdjust !== undefined) {
       etaAdjustMin = toNumber(body?.etaAdjustMin ?? body?.etaAdjust, currentEtaAdjust);
     } else {
@@ -656,13 +692,15 @@ function buildStatusUpdateData(
 
   const historyAction = statusChanged
     ? `status:${next}`
-    : etaPatch
-      ? `eta:${etaAdjustMin ?? currentEtaAdjust}`
-      : driverPatch.hasPatch
-        ? driverPatch.driver === null
-          ? "driver:clear"
-          : "driver:set"
-        : "order:touch";
+    : etaMinPatch
+      ? `etaMin:${etaMin ?? currentEtaMin}`
+      : etaPatch
+        ? `eta:${etaAdjustMin ?? currentEtaAdjust}`
+        : driverPatch.hasPatch
+          ? driverPatch.driver === null
+            ? "driver:clear"
+            : "driver:set"
+          : "order:touch";
 
   const historyEntry = {
     ts: nowMs,
@@ -685,6 +723,12 @@ function buildStatusUpdateData(
     nextMeta.lastStatusAt = nowMs;
     nextMeta.lastStatusBy = by;
     nextMeta.lastStatus = next;
+
+    if (next === "preparing" && (body?.acceptAndPrint === true || body?.accepted === true || etaMinPatch)) {
+      nextMeta.acceptedAt = nowMs;
+      nextMeta.acceptedBy = by;
+      nextMeta.acceptSource = body?.acceptSource ? String(body.acceptSource) : "tv";
+    }
 
     if (isFinal) {
       delete nextMeta.statusManual;
@@ -717,7 +761,14 @@ function buildStatusUpdateData(
     );
   }
 
-  if (etaPatch) {
+  if (etaMinPatch) {
+    nextMeta.etaMin = etaMin;
+    nextMeta.finalEtaMin = etaMin;
+    nextMeta.acceptedEtaMin = etaMin;
+    nextMeta.etaConfirmedAt = nowMs;
+    nextMeta.etaConfirmedBy = by;
+    nextMeta.etaAdjustMin = etaAdjustMin ?? 0;
+  } else if (etaPatch) {
     nextMeta.etaAdjustMin = etaAdjustMin ?? 0;
   }
 
@@ -749,7 +800,11 @@ function buildStatusUpdateData(
     data.cancelledAt = isCancelled ? nowDate : null;
   }
 
-  if (etaPatch && hasOrderField("etaAdjustMin")) {
+  if (etaMinPatch && hasOrderField("etaMin")) {
+    data.etaMin = etaMin;
+  }
+
+  if ((etaPatch || etaMinPatch) && hasOrderField("etaAdjustMin")) {
     data.etaAdjustMin = etaAdjustMin ?? 0;
   }
 
@@ -856,6 +911,7 @@ async function handleStatusUpdate(req: Request) {
 
     const requestedStatus = normalizeStatus(body?.status ?? body?.nextStatus);
     const etaPatch = hasEtaPatch(body);
+    const etaMinPatch = hasEtaMinPatch(body);
     const driverPatch = hasDriverPatch(body);
 
     if (!id) {
@@ -882,7 +938,7 @@ async function handleStatusUpdate(req: Request) {
       );
     }
 
-    if (!statusProvided && !etaPatch && !driverPatch) {
+    if (!statusProvided && !etaPatch && !etaMinPatch && !driverPatch) {
       return jsonResponse(
         {
           ok: false,

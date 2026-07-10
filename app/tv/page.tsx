@@ -1116,7 +1116,12 @@ async function fetchOrdersFromTvEndpoint(): Promise<StoredOrder[]> {
   throw lastError instanceof Error ? lastError : new Error("TV_ORDERS_FETCH_FAILED");
 }
 
-async function persistStatusToDb(id: string, status: OrderStatus, by = "tv") {
+async function persistStatusToDb(
+  id: string,
+  status: OrderStatus,
+  by = "tv",
+  extra: Record<string, any> = {},
+) {
   const primary = await fetch("/api/orders/status", {
     method: "POST",
     headers: {
@@ -1124,6 +1129,7 @@ async function persistStatusToDb(id: string, status: OrderStatus, by = "tv") {
       accept: "application/json",
     },
     body: JSON.stringify({
+      ...extra,
       id,
       status,
       by,
@@ -1144,6 +1150,7 @@ async function persistStatusToDb(id: string, status: OrderStatus, by = "tv") {
       accept: "application/json",
     },
     body: JSON.stringify({
+      ...extra,
       action: "setStatus",
       id,
       status,
@@ -1901,8 +1908,9 @@ async function updateOrderStatusDbFirst(
   id: string,
   status: OrderStatus,
   by = "tv",
+  extra: Record<string, any> = {},
 ) {
-  await persistStatusToDb(id, status, by);
+  return persistStatusToDb(id, status, by, extra);
 }
 
 function OrderCard({
@@ -2135,8 +2143,261 @@ function OrderCard({
   );
 }
 
+
+function clampAcceptEta(value: any) {
+  const n = Number(value);
+  const safe = Number.isFinite(n) ? Math.round(n) : 35;
+  return Math.max(5, Math.min(180, safe));
+}
+
+function roundEtaStep(value: any, step = 5) {
+  const n = clampAcceptEta(value);
+  return Math.max(step, Math.min(180, Math.round(n / step) * step));
+}
+
+function acceptanceTitle(order: StoredOrder) {
+  const planned = order.planned ? `Geplant ${order.planned}` : "";
+
+  if (order.mode === "pickup") {
+    return planned ? `${planned} · Abholung` : "Abholung";
+  }
+
+  return planned ? `${planned} · Lieferung` : "Lieferung";
+}
+
+function acceptanceSubtitle(order: StoredOrder) {
+  if (order.mode === "pickup") {
+    const name = String(order.customer?.name || "").trim();
+    const phone = String(order.customer?.phone || "").trim();
+
+    return [name, phone].filter(Boolean).join(" · ") || "Abholung im Laden";
+  }
+
+  return formatDeliveryLine(order) || "Adresse prüfen";
+}
+
+function acceptanceZip(order: StoredOrder) {
+  return String(
+    order.plz ||
+      order.customer?.plz ||
+      order.customer?.zip ||
+      "",
+  ).trim();
+}
+
+function AcceptOrderOverlay({
+  order,
+  etaValue,
+  busy,
+  onEtaChange,
+  onAccept,
+  onCancel,
+}: {
+  order: StoredOrder;
+  etaValue: number;
+  busy: boolean;
+  onEtaChange: (value: number) => void;
+  onAccept: () => void | Promise<void>;
+  onCancel: () => void | Promise<void>;
+}) {
+  const paymentBadge = getPaymentBadge(order);
+  const zip = acceptanceZip(order);
+  const title = acceptanceTitle(order);
+  const subtitle = acceptanceSubtitle(order);
+  const totals = getOrderTotals(order);
+  const itemCount = order.items.reduce((sum, item) => sum + Math.max(1, num(item.qty || 1)), 0);
+
+  const changeEta = (delta: number) => {
+    onEtaChange(clampAcceptEta(etaValue + delta));
+  };
+
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/80 p-3 backdrop-blur-md sm:p-6">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(900px_500px_at_50%_0%,rgba(251,146,60,.20),transparent),radial-gradient(800px_500px_at_80%_80%,rgba(16,185,129,.15),transparent)]" />
+
+      <div className={`relative w-full max-w-5xl overflow-hidden rounded-[2rem] border-orange-300/35 p-5 shadow-2xl sm:p-7 ${glass}`}>
+        <div className="absolute right-5 top-5 flex items-center gap-2">
+          <span className="h-3.5 w-3.5 animate-pulse rounded-full bg-rose-400 shadow-[0_0_18px_rgba(251,113,133,.85)]" />
+          <span className="text-xs font-bold uppercase tracking-[0.24em] text-rose-100">Neu</span>
+        </div>
+
+        <div className="pr-24">
+          <div className="text-sm font-semibold uppercase tracking-[0.22em] text-orange-200/90">
+            Neue Bestellung
+          </div>
+
+          <div className="mt-2 flex flex-wrap items-center gap-3">
+            <h1 className="text-4xl font-black tracking-tight text-white sm:text-6xl">
+              {title}
+            </h1>
+
+            <span className={`${chip} ${paymentBadge.className}`}>
+              <span className="mr-1" aria-hidden="true">{paymentBadge.icon}</span>
+              {paymentBadge.label}
+            </span>
+          </div>
+        </div>
+
+        <div className="mt-6 grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+          <div className="rounded-3xl border border-white/10 bg-black/25 p-5">
+            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-400">
+              Adresse / Kunde
+            </div>
+
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              {zip ? (
+                <div className="rounded-2xl border border-orange-300/35 bg-orange-500/15 px-4 py-3 text-3xl font-black text-orange-100">
+                  {zip}
+                </div>
+              ) : null}
+
+              <div className="min-w-0 flex-1 text-2xl font-bold leading-tight text-white sm:text-3xl">
+                {subtitle}
+              </div>
+            </div>
+
+            {extractOrderNote(order) ? (
+              <div className="mt-4 rounded-2xl border border-amber-300/25 bg-amber-400/10 p-3 text-amber-100">
+                <div className="text-xs font-bold uppercase tracking-wider text-amber-200/80">
+                  Hinweis
+                </div>
+                <div className="mt-1 whitespace-pre-wrap text-base font-semibold">
+                  {extractOrderNote(order)}
+                </div>
+              </div>
+            ) : null}
+
+            <div className="mt-4 max-h-52 overflow-y-auto rounded-2xl border border-white/10 bg-white/[0.04] p-3">
+              <div className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-stone-400">
+                Artikel
+              </div>
+              <div className="space-y-2">
+                {order.items.map((item, index) => (
+                  <div key={`${item.name}-${index}`} className="flex gap-3 rounded-xl bg-black/20 px-3 py-2">
+                    <div className="min-w-8 text-xl font-black text-orange-100">{item.qty}×</div>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-base font-bold text-white">{item.name}</div>
+                      {item.note ? <div className="text-xs text-amber-100">{item.note}</div> : null}
+                      {Array.isArray(item.add) && item.add.length > 0 ? (
+                        <div className="text-xs text-stone-300">
+                          Extras: {item.add.map((extra) => extra?.label || extra?.name).filter(Boolean).join(", ")}
+                        </div>
+                      ) : null}
+                      {Array.isArray(item.rm) && item.rm.length > 0 ? (
+                        <div className="text-xs text-stone-400">Ohne: {item.rm.join(", ")}</div>
+                      ) : null}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-4 grid grid-cols-3 gap-3 text-center text-sm">
+              <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3">
+                <div className="text-stone-400">Bestellung</div>
+                <div className="mt-1 font-bold">#{order.id}</div>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3">
+                <div className="text-stone-400">Artikel</div>
+                <div className="mt-1 font-bold">{itemCount}</div>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3">
+                <div className="text-stone-400">Gesamt</div>
+                <div className="mt-1 font-bold">{money(totals.total)}</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-3xl border border-emerald-300/20 bg-emerald-500/10 p-5">
+            <div className="text-center text-xs font-semibold uppercase tracking-[0.2em] text-emerald-100/80">
+              Zeit bestätigen
+            </div>
+
+            <div className="mt-4 flex items-center justify-center gap-4">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => changeEta(-5)}
+                className="h-20 w-20 rounded-3xl border border-white/15 bg-white/10 text-5xl font-black hover:bg-white/15 disabled:opacity-40"
+                aria-label="Zeit reduzieren"
+              >
+                −
+              </button>
+
+              <div className="min-w-[190px] rounded-[2rem] border border-emerald-300/30 bg-black/35 px-6 py-5 text-center shadow-inner">
+                <div className="text-7xl font-black leading-none text-white tabular-nums">
+                  {etaValue}
+                </div>
+                <div className="mt-1 text-lg font-bold uppercase tracking-wider text-emerald-100">
+                  Min
+                </div>
+              </div>
+
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => changeEta(+5)}
+                className="h-20 w-20 rounded-3xl border border-white/15 bg-white/10 text-5xl font-black hover:bg-white/15 disabled:opacity-40"
+                aria-label="Zeit erhöhen"
+              >
+                +
+              </button>
+            </div>
+
+            <div className="mt-5 grid grid-cols-4 gap-2">
+              {[25, 35, 45, 60].map((minute) => (
+                <button
+                  key={minute}
+                  type="button"
+                  disabled={busy}
+                  onClick={() => onEtaChange(minute)}
+                  className={`rounded-2xl border px-3 py-2 text-sm font-bold transition disabled:opacity-40 ${
+                    etaValue === minute
+                      ? "border-emerald-300/60 bg-emerald-400/20 text-emerald-50"
+                      : "border-white/10 bg-white/5 text-stone-200 hover:bg-white/10"
+                  }`}
+                >
+                  {minute}′
+                </button>
+              ))}
+            </div>
+
+            <button
+              type="button"
+              disabled={busy}
+              onClick={onAccept}
+              className="mt-5 w-full rounded-3xl border border-emerald-300/50 bg-emerald-500 px-5 py-5 text-2xl font-black text-white shadow-[0_18px_45px_rgba(16,185,129,.25)] transition hover:bg-emerald-400 disabled:cursor-wait disabled:opacity-60"
+            >
+              {busy ? "Wird angenommen …" : "Annehmen & Drucken"}
+            </button>
+
+            <button
+              type="button"
+              disabled={busy}
+              onClick={onCancel}
+              className="mt-3 w-full rounded-2xl border border-rose-300/40 bg-rose-500/15 px-4 py-3 font-semibold text-rose-100 hover:bg-rose-500/25 disabled:opacity-40"
+            >
+              Ablehnen / Stornieren
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-4 text-center text-sm text-stone-300/85">
+          Der Ton wiederholt sich alle 4 Sekunden, bis die Bestellung angenommen oder abgelehnt wird.
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ─────────────── Printing ─────────────── */
-async function silentPrint(order: StoredOrder) {
+async function silentPrint(
+  order: StoredOrder,
+  opts: { showSuccessAlert?: boolean; throwOnError?: boolean } = {},
+) {
+  const showSuccessAlert = opts.showSuccessAlert !== false;
+  const throwOnError = opts.throwOnError === true;
+
   try {
     const proxy =
       (typeof window !== "undefined" &&
@@ -2162,9 +2423,16 @@ async function silentPrint(order: StoredOrder) {
       throw new Error(`Proxy ${res.status}: ${text}`);
     }
 
-    alert("🖨️ Druckauftrag gesendet.");
+    if (showSuccessAlert) {
+      alert("🖨️ Druckauftrag gesendet.");
+    }
   } catch (error: any) {
     console.error(error);
+
+    if (throwOnError) {
+      throw error;
+    }
+
     alert(
       `Drucken fehlgeschlagen: ${error?.message || error}\n` +
         `• Läuft der print-proxy?\n` +
@@ -2333,6 +2601,8 @@ export default function TVPage() {
   const [brianData, setBrianData] = useState<BrianData | null>(null);
 
   const [etaOverrides, setEtaOverrides] = useState<Record<string, number>>({});
+  const [acceptEtaDrafts, setAcceptEtaDrafts] = useState<Record<string, number>>({});
+  const [acceptBusyId, setAcceptBusyId] = useState("");
   const [outSince, setOutSince] = useState<Record<string, number>>({});
   const minuteCacheRef = useRef<Record<string, MinuteCacheEntry>>({});
   const orderClockRef = useRef<Record<string, TvOrderClockEntry>>({});
@@ -3090,6 +3360,155 @@ export default function TVPage() {
       });
   }, [orders, view, avgPickup, avgDelivery, tz, nowMs, etaOverrides]);
 
+
+  const pendingAcceptOrder = useMemo(() => {
+    return orders
+      .filter((order) => order.status === "new")
+      .sort((a, b) => {
+        const aStart = getOrderStartMs(a, orderClockRef.current, a.ts) ?? a.ts ?? 0;
+        const bStart = getOrderStartMs(b, orderClockRef.current, b.ts) ?? b.ts ?? 0;
+        return aStart - bStart;
+      })[0] ?? null;
+  }, [orders]);
+
+  const pendingAcceptEta = pendingAcceptOrder
+    ? acceptEtaDrafts[pendingAcceptOrder.id] ??
+      roundEtaStep(etaFor(pendingAcceptOrder, avgPickup, avgDelivery))
+    : 0;
+
+  useEffect(() => {
+    if (!pendingAcceptOrder) return;
+
+    setAcceptEtaDrafts((prev) => {
+      if (prev[pendingAcceptOrder.id] != null) return prev;
+
+      return {
+        ...prev,
+        [pendingAcceptOrder.id]: roundEtaStep(etaFor(pendingAcceptOrder, avgPickup, avgDelivery)),
+      };
+    });
+  }, [pendingAcceptOrder?.id, pendingAcceptOrder, avgPickup, avgDelivery]);
+
+  useEffect(() => {
+    if (!pendingAcceptOrder) return;
+    if (acceptBusyId === pendingAcceptOrder.id) return;
+
+    let stopped = false;
+    const kind = getTvSoundKind(pendingAcceptOrder);
+
+    const ring = () => {
+      if (stopped) return;
+      void playTvSound(kind);
+    };
+
+    ring();
+    const id = window.setInterval(ring, 4000);
+
+    return () => {
+      stopped = true;
+      window.clearInterval(id);
+    };
+  }, [pendingAcceptOrder?.id, pendingAcceptOrder?.mode, acceptBusyId, playTvSound]);
+
+  const handleAcceptAndPrint = async (order: StoredOrder) => {
+    const etaMin = clampAcceptEta(
+      acceptEtaDrafts[order.id] ?? roundEtaStep(etaFor(order, avgPickup, avgDelivery)),
+    );
+
+    setAcceptBusyId(order.id);
+    delete minuteCacheRef.current[order.id];
+
+    const acceptedLocal: StoredOrder = {
+      ...order,
+      status: "preparing",
+      etaMin,
+      etaAdjustMin: 0,
+      meta: {
+        ...(order.meta || {}),
+        etaMin,
+        finalEtaMin: etaMin,
+        acceptedEtaMin: etaMin,
+        acceptedAt: Date.now(),
+        acceptedBy: "tv",
+      },
+    };
+
+    setOrders((prev) => prev.map((item) => (item.id === order.id ? acceptedLocal : item)));
+    setEtaOverrides((prev) => ({ ...prev, [order.id]: etaMin }));
+
+    try {
+      const data = await updateOrderStatusDbFirst(order.id, "preparing", "tv", {
+        etaMin,
+        etaAdjustMin: 0,
+        accepted: true,
+        acceptAndPrint: true,
+        acceptSource: "tv",
+      });
+
+      const printCandidate = normalizeOrders([
+        data?.order || data?.data || data?.item || acceptedLocal,
+      ])[0] ?? acceptedLocal;
+
+      await silentPrint(
+        {
+          ...printCandidate,
+          etaMin,
+          etaAdjustMin: 0,
+          status: "preparing",
+          meta: {
+            ...(printCandidate.meta || {}),
+            etaMin,
+            finalEtaMin: etaMin,
+            acceptedEtaMin: etaMin,
+          },
+        },
+        { showSuccessAlert: false, throwOnError: true },
+      );
+
+      setAcceptEtaDrafts((prev) => {
+        const next = { ...prev };
+        delete next[order.id];
+        return next;
+      });
+
+      await refresh();
+    } catch (error: any) {
+      console.error("Accept and print failed", error);
+      alert(
+        `Bestellung wurde nicht sauber angenommen/gedruckt: ${error?.message || error}`,
+      );
+      await refresh();
+    } finally {
+      setAcceptBusyId("");
+    }
+  };
+
+  const handleRejectPendingOrder = async (order: StoredOrder) => {
+    const ok = confirm(`Bestellung #${order.id} ablehnen/stornieren?`);
+    if (!ok) return;
+
+    setAcceptBusyId(order.id);
+
+    try {
+      await updateOrderStatusDbFirst(order.id, "cancelled", "tv", {
+        accepted: false,
+        acceptSource: "tv",
+        note: "Abgelehnt am TV",
+      });
+
+      setOrders((prev) => prev.map((item) => (
+        item.id === order.id ? { ...item, status: "cancelled" } : item
+      )));
+
+      await refresh();
+    } catch (error: any) {
+      console.error("Reject order failed", error);
+      alert(`Bestellung konnte nicht storniert werden: ${error?.message || error}`);
+    } finally {
+      setAcceptBusyId("");
+    }
+  };
+
   const handleAdjust = async (order: StoredOrder, delta: number) => {
     const previous = etaOverrides[order.id];
     const base = previous ?? etaFor(order, avgPickup, avgDelivery);
@@ -3138,6 +3557,22 @@ export default function TVPage() {
         <div className="absolute inset-0 bg-[radial-gradient(1200px_700px_at_10%_-10%,rgba(59,130,246,.18),transparent),radial-gradient(1000px_600px_at_90%_0%,rgba(16,185,129,.14),transparent),linear-gradient(180deg,#0b0f14_0%,#0f1318_50%,#0a0d11_100%)]" />
         <div className="absolute inset-0 bg-[radial-gradient(80%_80%_at_50%_20%,transparent,rgba(0,0,0,.45))]" />
       </div>
+
+      {pendingAcceptOrder && (
+        <AcceptOrderOverlay
+          order={pendingAcceptOrder}
+          etaValue={pendingAcceptEta}
+          busy={acceptBusyId === pendingAcceptOrder.id}
+          onEtaChange={(value) => {
+            setAcceptEtaDrafts((prev) => ({
+              ...prev,
+              [pendingAcceptOrder.id]: clampAcceptEta(value),
+            }));
+          }}
+          onAccept={() => handleAcceptAndPrint(pendingAcceptOrder)}
+          onCancel={() => handleRejectPendingOrder(pendingAcceptOrder)}
+        />
+      )}
 
       <header className="flex items-center justify-between">
         <div className="flex items-center gap-2">
