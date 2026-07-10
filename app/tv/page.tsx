@@ -2223,7 +2223,6 @@ function AcceptOrderOverlay({
   onEtaChange,
   onPlannedChange,
   onAccept,
-  onCancel,
 }: {
   order: StoredOrder;
   etaValue: number;
@@ -2232,7 +2231,6 @@ function AcceptOrderOverlay({
   onEtaChange: (value: number) => void;
   onPlannedChange?: (value: string) => void;
   onAccept: () => void | Promise<void>;
-  onCancel: () => void | Promise<void>;
 }) {
   const paymentBadge = getPaymentBadge(order);
   const zip = acceptanceZip(order);
@@ -2245,6 +2243,10 @@ function AcceptOrderOverlay({
 
   const changeEta = (delta: number) => {
     if (plannedMode) {
+      // Geplante Bestellungen dürfen im TV nur nach hinten verschoben werden.
+      // So kann niemand versehentlich eine frühere Kundenzeit bestätigen.
+      if (delta <= 0) return;
+
       onPlannedChange?.(addMinutesToHHMM(visiblePlannedValue, delta));
       return;
     }
@@ -2357,10 +2359,11 @@ function AcceptOrderOverlay({
             <div className="mt-4 flex items-center justify-center gap-4">
               <button
                 type="button"
-                disabled={busy}
+                disabled={busy || plannedMode}
                 onClick={() => changeEta(plannedMode ? -15 : -5)}
-                className="h-20 w-20 rounded-3xl border border-white/15 bg-white/10 text-5xl font-black hover:bg-white/15 disabled:opacity-40"
+                className="h-20 w-20 rounded-3xl border border-white/15 bg-white/10 text-5xl font-black hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-25"
                 aria-label="Zeit reduzieren"
+                title={plannedMode ? "Geplante Zeiten können nur nach hinten verschoben werden." : "Zeit reduzieren"}
               >
                 −
               </button>
@@ -2388,10 +2391,10 @@ function AcceptOrderOverlay({
             <div className="mt-5 grid grid-cols-4 gap-2">
               {plannedMode
                 ? [
-                    { label: "−30′", delta: -30 },
-                    { label: "−15′", delta: -15 },
                     { label: "+15′", delta: 15 },
                     { label: "+30′", delta: 30 },
+                    { label: "+45′", delta: 45 },
+                    { label: "+60′", delta: 60 },
                   ].map((item) => (
                     <button
                       key={item.label}
@@ -2429,19 +2432,11 @@ function AcceptOrderOverlay({
               {busy ? "Wird angenommen …" : "Annehmen & Drucken"}
             </button>
 
-            <button
-              type="button"
-              disabled={busy}
-              onClick={onCancel}
-              className="mt-3 w-full rounded-2xl border border-rose-300/40 bg-rose-500/15 px-4 py-3 font-semibold text-rose-100 hover:bg-rose-500/25 disabled:opacity-40"
-            >
-              Ablehnen / Stornieren
-            </button>
           </div>
         </div>
 
         <div className="mt-4 text-center text-sm text-stone-300/85">
-          Der Ton wiederholt sich alle 4 Sekunden, bis die Bestellung angenommen oder abgelehnt wird.
+          Der Ton wiederholt sich alle 4 Sekunden, bis die Bestellung angenommen wird.
         </div>
       </div>
     </div>
@@ -3612,32 +3607,6 @@ export default function TVPage() {
     }
   };
 
-  const handleRejectPendingOrder = async (order: StoredOrder) => {
-    const ok = confirm(`Bestellung #${order.id} ablehnen/stornieren?`);
-    if (!ok) return;
-
-    setAcceptBusyId(order.id);
-
-    try {
-      await updateOrderStatusDbFirst(order.id, "cancelled", "tv", {
-        accepted: false,
-        acceptSource: "tv",
-        note: "Abgelehnt am TV",
-      });
-
-      setOrders((prev) => prev.map((item) => (
-        item.id === order.id ? { ...item, status: "cancelled" } : item
-      )));
-
-      await refresh();
-    } catch (error: any) {
-      console.error("Reject order failed", error);
-      alert(`Bestellung konnte nicht storniert werden: ${error?.message || error}`);
-    } finally {
-      setAcceptBusyId("");
-    }
-  };
-
   const handleAdjust = async (order: StoredOrder, delta: number) => {
     const previous = etaOverrides[order.id];
     const base = previous ?? etaFor(order, avgPickup, avgDelivery);
@@ -3706,7 +3675,6 @@ export default function TVPage() {
             }));
           }}
           onAccept={() => handleAcceptAndPrint(pendingAcceptOrder)}
-          onCancel={() => handleRejectPendingOrder(pendingAcceptOrder)}
         />
       )}
 
