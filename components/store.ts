@@ -134,6 +134,13 @@ function normAdd(add?: ExtraOption[]) {
 function normRm(rm?: string[]) {
   return [...(rm ?? [])].map(String).sort((a, b) => a.localeCompare(b));
 }
+
+function roundToNearest10Cents(value: any) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 0;
+
+  return +(Math.round((n + Number.EPSILON) * 10) / 10).toFixed(2);
+}
 function keyOf(p: {
   category?: string;
   item: MenuItem;
@@ -330,7 +337,7 @@ function computePricingRaw(items: CartItemFixed[], mode: OrderMode, plz: string 
   }
 
   const discount = +(deliveryDiscount + freebieDiscount).toFixed(2);
-  const total = +(subtotal - discount).toFixed(2);
+  const total = roundToNearest10Cents(Math.max(0, subtotal - discount));
 
   // --- PLZ min (yalnız DELIVERY, indirim SONRASI)
   let meetsMin = true;

@@ -40,6 +40,13 @@ const fmt = (n: number) =>
     currency: "EUR",
   }).format(n);
 
+function roundToNearest10Cents(value: any) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 0;
+
+  return +(Math.round((n + Number.EPSILON) * 10) / 10).toFixed(2);
+}
+
 type Mode = "pickup" | "delivery";
 
 type Address = {
@@ -1561,7 +1568,9 @@ export default function CheckoutPage() {
   );
 
   const routeDealDiscount = routeDealBenefit.discountAmount;
-  const totalFinal = +Math.max(0, routeDealBaseTotal - routeDealDiscount).toFixed(2);
+  const totalFinal = roundToNearest10Cents(
+    Math.max(0, routeDealBaseTotal - routeDealDiscount),
+  );
 
   const tipAmount = useMemo(() => {
     if (tipChoice === "none") return 0;
@@ -1572,7 +1581,7 @@ export default function CheckoutPage() {
     return +toNum(tipChoice, 0).toFixed(2);
   }, [tipChoice, customTip]);
 
-  const payableTotal = +(totalFinal + tipAmount).toFixed(2);
+  const payableTotal = roundToNearest10Cents(totalFinal + tipAmount);
 
   const meetsMin =
     orderMode === "pickup"
@@ -3177,12 +3186,11 @@ export default function CheckoutPage() {
       nowMs: ts,
     });
     const latestRouteDealDiscount = latestRouteDealBenefit.discountAmount;
-    const latestTotalFinal = +Math.max(
-      0,
-      latestRouteDealBaseTotal - latestRouteDealDiscount,
-    ).toFixed(2);
+    const latestTotalFinal = roundToNearest10Cents(
+      Math.max(0, latestRouteDealBaseTotal - latestRouteDealDiscount),
+    );
     const latestTipAmount = +Math.max(0, tipAmount).toFixed(2);
-    const latestPayableTotal = +(latestTotalFinal + latestTipAmount).toFixed(2);
+    const latestPayableTotal = roundToNearest10Cents(latestTotalFinal + latestTipAmount);
 
     const couponMeta = safeJsonParse(
       typeof window !== "undefined"

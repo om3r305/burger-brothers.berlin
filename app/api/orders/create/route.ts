@@ -116,6 +116,13 @@ function toNum(value: any, fallback = 0) {
   return Number.isFinite(number) ? number : fallback;
 }
 
+function roundToNearest10Cents(value: any) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 0;
+
+  return +(Math.round((n + Number.EPSILON) * 10) / 10).toFixed(2);
+}
+
 function toMs(value: any, fallback = 0) {
   if (!value) return fallback;
 
@@ -1397,9 +1404,11 @@ async function handleEmergencyOrder(body: any, order: any) {
   const surcharges = toNum(order?.surcharges, 0);
   const coupon = order?.coupon ? normCouponCode(order.coupon) : null;
   const couponDiscount = toNum(order?.couponDiscount, 0);
-  const total = toNum(
-    order?.total,
-    Math.max(0, merchandise + surcharges - discount - couponDiscount),
+  const total = roundToNearest10Cents(
+    toNum(
+      order?.total,
+      Math.max(0, merchandise + surcharges - discount - couponDiscount),
+    ),
   );
   const reason = cleanText(body?.emergencyReason) || "DB bağlantısı kurulamadı.";
   const waitMs = Math.max(0, toNum(body?.emergencyWaitMs, 5 * 60 * 1000));
@@ -1521,9 +1530,11 @@ export async function POST(req: Request) {
     const coupon = order?.coupon ? normCouponCode(order.coupon) : null;
     const couponDiscount = toNum(order?.couponDiscount, 0);
 
-    const total = toNum(
-      order?.total,
-      Math.max(0, merchandise + surcharges - discount - couponDiscount),
+    const total = roundToNearest10Cents(
+      toNum(
+        order?.total,
+        Math.max(0, merchandise + surcharges - discount - couponDiscount),
+      ),
     );
 
     const baseMeta = sanitizeJson({
