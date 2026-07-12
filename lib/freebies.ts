@@ -405,3 +405,285 @@ export function evaluateFreebieRules(params: {
     rules: states,
   };
 }
+/* ─────────────────────────────────────────────────────────────
+   COMPAT: lib/pricing/applyAdjustments.ts
+
+   Projenin eski merkezi fiyat motoru `allocateFreebies` adını
+   kullanıyor. Yeni kural motorunun ana fonksiyonu
+   `evaluateFreebieRules` olduğu için bu adaptör eski çağrıları
+   yeni motora yönlendirir. Böylece eski fiyat işleyişi kırılmaz.
+   ───────────────────────────────────────────────────────────── */
+
+function isFreebieConfigLike(value: any) {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      !Array.isArray(value) &&
+      (
+        Array.isArray(value?.rules) ||
+        Array.isArray(value?.tiers) ||
+        value?.freebies ||
+        value?.category ||
+        value?.enabled !== undefined
+      ),
+  );
+}
+
+function readCompatItems(value: any): any[] {
+  if (Array.isArray(value)) return value;
+  if (Array.isArray(value?.items)) return value.items;
+  if (Array.isArray(value?.cartItems)) return value.cartItems;
+  if (Array.isArray(value?.lines)) return value.lines;
+  if (Array.isArray(value?.units)) return value.units;
+  return [];
+}
+
+function compatItemPrice(item: any) {
+  return Math.max(
+    0,
+    toNumber(
+      item?.price ??
+        item?.unitPrice ??
+        item?.item?.price ??
+        item?.product?.price,
+      0,
+    ),
+  );
+}
+
+function compatItemQty(item: any) {
+  return Math.max(
+    1,
+    Math.floor(toNumber(item?.qty ?? item?.quantity, 1)),
+  );
+}
+
+function compatExtrasTotal(item: any) {
+  const extras = Array.isArray(item?.add)
+    ? item.add
+    : Array.isArray(item?.extras)
+      ? item.extras
+      : [];
+
+  return extras.reduce(
+    (sum: number, extra: any) =>
+      sum + Math.max(0, toNumber(extra?.price, 0)),
+    0,
+  );
+}
+
+function compatMerchandise(items: any[]) {
+  return +items
+    .reduce(
+      (sum, item) =>
+        sum +
+        (compatItemPrice(item) + compatExtrasTotal(item)) *
+          compatItemQty(item),
+      0,
+    )
+    .toFixed(2);
+}
+
+function compatUnits(items: any[]): FreebieUnit[] {
+  const out: FreebieUnit[] = [];
+
+  for (const item of items) {
+    /*
+      Zaten FreebieUnit biçimindeyse aynen kullan.
+    */
+    if (
+      item &&
+      item?.unitId != null &&
+      parseFreebieCategory(item?.category)
+    ) {
+      out.push({
+        ...item,
+        unitId: String(item.unitId),
+        category: normalizeFreebieCategory(item.category),
+        price: compatItemPrice(item),
+      });
+      continue;
+    }
+
+    const category = parseFreebieCategory(
+      item?.category ??
+        item?.item?.category ??
+        item?.product?.category ??
+        item?.name ??
+        item?.item?.name ??
+        item?.product?.name,
+    );
+
+    if (!category) continue;
+
+    const qty = compatItemQty(item);
+    const unitIds = Array.isArray(item?.__unitIds)
+      ? item.__unitIds
+      : Array.isArray(item?.unitIds)
+        ? item.unitIds
+        : [];
+
+    const baseId = String(
+      item?.id ??
+        item?.sku ??
+        item?.item?.id ??
+        item?.item?.sku ??
+        item?.product?.id ??
+        item?.name ??
+        "freebie-item",
+    );
+
+    const price = compatItemPrice(item);
+
+    for (let index = 0; index < qty; index += 1) {
+      out.push({
+        unitId: String(unitIds[index] || `${baseId}-${index}`),
+        category,
+        price,
+      });
+    }
+  }
+
+  return out;
+}
+
+/**
+ * Geriye dönük uyumluluk adaptörü.
+ *
+ * Desteklenen çağrı biçimleri:
+ *   allocateFreebies({ config, mode, merchandise, items })
+ *   allocateFreebies({ freebies, orderMode, subtotal, cartItems })
+ *   allocateFreebies(items, config, mode, merchandise)
+ *   allocateFreebies(config, items, mode, merchandise)
+ *
+ * Dönüş tipi bilinçli olarak `any` tutulur; eski pricing motorlarının
+ * beklediği adlar için aynı indirim tutarını farklı alias'larla verir.
+ */
+export function allocateFreebies(...args: any[]): any {
+  const first = args[0];
+
+  let config: any = null;
+  let mode: "pickup" | "delivery" = "pickup";
+  let merchandise = Number.NaN;
+  let items: any[] = [];
+
+  if (args.length === 1 && first && typeof first === "object" && !Array.isArray(first)) {
+    config =
+      first?.config ??
+      first?.freebies ??
+      first?.settings?.freebies ??
+      (isFreebieConfigLike(first) ? first : null);
+
+    mode =
+      normalizeFreebieMode(
+        first?.mode ??
+          first?.orderMode ??
+          first?.deliveryMode,
+      ) === "delivery"
+        ? "delivery"
+        : "pickup";
+
+    merchandise = toNumber(
+      first?.merchandise ??
+        first?.subtotal ??
+        first?.cartTotal ??
+        first?.totalBeforeDiscount ??
+        first?.total,
+      Number.NaN,
+    );
+
+    items = readCompatItems(first);
+  } else {
+    for (const value of args) {
+      if (!items.length && Array.isArray(value)) {
+        items = value;
+        continue;
+      }
+
+      if (!config && isFreebieConfigLike(value)) {
+        config = value?.freebies ?? value?.settings?.freebies ?? value;
+        continue;
+      }
+
+      if (
+        typeof value === "string" &&
+        ["pickup", "delivery", "abholung", "lieferung", "apollo", "apollon", "lifa", "liefa"].includes(
+          value.toLowerCase().trim(),
+        )
+      ) {
+        mode =
+          normalizeFreebieMode(value) === "delivery"
+            ? "delivery"
+            : "pickup";
+        continue;
+      }
+
+      if (typeof value === "number" && Number.isFinite(value)) {
+        merchandise = value;
+      }
+    }
+  }
+
+  const normalizedItems = items || [];
+  const units = compatUnits(normalizedItems);
+
+  if (!Number.isFinite(merchandise)) {
+    merchandise = compatMerchandise(normalizedItems);
+  }
+
+  const evaluation = evaluateFreebieRules({
+    config: config || {},
+    mode,
+    merchandise,
+    units,
+  });
+
+  const amount = +evaluation.discountedAmount.toFixed(2);
+
+  const allocations = evaluation.rules
+    .filter((rule) => rule.unlocked)
+    .map((rule) => ({
+      ruleId: rule.id,
+      category: rule.category,
+      mode: rule.mode,
+      quantity: rule.used,
+      allowed: rule.allowed,
+      amount: rule.discountedAmount,
+      maxProductPrice: rule.maxProductPrice,
+      minTotal: rule.minTotal,
+    }));
+
+  const result: any = {
+    ...evaluation,
+
+    // Eski pricing dosyalarında görülebilecek uyumlu isimler
+    amount,
+    discount: amount,
+    discountAmount: amount,
+    freebieDiscount: amount,
+    appliedDiscount: amount,
+    totalDiscount: amount,
+
+    allocated: evaluation.used,
+    freeItems: evaluation.used,
+    allocations,
+    evaluation,
+  };
+
+  /*
+    Eski bir kullanım sonucu sayıya çevirirse de indirim tutarı döner:
+      Number(allocateFreebies(...))
+      +allocateFreebies(...)
+  */
+  Object.defineProperty(result, "valueOf", {
+    enumerable: false,
+    value: () => amount,
+  });
+
+  Object.defineProperty(result, "toString", {
+    enumerable: false,
+    value: () => String(amount),
+  });
+
+  return result;
+}
