@@ -25,6 +25,39 @@ const NO_STORE_HEADERS = {
 
 const ADMIN_COOKIE = process.env.ADMIN_COOKIE_NAME || "bb_admin_sess";
 
+const PUBLIC_READ_CACHE_TTL_MS = 30_000;
+let productsMemoryCache:
+  | {
+      expiresAt: number;
+      items: any[];
+    }
+  | null = null;
+
+function readProductsMemoryCache() {
+  if (!productsMemoryCache) return null;
+  if (productsMemoryCache.expiresAt <= Date.now()) {
+    productsMemoryCache = null;
+    return null;
+  }
+  return productsMemoryCache.items;
+}
+
+function writeProductsMemoryCache(items: any[]) {
+  productsMemoryCache = {
+    expiresAt: Date.now() + PUBLIC_READ_CACHE_TTL_MS,
+    items,
+  };
+}
+
+function clearProductsMemoryCache() {
+  productsMemoryCache = null;
+}
+
+function shouldWriteRuntimeSnapshot() {
+  return !process.env.VERCEL;
+}
+
+
 function hasAdminSession(req: Request) {
   const cookie = req.headers.get("cookie") || "";
   const parts = cookie.split(";").map((part) => part.trim());
@@ -574,7 +607,6 @@ async function writeProductsFallback(items: any[]) {
 
 export async function GET(req: Request) {
   try {
-    const tenantId = await getTenantId();
     const url = new URL(req.url);
 
     const category = url.searchParams.get("category") || url.searchParams.get("cat");
@@ -582,19 +614,35 @@ export async function GET(req: Request) {
       url.searchParams.get("active") === "1" ||
       url.searchParams.get("active") === "true";
 
-    let items = await listProducts(tenantId, category);
+    let allItems = readProductsMemoryCache();
+
+    if (!allItems) {
+      const tenantId = await getTenantId();
+      allItems = await listProducts(tenantId);
+      writeProductsMemoryCache(allItems);
+    }
+
+    let items = allItems;
+
+    if (category && !isAllFilter(category)) {
+      const normalizedCategory = normalizeCategory(category);
+      items = items.filter((item) => item.category === normalizedCategory);
+    }
 
     if (activeOnly) {
       items = items.filter((item) => item.active !== false);
     }
 
     const fallbackSaved =
-      !category && !activeOnly ? await writeProductsFallback(items) : null;
+      !category && !activeOnly && shouldWriteRuntimeSnapshot()
+        ? await writeProductsFallback(items)
+        : null;
 
     return jsonResponse({
       ok: true,
       source: "db",
       fallbackSaved,
+      memoryCached: Boolean(readProductsMemoryCache()),
       items,
       products: items,
       count: items.length,
@@ -626,6 +674,7 @@ export async function PUT(req: Request) {
 
     const tenantId = await getTenantId();
     const body = await readRequestBody(req);
+    clearProductsMemoryCache();
 
     const items = asArray(body);
     const replace = body?.replace === true;
@@ -659,6 +708,7 @@ export async function PUT(req: Request) {
     });
 
     const serialized = await listProducts(tenantId);
+    writeProductsMemoryCache(serialized);
     const fallbackSaved = await writeProductsFallback(serialized);
 
     return jsonResponse({

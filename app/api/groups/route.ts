@@ -15,6 +15,42 @@ const NO_STORE_HEADERS = {
   "Cache-Control": "no-store, no-cache, must-revalidate",
 };
 
+
+
+const PUBLIC_READ_CACHE_TTL_MS = 30_000;
+let groupsMemoryCache:
+  | {
+      expiresAt: number;
+      drinkGroups: any[];
+      extraGroups: any[];
+    }
+  | null = null;
+
+function readGroupsMemoryCache() {
+  if (!groupsMemoryCache) return null;
+  if (groupsMemoryCache.expiresAt <= Date.now()) {
+    groupsMemoryCache = null;
+    return null;
+  }
+  return groupsMemoryCache;
+}
+
+function writeGroupsMemoryCache(drinkGroups: any[], extraGroups: any[]) {
+  groupsMemoryCache = {
+    expiresAt: Date.now() + PUBLIC_READ_CACHE_TTL_MS,
+    drinkGroups,
+    extraGroups,
+  };
+}
+
+function clearGroupsMemoryCache() {
+  groupsMemoryCache = null;
+}
+
+function shouldWriteRuntimeSnapshot() {
+  return !process.env.VERCEL;
+}
+
 type GroupsPayload = {
   drinkGroups?: any[];
   extraGroups?: any[];
@@ -431,12 +467,36 @@ async function readGroupsSnapshot() {
 
 export async function GET() {
   try {
+    const cached = readGroupsMemoryCache();
+
+    if (cached) {
+      return jsonOk(
+        {
+          ...groupsResponse(cached.drinkGroups, cached.extraGroups),
+          memoryCached: true,
+        },
+        200,
+        "db",
+      );
+    }
+
     const tenantId = await getTenantId();
     const { drinkGroups, extraGroups } = await readAllGroups(tenantId);
 
-    await writeGroupsSnapshot(drinkGroups, extraGroups);
+    writeGroupsMemoryCache(drinkGroups, extraGroups);
 
-    return jsonOk(groupsResponse(drinkGroups, extraGroups), 200, "db");
+    if (shouldWriteRuntimeSnapshot()) {
+      await writeGroupsSnapshot(drinkGroups, extraGroups);
+    }
+
+    return jsonOk(
+      {
+        ...groupsResponse(drinkGroups, extraGroups),
+        memoryCached: false,
+      },
+      200,
+      "db",
+    );
   } catch (error: any) {
     const fallback = await readGroupsSnapshot();
 
@@ -472,6 +532,8 @@ export async function PUT(req: Request) {
       return jsonError(new Error("EMPTY_PAYLOAD"), "EMPTY_PAYLOAD", 400);
     }
 
+    clearGroupsMemoryCache();
+
     await prisma.$transaction(async (tx) => {
       if (drinkGroups !== undefined) {
         await saveSettingArrayWithTx(tx, tenantId, KEY_DRINK_GROUPS, drinkGroups);
@@ -483,6 +545,7 @@ export async function PUT(req: Request) {
     });
 
     const saved = await readAllGroups(tenantId);
+    writeGroupsMemoryCache(saved.drinkGroups, saved.extraGroups);
 
     await writeGroupsSnapshot(saved.drinkGroups, saved.extraGroups);
 

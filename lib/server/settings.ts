@@ -161,6 +161,35 @@ type PlainObject = Record<string, any>;
 
 const WHOLE_SETTINGS_KEYS = new Set(["settings", "bb_settings_v6", "app:settings"]);
 
+const SERVER_SETTINGS_CACHE_TTL_MS = 15_000;
+let serverSettingsMemoryCache:
+  | {
+      expiresAt: number;
+      value: ServerSettings;
+    }
+  | null = null;
+
+function readServerSettingsMemoryCache() {
+  if (!serverSettingsMemoryCache) return null;
+  if (serverSettingsMemoryCache.expiresAt <= Date.now()) {
+    serverSettingsMemoryCache = null;
+    return null;
+  }
+  return serverSettingsMemoryCache.value;
+}
+
+function writeServerSettingsMemoryCache(value: ServerSettings) {
+  serverSettingsMemoryCache = {
+    expiresAt: Date.now() + SERVER_SETTINGS_CACHE_TTL_MS,
+    value,
+  };
+}
+
+function clearServerSettingsMemoryCache() {
+  serverSettingsMemoryCache = null;
+}
+
+
 function readEnvNumber(key: string, fallback: number) {
   const n = Number(process.env[key]);
   return Number.isFinite(n) ? n : fallback;
@@ -526,9 +555,14 @@ function applyEnvFallback(settings: ServerSettings): ServerSettings {
  * - ENV sadece eksik kritik alanları tamamlar
  */
 export async function getServerSettings(): Promise<ServerSettings> {
+  const cached = readServerSettingsMemoryCache();
+  if (cached) return cached;
+
   try {
     const dbSettings = await readSettingsFromDb();
-    return applyEnvFallback(dbSettings);
+    const settings = applyEnvFallback(dbSettings);
+    writeServerSettingsMemoryCache(settings);
+    return settings;
   } catch (error) {
     console.error("[server/settings] DB read failed, trying fallback snapshot:", error);
 
@@ -536,13 +570,17 @@ export async function getServerSettings(): Promise<ServerSettings> {
       const fallbackSettings = await readFallbackSnapshot<ServerSettings>("settings");
 
       if (fallbackSettings && isPlainObject(fallbackSettings)) {
-        return applyEnvFallback(normalizeSettingsObject(fallbackSettings));
+        const settings = applyEnvFallback(normalizeSettingsObject(fallbackSettings));
+        writeServerSettingsMemoryCache(settings);
+        return settings;
       }
     } catch (fallbackError) {
       console.error("[server/settings] fallback snapshot read failed:", fallbackError);
     }
 
-    return applyEnvFallback({});
+    const settings = applyEnvFallback({});
+    writeServerSettingsMemoryCache(settings);
+    return settings;
   }
 }
 
@@ -552,13 +590,18 @@ export async function getServerSettings(): Promise<ServerSettings> {
  */
 export async function saveServerSettings(settings: ServerSettings): Promise<void> {
   try {
+    clearServerSettingsMemoryCache();
     await writeSettingsToDb(settings);
 
-    try {
-      const latest = await readSettingsFromDb();
-      await writeFallbackSnapshot("settings", applyEnvFallback(latest));
-    } catch (fallbackError) {
-      console.error("[server/settings] fallback snapshot write failed:", fallbackError);
+    const latest = applyEnvFallback(await readSettingsFromDb());
+    writeServerSettingsMemoryCache(latest);
+
+    if (!process.env.VERCEL) {
+      try {
+        await writeFallbackSnapshot("settings", latest);
+      } catch (fallbackError) {
+        console.error("[server/settings] fallback snapshot write failed:", fallbackError);
+      }
     }
   } catch (error) {
     console.error("[server/settings] DB write failed:", error);

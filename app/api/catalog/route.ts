@@ -26,6 +26,39 @@ const NO_STORE_HEADERS = {
 const CATALOG_TRANSACTION_MAX_WAIT_MS = 15_000;
 const CATALOG_TRANSACTION_TIMEOUT_MS = 60_000;
 
+const PUBLIC_READ_CACHE_TTL_MS = 30_000;
+let catalogMemoryCache:
+  | {
+      expiresAt: number;
+      value: { products: any[]; campaigns: any[] };
+    }
+  | null = null;
+
+function readCatalogMemoryCache() {
+  if (!catalogMemoryCache) return null;
+  if (catalogMemoryCache.expiresAt <= Date.now()) {
+    catalogMemoryCache = null;
+    return null;
+  }
+  return catalogMemoryCache.value;
+}
+
+function writeCatalogMemoryCache(value: { products: any[]; campaigns: any[] }) {
+  catalogMemoryCache = {
+    expiresAt: Date.now() + PUBLIC_READ_CACHE_TTL_MS,
+    value,
+  };
+}
+
+function clearCatalogMemoryCache() {
+  catalogMemoryCache = null;
+}
+
+function shouldWriteRuntimeSnapshot() {
+  return !process.env.VERCEL;
+}
+
+
 function hasModelField(modelName: string, fieldName: string) {
   try {
     const model = Prisma.dmmf.datamodel.models.find((item) => item.name === modelName);
@@ -1007,13 +1040,28 @@ async function readBody(req: Request) {
 
 export async function GET() {
   try {
+    const cached = readCatalogMemoryCache();
+
+    if (cached) {
+      return jsonResponse({
+        ...catalogResponsePayload(cached, "db"),
+        memoryCached: true,
+      });
+    }
+
     const tenantId = await getTenantId();
     const catalog = await listCatalog(tenantId);
-    const fallbackSaved = await writeCatalogFallback(catalog);
+
+    writeCatalogMemoryCache(catalog);
+
+    const fallbackSaved = shouldWriteRuntimeSnapshot()
+      ? await writeCatalogFallback(catalog)
+      : null;
 
     return jsonResponse({
       ...catalogResponsePayload(catalog, "db"),
       fallbackSaved,
+      memoryCached: false,
     });
   } catch (error: any) {
     const fallback = await readCatalogFallback();
@@ -1041,9 +1089,12 @@ export async function PUT(req: Request) {
     const productInputs = uniqueProductInputs(products);
     const campaignInputs = uniqueCampaignInputs(campaigns);
 
+    clearCatalogMemoryCache();
+
     const saveResult = await persistCatalog(tenantId, productInputs, campaignInputs, replace);
 
     const catalog = await listCatalog(tenantId);
+    writeCatalogMemoryCache(catalog);
     const fallbackSaved = await writeCatalogFallback(catalog);
 
     return jsonResponse({

@@ -29,6 +29,39 @@ const TV_COOKIE_NAMES = Array.from(
 );
 const TV_WRITABLE_SETTING_KEYS = new Set(["productAvailability"]);
 
+const PUBLIC_READ_CACHE_TTL_MS = 30_000;
+let settingsMemoryCache:
+  | {
+      expiresAt: number;
+      value: PlainObject;
+    }
+  | null = null;
+
+function readSettingsMemoryCache() {
+  if (!settingsMemoryCache) return null;
+  if (settingsMemoryCache.expiresAt <= Date.now()) {
+    settingsMemoryCache = null;
+    return null;
+  }
+  return settingsMemoryCache.value;
+}
+
+function writeSettingsMemoryCache(value: PlainObject) {
+  settingsMemoryCache = {
+    expiresAt: Date.now() + PUBLIC_READ_CACHE_TTL_MS,
+    value,
+  };
+}
+
+function clearSettingsMemoryCache() {
+  settingsMemoryCache = null;
+}
+
+function shouldWriteRuntimeSnapshot() {
+  return !process.env.VERCEL;
+}
+
+
 const DEFAULT_SETTINGS: PlainObject = {
   orders: {
     idLength: 6,
@@ -602,9 +635,29 @@ async function readRequestBody(req: Request) {
 
 export async function GET() {
   try {
+    const cached = readSettingsMemoryCache();
+
+    if (cached) {
+      return NextResponse.json(
+        {
+          ...cached,
+          ok: true,
+          source: "db",
+          memoryCached: true,
+        },
+        {
+          headers: NO_STORE_HEADERS,
+        },
+      );
+    }
+
     const tenantId = await getTenantId();
     const settings = await readSettingsMap(tenantId);
-    const fallbackSaved = await writeSettingsFallback(settings);
+    writeSettingsMemoryCache(settings);
+
+    const fallbackSaved = shouldWriteRuntimeSnapshot()
+      ? await writeSettingsFallback(settings)
+      : null;
 
     return NextResponse.json(
       {
@@ -612,6 +665,7 @@ export async function GET() {
         ok: true,
         source: "db",
         fallbackSaved,
+        memoryCached: false,
       },
       {
         headers: NO_STORE_HEADERS,
@@ -651,8 +705,10 @@ export async function POST(req: Request) {
       return unauthorizedResponse();
     }
 
+    clearSettingsMemoryCache();
     const result = await saveSettings(tenantId, payload, replace);
     const settings = await readSettingsMap(tenantId);
+    writeSettingsMemoryCache(settings);
     const fallbackSaved = await writeSettingsFallback(settings);
 
     return jsonResponse({
@@ -681,8 +737,10 @@ export async function PUT(req: Request) {
       return unauthorizedResponse();
     }
 
+    clearSettingsMemoryCache();
     const result = await saveSettings(tenantId, payload, replace);
     const settings = await readSettingsMap(tenantId);
+    writeSettingsMemoryCache(settings);
     const fallbackSaved = await writeSettingsFallback(settings);
 
     return jsonResponse({

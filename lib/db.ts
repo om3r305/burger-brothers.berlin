@@ -1,9 +1,18 @@
 // lib/db.ts
 import { PrismaClient } from "@prisma/client";
 
-const g = globalThis as unknown as { __prisma?: PrismaClient };
+type PrismaGlobal = {
+  __prisma?: PrismaClient;
+  __tenantId?: string;
+  __tenantPromise?: Promise<string>;
+};
 
-// Development’da Prisma'nın yeniden oluşturulmasını engelle
+const g = globalThis as unknown as PrismaGlobal;
+
+/*
+  PrismaClient'i hem development hem production'da globalde tutuyoruz.
+  Vercel'de aynı sıcak function instance tekrar kullanıldığında yeni connection açılmaz.
+*/
 export const prisma =
   g.__prisma ??
   new PrismaClient({
@@ -13,20 +22,10 @@ export const prisma =
         : ["error"],
   });
 
-if (process.env.NODE_ENV !== "production") g.__prisma = prisma;
-
-/* ──────────────────────────────────────────────
-   TENANT (Multi-Tenant)
-   Uygulamanın TEK giriş noktası — %100 DB bağlantısı
-   ────────────────────────────────────────────── */
+g.__prisma = prisma;
 
 export { Prisma } from "@prisma/client";
 
-/**
- * Varsayılan tenant bilgiler (env → yoksa fallback)
- * Domain bazlı tenant'a geçmek istediğimizde
- * bu alan tek noktadan kontrol edilecek.
- */
 const DEFAULT_TENANT_SLUG =
   process.env.DEFAULT_TENANT_SLUG ||
   process.env.TENANT_SLUG ||
@@ -37,32 +36,58 @@ const DEFAULT_TENANT_NAME =
   process.env.TENANT_NAME ||
   "Burger Brothers Berlin";
 
-/**
- * getTenantId()
- * DB’de tenant yoksa otomatik oluşturur.
- * Tüm API route’ları buradan tenantId alacak.
- */
-export async function getTenantId(): Promise<string> {
-  try {
-    const tenant = await prisma.tenant.upsert({
-      where: {
-        slug: DEFAULT_TENANT_SLUG,
-      },
-      update: {
-        name: DEFAULT_TENANT_NAME,
-      },
-      create: {
-        slug: DEFAULT_TENANT_SLUG,
-        name: DEFAULT_TENANT_NAME,
-      },
-      select: {
-        id: true,
-      },
-    });
+/*
+  Tenant ID uygulama boyunca değişmediği için her API isteğinde upsert çalıştırmıyoruz.
+  Önce process cache kullanılır; cache boşsa findUnique, tenant gerçekten yoksa upsert yapılır.
+*/
+async function loadTenantId(): Promise<string> {
+  const existing = await prisma.tenant.findUnique({
+    where: {
+      slug: DEFAULT_TENANT_SLUG,
+    },
+    select: {
+      id: true,
+    },
+  });
 
-    return tenant.id;
-  } catch (err) {
-    console.error("❌ Tenant yüklenirken hata:", err);
-    throw new Error("Tenant yüklenemedi (DB bağlantısı kontrol edin)");
+  if (existing?.id) {
+    return existing.id;
   }
+
+  const created = await prisma.tenant.upsert({
+    where: {
+      slug: DEFAULT_TENANT_SLUG,
+    },
+    update: {},
+    create: {
+      slug: DEFAULT_TENANT_SLUG,
+      name: DEFAULT_TENANT_NAME,
+    },
+    select: {
+      id: true,
+    },
+  });
+
+  return created.id;
+}
+
+export async function getTenantId(): Promise<string> {
+  if (g.__tenantId) {
+    return g.__tenantId;
+  }
+
+  if (!g.__tenantPromise) {
+    g.__tenantPromise = loadTenantId()
+      .then((tenantId) => {
+        g.__tenantId = tenantId;
+        return tenantId;
+      })
+      .catch((error) => {
+        g.__tenantPromise = undefined;
+        console.error("❌ Tenant yüklenirken hata:", error);
+        throw new Error("Tenant yüklenemedi (DB bağlantısı kontrol edin)");
+      });
+  }
+
+  return g.__tenantPromise;
 }
