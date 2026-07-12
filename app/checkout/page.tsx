@@ -80,6 +80,12 @@ type Planned = {
 type PaymentMethod = "cash" | "online";
 type TipChoice = "none" | "1" | "2" | "3" | "custom";
 
+type FreebieTier = {
+  minTotal: number;
+  freeSauces: number;
+  [key: string]: any;
+};
+
 type FreebiesCfg = Record<string, any> | null;
 
 type RouteDealReward = {
