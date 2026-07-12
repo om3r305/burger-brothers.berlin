@@ -15,6 +15,13 @@ import {
   fetchAndApplyRemoteSettings,
 } from "@/lib/settings";
 import {
+  evaluateFreebieRules,
+  freebieCategoryLabel,
+  freebieModeLabel,
+  parseFreebieCategory,
+} from "@/lib/freebies";
+import type { FreebieEvaluation, FreebieUnit } from "@/lib/freebies";
+import {
   planFromSettings,
   isOpenAt,
   buildSlotsForDate,
@@ -73,17 +80,7 @@ type Planned = {
 type PaymentMethod = "cash" | "online";
 type TipChoice = "none" | "1" | "2" | "3" | "custom";
 
-type FreebieTier = {
-  minTotal: number;
-  freeSauces: number;
-};
-
-type FreebiesCfg = {
-  enabled?: boolean;
-  category?: "sauces" | "drinks" | "donuts" | "bubbletea";
-  tiers?: FreebieTier[];
-  mode?: "pickup" | "delivery" | "both";
-} | null;
+type FreebiesCfg = Record<string, any> | null;
 
 type RouteDealReward = {
   type?: "percent" | "fixed" | "free_delivery" | "free_sauce" | "free_drink" | string;
@@ -946,13 +943,54 @@ function sumCartMerchandise(items: any[]) {
   return +sum.toFixed(2);
 }
 
-function computePricingV6(items: any[], mode: Mode, plz: string | null | undefined) {
+function collectFreebieUnitsCheckout(items: any[]): FreebieUnit[] {
+  const units: FreebieUnit[] = [];
+
+  for (const ci of items || []) {
+    const qty = Math.max(1, toNum(ci?.qty, 1));
+    const unitIds = Array.isArray(ci?.__unitIds) ? ci.__unitIds : [];
+    const price = Math.max(0, toNum(ci?.item?.price, 0));
+    const category = parseFreebieCategory(
+      ci?.category ?? ci?.item?.category ?? ci?.item?.name,
+    );
+
+    if (!category) continue;
+
+    for (let index = 0; index < qty; index += 1) {
+      units.push({
+        unitId: String(unitIds[index] || `${ci?.id || ci?.item?.id || "item"}-${index}`),
+        category,
+        price,
+      });
+    }
+  }
+
+  return units;
+}
+
+function computePricingV6(
+  items: any[],
+  mode: Mode,
+  plz: string | null | undefined,
+) {
   const overrides = getPricingOverrides(mode);
   const rate = toNum(overrides.discountRate, 0);
 
   const merchandise = sumCartMerchandise(items);
-  const discount = +(merchandise * rate).toFixed(2);
-  const afterDiscount = +(merchandise - discount).toFixed(2);
+  const deliveryDiscount = +(merchandise * rate).toFixed(2);
+
+  const freebie = evaluateFreebieRules({
+    config: overrides.freebies,
+    mode,
+    merchandise,
+    units: collectFreebieUnitsCheckout(items),
+  });
+
+  const discount = +(
+    deliveryDiscount + freebie.discountedAmount
+  ).toFixed(2);
+
+  const afterDiscount = +Math.max(0, merchandise - discount).toFixed(2);
 
   const plzMap = overrides.plzMin || {};
   const code = (plz || "").replace(/[^\d]/g, "").slice(0, 5);
@@ -986,6 +1024,7 @@ function computePricingV6(items: any[], mode: Mode, plz: string | null | undefin
     requiredMin: requiredMin ?? null,
     plzKnown,
     freebiesCfg: overrides.freebies,
+    freebie,
   };
 }
 
@@ -1188,7 +1227,6 @@ export default function CheckoutPage() {
     [settingsRaw],
   );
 
-  const freebiesFromOverrides = getPricingOverrides(orderMode)?.freebies as FreebiesCfg;
 
   const [addr, setAddr] = useState<Address>({
     name: "",
@@ -1591,23 +1629,16 @@ export default function CheckoutPage() {
         ? Math.round(totalFinal * 100) >= Math.round(toNum(requiredMin, 0) * 100)
         : false;
 
-  const freebiesCfg: FreebiesCfg = freebiesFromOverrides ?? null;
-  const freebiesEnabled =
-    !!freebiesCfg?.enabled &&
-    Array.isArray(freebiesCfg?.tiers) &&
-    (freebiesCfg?.tiers?.length ?? 0) > 0;
-  const freebiesModeOk =
-    !freebiesCfg?.mode || freebiesCfg.mode === "both" || freebiesCfg.mode === orderMode;
-
-  const freeSauces = useMemo(() => {
-    if (!freebiesEnabled || !freebiesModeOk) return 0;
-    return calcFreeSauces(merchandise, (freebiesCfg?.tiers ?? []) as FreebieTier[]);
-  }, [freebiesEnabled, freebiesModeOk, merchandise, freebiesCfg?.tiers]);
-
-  const freebieProgress = useMemo(() => {
-    if (!freebiesEnabled || !freebiesModeOk) return null;
-    return buildFreebieProgress(merchandise, (freebiesCfg?.tiers ?? []) as FreebieTier[]);
-  }, [freebiesEnabled, freebiesModeOk, merchandise, freebiesCfg?.tiers]);
+  const freebieEvaluation: FreebieEvaluation =
+    base.freebie || {
+      enabled: false,
+      allowed: 0,
+      used: 0,
+      remaining: 0,
+      discountedAmount: 0,
+      thresholds: [],
+      rules: [],
+    };
 
   const modePaused = isModePaused(orderMode, pause);
   const pauseMessage = modePaused
@@ -2073,56 +2104,68 @@ export default function CheckoutPage() {
         </div>
       </div>
 
-      {freebieProgress && (
-        <div
-          className={`rounded-2xl border p-3 text-sm ${
-            freebieProgress.currentFreeSauces > 0
-              ? "border-emerald-500/35 bg-emerald-500/10 text-emerald-100"
-              : "border-amber-500/35 bg-amber-500/10 text-amber-100"
-          }`}
-        >
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-start gap-3">
-              <div
-                className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-xl ${
-                  freebieProgress.currentFreeSauces > 0
-                    ? "bg-emerald-400 text-black"
-                    : "bg-amber-400 text-black"
-                }`}
-              >
-                🎁
+      {freebieEvaluation.enabled && freebieEvaluation.rules.length > 0 && (
+        <div className="rounded-2xl border border-emerald-500/35 bg-emerald-500/10 p-3 text-sm text-emerald-100">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <div className="font-semibold">🎁 Ihre Gratis-Vorteile</div>
+            {freebieEvaluation.discountedAmount > 0 ? (
+              <div className="text-xs font-semibold text-emerald-300">
+                Abgezogen: {fmt(freebieEvaluation.discountedAmount)}
               </div>
+            ) : null}
+          </div>
 
-              <div className="min-w-0">
-                <div className="font-semibold">Gratis-Aktion</div>
+          <div className="space-y-2">
+            {freebieEvaluation.rules.map((rule) => {
+              const categoryText = freebieCategoryLabel(
+                rule.category,
+                rule.quantity !== 1,
+              );
 
-                {freebieProgress.currentFreeSauces > 0 ? (
-                  <div className="mt-1 text-sm leading-relaxed">
-                    Freigeschaltet: <b>{freebieProgress.currentFreeSauces}</b>{" "}
-                    {freebieProgress.currentFreeSauces === 1 ? "gratis Soße" : "gratis Soßen"}{" "}
-                    möglich.
+              return (
+                <div
+                  key={rule.id}
+                  className={`rounded-xl border px-3 py-2 ${
+                    rule.unlocked
+                      ? "border-emerald-400/30 bg-emerald-400/10"
+                      : "border-amber-400/30 bg-amber-400/10 text-amber-100"
+                  }`}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="font-medium">
+                      {rule.unlocked ? "✅" : "🔒"} {rule.quantity}× {categoryText}
+                      {" · "}
+                      {freebieModeLabel(rule.mode)}
+                    </div>
+
+                    <div className="text-xs opacity-90">
+                      ab {fmt(rule.minTotal)}
+                      {rule.maxProductPrice != null
+                        ? ` · max. ${fmt(rule.maxProductPrice)}`
+                        : ""}
+                    </div>
                   </div>
-                ) : freebieProgress.nextMinTotal ? (
-                  <div className="mt-1 text-sm leading-relaxed">
-                    Noch <b>{fmt(freebieProgress.missingAmount)}</b> bis zu{" "}
-                    <b>{freebieProgress.nextFreeSauces}</b>{" "}
-                    {freebieProgress.nextFreeSauces === 1 ? "gratis Soße" : "gratis Soßen"}.
-                  </div>
-                ) : null}
 
-                {freebieProgress.currentFreeSauces > 0 && freebieProgress.nextMinTotal && (
-                  <div className="mt-1 text-xs opacity-85">
-                    Noch {fmt(freebieProgress.missingAmount)} bis zur nächsten Gratis-Stufe.
+                  <div className="mt-1 text-xs opacity-90">
+                    {rule.unlocked ? (
+                      rule.remaining > 0 ? (
+                        <>
+                          Noch <b>{rule.remaining}</b> passenden Artikel hinzufügen.
+                        </>
+                      ) : (
+                        <>
+                          Genutzt: <b>{rule.used}/{rule.allowed}</b>
+                        </>
+                      )
+                    ) : (
+                      <>
+                        Noch <b>{fmt(rule.missingAmount)}</b> bis zu diesem Vorteil.
+                      </>
+                    )}
                   </div>
-                )}
-              </div>
-            </div>
-
-            {freebieProgress.currentFreeSauces > 0 && (
-              <div className="inline-flex w-full items-center justify-center rounded-full border border-emerald-400/40 bg-emerald-400/10 px-3 py-2 text-xs font-bold text-emerald-100 sm:w-auto">
-                {freebieProgress.currentFreeSauces}x gratis
-              </div>
-            )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

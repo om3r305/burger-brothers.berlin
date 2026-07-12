@@ -1,223 +1,407 @@
 // lib/freebies.ts
-// Ücretsiz sos / adet eşik mantığı (hesaplama + dağıtım)
-//
-// Bu modül tamamen saf (pure) fonksiyonlardan oluşur ve store dışı bağımlılık içermez.
-// İki temel iş yapar:
-//  1) Sepetteki “nitelikli” ana ürün adedine göre ücretsiz sos hakkını hesaplar.
-//  2) Bu hakkı, sepetteki sos kalemlerine (varsayılan: en ucuzdan başlayarak) dağıtır
-//     ve indirimi (0-fiyatlama) nasıl uygulayabileceğinize dair bir plan döner.
-//
-// Entegrasyon fikirleri:
-//  - CartSummary içinde “Ücretsiz X sos hakkın var (kalan Y)” şeklinde banner göstermek için
-//    `computeFreebies` sonucundaki allowance/applied/remaining değerlerini kullanın.
-//  - Ödeme/hesaplamada bu indirimleri Prices Pipeline’a eklemek için `allocateFreebies`
-//    dönen totalDiscount’u subtotal’dan düşebilirsiniz (ya da satır bazlı uygulayabilirsiniz).
+// Merkezi, kümülatif Gratis-Artikel kural motoru.
+// Eski category/mode/tiers yapısını da geriye dönük destekler.
 
-/* ======================= Tipler & Varsayılan Ayarlar ======================= */
+export type FreebieCategory = "sauces" | "drinks" | "donuts" | "bubbletea";
+export type FreebieMode = "pickup" | "delivery" | "both";
 
-export type CartItemLike = {
+export type FreebieRule = {
   id: string;
-  qty: number;
-  item: {
-    price: number;
-    name?: string;
-    category?: string; // "sauces" vb.
-    sku?: string;
-  };
-  // Opsiyonel ek alanlar – dokunmuyoruz ama passthrough olabilir:
-  add?: Array<{ id?: string; label?: string; price?: number; name?: string }>;
-  rm?: string[];
-  note?: string;
-  category?: string; // bazı yerlerde üst düzeyde tutuluyor olabilir
+  enabled: boolean;
+  category: FreebieCategory;
+  mode: FreebieMode;
+  minTotal: number;
+  quantity: number;
+  maxProductPrice: number | null;
+  [key: string]: any;
 };
 
-export type FreebieConfig = {
-  /** Hangi kategori(ler) nitelikli ana ürün sayılır (her birim için hak kazandırır). */
-  qualifyingCategories: string[];
-  /** Hangi kategori ücretsiz dağıtımın hedefi (genelde "sauces"). */
-  sauceCategory: string;
-  /** Her nitelikli birim başına kaç ücretsiz sos hakkı var. Örn: 1 → her burger için 1 sos. */
-  rewardPerItem: number;
-  /** Sipariş başına ücretsiz sos üst limiti (opsiyonel). Verilmezse limit yoktur. */
-  maxFreePerOrder?: number;
-  /**
-   * Dağıtım stratejisi:
-   *  - "cheapest-first": En ucuz soslardan başlayarak bedava uygula (varsayılan).
-   *  - "expensive-first": En pahalıdan başla.
-   *  - "as-listed": Sepet sırasına göre uygula.
-   */
-  distribution?: "cheapest-first" | "expensive-first" | "as-listed";
+export type FreebieUnit = {
+  unitId: string;
+  category: FreebieCategory;
+  price: number;
+  [key: string]: any;
 };
 
-export const DEFAULT_FREEBIE_CONFIG: FreebieConfig = {
-  qualifyingCategories: ["burger", "vegan", "hotdogs"], // ana kalemler
-  sauceCategory: "sauces",
-  rewardPerItem: 1, // her ana ürün için 1 sos
-  maxFreePerOrder: undefined, // isterseniz 4 gibi bir limit koyabilirsiniz
-  distribution: "cheapest-first",
-};
-
-export type FreebieCounters = {
-  /** Nitelikli ana ürün toplam birimi (qty toplamı). */
-  qualifyingUnits: number;
-  /** Sepetteki sos toplam birimi (qty toplamı). */
-  sauceUnits: number;
-  /** Kurala göre hesaplanan ücretsiz sos hakkı. */
-  allowance: number;
-  /** Sepette gerçekten uygulanabilir ücretsiz sos adedi (min(allowance, sauceUnits)). */
-  applied: number;
-  /** Kullanılmamış ücretsiz hak (allowance - applied). */
+export type FreebieRuleState = FreebieRule & {
+  unlocked: boolean;
+  allowed: number;
+  used: number;
   remaining: number;
+  discountedAmount: number;
+  missingAmount: number;
 };
 
-export type FreebieDiscountLine = {
-  /** Hangi satır (cart item) için */
-  id: string;
-  /** Bedava uygulanacak adet */
-  freeQty: number;
-  /** Satırın birim fiyatı (bilgi amaçlı) */
-  unitPrice: number;
-  /** Bu satır için toplam indirim (freeQty * unitPrice) */
-  discountTotal: number;
+export type FreebieEvaluation = {
+  enabled: boolean;
+  allowed: number;
+  used: number;
+  remaining: number;
+  discountedAmount: number;
+  thresholds: number[];
+  category?: FreebieCategory;
+  rules: FreebieRuleState[];
 };
 
-export type AllocationResult = FreebieCounters & {
-  /** Satır bazlı ücretsiz dağıtım planı */
-  discounts: FreebieDiscountLine[];
-  /** Tüm bedava dağıtım toplam indirimi */
-  totalDiscount: number;
-};
-
-/* ======================= Yardımcılar ======================= */
-
-function normCategory(ci: CartItemLike): string {
-  // üst seviyedeki category → item.category öncelikleri
-  const c =
-    (ci.category ?? ci.item?.category ?? "").toString().trim().toLowerCase();
-  return c;
+function toNumber(value: any, fallback = 0) {
+  const n = Number(String(value ?? "").replace(",", "."));
+  return Number.isFinite(n) ? n : fallback;
 }
 
-function isQualifying(ci: CartItemLike, cfg: FreebieConfig): boolean {
-  const cat = normCategory(ci);
-  return cfg.qualifyingCategories.includes(cat);
+function toBool(value: any, fallback = true) {
+  if (typeof value === "boolean") return value;
+  if (value === undefined || value === null || value === "") return fallback;
+
+  const text = String(value).toLowerCase().trim();
+  if (["1", "true", "yes", "ja", "on", "aktiv"].includes(text)) return true;
+  if (["0", "false", "no", "nein", "off", "inaktiv"].includes(text)) return false;
+
+  return fallback;
 }
 
-function isSauce(ci: CartItemLike, cfg: FreebieConfig): boolean {
-  const cat = normCategory(ci);
-  return cat === cfg.sauceCategory;
+function makeRuleId(index: number, raw?: any) {
+  const direct = String(raw?.id ?? "").trim();
+  if (direct) return direct;
+
+  const category = normalizeFreebieCategory(raw?.category);
+  const mode = normalizeFreebieMode(raw?.mode);
+  const min = Math.max(0, toNumber(raw?.minTotal, 0));
+
+  return `freebie-${category}-${mode}-${min}-${index + 1}`;
 }
 
-/* ======================= 1) Hak Hesabı ======================= */
+export function parseFreebieCategory(value: any): FreebieCategory | null {
+  const text = String(value ?? "")
+    .toLowerCase()
+    .trim()
+    .replace(/[\s_-]+/g, "");
 
-export function computeFreebies(
-  items: CartItemLike[],
-  config: Partial<FreebieConfig> = {}
-): FreebieCounters {
-  const cfg: FreebieConfig = { ...DEFAULT_FREEBIE_CONFIG, ...config };
-
-  let qualifyingUnits = 0;
-  let sauceUnits = 0;
-
-  for (const ci of items) {
-    const qty = Math.max(0, Number(ci?.qty ?? 0));
-    if (qty <= 0) continue;
-
-    if (isQualifying(ci, cfg)) qualifyingUnits += qty;
-    if (isSauce(ci, cfg)) sauceUnits += qty;
+  if (
+    text === "sauces" ||
+    text === "sauce" ||
+    text === "soße" ||
+    text === "soßen" ||
+    text === "sosse" ||
+    text === "sossen" ||
+    text === "sos"
+  ) {
+    return "sauces";
   }
 
-  let allowance = qualifyingUnits * Math.max(0, cfg.rewardPerItem);
-  if (typeof cfg.maxFreePerOrder === "number") {
-    allowance = Math.min(allowance, Math.max(0, cfg.maxFreePerOrder));
+  if (
+    text === "drinks" ||
+    text === "drink" ||
+    text === "getränke" ||
+    text === "getraenke"
+  ) {
+    return "drinks";
   }
 
-  const applied = Math.min(allowance, sauceUnits);
-  const remaining = Math.max(0, allowance - applied);
+  if (
+    text === "donuts" ||
+    text === "donut" ||
+    text === "doughnuts" ||
+    text === "doughnut"
+  ) {
+    return "donuts";
+  }
 
-  return { qualifyingUnits, sauceUnits, allowance, applied, remaining };
+  if (text === "bubbletea" || text === "boba" || text === "milktea") {
+    return "bubbletea";
+  }
+
+  return null;
 }
 
-/* ======================= 2) Dağıtım Planı ======================= */
+export function normalizeFreebieCategory(value: any): FreebieCategory {
+  return parseFreebieCategory(value) || "sauces";
+}
 
-export function allocateFreebies(
-  items: CartItemLike[],
-  config: Partial<FreebieConfig> = {}
-): AllocationResult {
-  const cfg: FreebieConfig = { ...DEFAULT_FREEBIE_CONFIG, ...config };
+export function normalizeFreebieMode(value: any): FreebieMode {
+  const text = String(value ?? "").toLowerCase().trim();
 
-  // Önce hakları hesapla
-  const counters = computeFreebies(items, cfg);
-  let remaining = counters.applied;
-
-  // Sadece sos satırlarını aday listesine al
-  const sauceLines = items
-    .filter((ci) => isSauce(ci, cfg) && (ci.qty ?? 0) > 0)
-    .map((ci) => ({
-      id: ci.id,
-      unitPrice: Number(ci.item?.price ?? 0),
-      qty: Number(ci.qty ?? 0),
-    }));
-
-  // Sıralama stratejisi
-  if (cfg.distribution === "cheapest-first") {
-    sauceLines.sort((a, b) => a.unitPrice - b.unitPrice);
-  } else if (cfg.distribution === "expensive-first") {
-    sauceLines.sort((a, b) => b.unitPrice - a.unitPrice);
-  }
-  // "as-listed" → hiçbir şey yapma
-
-  const discounts: FreebieDiscountLine[] = [];
-
-  for (const line of sauceLines) {
-    if (remaining <= 0) break;
-    const freeQty = Math.min(remaining, line.qty);
-    if (freeQty <= 0) continue;
-
-    const discountTotal = +(freeQty * line.unitPrice).toFixed(2);
-    discounts.push({
-      id: line.id,
-      freeQty,
-      unitPrice: line.unitPrice,
-      discountTotal,
-    });
-
-    remaining -= freeQty;
+  if (
+    text === "pickup" ||
+    text === "abholung" ||
+    text === "apollo" ||
+    text === "apollon"
+  ) {
+    return "pickup";
   }
 
-  const totalDiscount = +discounts
-    .reduce((s, d) => s + d.discountTotal, 0)
-    .toFixed(2);
+  if (
+    text === "delivery" ||
+    text === "lieferung" ||
+    text === "lifa" ||
+    text === "liefa"
+  ) {
+    return "delivery";
+  }
+
+  return "both";
+}
+
+export function freebieCategoryLabel(category: any, plural = false) {
+  const key = normalizeFreebieCategory(category);
+
+  if (key === "drinks") return plural ? "Getränke" : "Getränk";
+  if (key === "donuts") return plural ? "Donuts" : "Donut";
+  if (key === "bubbletea") return plural ? "Bubble Teas" : "Bubble Tea";
+
+  return plural ? "Soßen" : "Soße";
+}
+
+export function freebieModeLabel(mode: any) {
+  const key = normalizeFreebieMode(mode);
+
+  if (key === "pickup") return "Abholung";
+  if (key === "delivery") return "Lieferung";
+
+  return "Beide";
+}
+
+export function normalizeFreebieRules(config: any): FreebieRule[] {
+  const raw = config || {};
+  const sourceRules = Array.isArray(raw.rules) ? raw.rules : [];
+
+  if (sourceRules.length > 0) {
+    return sourceRules
+      .map((entry: any, index: number) => {
+        const maxRaw =
+          entry?.maxProductPrice ??
+          entry?.maxPrice ??
+          entry?.priceLimit ??
+          entry?.maxItemPrice;
+
+        const maxNumber =
+          maxRaw === "" || maxRaw === null || maxRaw === undefined
+            ? null
+            : Math.max(0, toNumber(maxRaw, 0));
+
+        return {
+          ...entry,
+          id: makeRuleId(index, entry),
+          enabled: toBool(entry?.enabled ?? entry?.active, true),
+          category: normalizeFreebieCategory(entry?.category),
+          mode: normalizeFreebieMode(entry?.mode),
+          minTotal: Math.max(0, toNumber(entry?.minTotal ?? entry?.minimumTotal, 0)),
+          quantity: Math.max(
+            0,
+            Math.floor(
+              toNumber(
+                entry?.quantity ??
+                  entry?.freeItems ??
+                  entry?.freeCount ??
+                  entry?.freeSauces,
+                0,
+              ),
+            ),
+          ),
+          maxProductPrice: maxNumber && maxNumber > 0 ? maxNumber : null,
+        } satisfies FreebieRule;
+      })
+      .filter((rule: FreebieRule) => rule.minTotal > 0 && rule.quantity > 0);
+  }
+
+  // Legacy uyumluluğu: category + mode + tiers
+  const category = normalizeFreebieCategory(raw.category);
+  const mode = normalizeFreebieMode(raw.mode);
+  const tiers = Array.isArray(raw.tiers) ? raw.tiers : [];
+
+  return tiers
+    .map((tier: any, index: number) => ({
+      id: makeRuleId(index, {
+        ...tier,
+        category,
+        mode,
+      }),
+      enabled: true,
+      category,
+      mode,
+      minTotal: Math.max(0, toNumber(tier?.minTotal, 0)),
+      quantity: Math.max(
+        0,
+        Math.floor(
+          toNumber(
+            tier?.quantity ?? tier?.freeItems ?? tier?.freeSauces,
+            0,
+          ),
+        ),
+      ),
+      maxProductPrice: null,
+      legacyTier: true,
+    }))
+    .filter((rule: FreebieRule) => rule.minTotal > 0 && rule.quantity > 0);
+}
+
+export function normalizeFreebieConfig(config: any) {
+  const raw = config || {};
+  const rules = normalizeFreebieRules(raw);
+
+  const first = rules[0] || null;
+  const legacyRules = first
+    ? rules.filter(
+        (rule) =>
+          rule.category === first.category &&
+          rule.mode === first.mode,
+      )
+    : [];
 
   return {
-    ...counters,
-    discounts,
-    totalDiscount,
+    ...raw,
+    enabled: toBool(raw.enabled, false),
+    rules,
+    // Eski client sürümleri için ilk kategori/mod kopyası korunur.
+    category: first?.category ?? normalizeFreebieCategory(raw.category),
+    mode: first?.mode ?? normalizeFreebieMode(raw.mode),
+    tiers: legacyRules.map((rule) => ({
+      minTotal: rule.minTotal,
+      freeSauces: rule.quantity,
+    })),
   };
 }
 
-/* ======================= Uygulama Örneği =======================
+function emptyEvaluation(): FreebieEvaluation {
+  return {
+    enabled: false,
+    allowed: 0,
+    used: 0,
+    remaining: 0,
+    discountedAmount: 0,
+    thresholds: [],
+    category: undefined,
+    rules: [],
+  };
+}
 
-— Store.computePricing içinde (indirimleri hesaplarken):
+export function evaluateFreebieRules(params: {
+  config: any;
+  mode: "pickup" | "delivery";
+  merchandise: number;
+  units: FreebieUnit[];
+}): FreebieEvaluation {
+  const config = normalizeFreebieConfig(params.config);
 
-  import { allocateFreebies } from "@/lib/freebies";
-
-  const fb = allocateFreebies(items, {
-    // projeye göre özelleştirilebilir:
-    qualifyingCategories: ["burger", "vegan", "hotdogs"],
-    sauceCategory: "sauces",
-    rewardPerItem: 1,
-    maxFreePerOrder: 4,         // örn. sipariş başı en fazla 4 bedava sos
-    distribution: "cheapest-first",
-  });
-
-  // fb.totalDiscount → indirim olarak düşülebilir.
-  // İsterseniz satır bazlı fiyatı 0’layıp "discount" olarak gösterebilirsiniz.
-
-— UI (CartSummary) içinde banner:
-
-  const { allowance, applied, remaining, qualifyingUnits } = computeFreebies(items);
-  if (allowance > 0) {
-    // "Ücretsiz sos hakkın: X (kalan Y)" benzeri bir badge gösterebilirsiniz.
+  if (!config.enabled || !config.rules.length) {
+    return emptyEvaluation();
   }
 
-======================================================================== */
+  const mode = params.mode;
+  const merchandise = Math.max(0, toNumber(params.merchandise, 0));
+
+  const rules = config.rules
+    .filter(
+      (rule: FreebieRule) =>
+        rule.enabled &&
+        (rule.mode === "both" || rule.mode === mode),
+    )
+    .map((rule: FreebieRule, index: number) => ({ rule, index }))
+    .sort(
+      (a: any, b: any) =>
+        a.rule.minTotal - b.rule.minTotal ||
+        a.index - b.index,
+    );
+
+  if (!rules.length) {
+    return {
+      ...emptyEvaluation(),
+      enabled: true,
+    };
+  }
+
+  const allUnits = (Array.isArray(params.units) ? params.units : [])
+    .map((unit) => ({
+      ...unit,
+      unitId: String(unit?.unitId ?? ""),
+      category: parseFreebieCategory(unit?.category),
+      price: Math.max(0, toNumber(unit?.price, 0)),
+    }))
+    .filter(
+      (unit): unit is FreebieUnit =>
+        Boolean(unit.unitId && unit.category),
+    );
+
+  const consumedUnitIds = new Set<string>();
+  const states: FreebieRuleState[] = [];
+  let discountedAmount = 0;
+
+  for (const { rule } of rules) {
+    const candidates = allUnits
+      .filter((unit) => {
+        if (consumedUnitIds.has(unit.unitId)) return false;
+        if (unit.category !== rule.category) return false;
+
+        if (
+          rule.maxProductPrice != null &&
+          unit.price - rule.maxProductPrice > 0.000001
+        ) {
+          return false;
+        }
+
+        return true;
+      })
+      .sort((a, b) => a.price - b.price);
+
+    const selected = candidates.slice(0, rule.quantity);
+    const potentialDiscount = selected.reduce(
+      (sum, unit) => sum + unit.price,
+      0,
+    );
+
+    /*
+      Minimum değer, hediyeler düşüldükten sonra da korunur.
+      Örnek: 18 € ürün + 2 € sos, 20 € kampanyasını kendi kendine açamaz.
+      20 € normal ürün + 2 € sos ise 22 - 2 = 20 olduğu için açılır.
+    */
+    const netAfterPotentialGift =
+      merchandise - discountedAmount - potentialDiscount;
+
+    const unlocked = netAfterPotentialGift + 0.000001 >= rule.minTotal;
+
+    if (unlocked) {
+      for (const unit of selected) {
+        consumedUnitIds.add(unit.unitId);
+      }
+
+      discountedAmount += potentialDiscount;
+    }
+
+    const used = unlocked ? selected.length : 0;
+    const allowed = unlocked ? rule.quantity : 0;
+    const remaining = unlocked ? Math.max(0, allowed - used) : 0;
+
+    const baseForMissing =
+      merchandise -
+      discountedAmount -
+      (unlocked ? 0 : potentialDiscount);
+
+    states.push({
+      ...rule,
+      unlocked,
+      allowed,
+      used,
+      remaining,
+      discountedAmount: unlocked ? potentialDiscount : 0,
+      missingAmount: unlocked
+        ? 0
+        : Math.max(0, rule.minTotal - baseForMissing),
+    });
+  }
+
+  const allowed = states.reduce((sum, rule) => sum + rule.allowed, 0);
+  const used = states.reduce((sum, rule) => sum + rule.used, 0);
+
+  return {
+    enabled: true,
+    allowed,
+    used,
+    remaining: Math.max(0, allowed - used),
+    discountedAmount: +discountedAmount.toFixed(2),
+    thresholds: Array.from(
+      new Set(states.map((rule) => rule.minTotal)),
+    ).sort((a, b) => a - b),
+    category:
+      states.length === 1 ? states[0].category : undefined,
+    rules: states,
+  };
+}

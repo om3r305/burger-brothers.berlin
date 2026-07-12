@@ -5,6 +5,12 @@ import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import type { WeekSchedule, TimeRange } from "@/lib/settings";
 import { LS_SETTINGS } from "@/lib/settings";
+import {
+  freebieCategoryLabel,
+  freebieModeLabel,
+  normalizeFreebieConfig,
+} from "@/lib/freebies";
+import type { FreebieRule } from "@/lib/freebies";
 
 /* ───────────────────────── constants ───────────────────────── */
 
@@ -119,6 +125,7 @@ const DEFAULT_MODEL: SettingsModel = {
 
   freebies: {
     enabled: false,
+    rules: [],
     category: "sauces",
     mode: "both",
     tiers: [],
@@ -127,6 +134,7 @@ const DEFAULT_MODEL: SettingsModel = {
   offers: {
     freebies: {
       enabled: false,
+      rules: [],
       category: "sauces",
       mode: "both",
       tiers: [],
@@ -392,6 +400,10 @@ const RESPONSE_META_KEYS = new Set([
   "saved",
   "keys",
   "error",
+  "message",
+  "dbError",
+  "fallbackSaved",
+  "memoryCached",
   "message",
   "dbError",
   "fallbackSaved",
@@ -945,17 +957,9 @@ function normalizeForSave(raw: any) {
     showEtaClock,
   };
 
-  next.freebies = {
-    ...(next.freebies || next.offers?.freebies || {}),
-    enabled: bool(next.freebies?.enabled ?? next.offers?.freebies?.enabled, false),
-    category: next.freebies?.category || next.offers?.freebies?.category || "sauces",
-    mode: next.freebies?.mode || next.offers?.freebies?.mode || "both",
-    tiers: Array.isArray(next.freebies?.tiers)
-      ? next.freebies.tiers
-      : Array.isArray(next.offers?.freebies?.tiers)
-        ? next.offers.freebies.tiers
-        : [],
-  };
+  next.freebies = normalizeFreebieConfig(
+    next.freebies || next.offers?.freebies || {},
+  );
 
   next.offers = {
     ...(next.offers || {}),
@@ -1275,30 +1279,57 @@ export default function AdminSettingsPage() {
       return;
     }
 
-    const controller = new AbortController();
-    const timeoutId = window.setTimeout(() => controller.abort(), 20_000);
-
     setSaving(true);
     setSaveStatus("idle");
     setSaveMessage("Einstellungen werden gespeichert…");
 
     try {
       const next = normalizeForSave(model);
+      let lastError: any = null;
+      let savedResponse: any = null;
 
-      const res = await fetch("/api/settings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", accept: "application/json" },
-        body: safeStringify({ settings: next }),
-        signal: controller.signal,
-      });
+      for (let attempt = 1; attempt <= 2; attempt += 1) {
+        const controller = new AbortController();
+        const timeoutId = window.setTimeout(() => controller.abort(), 45_000);
 
-      const json = await res.json().catch(() => null);
+        try {
+          const res = await fetch("/api/settings", {
+            method: "POST",
+            cache: "no-store",
+            headers: {
+              "Content-Type": "application/json",
+              accept: "application/json",
+            },
+            body: safeStringify({ settings: next }),
+            signal: controller.signal,
+          });
 
-      if (!res.ok || json?.ok === false) {
-        throw new Error(json?.error || `Status ${res.status}`);
+          const json = await res.json().catch(() => null);
+
+          if (!res.ok || json?.ok === false) {
+            throw new Error(json?.error || `Status ${res.status}`);
+          }
+
+          savedResponse = json;
+          lastError = null;
+          break;
+        } catch (error: any) {
+          lastError = error;
+
+          if (attempt < 2) {
+            setSaveMessage("Erster Versuch fehlgeschlagen – erneuter Versuch…");
+            await new Promise((resolve) => window.setTimeout(resolve, 700));
+          }
+        } finally {
+          window.clearTimeout(timeoutId);
+        }
       }
 
-      const saved = pickSavedSettingsFromResponse(json, next);
+      if (lastError || !savedResponse) {
+        throw lastError || new Error("SETTINGS_SAVE_FAILED");
+      }
+
+      const saved = pickSavedSettingsFromResponse(savedResponse, next);
       setModel(saved);
       mirrorSettingsToLocalStorage(saved);
       setSaveStatus("saved");
@@ -1312,7 +1343,6 @@ export default function AdminSettingsPage() {
       setSaveStatus("error");
       setSaveMessage(`Speichern fehlgeschlagen: ${message}`);
     } finally {
-      window.clearTimeout(timeoutId);
       setSaving(false);
     }
   };
@@ -1705,51 +1735,26 @@ export default function AdminSettingsPage() {
 
         {/* FREEBIES */}
         <section className="card">
-          <div className="mb-3 text-lg font-medium">Gratis-Artikel Regel</div>
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-            <div className="flex items-end">
-              <Toggle
-                label="Gratis-Regel aktiv"
-                checked={!!m.freebies?.enabled}
-                onChange={(value) => setNested(["freebies", "enabled"], value)}
-              />
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="text-lg font-medium">Gratis-Artikel Regeln</div>
+              <div className="mt-1 text-xs text-stone-400">
+                Jede Regel ist eigenständig und kumulativ. Ein Warenkorb kann dadurch
+                gleichzeitig Soße, Getränk, Donut und Bubble Tea freischalten.
+              </div>
             </div>
 
-            <Field label="Kategorie">
-              <select
-                className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2 outline-none"
-                value={m.freebies?.category || "sauces"}
-                onChange={(event) =>
-                  setNested(["freebies", "category"], event.target.value)
-                }
-              >
-                <option value="sauces">Soßen</option>
-                <option value="drinks">Getränke</option>
-                <option value="donuts">Donuts</option>
-                <option value="bubbletea">Bubble Tea</option>
-              </select>
-            </Field>
-
-            <Field label="Modus">
-              <select
-                className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2 outline-none"
-                value={m.freebies?.mode || "both"}
-                onChange={(event) => setNested(["freebies", "mode"], event.target.value)}
-              >
-                <option value="delivery">Lifa / Lieferung</option>
-                <option value="pickup">Apollon / Abholung</option>
-                <option value="both">Beide</option>
-              </select>
-            </Field>
-          </div>
-
-          <div className="mt-3">
-            <div className="mb-2 text-sm opacity-80">Schwellenwerte</div>
-            <TierEditor
-              value={m.freebies?.tiers || []}
-              onChange={(tiers) => setNested(["freebies", "tiers"], tiers)}
+            <Toggle
+              label="Gratis-Regeln aktiv"
+              checked={!!m.freebies?.enabled}
+              onChange={(value) => setNested(["freebies", "enabled"], value)}
             />
           </div>
+
+          <FreebieRulesEditor
+            value={normalizeFreebieConfig(m.freebies || {}).rules}
+            onChange={(rules) => setNested(["freebies", "rules"], rules)}
+          />
         </section>
 
         {/* THEME / BRAND */}
@@ -2413,6 +2418,200 @@ function PLZTable({
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+function createFreebieRule(index = 0): FreebieRule {
+  return {
+    id: `freebie-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 7)}`,
+    enabled: true,
+    category: "sauces",
+    mode: "both",
+    minTotal: 20,
+    quantity: 1,
+    maxProductPrice: null,
+  };
+}
+
+function FreebieRulesEditor({
+  value,
+  onChange,
+}: {
+  value: FreebieRule[];
+  onChange: (value: FreebieRule[]) => void;
+}) {
+  const safe = Array.isArray(value) ? value : [];
+
+  const add = () => {
+    onChange([...safe, createFreebieRule(safe.length)]);
+  };
+
+  const remove = (index: number) => {
+    onChange(safe.filter((_, currentIndex) => currentIndex !== index));
+  };
+
+  const patch = (index: number, nextPatch: Partial<FreebieRule>) => {
+    onChange(
+      safe.map((rule, currentIndex) =>
+        currentIndex === index ? { ...rule, ...nextPatch } : rule,
+      ),
+    );
+  };
+
+  return (
+    <div>
+      <div className="mb-3">
+        <button type="button" className="pill" onClick={add}>
+          + Regel hinzufügen
+        </button>
+      </div>
+
+      {safe.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-stone-700 p-4 text-sm text-stone-400">
+          Noch keine Gratis-Regel vorhanden.
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {safe.map((rule, index) => {
+            const maxPriceText =
+              rule.maxProductPrice != null && Number(rule.maxProductPrice) > 0
+                ? ` · max. ${Number(rule.maxProductPrice).toFixed(2)} €`
+                : "";
+
+            return (
+              <div
+                key={rule.id}
+                className="rounded-xl border border-stone-700/70 bg-stone-950/50 p-3"
+              >
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                  <div className="font-medium">
+                    {rule.enabled ? "✅" : "⏸️"} {freebieModeLabel(rule.mode)}
+                    {" · ab "}
+                    {Number(rule.minTotal || 0).toFixed(2)} €
+                    {" · "}
+                    {Number(rule.quantity || 0)}×{" "}
+                    {freebieCategoryLabel(
+                      rule.category,
+                      Number(rule.quantity || 0) !== 1,
+                    )}
+                    {maxPriceText}
+                  </div>
+
+                  <button
+                    type="button"
+                    className="btn-ghost"
+                    onClick={() => remove(index)}
+                  >
+                    Löschen
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-6">
+                  <div className="flex items-end">
+                    <Toggle
+                      label="Regel aktiv"
+                      checked={rule.enabled !== false}
+                      onChange={(enabled) => patch(index, { enabled })}
+                    />
+                  </div>
+
+                  <Field label="Kategorie">
+                    <select
+                      className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2 outline-none"
+                      value={rule.category}
+                      onChange={(event) =>
+                        patch(index, {
+                          category: event.target.value as FreebieRule["category"],
+                        })
+                      }
+                    >
+                      <option value="sauces">Soßen</option>
+                      <option value="drinks">Getränke</option>
+                      <option value="donuts">Donuts</option>
+                      <option value="bubbletea">Bubble Tea</option>
+                    </select>
+                  </Field>
+
+                  <Field label="Modus">
+                    <select
+                      className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2 outline-none"
+                      value={rule.mode}
+                      onChange={(event) =>
+                        patch(index, {
+                          mode: event.target.value as FreebieRule["mode"],
+                        })
+                      }
+                    >
+                      <option value="pickup">Apollon / Abholung</option>
+                      <option value="delivery">Lifa / Lieferung</option>
+                      <option value="both">Beide</option>
+                    </select>
+                  </Field>
+
+                  <Field label="Mindestwert (€)">
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2 outline-none"
+                      value={String(rule.minTotal ?? 0)}
+                      onChange={(event) =>
+                        patch(index, {
+                          minTotal: Math.max(0, Number(event.target.value || 0)),
+                        })
+                      }
+                    />
+                  </Field>
+
+                  <Field label="Gratis Anzahl">
+                    <input
+                      type="number"
+                      min={1}
+                      step={1}
+                      className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2 outline-none"
+                      value={String(rule.quantity ?? 1)}
+                      onChange={(event) =>
+                        patch(index, {
+                          quantity: Math.max(
+                            1,
+                            Math.floor(Number(event.target.value || 1)),
+                          ),
+                        })
+                      }
+                    />
+                  </Field>
+
+                  <Field label="Max. Artikelpreis (€)">
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      placeholder="leer = unbegrenzt"
+                      className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2 outline-none"
+                      value={
+                        rule.maxProductPrice == null
+                          ? ""
+                          : String(rule.maxProductPrice)
+                      }
+                      onChange={(event) => {
+                        const raw = event.target.value;
+
+                        patch(index, {
+                          maxProductPrice:
+                            raw === ""
+                              ? null
+                              : Math.max(0, Number(raw || 0)) || null,
+                        });
+                      }}
+                    />
+                  </Field>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

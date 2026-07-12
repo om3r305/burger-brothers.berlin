@@ -103,6 +103,7 @@ const DEFAULT_SETTINGS: PlainObject = {
 
   freebies: {
     enabled: false,
+    rules: [],
     category: "sauces",
     mode: "both",
     tiers: [],
@@ -431,28 +432,32 @@ async function readSettingsMap(tenantId: string) {
     },
   });
 
-  let saved: PlainObject = {};
+  let legacySettings: PlainObject = {};
+  let wholeSettings: PlainObject = {};
 
   for (const row of rows) {
     if (!isSafeKey(row.key)) continue;
-
-    /*
-      kv:* kayıtları DBA fallback içindir.
-      Bunları normal Settings cevabına karıştırmıyoruz.
-    */
     if (isProtectedSettingKey(row.key)) continue;
 
     const value = sanitizeJson(row.value);
 
+    /*
+      Tek parça bb_settings_v6 kaydı artık ana kaynaktır.
+      Eski ayrı key kayıtlarını önce okuyoruz, tek parça güncel kaydı en son
+      uyguluyoruz. Böylece eski/stale satırlar yeni ayarları ezemez.
+    */
     if (WHOLE_SETTINGS_KEYS.has(row.key) && isPlainObject(value)) {
-      saved = deepMerge(saved, value);
+      wholeSettings = deepMerge(wholeSettings, value);
       continue;
     }
 
-    saved[row.key] = value;
+    legacySettings[row.key] = value;
   }
 
-  return deepMerge(DEFAULT_SETTINGS, saved);
+  return deepMerge(
+    DEFAULT_SETTINGS,
+    deepMerge(legacySettings, wholeSettings),
+  );
 }
 
 async function saveSettingKey(
@@ -514,6 +519,59 @@ async function saveSettingKey(
       value: jsonForDb(value) as any,
     },
   });
+}
+
+async function saveWholeSettings(
+  tenantId: string,
+  payload: PlainObject,
+) {
+  const key = "bb_settings_v6";
+  const cleaned = sanitizeJson(payload);
+
+  const existing = await prisma.setting.findFirst({
+    where: {
+      tenantId,
+      key,
+    },
+    select: {
+      id: true,
+    },
+  });
+
+  if (existing?.id) {
+    await prisma.setting.update({
+      where: {
+        id: existing.id,
+      },
+      data: {
+        value: jsonForDb(cleaned) as any,
+      },
+    });
+
+    // Aynı key ile oluşmuş eski duplicate satırları temizle.
+    await prisma.setting.deleteMany({
+      where: {
+        tenantId,
+        key,
+        id: {
+          not: existing.id,
+        },
+      },
+    });
+  } else {
+    await prisma.setting.create({
+      data: {
+        tenantId,
+        key,
+        value: jsonForDb(cleaned) as any,
+      },
+    });
+  }
+
+  return {
+    saved: 1,
+    keys: [key],
+  };
 }
 
 async function saveSettings(tenantId: string, payload: PlainObject, replace = false) {
@@ -700,16 +758,31 @@ export async function POST(req: Request) {
     const payload = normalizeIncomingSettings(body);
     const replace = body?.replace === true;
     const isAdmin = hasAdminSession(req);
+    const isWholeAdminSave = isAdmin && isPlainObject(body?.settings);
 
     if (!isAdmin && (!hasTvSession(req) || !isTvWritableSettingsPayload(payload, replace))) {
       return unauthorizedResponse();
     }
 
     clearSettingsMemoryCache();
-    const result = await saveSettings(tenantId, payload, replace);
-    const settings = await readSettingsMap(tenantId);
+
+    const result = isWholeAdminSave
+      ? await saveWholeSettings(tenantId, payload)
+      : await saveSettings(tenantId, payload, replace);
+
+    /*
+      Admin sayfası tam ayar objesini gönderdiğinde ikinci bir DB okumasına
+      gerek yok. Bu, connection_limit=1 ortamında kayıt süresini ciddi azaltır.
+    */
+    const settings = isWholeAdminSave
+      ? deepMerge(DEFAULT_SETTINGS, payload)
+      : await readSettingsMap(tenantId);
+
     writeSettingsMemoryCache(settings);
-    const fallbackSaved = await writeSettingsFallback(settings);
+
+    const fallbackSaved = shouldWriteRuntimeSnapshot()
+      ? await writeSettingsFallback(settings)
+      : null;
 
     return jsonResponse({
       ...settings,
@@ -732,16 +805,27 @@ export async function PUT(req: Request) {
     const payload = normalizeIncomingSettings(body);
     const replace = body?.replace === true;
     const isAdmin = hasAdminSession(req);
+    const isWholeAdminSave = isAdmin && isPlainObject(body?.settings);
 
     if (!isAdmin && (!hasTvSession(req) || !isTvWritableSettingsPayload(payload, replace))) {
       return unauthorizedResponse();
     }
 
     clearSettingsMemoryCache();
-    const result = await saveSettings(tenantId, payload, replace);
-    const settings = await readSettingsMap(tenantId);
+
+    const result = isWholeAdminSave
+      ? await saveWholeSettings(tenantId, payload)
+      : await saveSettings(tenantId, payload, replace);
+
+    const settings = isWholeAdminSave
+      ? deepMerge(DEFAULT_SETTINGS, payload)
+      : await readSettingsMap(tenantId);
+
     writeSettingsMemoryCache(settings);
-    const fallbackSaved = await writeSettingsFallback(settings);
+
+    const fallbackSaved = shouldWriteRuntimeSnapshot()
+      ? await writeSettingsFallback(settings)
+      : null;
 
     return jsonResponse({
       ...settings,

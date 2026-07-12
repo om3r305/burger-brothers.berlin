@@ -11,6 +11,13 @@ import type { Campaign, Category } from "@/lib/catalog";
 import { getPricingOverrides, readSettings, LS_SETTINGS } from "@/lib/settings";
 import * as Coupons from "@/lib/coupons";
 import { fetchOrdersFromDb } from "@/lib/orders"; // 🆕 DB’den sipariş çekme
+import {
+  evaluateFreebieRules,
+  freebieCategoryLabel,
+  freebieModeLabel,
+  parseFreebieCategory,
+} from "@/lib/freebies";
+import type { FreebieEvaluation, FreebieUnit } from "@/lib/freebies";
 
 /* LS Keys */
 const LS_CHECKOUT = "bb_checkout_info_v1";
@@ -53,6 +60,10 @@ const RESPONSE_META_KEYS = new Set([
   "saved",
   "keys",
   "error",
+  "message",
+  "dbError",
+  "fallbackSaved",
+  "memoryCached",
   "createdAt",
   "updatedAt",
 ]);
@@ -387,6 +398,13 @@ function RouteDealMiniBanner({ benefit, nowMs }: { benefit: RouteDealBenefit; no
 const fmt = (n: number) =>
   new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" }).format(n);
 
+function roundToNearest10Cents(value: any) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return 0;
+
+  return +(Math.round((number + Number.EPSILON) * 10) / 10).toFixed(2);
+}
+
 const titleMap: Record<string, string> = {
   burger: "BURGER",
   vegan: "VEGAN / VEGETARISCH",
@@ -499,72 +517,119 @@ function lineMerchDynamic(ci: any, mode: "pickup" | "delivery", campaigns: Campa
   return (applied.final + extras) * qty;
 }
 
-type FreebieCategory = "sauces" | "drinks" | "donuts" | "bubbletea";
+function collectFreebieUnitsCS(
+  items: any[],
+  mode: "pickup" | "delivery",
+  campaigns: Campaign[],
+  catalog: CatalogProd[],
+): FreebieUnit[] {
+  const units: FreebieUnit[] = [];
 
-function freebieCategoryLabel(category: any, plural = false) {
-  const key = String(category || "sauces").toLowerCase();
+  for (const ci of items || []) {
+    const base = resolveBase(ci, catalog);
+    const applied = priceWithCampaign(base, campaigns, mode);
+    const qty = Math.max(1, Number(ci?.qty || 1));
+    const unitIds = Array.isArray(ci?.__unitIds) ? ci.__unitIds : [];
+    const category = parseFreebieCategory(
+      ci?.category ?? ci?.item?.category ?? base.category,
+    );
 
-  if (key === "drinks") return plural ? "Getränke" : "Getränk";
-  if (key === "donuts") return plural ? "Donuts" : "Donut";
-  if (key === "bubbletea" || key === "bubble-tea" || key === "bubble_tea") {
-    return plural ? "Bubble Teas" : "Bubble Tea";
+    if (!category) continue;
+
+    for (let index = 0; index < qty; index += 1) {
+      units.push({
+        unitId: String(unitIds[index] || `${ci?.id || base.id}-${index}`),
+        category,
+        price: Math.max(0, Number(applied.final) || 0),
+      });
+    }
   }
 
-  return plural ? "Soßen" : "Soße";
+  return units;
 }
 
-/* ---- Free sauce banner ---- */
+/* ---- Çoklu Gratis-Artikel banner ---- */
 function FreeSauceBanner() {
-  const getFreebies = useCart((s: any) => s.getFreebies);
-  const pricing = useCart((s: any) => s.computePricing?.() ?? {});
-  const merchandise = pricing?.merchandise ?? 0;
+  const getFreebies = useCart((state: any) => state.getFreebies);
 
   if (typeof getFreebies !== "function") return null;
 
-  let state: any = {};
-  try { state = getFreebies(); } catch { return null; }
+  let evaluation: FreebieEvaluation;
 
-  const allowed = Number(state?.allowed ?? 0);
-  const used = Number(state?.used ?? 0);
-  const remaining = Math.max(0, Number(state?.remaining ?? allowed - used));
-  const thresholds: number[] = Array.isArray(state?.thresholds) ? state.thresholds : [];
-  const category = String(state?.category || pricing?.freebie?.category || "sauces") as FreebieCategory;
-  const singleLabel = freebieCategoryLabel(category, false);
-  const pluralLabel = freebieCategoryLabel(category, true);
+  try {
+    evaluation = getFreebies();
+  } catch {
+    return null;
+  }
 
-  const nextTh =
-    thresholds.find((t) => merchandise < t) ??
-    (thresholds.length ? thresholds[thresholds.length - 1] : null);
+  const rules = Array.isArray(evaluation?.rules) ? evaluation.rules : [];
 
-  const progress =
-    typeof nextTh === "number" && nextTh > 0
-      ? Math.min(100, Math.round((merchandise / nextTh) * 100))
-      : null;
-
-  if (allowed <= 0 && !nextTh) return null;
+  if (!evaluation?.enabled || rules.length === 0) return null;
 
   return (
-    <div className="mb-3 rounded-xl border border-emerald-400/30 bg-emerald-500/10 p-3 text-emerald-200 text-sm">
-      <div className="flex items-center justify-between">
-        <div className="font-medium">
-          {remaining > 0
-            ? `Gratis ${singleLabel}: ${remaining} Stück verfügbar 🎁`
-            : `Gratis ${pluralLabel}: Limit erreicht (${allowed} / ${allowed})`}
-        </div>
-        {typeof nextTh === "number" && nextTh > 0 && (
-          <div className="text-[11px] opacity-90">Nächster Vorteil bei {fmt(nextTh)}</div>
-        )}
+    <div className="mb-3 rounded-xl border border-emerald-400/30 bg-emerald-500/10 p-3 text-sm text-emerald-100">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <div className="font-semibold">🎁 Ihre Gratis-Vorteile</div>
+        {evaluation.discountedAmount > 0 ? (
+          <div className="text-xs font-semibold text-emerald-300">
+            Bereits abgezogen: {fmt(evaluation.discountedAmount)}
+          </div>
+        ) : null}
       </div>
-      {progress !== null && (
-        <div className="mt-2 h-2 w-full overflow-hidden rounded bg-stone-800/60">
-          <div className="h-2 bg-emerald-400" style={{ width: `${progress}%` }} aria-hidden />
-        </div>
-      )}
-      {used > 0 && (
-        <div className="mt-2 text-xs">
-          Bereits genutzt: <b>{used}</b> • Gesamt-Guthaben: <b>{allowed}</b>
-        </div>
-      )}
+
+      <div className="space-y-2">
+        {rules.map((rule) => {
+          const categoryText = freebieCategoryLabel(
+            rule.category,
+            rule.quantity !== 1,
+          );
+
+          return (
+            <div
+              key={rule.id}
+              className={`rounded-lg border px-3 py-2 ${
+                rule.unlocked
+                  ? "border-emerald-400/30 bg-emerald-400/10"
+                  : "border-amber-400/25 bg-amber-400/10 text-amber-100"
+              }`}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="font-medium">
+                  {rule.unlocked ? "✅" : "🔒"} {rule.quantity}× {categoryText}
+                  {" · "}
+                  {freebieModeLabel(rule.mode)}
+                </div>
+
+                <div className="text-xs opacity-90">
+                  ab {fmt(rule.minTotal)}
+                  {rule.maxProductPrice != null
+                    ? ` · max. ${fmt(rule.maxProductPrice)} pro Artikel`
+                    : ""}
+                </div>
+              </div>
+
+              <div className="mt-1 text-xs opacity-90">
+                {rule.unlocked ? (
+                  rule.remaining > 0 ? (
+                    <>
+                      Noch <b>{rule.remaining}</b> passenden Artikel zum Warenkorb
+                      hinzufügen.
+                    </>
+                  ) : (
+                    <>
+                      Im Warenkorb genutzt: <b>{rule.used}/{rule.allowed}</b>
+                    </>
+                  )
+                ) : (
+                  <>
+                    Noch <b>{fmt(rule.missingAmount)}</b> bis zu diesem Vorteil.
+                  </>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -601,35 +666,64 @@ function catKey(name?: string) {
 
 // ⬇️ merchandise artık kampanya-sonrası hesaplanıyor
 function computePricingFromSettings_CS(
-  items:any[],
-  mode:"pickup"|"delivery",
-  plz?: string|null,
+  items: any[],
+  mode: "pickup" | "delivery",
+  plz?: string | null,
   campaigns: Campaign[] = [],
-  catalog: CatalogProd[] = []
+  catalog: CatalogProd[] = [],
 ) {
-  const ovr = getPricingOverrides(mode);
+  const overrides = getPricingOverrides(mode);
 
   const merchandise = sumCartMerchDynamic_CS(items, mode, campaigns, catalog);
-  const discount = +(merchandise * toNum(ovr.discountRate,0)).toFixed(2);
+  const deliveryDiscount = +(
+    merchandise * toNum(overrides.discountRate, 0)
+  ).toFixed(2);
+
+  const freebie = evaluateFreebieRules({
+    config: overrides.freebies,
+    mode,
+    merchandise,
+    units: collectFreebieUnitsCS(items, mode, campaigns, catalog),
+  });
+
+  const discount = +(
+    deliveryDiscount + freebie.discountedAmount
+  ).toFixed(2);
 
   let surcharges = 0;
-  if (mode === "delivery" && ovr.surcharges) {
-    const map = ovr.surcharges as Record<string, number>;
+
+  if (mode === "delivery" && overrides.surcharges) {
+    const map = overrides.surcharges as Record<string, number>;
+
     for (const ci of items) {
       const key = catKey(ci?.item?.category || ci?.item?.name).toLowerCase();
-      const s = toNum(map[key], 0);
-      if (s > 0) surcharges += s * toNum(ci?.qty,1);
+      const surcharge = toNum(map[key], 0);
+
+      if (surcharge > 0) {
+        surcharges += surcharge * toNum(ci?.qty, 1);
+      }
     }
   }
 
-  const afterDiscount = merchandise - discount;
+  surcharges = +surcharges.toFixed(2);
+
+  const afterDiscount = +Math.max(0, merchandise - discount).toFixed(2);
   const totalPreCoupon = +(afterDiscount + surcharges).toFixed(2);
 
-  const minMap = (ovr.plzMin || {}) as Record<string, number>;
-  const rec = plz ? minMap[String(plz)] : undefined;
-  const plzKnown = typeof rec === "number";
+  const minMap = (overrides.plzMin || {}) as Record<string, number>;
+  const record = plz ? minMap[String(plz)] : undefined;
+  const plzKnown = typeof record === "number";
 
-  return { merchandise, discount, surcharges, afterDiscount, totalPreCoupon, plzKnown, requiredMin: rec };
+  return {
+    merchandise,
+    discount,
+    surcharges,
+    afterDiscount,
+    totalPreCoupon,
+    plzKnown,
+    requiredMin: record,
+    freebie,
+  };
 }
 
 function getCheckoutZipAndPhone(): { zip: string; phone: string; street: string } {
@@ -938,7 +1032,7 @@ export default function CartSummary() {
   );
 
   const routeDealDiscount = routeDealBenefit.discountAmount;
-  const totalFinal = +Math.max(0, routeDealBaseTotal - routeDealDiscount).toFixed(2);
+  const totalFinal = roundToNearest10Cents(Math.max(0, routeDealBaseTotal - routeDealDiscount));
 
   const meetsMin =
     orderMode === "pickup"
@@ -1338,7 +1432,7 @@ export function CartSummaryMobile() {
   );
 
   const routeDealDiscount = routeDealBenefit.discountAmount;
-  const totalFinal = +Math.max(0, routeDealBaseTotal - routeDealDiscount).toFixed(2);
+  const totalFinal = roundToNearest10Cents(Math.max(0, routeDealBaseTotal - routeDealDiscount));
 
   const meetsMin =
     orderMode === "pickup"

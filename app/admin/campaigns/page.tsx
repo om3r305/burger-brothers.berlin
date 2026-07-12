@@ -4,6 +4,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import type { ReactNode } from "react";
+import {
+  freebieCategoryLabel,
+  freebieModeLabel,
+  normalizeFreebieConfig,
+} from "@/lib/freebies";
 
 /* =========================
  * Shared types
@@ -79,6 +84,7 @@ type FreebieCategory = "sauces" | "drinks" | "donuts" | "bubbletea";
 type AdminSettings = {
   freebies?: {
     enabled?: boolean;
+    rules?: any[];
     category?: FreebieCategory;
     tiers?: FreebieTier[];
     banner?: string;
@@ -107,6 +113,10 @@ const RESPONSE_META_KEYS = new Set([
   "saved",
   "keys",
   "error",
+  "message",
+  "dbError",
+  "fallbackSaved",
+  "memoryCached",
   "createdAt",
   "updatedAt",
 ]);
@@ -996,49 +1006,6 @@ export default function AdminCampaignsPage() {
     };
   }, []);
 
-  useDebouncedEffect(() => {
-    if (skipNextSettingsSaveRef.current) {
-      skipNextSettingsSaveRef.current = false;
-      return;
-    }
-
-    const sortedTiers = [...fbTiers].sort((a, b) => a.minTotal - b.minTotal);
-
-    const payload: AdminSettings = {
-      ...settingsBase,
-      freebies: {
-        ...(settingsBase.freebies || {}),
-        enabled: fbEnabled,
-        category: fbCategory,
-        mode: settingsBase.freebies?.mode || "both",
-        tiers: sortedTiers,
-        banner: fbBanner || undefined,
-      },
-      offers: {
-        ...(settingsBase.offers || {}),
-        freebies: {
-          ...(settingsBase.offers?.freebies || {}),
-          enabled: fbEnabled,
-          category: fbCategory,
-          mode: settingsBase.freebies?.mode || settingsBase.offers?.freebies?.mode || "both",
-          tiers: sortedTiers,
-          banner: fbBanner || undefined,
-        },
-      },
-    };
-
-    (async () => {
-      const ok = await saveSettingsToDb(payload);
-
-      if (ok) {
-        setSettingsSource("server");
-        setSettingsBase(payload);
-        writeLocalCache(LS_SETTINGS, payload);
-      } else {
-        setSettingsSource("cache");
-      }
-    })();
-  }, [fbEnabled, fbCategory, fbTiers, fbBanner], 300);
 
   const addTier = () => {
     setFbTiers((prev) => [...prev, { minTotal: 30, freeSauces: 1 }]);
@@ -1066,6 +1033,9 @@ export default function AdminCampaignsPage() {
   };
 
   const sortedPreview = [...fbTiers].sort((a, b) => a.minTotal - b.minTotal);
+  const freebieSummary = normalizeFreebieConfig(
+    settingsBase?.freebies ?? settingsBase?.offers?.freebies ?? {},
+  );
 
   const startRef = useRef<HTMLInputElement | null>(null);
   const endRef = useRef<HTMLInputElement | null>(null);
@@ -1388,117 +1358,59 @@ export default function AdminCampaignsPage() {
       </div>
 
       <div className="card mb-6">
-        <div className="mb-3 text-lg font-medium">Kostenloses Produkt im Warenkorb</div>
-
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <div className="flex items-center gap-3">
-            <label className="inline-flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={fbEnabled}
-                onChange={(e) => setFbEnabled(e.target.checked)}
-              />
-              Aktiv
-            </label>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="text-lg font-medium">Gratis-Artikel Regeln</div>
+            <div className="mt-1 text-xs text-stone-400">
+              Diese Regeln werden zentral unter Einstellungen verwaltet. Dadurch
+              überschreiben sich Kampagnen- und Einstellungsseite nicht mehr.
+            </div>
           </div>
 
-          <Field label="Zielkategorie">
-            <select
-              className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2 outline-none"
-              value={fbCategory}
-              onChange={(e) => setFbCategory(e.target.value as FreebieCategory)}
-            >
-              <option value="sauces">Soßen</option>
-              <option value="drinks">Getränke</option>
-              <option value="donuts">Donuts</option>
-              <option value="bubbletea">Bubble Tea</option>
-            </select>
-          </Field>
-
-          <Field label="Bannertext im Warenkorb (optional)">
-            <input
-              className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2 outline-none"
-              value={fbBanner}
-              onChange={(e) => setFbBanner(e.target.value)}
-              placeholder="z. B. Ab 30€ gibt es 1 Getränk gratis!"
-            />
-          </Field>
-
-          <div className="md:col-span-2">
-            <div className="mb-2 text-sm opacity-80">Stufen</div>
-            <div className="overflow-hidden rounded-lg border border-stone-700/60">
-              <table className="w-full text-sm">
-                <thead className="bg-stone-900/70 text-stone-300">
-                  <tr>
-                    <th className="px-3 py-2 text-left">Mindestwert (€)</th>
-                    <th className="px-3 py-2 text-left">
-                      Kostenlose {freebieCategoryPluralLabel(fbCategory)} (Anzahl)
-                    </th>
-                    <th className="px-3 py-2 text-right">Aktion</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {fbTiers.map((t, i) => (
-                    <tr key={i} className="border-t border-stone-700/60">
-                      <td className="px-3 py-2">
-                        <input
-                          type="number"
-                          step="0.01"
-                          className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-1.5 outline-none"
-                          value={String(t.minTotal)}
-                          onChange={(e) => updateTier(i, { minTotal: toNum(e.target.value, 0) })}
-                        />
-                      </td>
-                      <td className="px-3 py-2">
-                        <input
-                          type="number"
-                          className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-1.5 outline-none"
-                          value={String(t.freeSauces)}
-                          onChange={(e) =>
-                            updateTier(i, {
-                              freeSauces: Math.max(0, Math.floor(toNum(e.target.value, 0))),
-                            })
-                          }
-                        />
-                      </td>
-                      <td className="px-3 py-2 text-right">
-                        <button
-                          type="button"
-                          className="btn-ghost"
-                          onClick={() => removeTier(i)}
-                          disabled={fbTiers.length <= 1}
-                          title={
-                            fbTiers.length <= 1
-                              ? "Mindestens eine Stufe erforderlich"
-                              : "Löschen"
-                          }
-                        >
-                          Löschen
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="mt-2 flex items-center gap-2">
-              <button type="button" className="pill" onClick={addTier}>
-                + Stufe hinzufügen
-              </button>
-              <div className="text-xs text-stone-400">
-                Die ersten passenden {fbCategory === "sauces" ? "Soßen" : "Getränke"} im Warenkorb werden kostenlos.
-              </div>
-            </div>
-
-            {sortedPreview.length > 0 && (
-              <div className="mt-3 text-xs text-stone-300">
-                Vorschau:{" "}
-                {sortedPreview.map((t) => `${t.minTotal}€ → ${t.freeSauces} Stück`).join(" • ")}
-              </div>
-            )}
-          </div>
+          <Link className="card-cta" href="/admin/settings">
+            Regeln bearbeiten
+          </Link>
         </div>
+
+        {!freebieSummary.enabled ? (
+          <div className="rounded-xl border border-stone-700/60 bg-stone-950/40 p-3 text-sm text-stone-400">
+            Gratis-Artikel Regeln sind derzeit deaktiviert.
+          </div>
+        ) : freebieSummary.rules.length === 0 ? (
+          <div className="rounded-xl border border-stone-700/60 bg-stone-950/40 p-3 text-sm text-stone-400">
+            Noch keine Gratis-Regel vorhanden.
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {freebieSummary.rules.map((rule: any) => (
+              <div
+                key={rule.id}
+                className="rounded-xl border border-stone-700/60 bg-stone-950/50 px-3 py-2"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="font-medium">
+                    {rule.enabled !== false ? "✅" : "⏸️"}{" "}
+                    {freebieModeLabel(rule.mode)}
+                    {" · ab "}
+                    {Number(rule.minTotal || 0).toFixed(2)} €
+                    {" · "}
+                    {Number(rule.quantity || 0)}×{" "}
+                    {freebieCategoryLabel(
+                      rule.category,
+                      Number(rule.quantity || 0) !== 1,
+                    )}
+                  </div>
+
+                  <div className="text-xs text-stone-400">
+                    {rule.maxProductPrice != null
+                      ? `Max. Artikelpreis: ${Number(rule.maxProductPrice).toFixed(2)} €`
+                      : "Kein Preislimit"}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="card">

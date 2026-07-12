@@ -6,6 +6,8 @@ import { loadNormalizedCampaigns } from "@/lib/campaigns-compat";
 import { priceWithCampaign } from "@/lib/catalog";
 import type { Campaign, Category } from "@/lib/catalog";
 import { getPricingOverrides } from "@/lib/settings";
+import { evaluateFreebieRules, parseFreebieCategory } from "@/lib/freebies";
+import type { FreebieCategory, FreebieEvaluation, FreebieUnit } from "@/lib/freebies";
 
 /* =========================================
    Tipler
@@ -26,7 +28,6 @@ type AddPayload = {
   note?: string;
 };
 type OrderMode = "pickup" | "delivery";
-type FreebieCategory = "sauces" | "drinks" | "donuts" | "bubbletea";
 
 type Pricing = {
   merchandise: number;
@@ -37,13 +38,7 @@ type Pricing = {
   meetsMin: boolean;
   requiredMin?: number;
   plzKnown: boolean;
-  freebie?: {
-    allowed: number;
-    used: number;
-    discountedAmount: number;
-    thresholds?: number[];
-    category?: FreebieCategory;
-  };
+  freebie?: FreebieEvaluation;
 };
 
 type State = {
@@ -61,13 +56,7 @@ type State = {
 
   computePricing: () => Pricing;
 
-  getFreebies?: () => {
-    allowed: number;
-    used: number;
-    remaining: number;
-    thresholds: number[];
-    category?: FreebieCategory;
-  };
+  getFreebies?: () => FreebieEvaluation;
 };
 
 /* =========================================
@@ -244,46 +233,36 @@ function extraSurchargeForItem(ci: CartItemFixed, mode: OrderMode) {
 /* =========================================
    Freebie: birim listesi (kampanya sonrası fiyat)
 ========================================= */
-function collectUnitsOrdered(
+function collectFreebieUnits(
   items: CartItemFixed[],
-  category: FreebieCategory,
   mode: OrderMode,
   campaigns: Campaign[],
-  catalog: CatalogProduct[]
-) {
-  const out: Array<{ unitId: string; price: number }> = [];
+  catalog: CatalogProduct[],
+): FreebieUnit[] {
+  const out: FreebieUnit[] = [];
+
   for (const ci of items) {
-    const rawCat = (ci?.category ?? (ci?.item as any)?.category ?? "")
-      .toString()
-      .toLowerCase()
-      .trim();
+    const category = parseFreebieCategory(
+      ci?.category ?? (ci?.item as any)?.category ?? "",
+    );
 
-    const cat: FreebieCategory =
-      rawCat === "bubbletea" || rawCat === "bubble-tea" || rawCat === "bubble_tea" || rawCat === "bubble tea"
-        ? "bubbletea"
-        : rawCat === "donut" || rawCat === "doughnut" || rawCat === "donuts"
-          ? "donuts"
-          : rawCat === "drink" || rawCat === "getränke" || rawCat === "getraenke"
-            ? "drinks"
-            : rawCat === "sauce" || rawCat === "soßen" || rawCat === "sossen"
-              ? "sauces"
-              : (rawCat as FreebieCategory);
-
-    if (cat !== category) continue;
+    if (!category) continue;
 
     const unitIds = Array.isArray(ci.__unitIds) ? ci.__unitIds : [];
     const base = resolveProductLike(ci, catalog);
     const applied = priceWithCampaign(base, campaigns, mode);
-    const unitPrice = applied.final;
+    const unitPrice = Math.max(0, Number(applied.final) || 0);
+    const qty = Math.max(1, Number(ci?.qty ?? 1));
 
-    const qty = Number(ci?.qty ?? 1);
-    for (let i = 0; i < qty; i++) {
-      const u = unitIds[i] || rid();
-      out.push({ unitId: u, price: unitPrice });
+    for (let index = 0; index < qty; index += 1) {
+      out.push({
+        unitId: unitIds[index] || `${String(ci.id)}-${index}`,
+        category,
+        price: unitPrice,
+      });
     }
   }
-  // Ücretsiz hakları en UCUZ birimlerden düş
-  out.sort((a, b) => a.price - b.price);
+
   return out;
 }
 
@@ -327,29 +306,15 @@ function computePricingRaw(items: CartItemFixed[], mode: OrderMode, plz: string 
   // --- Yüzde indirim de sadece DELIVERY’de
   const deliveryDiscount = mode === "delivery" ? +(subtotal * (discountRate || 0)).toFixed(2) : 0;
 
-  // --- Freebie (mode filtresi: delivery/pickup/both)
-  const freebiesEnabled = !!freebiesConf?.enabled && !!freebiesConf?.tiers?.length;
-  const freebieCategory = (freebiesConf?.category ?? "sauces") as FreebieCategory;
-  const freebiesMode = (freebiesConf?.mode ?? "both") as "delivery" | "pickup" | "both";
-  const freebieApplies = freebiesEnabled && (freebiesMode === "both" || freebiesMode === mode);
+  // --- Kümülatif Gratis-Artikel kuralları
+  const freebieEvaluation = evaluateFreebieRules({
+    config: freebiesConf,
+    mode,
+    merchandise,
+    units: collectFreebieUnits(items, mode, campaigns, catalog),
+  });
 
-  let allowedFree = 0,
-    freebieDiscount = 0,
-    freebieUsed = 0;
-
-  if (freebieApplies) {
-    for (const t of freebiesConf!.tiers!) {
-      const mt = Number(t?.minTotal) || 0;
-      const fs = Number(t?.freeSauces) || 0;
-      if (merchandise >= mt) allowedFree = fs;
-    }
-    if (allowedFree > 0) {
-      const units = collectUnitsOrdered(items, freebieCategory, mode, campaigns, catalog);
-      freebieUsed = Math.min(allowedFree, units.length);
-      freebieDiscount = units.slice(0, freebieUsed).reduce((s, u) => s + (u.price || 0), 0);
-    }
-  }
-
+  const freebieDiscount = freebieEvaluation.discountedAmount;
   const discount = +(deliveryDiscount + freebieDiscount).toFixed(2);
   const total = roundToNearest10Cents(Math.max(0, subtotal - discount));
 
@@ -385,15 +350,7 @@ function computePricingRaw(items: CartItemFixed[], mode: OrderMode, plz: string 
     meetsMin,
     requiredMin,
     plzKnown,
-    freebie: freebieApplies
-      ? {
-          allowed: allowedFree,
-          used: freebieUsed,
-          discountedAmount: freebieDiscount,
-          thresholds: (freebiesConf?.tiers || []).map((t) => Number(t.minTotal) || 0),
-          category: freebieCategory,
-        }
-      : { allowed: 0, used: 0, discountedAmount: 0, thresholds: [], category: undefined },
+    freebie: freebieEvaluation,
   };
 }
 
@@ -507,42 +464,21 @@ export const useCart = create<State>((set, get) => ({
   getFreebies: () => {
     const { items, orderMode } = get();
     const { freebies } = getPricingOverrides(orderMode);
-
-    const enabled = !!freebies?.enabled && !!freebies?.tiers?.length;
-    const modeOk =
-      enabled &&
-      ((freebies?.mode as any) === "both" || (freebies?.mode as any) === orderMode);
-
-    const category = (freebies?.category ?? "sauces") as FreebieCategory;
-    if (!modeOk) return { allowed: 0, used: 0, remaining: 0, thresholds: [], category };
-
-    // merchandise (kampanya sonrası)
     const campaigns = loadNormalizedCampaigns();
     const catalog = readCatalog();
+
     let merchandise = 0;
+
     for (const ci of items) {
       const { line } = lineTotalWithCampaign(ci, orderMode, campaigns, catalog);
       merchandise += line;
     }
 
-    // hak hesapla
-    let allowed = 0;
-    for (const t of freebies!.tiers!) {
-      const mt = Number(t?.minTotal) || 0;
-      const fs = Number(t?.freeSauces) || 0;
-      if (merchandise >= mt) allowed = fs;
-    }
-
-    // en ucuz birimleri ücretsiz yap
-    const units = collectUnitsOrdered(items, category, orderMode, campaigns, catalog);
-    const used = Math.min(allowed, units.length);
-
-    return {
-      allowed,
-      used,
-      remaining: Math.max(0, allowed - used),
-      thresholds: (freebies?.tiers || []).map((t) => Number(t?.minTotal) || 0),
-      category,
-    };
+    return evaluateFreebieRules({
+      config: freebies,
+      mode: orderMode,
+      merchandise,
+      units: collectFreebieUnits(items, orderMode, campaigns, catalog),
+    });
   },
 }));

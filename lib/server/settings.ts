@@ -59,6 +59,7 @@ export type ServerSettings = {
 
   freebies?: {
     enabled?: boolean;
+    rules?: any[];
     category?: string;
     mode?: string;
     tiers?: any[];
@@ -242,6 +243,7 @@ const DEFAULT_SETTINGS: ServerSettings = {
 
   freebies: {
     enabled: false,
+    rules: [],
     category: "sauces",
     mode: "both",
     tiers: [],
@@ -433,7 +435,8 @@ async function readSettingsFromDb(): Promise<ServerSettings> {
     },
   });
 
-  let dbSettings: ServerSettings = {};
+  let legacySettings: ServerSettings = {};
+  let wholeSettings: ServerSettings = {};
 
   for (const row of rows) {
     if (!isSafeKey(row.key)) continue;
@@ -441,14 +444,18 @@ async function readSettingsFromDb(): Promise<ServerSettings> {
     const value = sanitizeJson(row.value);
 
     if (WHOLE_SETTINGS_KEYS.has(row.key) && isPlainObject(value)) {
-      dbSettings = deepMerge(dbSettings, normalizeSettingsObject(value));
+      wholeSettings = deepMerge(
+        wholeSettings,
+        normalizeSettingsObject(value),
+      );
       continue;
     }
 
-    dbSettings[row.key] = value;
+    legacySettings[row.key] = value;
   }
 
-  return dbSettings;
+  // Güncel tek parça ayar kaydı eski ayrı satırlardan sonra uygulanır.
+  return deepMerge(legacySettings, wholeSettings);
 }
 
 async function saveSettingKey(tx: any, tenantId: string, key: string, value: any) {

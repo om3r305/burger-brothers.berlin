@@ -1,3 +1,6 @@
+import { normalizeFreebieConfig } from "@/lib/freebies";
+import type { FreebieCategory, FreebieRule } from "@/lib/freebies";
+
 // lib/settings.ts
 export const LS_SETTINGS = "bb_settings_v6";
 export const SETTINGS_REMOTE_URL = "/api/settings";
@@ -127,7 +130,8 @@ export type FreebieTier = {
 
 export type FreebiesCfg = {
   enabled: boolean;
-  category: "sauces" | "drinks" | "donuts" | "bubbletea";
+  rules: FreebieRule[];
+  category: FreebieCategory;
   mode: "pickup" | "delivery" | "both";
   tiers: FreebieTier[];
   [key: string]: any;
@@ -462,6 +466,7 @@ const defaultSettings: SettingsV6 = {
 
   freebies: {
     enabled: false,
+    rules: [],
     category: "sauces",
     mode: "both",
     tiers: [],
@@ -591,6 +596,7 @@ const defaultSettings: SettingsV6 = {
   offers: {
     freebies: {
       enabled: false,
+      rules: [],
       category: "sauces",
       mode: "both",
       tiers: [],
@@ -628,6 +634,10 @@ const RESPONSE_META_KEYS = new Set([
   "saved",
   "keys",
   "error",
+  "message",
+  "dbError",
+  "fallbackSaved",
+  "memoryCached",
   "createdAt",
   "updatedAt",
 ]);
@@ -791,37 +801,7 @@ function writeLocalSettings(next: SettingsV6) {
 }
 
 function normalizeFreebies(value: any): FreebiesCfg {
-  const raw = value || {};
-
-  const rawCategory = String(raw.category || "").toLowerCase().trim();
-  const category: FreebiesCfg["category"] =
-    rawCategory === "drinks"
-      ? "drinks"
-      : rawCategory === "donuts"
-        ? "donuts"
-        : rawCategory === "bubbletea" || rawCategory === "bubble-tea" || rawCategory === "bubble_tea"
-          ? "bubbletea"
-          : "sauces";
-  const mode =
-    raw.mode === "pickup" || raw.mode === "delivery" || raw.mode === "both"
-      ? raw.mode
-      : "both";
-
-  const tiers = Array.isArray(raw.tiers)
-    ? raw.tiers.map((tier: any) => ({
-        ...tier,
-        minTotal: num(tier?.minTotal, 0),
-        freeSauces: Math.max(0, num(tier?.freeSauces ?? tier?.freeItems, 0)),
-      }))
-    : [];
-
-  return {
-    ...raw,
-    enabled: bool(raw.enabled, false),
-    category,
-    mode,
-    tiers,
-  };
+  return normalizeFreebieConfig(value) as FreebiesCfg;
 }
 
 function normalizeAnnouncements(value: any) {
