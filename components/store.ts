@@ -26,6 +26,7 @@ type AddPayload = {
   note?: string;
 };
 type OrderMode = "pickup" | "delivery";
+type FreebieCategory = "sauces" | "drinks" | "donuts" | "bubbletea";
 
 type Pricing = {
   merchandise: number;
@@ -41,7 +42,7 @@ type Pricing = {
     used: number;
     discountedAmount: number;
     thresholds?: number[];
-    category?: "sauces" | "drinks";
+    category?: FreebieCategory;
   };
 };
 
@@ -65,7 +66,7 @@ type State = {
     used: number;
     remaining: number;
     thresholds: number[];
-    category?: "sauces" | "drinks";
+    category?: FreebieCategory;
   };
 };
 
@@ -245,16 +246,29 @@ function extraSurchargeForItem(ci: CartItemFixed, mode: OrderMode) {
 ========================================= */
 function collectUnitsOrdered(
   items: CartItemFixed[],
-  category: "sauces" | "drinks",
+  category: FreebieCategory,
   mode: OrderMode,
   campaigns: Campaign[],
   catalog: CatalogProduct[]
 ) {
   const out: Array<{ unitId: string; price: number }> = [];
   for (const ci of items) {
-    const cat = (ci?.category ?? (ci?.item as any)?.category ?? "")
+    const rawCat = (ci?.category ?? (ci?.item as any)?.category ?? "")
       .toString()
-      .toLowerCase();
+      .toLowerCase()
+      .trim();
+
+    const cat: FreebieCategory =
+      rawCat === "bubbletea" || rawCat === "bubble-tea" || rawCat === "bubble_tea" || rawCat === "bubble tea"
+        ? "bubbletea"
+        : rawCat === "donut" || rawCat === "doughnut" || rawCat === "donuts"
+          ? "donuts"
+          : rawCat === "drink" || rawCat === "getränke" || rawCat === "getraenke"
+            ? "drinks"
+            : rawCat === "sauce" || rawCat === "soßen" || rawCat === "sossen"
+              ? "sauces"
+              : (rawCat as FreebieCategory);
+
     if (cat !== category) continue;
 
     const unitIds = Array.isArray(ci.__unitIds) ? ci.__unitIds : [];
@@ -315,7 +329,7 @@ function computePricingRaw(items: CartItemFixed[], mode: OrderMode, plz: string 
 
   // --- Freebie (mode filtresi: delivery/pickup/both)
   const freebiesEnabled = !!freebiesConf?.enabled && !!freebiesConf?.tiers?.length;
-  const freebieCategory = (freebiesConf?.category ?? "sauces") as "sauces" | "drinks";
+  const freebieCategory = (freebiesConf?.category ?? "sauces") as FreebieCategory;
   const freebiesMode = (freebiesConf?.mode ?? "both") as "delivery" | "pickup" | "both";
   const freebieApplies = freebiesEnabled && (freebiesMode === "both" || freebiesMode === mode);
 
@@ -499,7 +513,7 @@ export const useCart = create<State>((set, get) => ({
       enabled &&
       ((freebies?.mode as any) === "both" || (freebies?.mode as any) === orderMode);
 
-    const category = (freebies?.category ?? "sauces") as "sauces" | "drinks";
+    const category = (freebies?.category ?? "sauces") as FreebieCategory;
     if (!modeOk) return { allowed: 0, used: 0, remaining: 0, thresholds: [], category };
 
     // merchandise (kampanya sonrası)

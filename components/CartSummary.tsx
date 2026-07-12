@@ -499,6 +499,20 @@ function lineMerchDynamic(ci: any, mode: "pickup" | "delivery", campaigns: Campa
   return (applied.final + extras) * qty;
 }
 
+type FreebieCategory = "sauces" | "drinks" | "donuts" | "bubbletea";
+
+function freebieCategoryLabel(category: any, plural = false) {
+  const key = String(category || "sauces").toLowerCase();
+
+  if (key === "drinks") return plural ? "Getränke" : "Getränk";
+  if (key === "donuts") return plural ? "Donuts" : "Donut";
+  if (key === "bubbletea" || key === "bubble-tea" || key === "bubble_tea") {
+    return plural ? "Bubble Teas" : "Bubble Tea";
+  }
+
+  return plural ? "Soßen" : "Soße";
+}
+
 /* ---- Free sauce banner ---- */
 function FreeSauceBanner() {
   const getFreebies = useCart((s: any) => s.getFreebies);
@@ -514,6 +528,9 @@ function FreeSauceBanner() {
   const used = Number(state?.used ?? 0);
   const remaining = Math.max(0, Number(state?.remaining ?? allowed - used));
   const thresholds: number[] = Array.isArray(state?.thresholds) ? state.thresholds : [];
+  const category = String(state?.category || pricing?.freebie?.category || "sauces") as FreebieCategory;
+  const singleLabel = freebieCategoryLabel(category, false);
+  const pluralLabel = freebieCategoryLabel(category, true);
 
   const nextTh =
     thresholds.find((t) => merchandise < t) ??
@@ -531,8 +548,8 @@ function FreeSauceBanner() {
       <div className="flex items-center justify-between">
         <div className="font-medium">
           {remaining > 0
-            ? `Gratis Soße: ${remaining} Stück verfügbar 🎁`
-            : `Gratis Soßen: Limit erreicht (${allowed} / ${allowed})`}
+            ? `Gratis ${singleLabel}: ${remaining} Stück verfügbar 🎁`
+            : `Gratis ${pluralLabel}: Limit erreicht (${allowed} / ${allowed})`}
         </div>
         {typeof nextTh === "number" && nextTh > 0 && (
           <div className="text-[11px] opacity-90">Nächster Vorteil bei {fmt(nextTh)}</div>

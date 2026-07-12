@@ -1002,9 +1002,9 @@ function normalizeForSave(raw: any) {
   return next;
 }
 
-/* ─────────────────────── DB-first autosave ─────────────────────── */
+/* ─────────────────────── hızlı yerel taslak kaydı ─────────────────────── */
 
-function useDebouncedAutosave(model: any, enabled: boolean, delay = 400) {
+function useDebouncedLocalDraft(model: any, enabled: boolean, delay = 250) {
   const tRef = useRef<number | null>(null);
   const first = useRef(true);
 
@@ -1021,29 +1021,13 @@ function useDebouncedAutosave(model: any, enabled: boolean, delay = 400) {
     }
 
     tRef.current = window.setTimeout(() => {
-      (async () => {
-        try {
-          const next = normalizeForSave(model);
-
-          const res = await fetch("/api/settings", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", accept: "application/json" },
-            body: safeStringify({ settings: next }),
-          });
-
-          const json = await res.json().catch(() => null);
-
-          if (!res.ok || json?.ok === false) {
-            console.error("Autosave /api/settings failed:", json?.error || res.status);
-            return;
-          }
-
-          const saved = pickSavedSettingsFromResponse(json, next);
-          mirrorSettingsToLocalStorage(saved);
-        } catch (error) {
-          console.error("Autosave failed:", error);
-        }
-      })();
+      try {
+        const next = normalizeForSave(model);
+        localStorage.setItem(LS_SETTINGS, safeStringify(next));
+        dispatchSettingsChanged(next);
+      } catch (error) {
+        console.error("Lokaler Settings-Entwurf konnte nicht gespeichert werden:", error);
+      }
     }, delay);
 
     return () => {
@@ -1106,6 +1090,9 @@ export default function AdminSettingsPage() {
   const [model, setModel] = useState<any>(null);
   const [settingsSource, setSettingsSource] = useState<SettingsSource>("db");
   const [settingsDbError, setSettingsDbError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "error">("idle");
+  const [saveMessage, setSaveMessage] = useState("");
 
   const settingsReadOnly = settingsSource !== "db";
 
@@ -1208,7 +1195,7 @@ export default function AdminSettingsPage() {
     };
   }, []);
 
-  useDebouncedAutosave(model, mounted && model != null && !settingsReadOnly, 400);
+  useDebouncedLocalDraft(model, mounted && model != null, 250);
 
   const setNested = (path: string[], value: any) =>
     setModel((current: any) => {
@@ -1280,10 +1267,20 @@ export default function AdminSettingsPage() {
   };
 
   const saveNow = async () => {
-    if (settingsReadOnly) {
-      alert("DB-Verbindung ist gestört. Letzte gespeicherte Einstellungen werden angezeigt. Speichern ist erst wieder möglich, wenn source=db ist.");
+    if (settingsReadOnly || saving) {
+      if (settingsReadOnly) {
+        setSaveStatus("error");
+        setSaveMessage("DB-Verbindung gestört – Speichern derzeit nicht möglich.");
+      }
       return;
     }
+
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 20_000);
+
+    setSaving(true);
+    setSaveStatus("idle");
+    setSaveMessage("Einstellungen werden gespeichert…");
 
     try {
       const next = normalizeForSave(model);
@@ -1292,6 +1289,7 @@ export default function AdminSettingsPage() {
         method: "POST",
         headers: { "Content-Type": "application/json", accept: "application/json" },
         body: safeStringify({ settings: next }),
+        signal: controller.signal,
       });
 
       const json = await res.json().catch(() => null);
@@ -1303,9 +1301,19 @@ export default function AdminSettingsPage() {
       const saved = pickSavedSettingsFromResponse(json, next);
       setModel(saved);
       mirrorSettingsToLocalStorage(saved);
-      alert("Gespeichert ✅");
+      setSaveStatus("saved");
+      setSaveMessage("Gespeichert ✅");
     } catch (error: any) {
-      alert("Speichern fehlgeschlagen: " + (error?.message || ""));
+      const message =
+        error?.name === "AbortError"
+          ? "Speichern dauerte zu lange. Bitte erneut versuchen."
+          : error?.message || "Unbekannter Fehler";
+
+      setSaveStatus("error");
+      setSaveMessage(`Speichern fehlgeschlagen: ${message}`);
+    } finally {
+      window.clearTimeout(timeoutId);
+      setSaving(false);
     }
   };
 
@@ -1363,13 +1371,27 @@ export default function AdminSettingsPage() {
           <button
             className={`pill ${settingsReadOnly ? "cursor-not-allowed opacity-50" : ""}`}
             onClick={saveNow}
-            disabled={settingsReadOnly}
+            disabled={settingsReadOnly || saving}
             title={settingsReadOnly ? "DB-Verbindung gestört – Speichern ist gesperrt." : undefined}
           >
-            Speichern
+            {saving ? "Speichert…" : "Speichern"}
           </button>
         </div>
       </div>
+
+      {saveMessage ? (
+        <div
+          className={`mb-4 rounded-lg border px-3 py-2 text-sm ${
+            saveStatus === "error"
+              ? "border-rose-500/40 bg-rose-500/10 text-rose-200"
+              : saveStatus === "saved"
+                ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
+                : "border-stone-700 bg-stone-900/60 text-stone-300"
+          }`}
+        >
+          {saveMessage}
+        </div>
+      ) : null}
 
       {settingsReadOnly && (
         <div className="mb-5 rounded-xl border border-amber-400/40 bg-amber-500/10 p-4 text-sm text-amber-100">
@@ -1703,6 +1725,8 @@ export default function AdminSettingsPage() {
               >
                 <option value="sauces">Soßen</option>
                 <option value="drinks">Getränke</option>
+                <option value="donuts">Donuts</option>
+                <option value="bubbletea">Bubble Tea</option>
               </select>
             </Field>
 

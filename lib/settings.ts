@@ -127,7 +127,7 @@ export type FreebieTier = {
 
 export type FreebiesCfg = {
   enabled: boolean;
-  category: "sauces" | "drinks";
+  category: "sauces" | "drinks" | "donuts" | "bubbletea";
   mode: "pickup" | "delivery" | "both";
   tiers: FreebieTier[];
   [key: string]: any;
@@ -172,7 +172,7 @@ export type RouteDealReward = {
   amount?: number;
   maxDiscount?: number;
   freeItemName?: string;
-  freeItemCategory?: "sauces" | "drinks" | string;
+  freeItemCategory?: "sauces" | "drinks" | "donuts" | "bubbletea" | string;
   [key: string]: any;
 };
 
@@ -793,7 +793,15 @@ function writeLocalSettings(next: SettingsV6) {
 function normalizeFreebies(value: any): FreebiesCfg {
   const raw = value || {};
 
-  const category = raw.category === "drinks" ? "drinks" : "sauces";
+  const rawCategory = String(raw.category || "").toLowerCase().trim();
+  const category: FreebiesCfg["category"] =
+    rawCategory === "drinks"
+      ? "drinks"
+      : rawCategory === "donuts"
+        ? "donuts"
+        : rawCategory === "bubbletea" || rawCategory === "bubble-tea" || rawCategory === "bubble_tea"
+          ? "bubbletea"
+          : "sauces";
   const mode =
     raw.mode === "pickup" || raw.mode === "delivery" || raw.mode === "both"
       ? raw.mode

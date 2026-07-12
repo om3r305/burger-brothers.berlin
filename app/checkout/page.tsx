@@ -80,6 +80,7 @@ type FreebieTier = {
 
 type FreebiesCfg = {
   enabled?: boolean;
+  category?: "sauces" | "drinks" | "donuts" | "bubbletea";
   tiers?: FreebieTier[];
   mode?: "pickup" | "delivery" | "both";
 } | null;

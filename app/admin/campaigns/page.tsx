@@ -74,7 +74,7 @@ const API_SETTINGS = "/api/settings";
 
 /* === Admin Settings (Freebies) === */
 type FreebieTier = { minTotal: number; freeSauces: number };
-type FreebieCategory = "sauces" | "drinks";
+type FreebieCategory = "sauces" | "drinks" | "donuts" | "bubbletea";
 
 type AdminSettings = {
   freebies?: {
@@ -247,6 +247,13 @@ function useDebouncedEffect(effect: () => void, deps: any[], delay = 300) {
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
+}
+
+function freebieCategoryPluralLabel(category: FreebieCategory) {
+  if (category === "drinks") return "Getränke";
+  if (category === "donuts") return "Donuts";
+  if (category === "bubbletea") return "Bubble Teas";
+  return "Soßen";
 }
 
 function toDatetimeLocal(value: any) {
@@ -963,8 +970,8 @@ export default function AdminCampaignsPage() {
 
       setFbEnabled(!!freebies.enabled);
       setFbCategory(
-        freebies.category === "drinks" || freebies.category === "sauces"
-          ? freebies.category
+        ["drinks", "sauces", "donuts", "bubbletea", "bubbleTea"].includes(String(freebies.category))
+          ? (String(freebies.category).toLowerCase() === "bubbletea" ? "bubbletea" : freebies.category as FreebieCategory)
           : "sauces",
       );
       setFbBanner(typeof freebies.banner === "string" ? freebies.banner : "");
@@ -1403,6 +1410,8 @@ export default function AdminCampaignsPage() {
             >
               <option value="sauces">Soßen</option>
               <option value="drinks">Getränke</option>
+              <option value="donuts">Donuts</option>
+              <option value="bubbletea">Bubble Tea</option>
             </select>
           </Field>
 
@@ -1423,7 +1432,7 @@ export default function AdminCampaignsPage() {
                   <tr>
                     <th className="px-3 py-2 text-left">Mindestwert (€)</th>
                     <th className="px-3 py-2 text-left">
-                      Kostenlose {fbCategory === "sauces" ? "Soßen" : "Getränke"} (Anzahl)
+                      Kostenlose {freebieCategoryPluralLabel(fbCategory)} (Anzahl)
                     </th>
                     <th className="px-3 py-2 text-right">Aktion</th>
                   </tr>
