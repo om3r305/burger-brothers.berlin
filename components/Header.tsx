@@ -16,8 +16,8 @@ export default function Header() {
   const pathname = usePathname();
 
   return (
-    <header className="sticky top-0 z-40 w-full border-b border-stone-800/70 bg-[rgba(18,16,14,.75)] backdrop-blur supports-[backdrop-filter]:bg-[rgba(18,16,14,.55)]">
-      <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-3">
+    <header className="bb-site-header sticky top-0 z-40 w-full border-b border-stone-800/70 bg-[rgba(18,16,14,.75)] backdrop-blur supports-[backdrop-filter]:bg-[rgba(18,16,14,.55)]">
+      <div className="bb-site-header__inner mx-auto flex max-w-7xl items-center justify-between px-6 py-3">
         <Link href="/" className="flex items-center gap-3">
           <Image
             src="/logo-burger-brothers.png"

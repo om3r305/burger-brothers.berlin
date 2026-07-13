@@ -965,9 +965,9 @@ export default function MenuPage() {
   const showBlurb = tab === "burger" || tab === "vegan" || tab === "hotdogs";
 
   return (
-    <main className="mx-auto max-w-7xl p-6">
+    <main className="bb-menu-page mx-auto max-w-7xl p-6">
       {/* Kopfbereich */}
-      <div className="mb-4 flex flex-col gap-3 sm:mb-6 sm:flex-row sm:items-center sm:justify-between">
+      <div className="bb-menu-header mb-4 flex flex-col gap-3 sm:mb-6 sm:flex-row sm:items-center sm:justify-between">
         <Link href="/" className="flex items-center gap-3">
           <Image
             src="/logo-burger-brothers.png"

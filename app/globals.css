@@ -1169,3 +1169,105 @@ html.bb-route-pending footer {
     z-index: 50;
   }
 }
+/* =========================================================
+   PRODUCT MODAL + MOBILE SAFE-AREA FIX
+   ========================================================= */
+
+/*
+ * Modal artık React portal ile doğrudan body altında render edilir.
+ * Bu kurallar PC, Android, iPhone Safari ve PWA görünümünde gerçek
+ * viewport merkezini garanti eder.
+ */
+html.bb-modal-open,
+body.bb-modal-open {
+  overflow: hidden !important;
+  overscroll-behavior: none !important;
+}
+
+.bb-product-modal {
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100vw !important;
+  min-width: 100vw !important;
+  height: 100vh !important;
+  height: 100dvh !important;
+  margin: 0 !important;
+  transform: none !important;
+  contain: none !important;
+  isolation: isolate;
+}
+
+.bb-product-modal .bb-modal-shell {
+  display: flex;
+  width: min(100%, 42rem);
+  max-width: 42rem;
+  max-height: calc(
+    100dvh -
+    max(12px, env(safe-area-inset-top)) -
+    max(12px, env(safe-area-inset-bottom))
+  ) !important;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow:
+    0 26px 90px rgba(0, 0, 0, .72),
+    0 0 0 1px color-mix(in srgb, var(--bb-accent, #ff941f) 14%, transparent);
+}
+
+.bb-product-modal .bb-modal-scroll {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.bb-product-modal .bb-modal-footer {
+  padding-bottom: calc(.75rem + env(safe-area-inset-bottom));
+}
+
+/*
+ * iPhone PWA / black-translucent status bar:
+ * normal tarayıcıda env(...) = 0 olduğu için mevcut 24px üst boşluk korunur;
+ * çentikli telefonda logo ve isim güvenli alanın altına iner.
+ */
+@media (max-width: 639px) {
+  .bb-route-view > main:not(#bb-landing-page),
+  .bb-menu-page {
+    padding-top: max(
+      1.5rem,
+      calc(env(safe-area-inset-top) + .85rem)
+    ) !important;
+  }
+
+  .bb-menu-header {
+    margin-top: 0 !important;
+  }
+
+  .bb-menu-header > a {
+    min-height: 48px;
+  }
+
+  .bb-site-header {
+    top: 0;
+    padding-top: env(safe-area-inset-top);
+  }
+
+  .bb-site-header__inner {
+    min-height: 64px;
+  }
+
+  .bb-product-modal {
+    align-items: center !important;
+  }
+
+  .bb-product-modal .bb-modal-shell {
+    width: 100%;
+    border-radius: 1rem;
+  }
+}
+
+@media (min-width: 640px) {
+  .bb-product-modal .bb-modal-shell {
+    max-height: min(90dvh, 860px) !important;
+  }
+}
