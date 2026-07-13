@@ -860,22 +860,22 @@ html[data-bb-motion="0"] .nav-pill--active {
 /* Route içerik alanı: yeni sayfa profesyonel şekilde yerleşir. */
 .bb-route-view {
   min-height: calc(100svh - 1px);
-  transform-origin: 50% 18%;
   animation: bbRouteEnter var(--bb-route-duration) var(--bb-route-ease) both;
-  will-change: opacity, transform, filter;
-  backface-visibility: hidden;
 }
 
+/*
+ * DİKKAT:
+ * Bu wrapper üzerinde kalıcı transform / filter / will-change kullanmıyoruz.
+ * Bunlar position:fixed ve position:sticky çocuklar için yeni bir containing
+ * block oluşturur. Sonuçta ürün düzenleme modalı sayfanın aşağısında kalır ve
+ * mobil sepet özeti görünmez hale gelir.
+ */
 @keyframes bbRouteEnter {
   from {
     opacity: 0;
-    transform: translate3d(0, 8px, 0) scale(.997);
-    filter: blur(1.5px);
   }
   to {
     opacity: 1;
-    transform: translate3d(0, 0, 0) scale(1);
-    filter: blur(0);
   }
 }
 
@@ -884,13 +884,8 @@ html[data-bb-motion="0"] .nav-pill--active {
  * Hafif küçülür; yeni route hazır olduğunda template animasyonu devralır.
  */
 html.bb-route-pending .bb-route-view {
-  opacity: .72;
-  transform: translate3d(0, -3px, 0) scale(.998);
-  filter: saturate(.86);
-  transition:
-    opacity 140ms ease,
-    transform 180ms var(--bb-route-ease),
-    filter 140ms ease;
+  opacity: .76;
+  transition: opacity 140ms ease;
   pointer-events: none;
 }
 
@@ -1095,23 +1090,44 @@ html.bb-route-pending footer {
 
   .bb-app-nav__cart {
     position: sticky;
-    right: 0;
+    right: .15rem;
     z-index: 4;
-    margin-left: .15rem;
+    flex: 0 0 auto;
+    width: auto;
+    min-width: 0;
+    max-width: 112px;
+    min-height: 40px;
+    margin-left: .1rem;
+    gap: .22rem;
+    padding-inline: .7rem;
+    overflow: hidden;
+    white-space: nowrap;
+    font-size: .76rem;
+    letter-spacing: -.01em;
     background-color: color-mix(
       in srgb,
-      var(--bb-surface-strong, #0c0a09) 94%,
+      var(--bb-surface-strong, #0c0a09) 96%,
       transparent
     );
     box-shadow:
-      -15px 0 18px color-mix(
+      -10px 0 14px color-mix(
         in srgb,
-        var(--bb-page-bg, #050302) 88%,
+        var(--bb-page-bg, #050302) 90%,
         transparent
       ),
-      0 8px 20px rgba(0, 0, 0, .24);
+      0 7px 18px rgba(0, 0, 0, .22);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
+  }
+
+  .bb-app-nav__cart > span {
+    flex: 0 0 auto;
+  }
+
+  .bb-app-nav__cart > span:last-child {
+    max-width: 58px;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   /* Sayfa değişirken footer'ın içerik arasına fırlamasını önler. */
@@ -1136,5 +1152,20 @@ html.bb-route-pending footer {
   .bb-tabs-scroll,
   .bb-tabs-scroll__rail {
     scroll-behavior: auto;
+  }
+}
+/* Fixed modal / mobile cart summary koruması */
+.bb-route-view [class*="fixed"][class*="inset-0"] {
+  transform: none;
+}
+
+@media (max-width: 639px) {
+  /*
+   * Mobil alt sepet özeti route wrapper yüzünden kaybolmamalı.
+   * Mevcut bileşenin fixed/sticky konumu ve safe-area davranışı korunur.
+   */
+  .bb-route-view [class*="fixed"][class*="bottom-"],
+  .bb-route-view [class*="sticky"][class*="bottom-"] {
+    z-index: 50;
   }
 }
