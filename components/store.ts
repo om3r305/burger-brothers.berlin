@@ -5,9 +5,10 @@ import type { CartItem, MenuItem, ExtraOption } from "./types";
 import { loadNormalizedCampaigns } from "@/lib/campaigns-compat";
 import { priceWithCampaign } from "@/lib/catalog";
 import type { Campaign, Category } from "@/lib/catalog";
-import { getPricingOverrides } from "@/lib/settings";
+import { getPricingOverrides, readSettings } from "@/lib/settings";
 import { evaluateFreebieRules, parseFreebieCategory } from "@/lib/freebies";
 import type { FreebieCategory, FreebieEvaluation, FreebieUnit } from "@/lib/freebies";
+import { evaluateConditionalCartCampaign } from "@/lib/conditional-campaign";
 
 /* =========================================
    Tipler
@@ -39,6 +40,7 @@ type Pricing = {
   requiredMin?: number;
   plzKnown: boolean;
   freebie?: FreebieEvaluation;
+  conditionalCampaign?: ReturnType<typeof evaluateConditionalCartCampaign>;
 };
 
 type State = {
@@ -303,8 +305,15 @@ function computePricingRaw(items: CartItemFixed[], mode: OrderMode, plz: string 
 
   const subtotal = merchandise + surcharges;
 
-  // --- Yüzde indirim de sadece DELIVERY’de
-  const deliveryDiscount = mode === "delivery" ? +(subtotal * (discountRate || 0)).toFixed(2) : 0;
+  // --- Standart indirim veya net minimum şartlı sepet kampanyası
+  const conditionalCampaign = evaluateConditionalCartCampaign({
+    cartOffers: readSettings()?.cartOffers || [],
+    mode,
+    baseAmount: merchandise,
+    standardRate: discountRate || 0,
+  });
+
+  const deliveryDiscount = conditionalCampaign.discountAmount;
 
   // --- Kümülatif Gratis-Artikel kuralları
   const freebieEvaluation = evaluateFreebieRules({
@@ -351,6 +360,7 @@ function computePricingRaw(items: CartItemFixed[], mode: OrderMode, plz: string 
     requiredMin,
     plzKnown,
     freebie: freebieEvaluation,
+    conditionalCampaign,
   };
 }
 

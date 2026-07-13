@@ -18,6 +18,7 @@ import {
   parseFreebieCategory,
 } from "@/lib/freebies";
 import type { FreebieEvaluation, FreebieUnit } from "@/lib/freebies";
+import { evaluateConditionalCartCampaign } from "@/lib/conditional-campaign";
 
 /* LS Keys */
 const LS_CHECKOUT = "bb_checkout_info_v1";
@@ -634,6 +635,40 @@ function FreeSauceBanner() {
   );
 }
 
+function ConditionalCampaignBanner({
+  result,
+}: {
+  result: ReturnType<typeof evaluateConditionalCartCampaign>;
+}) {
+  if (!result?.hasCampaign) return null;
+
+  if (result.eligible) {
+    return (
+      <div className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200">
+        <div className="font-semibold">
+          🎉 {result.percent}% Aktion aktiviert
+        </div>
+        <div className="mt-0.5 text-xs text-emerald-100/80">
+          Mindestbetrag nach Rabatt: {fmt(result.minNetTotal)}
+          {result.customerNotice ? ` • ${result.customerNotice}` : ""}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
+      <div className="font-semibold">
+        Noch {fmt(result.missingBaseAmount)} bis zur {result.percent}%-Aktion
+      </div>
+      <div className="mt-0.5 text-xs text-amber-100/80">
+        Bis dahin gilt Ihr regulärer Rabatt.
+        {result.customerNotice ? ` • ${result.customerNotice}` : ""}
+      </div>
+    </div>
+  );
+}
+
 /* ───────── Pricing (Settings + Gutschein) ───────── */
 
 function toNum(n: any, fb = 0) {
@@ -675,9 +710,15 @@ function computePricingFromSettings_CS(
   const overrides = getPricingOverrides(mode);
 
   const merchandise = sumCartMerchDynamic_CS(items, mode, campaigns, catalog);
-  const deliveryDiscount = +(
-    merchandise * toNum(overrides.discountRate, 0)
-  ).toFixed(2);
+
+  const conditionalCampaign = evaluateConditionalCartCampaign({
+    cartOffers: readSettings()?.cartOffers || [],
+    mode,
+    baseAmount: merchandise,
+    standardRate: toNum(overrides.discountRate, 0),
+  });
+
+  const deliveryDiscount = conditionalCampaign.discountAmount;
 
   const freebie = evaluateFreebieRules({
     config: overrides.freebies,
@@ -723,6 +764,7 @@ function computePricingFromSettings_CS(
     plzKnown,
     requiredMin: record,
     freebie,
+    conditionalCampaign,
   };
 }
 
@@ -987,7 +1029,7 @@ export default function CartSummary() {
     () => computePricingFromSettings_CS(items, orderMode, plzEffective, campaigns, catalog),
     [items, orderMode, plzEffective, campaigns, catalog]
   );
-  const { merchandise, discount, surcharges, afterDiscount, requiredMin, plzKnown } = base;
+  const { merchandise, discount, surcharges, afterDiscount, requiredMin, plzKnown, conditionalCampaign } = base;
 
   const activeCode = useMemo(() => {
     try { return localStorage.getItem(LS_ACTIVE_COUPON) || ""; } catch { return ""; }
@@ -1170,6 +1212,7 @@ export default function CartSummary() {
         <FreeSauceBanner />
 
         {/* Akıllı Rota Fırsatı */}
+        <ConditionalCampaignBanner result={conditionalCampaign} />
         <RouteDealMiniBanner benefit={routeDealBenefit} nowMs={routeDealNowMs} />
 
         {/* Lines */}
@@ -1387,7 +1430,7 @@ export function CartSummaryMobile() {
     () => computePricingFromSettings_CS(items, orderMode, plzEffective, campaigns, catalog),
     [items, orderMode, plzEffective, campaigns, catalog]
   );
-  const { merchandise, discount, surcharges, afterDiscount, requiredMin, plzKnown } = base;
+  const { merchandise, discount, surcharges, afterDiscount, requiredMin, plzKnown, conditionalCampaign } = base;
 
   const activeCode = useMemo(() => {
     try { return localStorage.getItem(LS_ACTIVE_COUPON) || ""; } catch { return ""; }
@@ -1625,7 +1668,8 @@ export function CartSummaryMobile() {
             <FreeSauceBanner />
 
             {/* Akıllı Rota Fırsatı */}
-            <RouteDealMiniBanner benefit={routeDealBenefit} nowMs={routeDealNowMs} />
+            <ConditionalCampaignBanner result={conditionalCampaign} />
+        <RouteDealMiniBanner benefit={routeDealBenefit} nowMs={routeDealNowMs} />
 
             {/* Lines */}
             {isEmpty && <div className="mb-3 text-sm text-stone-400">Noch keine Artikel im Warenkorb.</div>}

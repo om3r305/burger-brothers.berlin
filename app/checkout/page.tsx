@@ -21,6 +21,7 @@ import {
   parseFreebieCategory,
 } from "@/lib/freebies";
 import type { FreebieEvaluation, FreebieUnit } from "@/lib/freebies";
+import { evaluateConditionalCartCampaign } from "@/lib/conditional-campaign";
 import {
   planFromSettings,
   isOpenAt,
@@ -983,7 +984,13 @@ function computePricingV6(
   const rate = toNum(overrides.discountRate, 0);
 
   const merchandise = sumCartMerchandise(items);
-  const deliveryDiscount = +(merchandise * rate).toFixed(2);
+  const conditionalCampaign = evaluateConditionalCartCampaign({
+    cartOffers: readSettings()?.cartOffers || [],
+    mode,
+    baseAmount: merchandise,
+    standardRate: rate,
+  });
+  const deliveryDiscount = conditionalCampaign.discountAmount;
 
   const freebie = evaluateFreebieRules({
     config: overrides.freebies,
@@ -1031,6 +1038,7 @@ function computePricingV6(
     plzKnown,
     freebiesCfg: overrides.freebies,
     freebie,
+    conditionalCampaign,
   };
 }
 
@@ -3295,6 +3303,18 @@ export default function CheckoutPage() {
       meta: {
         coupon: activeCode || null,
         couponMeta: couponMeta || null,
+        conditionalCampaign: base?.conditionalCampaign?.hasCampaign
+          ? {
+              id: base.conditionalCampaign.campaign?.id || null,
+              name: base.conditionalCampaign.campaignName,
+              percent: base.conditionalCampaign.percent,
+              eligible: base.conditionalCampaign.eligible,
+              minNetTotal: base.conditionalCampaign.minNetTotal,
+              discountAmount: base.conditionalCampaign.discountAmount,
+              overridesStandardDiscount:
+                base.conditionalCampaign.overridesStandardDiscount,
+            }
+          : null,
         emailOptIn: !!addr.emailOptIn,
         payment: {
           method: payment.method,
