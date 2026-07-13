@@ -1,7 +1,8 @@
 "use client";
 
 import Image from "next/image";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { useCart } from "@/components/store";
 
 type ExtraInput =
@@ -212,6 +213,69 @@ export default function ProductCard({
   const [active, setActive] = useState(0);
   const [useNativeImg, setUseNativeImg] = useState(false);
   const [showLegend, setShowLegend] = useState(false);
+  const [portalReady, setPortalReady] = useState(false);
+
+  useEffect(() => {
+    setPortalReady(true);
+  }, []);
+
+  /*
+   * Modal açıkken arka sayfayı sabit tutar. Özellikle iPhone Safari/PWA'da
+   * arka içeriğin kaymasını ve modalın ekranın aşağısına taşınmasını önler.
+   */
+  useEffect(() => {
+    if (!portalReady || (!open && !showLegend)) return;
+
+    const body = document.body;
+    const root = document.documentElement;
+    const previousOverflow = body.style.overflow;
+    const previousPaddingRight = body.style.paddingRight;
+    const previousOverscroll = body.style.overscrollBehavior;
+    const scrollbarWidth = Math.max(
+      0,
+      window.innerWidth - document.documentElement.clientWidth,
+    );
+
+    root.classList.add("bb-modal-open");
+    body.classList.add("bb-modal-open");
+    body.style.overflow = "hidden";
+    body.style.overscrollBehavior = "none";
+
+    if (scrollbarWidth > 0) {
+      body.style.paddingRight = `${scrollbarWidth}px`;
+    }
+
+    return () => {
+      root.classList.remove("bb-modal-open");
+      body.classList.remove("bb-modal-open");
+      body.style.overflow = previousOverflow;
+      body.style.paddingRight = previousPaddingRight;
+      body.style.overscrollBehavior = previousOverscroll;
+    };
+  }, [open, portalReady, showLegend]);
+
+  useEffect(() => {
+    if (!open && !showLegend) return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+
+      if (showLegend) {
+        setShowLegend(false);
+        return;
+      }
+
+      closeReset();
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+    };
+    // closeReset yalnızca mevcut state setter'larını kullanır.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, showLegend]);
 
   const normalizedExtras: Extra[] = (extrasOptions as any[]).map((e) => ({
     id: String(e?.id ?? ""),
@@ -475,9 +539,23 @@ export default function ProductCard({
         </button>
       </div>
 
-      {/* Modal */}
-      {open && !outOfStock && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 sm:p-4" onClick={closeReset}>
+      {/* Modal — body portalı sayesinde her zaman gerçek viewport'a sabitlenir */}
+      {portalReady && open && !outOfStock
+        ? createPortal(
+            <div
+              className="bb-product-modal fixed inset-0 flex items-center justify-center bg-black/70 backdrop-blur-[2px]"
+              style={{
+                zIndex: 2147482500,
+                paddingTop: "max(12px, env(safe-area-inset-top))",
+                paddingRight: "max(12px, env(safe-area-inset-right))",
+                paddingBottom: "max(12px, env(safe-area-inset-bottom))",
+                paddingLeft: "max(12px, env(safe-area-inset-left))",
+              }}
+              role="dialog"
+              aria-modal="true"
+              aria-label={`${name} konfigurieren`}
+              onClick={closeReset}
+            >
           <div
             className="bb-modal-shell w-full max-w-2xl overflow-hidden rounded-2xl border border-stone-700/60 bg-stone-900/95"
             onClick={(e) => e.stopPropagation()}
@@ -595,12 +673,28 @@ export default function ProductCard({
               </div>
             </div>
           </div>
-        </div>
-      )}
+            </div>,
+            document.body,
+          )
+        : null}
 
-      {/* Allergen-Legende Modal */}
-      {showLegend && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" onClick={() => setShowLegend(false)}>
+      {/* Allergen-Legende Modal — aynı şekilde gerçek viewport portalı */}
+      {portalReady && showLegend
+        ? createPortal(
+            <div
+              className="bb-product-modal fixed inset-0 grid place-items-center bg-black/70 backdrop-blur-[2px]"
+              style={{
+                zIndex: 2147482600,
+                paddingTop: "max(12px, env(safe-area-inset-top))",
+                paddingRight: "max(12px, env(safe-area-inset-right))",
+                paddingBottom: "max(12px, env(safe-area-inset-bottom))",
+                paddingLeft: "max(12px, env(safe-area-inset-left))",
+              }}
+              role="dialog"
+              aria-modal="true"
+              aria-label="Allergen-Information"
+              onClick={() => setShowLegend(false)}
+            >
           <div
             className="w-full max-w-lg rounded-2xl border border-stone-700/60 bg-stone-900/95 p-4"
             onClick={(e) => e.stopPropagation()}
@@ -632,8 +726,10 @@ export default function ProductCard({
               Hinweis: Bei starken Allergien kontaktiere uns bitte vor der Bestellung.
             </div>
           </div>
-        </div>
-      )}
+            </div>,
+            document.body,
+          )
+        : null}
 
       {/* Bileşene özel stil — mobilde sabit yükseklikler */}
       <style jsx>{`
