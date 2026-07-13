@@ -8,6 +8,7 @@ import ProductsSync from "./ProductsSync";
 import DriversSync from "./DriversSync";
 import { LS_SETTINGS } from "@/lib/settings";
 import AnalyticsPing from "@/components/AnalyticsPing";
+import AppRouteTransition from "@/components/AppRouteTransition";
 
 /* 🔧 SSG yerine runtime render (prerender hatalarını engelle) */
 export const dynamic = "force-dynamic";
@@ -204,6 +205,9 @@ body:has(#bb-landing-page) .bb-mobile-footer-gap {
 `,
           }}
         />
+
+        {/* Uygulama hissi veren merkezi route geçiş katmanı */}
+        <AppRouteTransition />
 
         {/* Öffentliche Besucher-Statistik für Admin > Statistiken */}
         <AnalyticsPing />

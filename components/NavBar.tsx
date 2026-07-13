@@ -2,54 +2,157 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
-import { useEffect, useState, useMemo } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useCart } from "@/components/store";
+import { startAppNavigation } from "@/components/AppRouteTransition";
 
 type Variant = "menu" | "plain";
 
-/* ——— Feature flags (donuts / bubbleTea) ——— */
+type TabItem = {
+  key: string;
+  label: string;
+};
+
+type MenuKey =
+  | "burger"
+  | "vegan"
+  | "extras"
+  | "drinks"
+  | "sauces"
+  | "hotdogs"
+  | "donuts"
+  | "bubbletea";
+
 const LS_SETTINGS = "bb_settings_v6";
-function readFeatureEnabled(key: "donuts" | "bubbleTea"): boolean {
+
+const ROUTE_BY_KEY: Record<MenuKey, string> = {
+  burger: "/menu?cat=burger",
+  vegan: "/menu?cat=vegan",
+  extras: "/extras",
+  drinks: "/drinks",
+  sauces: "/sauces",
+  hotdogs: "/hotdogs",
+  donuts: "/donuts",
+  bubbletea: "/bubble-tea",
+};
+
+const PREFETCH_ROUTES = Array.from(
+  new Set(Object.values(ROUTE_BY_KEY).map((href) => href.split("?")[0])),
+);
+
+function normalizeMenuKey(value: unknown): MenuKey {
+  const raw = String(value || "")
+    .trim()
+    .toLowerCase();
+
+  if (raw === "vegan") return "vegan";
+  if (raw === "extras") return "extras";
+  if (raw === "drinks") return "drinks";
+  if (raw === "sauces") return "sauces";
+  if (raw === "hotdogs" || raw === "hotdog") return "hotdogs";
+  if (raw === "donuts" || raw === "donut") return "donuts";
+  if (
+    raw === "bubbletea" ||
+    raw === "bubble-tea" ||
+    raw === "bubble_tea"
+  ) {
+    return "bubbletea";
+  }
+
+  return "burger";
+}
+
+function activeKeyForLocation(pathname: string, search: URLSearchParams | null) {
+  if (pathname === "/extras") return "extras";
+  if (pathname === "/drinks") return "drinks";
+  if (pathname === "/sauces") return "sauces";
+  if (pathname === "/hotdogs") return "hotdogs";
+  if (pathname === "/donuts") return "donuts";
+  if (pathname === "/bubble-tea") return "bubbletea";
+
+  if (pathname === "/menu") {
+    return normalizeMenuKey(search?.get("cat") || search?.get("tab"));
+  }
+
+  return "";
+}
+
+function readFeatureEnabled(key: "donuts" | "bubbleTea") {
   try {
     const raw = localStorage.getItem(LS_SETTINGS);
     if (!raw) return true;
-    const s = JSON.parse(raw);
-    return !!s?.features?.[key]?.enabled;
-  } catch { return true; }
+
+    const settings = JSON.parse(raw);
+
+    return settings?.features?.[key]?.enabled !== false;
+  } catch {
+    return true;
+  }
 }
+
 function useFeatureFlags() {
   const [donutsOn, setDonutsOn] = useState(true);
-  const [btOn, setBtOn] = useState(true);
+  const [bubbleTeaOn, setBubbleTeaOn] = useState(true);
+
   useEffect(() => {
     const sync = () => {
       setDonutsOn(readFeatureEnabled("donuts"));
-      setBtOn(readFeatureEnabled("bubbleTea"));
+      setBubbleTeaOn(readFeatureEnabled("bubbleTea"));
     };
+
+    const onStorage = (event: StorageEvent) => {
+      if (!event.key || event.key === LS_SETTINGS) {
+        sync();
+      }
+    };
+
     sync();
-    const onStorage = (e: StorageEvent) => { if (!e.key || e.key === LS_SETTINGS) sync(); };
-    const onCustom = () => sync();
+
     window.addEventListener("storage", onStorage);
-    window.addEventListener("bb_settings_changed" as any, onCustom);
+    window.addEventListener(
+      "bb_settings_changed",
+      sync as EventListener,
+    );
+    window.addEventListener(
+      "bb:settings-sync",
+      sync as EventListener,
+    );
+
     return () => {
       window.removeEventListener("storage", onStorage);
-      window.removeEventListener("bb_settings_changed" as any, onCustom);
+      window.removeEventListener(
+        "bb_settings_changed",
+        sync as EventListener,
+      );
+      window.removeEventListener(
+        "bb:settings-sync",
+        sync as EventListener,
+      );
     };
   }, []);
-  return { donutsOn, btOn };
+
+  return {
+    donutsOn,
+    bubbleTeaOn,
+  };
 }
 
-/* ——— Props ——— */
-type TabItem = { key: string; label: string };
+function hrefForKey(key: string) {
+  return ROUTE_BY_KEY[normalizeMenuKey(key)];
+}
 
 export default function NavBar(props: {
   variant: Variant;
-  /** Aktif tab anahtarı (örn. 'burger', 'drinks'...) */
   tab?: string;
-  /** Sekme değiştirici (sadece variant='menu' ve butonlu sekmelerde kullanılır) */
-  onTabChange?: (t: string) => void;
+  onTabChange?: (tab: string) => void;
   showLocationCaption?: boolean;
-  /** Opsiyonel sekme listesi: verilirse butonlu sekme şeridi render edilir */
   tabs?: TabItem[];
   className?: string;
 }) {
@@ -63,132 +166,288 @@ export default function NavBar(props: {
   } = props;
 
   const pathname = usePathname();
-  const search = useSearchParams();
-  const { donutsOn, btOn } = useFeatureFlags();
+  const searchParams = useSearchParams();
+  const router = useRouter();
 
-  const pill = (href: string, extra = "") =>
-    `nav-pill${pathname === href ? " nav-pill--active" : ""}${extra ? " " + extra : ""}`;
+  const { donutsOn, bubbleTeaOn } = useFeatureFlags();
 
-  // Cart pill
-  const NavCartPill = () => {
-    const items = useCart((s: any) => s.items);
-    const computePricing = useCart((s: any) => s.computePricing);
+  const navRef = useRef<HTMLElement | null>(null);
+  const navigationLockRef = useRef(false);
+  const unlockTimerRef = useRef<number | null>(null);
 
-    const count = useMemo(
-      () => (items || []).reduce((acc: number, ci: any) => acc + (Number(ci?.qty) || 1), 0),
-      [items]
-    );
-
-    const total = useMemo(() => {
-      try {
-        const res = computePricing?.();
-        if (res && typeof res.total === "number") return res.total;
-      } catch {}
-      return (items || []).reduce((sum: number, ci: any) => {
-        const add = (ci?.add || []).reduce((a: number, b: any) => a + (Number(b?.price) || 0), 0);
-        const base = Number(ci?.price ?? ci?.item?.price ?? 0);
-        const qty = Number(ci?.qty || 1);
-        return sum + (base + add) * qty;
-      }, 0);
-    }, [items, computePricing]);
-
-    const fmt = (n: number) =>
-      new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" }).format(n);
-
-    return (
-      <Link href="/checkout" className="nav-pill nav-pill--cart" aria-label="Warenkorb öffnen">
-        <span className="mr-1">🛒</span>
-        <span className="font-medium">{count}</span>
-        <span className="mx-1">•</span>
-        <span className="font-semibold">{fmt(total)}</span>
-      </Link>
-    );
-  };
-
-  // Buton sekme bileşeni (menu varyantında kullanılır)
-  const TabBtn = ({
-    active, vegan, children, onClick,
-  }: {
-    active?: boolean;
-    vegan?: boolean;
-    children: React.ReactNode;
-    onClick: () => void;
-  }) => (
-    <button
-      type="button"
-      className={`nav-pill ${active ? "nav-pill--active" : ""} ${vegan && active ? "nav-pill--vegan" : ""}`}
-      onClick={onClick}
-      aria-current={active ? "page" : undefined}
-    >
-      {children}
-    </button>
+  const locationActiveKey = useMemo(
+    () => activeKeyForLocation(pathname, searchParams),
+    [pathname, searchParams],
   );
 
-  const isVeganActivePlain = pathname === "/menu" && search?.get("tab") === "vegan";
+  const controlledActiveKey = normalizeMenuKey(tab);
+  const activeKey =
+    variant === "menu" && Array.isArray(tabs) && tabs.length > 0
+      ? controlledActiveKey
+      : locationActiveKey;
+
+  const visibleTabs = useMemo(() => {
+    const source =
+      Array.isArray(tabs) && tabs.length > 0
+        ? tabs
+        : [
+            { key: "burger", label: "Burger" },
+            { key: "vegan", label: "Vegan / Vegetarisch" },
+            { key: "extras", label: "Extras" },
+            { key: "drinks", label: "Getränke" },
+            { key: "sauces", label: "Soßen" },
+            { key: "hotdogs", label: "Hot Dogs" },
+            { key: "donuts", label: "Donuts" },
+            { key: "bubbletea", label: "Bubble Tea" },
+          ];
+
+    return source.filter((item) => {
+      const key = normalizeMenuKey(item.key);
+      if (key === "donuts") return donutsOn;
+      if (key === "bubbletea") return bubbleTeaOn;
+      return true;
+    });
+  }, [tabs, donutsOn, bubbleTeaOn]);
+
+  useEffect(() => {
+    for (const href of PREFETCH_ROUTES) {
+      try {
+        router.prefetch(href);
+      } catch {}
+    }
+  }, [router]);
+
+  const centerActiveTab = useCallback((behavior: ScrollBehavior) => {
+    const nav = navRef.current;
+    const active = nav?.querySelector<HTMLElement>(
+      '[data-bb-tab-active="true"]',
+    );
+
+    if (!active) return;
+
+    try {
+      active.scrollIntoView({
+        behavior,
+        block: "nearest",
+        inline: "center",
+      });
+    } catch {
+      const parent = active.parentElement;
+      if (!parent) return;
+
+      parent.scrollLeft =
+        active.offsetLeft -
+        parent.clientWidth / 2 +
+        active.clientWidth / 2;
+    }
+  }, []);
+
+  useEffect(() => {
+    const first = window.requestAnimationFrame(() => {
+      centerActiveTab("auto");
+    });
+
+    const second = window.setTimeout(() => {
+      centerActiveTab("smooth");
+    }, 90);
+
+    return () => {
+      window.cancelAnimationFrame(first);
+      window.clearTimeout(second);
+    };
+  }, [activeKey, centerActiveTab]);
+
+  useEffect(() => {
+    const unlock = () => {
+      navigationLockRef.current = false;
+
+      if (unlockTimerRef.current) {
+        window.clearTimeout(unlockTimerRef.current);
+        unlockTimerRef.current = null;
+      }
+    };
+
+    window.addEventListener("bb:navigation-end", unlock as EventListener);
+
+    return () => {
+      if (unlockTimerRef.current) {
+        window.clearTimeout(unlockTimerRef.current);
+      }
+
+      window.removeEventListener(
+        "bb:navigation-end",
+        unlock as EventListener,
+      );
+    };
+  }, []);
+
+  const beginNavigation = useCallback((href: string) => {
+    if (navigationLockRef.current) return false;
+
+    navigationLockRef.current = true;
+
+    startAppNavigation({
+      href,
+      source: "menu-tabs",
+      scrollToTop: true,
+    });
+
+    unlockTimerRef.current = window.setTimeout(() => {
+      navigationLockRef.current = false;
+    }, 1_500);
+
+    return true;
+  }, []);
+
+  const handleTabClick = useCallback(
+    (keyInput: string) => {
+      const key = normalizeMenuKey(keyInput);
+      const href = hrefForKey(key);
+
+      if (key === activeKey) {
+        centerActiveTab("smooth");
+        return;
+      }
+
+      if (!beginNavigation(href)) return;
+
+      /*
+       * Menu sayfası kendi burger/vegan state'ini yönetiyorsa mevcut callback
+       * korunur. Diğer bütün sayfalarda mevcut route isimleri aynen kullanılır.
+       */
+      if (typeof onTabChange === "function") {
+        onTabChange(key);
+        return;
+      }
+
+      router.push(href, {
+        scroll: false,
+      });
+    },
+    [
+      activeKey,
+      beginNavigation,
+      centerActiveTab,
+      onTabChange,
+      router,
+    ],
+  );
+
+  const items = useCart((state: any) => state.items);
+  const computePricing = useCart((state: any) => state.computePricing);
+
+  const cartCount = useMemo(
+    () =>
+      (items || []).reduce(
+        (total: number, item: any) =>
+          total + (Number(item?.qty) || 1),
+        0,
+      ),
+    [items],
+  );
+
+  const cartTotal = useMemo(() => {
+    try {
+      const pricing = computePricing?.();
+
+      if (pricing && typeof pricing.total === "number") {
+        return pricing.total;
+      }
+    } catch {}
+
+    return (items || []).reduce((sum: number, item: any) => {
+      const extras = (item?.add || []).reduce(
+        (extraTotal: number, extra: any) =>
+          extraTotal + (Number(extra?.price) || 0),
+        0,
+      );
+
+      const base = Number(item?.price ?? item?.item?.price ?? 0);
+      const quantity = Number(item?.qty || 1);
+
+      return sum + (base + extras) * quantity;
+    }, 0);
+  }, [items, computePricing]);
+
+  const formattedCartTotal = useMemo(
+    () =>
+      new Intl.NumberFormat("de-DE", {
+        style: "currency",
+        currency: "EUR",
+      }).format(cartTotal),
+    [cartTotal],
+  );
+
+  const openCart = useCallback(() => {
+    const href = "/checkout";
+
+    if (!beginNavigation(href)) return;
+
+    router.push(href, {
+      scroll: false,
+    });
+  }, [beginNavigation, router]);
 
   return (
-    <nav className={`flex items-center gap-2 ${className}`}>
-      {variant === "menu" ? (
-        // Eğer props.tabs verildiyse: butonlu sekme şeridi (page.tsx ile uyumlu)
-        Array.isArray(tabs) && tabs.length > 0 ? (
-          <>
-            {tabs.map((t) => (
-              <TabBtn
-                key={t.key}
-                active={String(tab) === String(t.key)}
-                vegan={String(t.key) === "vegan"}
-                onClick={() => onTabChange?.(t.key)}
-              >
-                {String(t.key) === "vegan" ? <><span className="mr-1" aria-hidden>🌿</span>{t.label}</> : t.label}
-              </TabBtn>
-            ))}
-            <NavCartPill />
-          </>
-        ) : (
-          // Aksi halde: eski link bazlı navbar (geri uyumluluk)
-          <>
-            <Link href="/menu" className={pill("/menu")}>Burger</Link>
-            <Link
-              href={{ pathname: "/menu", query: { tab: "vegan" } }}
-              className={`nav-pill${isVeganActivePlain ? " nav-pill--active nav-pill--vegan" : ""}`}
-              aria-label="Vegan / Vegetarisch"
-              aria-current={isVeganActivePlain ? "page" : undefined}
+    <nav
+      ref={navRef}
+      aria-label="Menükategorien"
+      className={`bb-app-nav ${className}`}
+    >
+      {variant === "plain" && showLocationCaption ? (
+        <span className="bb-app-nav__location">Berlin Tegel</span>
+      ) : null}
+
+      <div className="bb-app-nav__tabs" role="tablist">
+        {visibleTabs.map((item) => {
+          const key = normalizeMenuKey(item.key);
+          const active = key === activeKey;
+          const vegan = key === "vegan";
+
+          return (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              aria-current={active ? "page" : undefined}
+              data-bb-tab-key={key}
+              data-bb-tab-active={active ? "true" : "false"}
+              className={[
+                "nav-pill",
+                "bb-app-nav__tab",
+                active ? "nav-pill--active" : "",
+                vegan && active ? "nav-pill--vegan" : "",
+              ]
+                .filter(Boolean)
+                .join(" ")}
+              onClick={() => handleTabClick(key)}
             >
-              <span className="mr-1" aria-hidden>🌿</span>
-              Vegan / Vegetarisch
-            </Link>
-            <Link href="/extras"  className={pill("/extras")}>Extras</Link>
-            <Link href="/drinks"  className={pill("/drinks")}>Getränke</Link>
-            <Link href="/sauces"  className={pill("/sauces")}>Soßen</Link>
-            <Link href="/hotdogs" className={pill("/hotdogs")}>Hot Dogs</Link>
-            {donutsOn && <Link href="/donuts" className={pill("/donuts")}>Donuts</Link>}
-            {btOn && <Link href="/bubble-tea" className={pill("/bubble-tea")}>Bubble Tea</Link>}
-            <NavCartPill />
-          </>
-        )
-      ) : (
-        // plain varyantı: her sayfada linkler
-        <>
-          {showLocationCaption && <span className="text-xs opacity-70 mr-1">Berlin Tegel</span>}
-          <Link href="/menu" className={pill("/menu")}>Burger</Link>
-          <Link
-            href={{ pathname: "/menu", query: { tab: "vegan" } }}
-            className={`nav-pill${isVeganActivePlain ? " nav-pill--active nav-pill--vegan" : ""}`}
-            aria-label="Vegan / Vegetarisch"
-            aria-current={isVeganActivePlain ? "page" : undefined}
-          >
-            <span className="mr-1" aria-hidden>🌿</span>
-            Vegan / Vegetarisch
-          </Link>
-          <Link href="/extras"  className={pill("/extras")}>Extras</Link>
-          <Link href="/drinks"  className={pill("/drinks")}>Getränke</Link>
-          <Link href="/sauces"  className={pill("/sauces")}>Soßen</Link>
-          <Link href="/hotdogs" className={pill("/hotdogs")}>Hot Dogs</Link>
-          {donutsOn && <Link href="/donuts" className={pill("/donuts")}>Donuts</Link>}
-          {btOn && <Link href="/bubble-tea" className={pill("/bubble-tea")}>Bubble Tea</Link>}
-          <NavCartPill />
-        </>
-      )}
+              {vegan ? (
+                <span aria-hidden className="mr-1">
+                  🌿
+                </span>
+              ) : null}
+
+              {item.label}
+            </button>
+          );
+        })}
+
+        <button
+          type="button"
+          className="nav-pill nav-pill--cart bb-app-nav__cart"
+          aria-label="Warenkorb öffnen"
+          onClick={openCart}
+        >
+          <span aria-hidden>🛒</span>
+          <span className="font-medium">{cartCount}</span>
+          <span aria-hidden className="opacity-55">
+            •
+          </span>
+          <span className="font-semibold">{formattedCartTotal}</span>
+        </button>
+      </div>
     </nav>
   );
 }

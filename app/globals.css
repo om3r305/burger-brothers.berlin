@@ -846,3 +846,295 @@ html[data-bb-motion="0"] .nav-pill--active {
     transition:none !important;
   }
 }
+/* =========================================================
+   BURGER BROTHERS – MOBILE APP NAVIGATION
+   Route adları değişmez; yalnızca geçiş ve mobil davranış iyileşir.
+   ========================================================= */
+
+:root {
+  --bb-route-duration: 220ms;
+  --bb-route-ease: cubic-bezier(.22, 1, .36, 1);
+  --bb-app-header-bg: color-mix(in srgb, var(--bb-page-bg, #050302) 88%, transparent);
+}
+
+/* Route içerik alanı: yeni sayfa profesyonel şekilde yerleşir. */
+.bb-route-view {
+  min-height: calc(100svh - 1px);
+  transform-origin: 50% 18%;
+  animation: bbRouteEnter var(--bb-route-duration) var(--bb-route-ease) both;
+  will-change: opacity, transform, filter;
+  backface-visibility: hidden;
+}
+
+@keyframes bbRouteEnter {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 8px, 0) scale(.997);
+    filter: blur(1.5px);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+    filter: blur(0);
+  }
+}
+
+/*
+ * Navigasyon başlarken eski içerik bir anda yok olmaz.
+ * Hafif küçülür; yeni route hazır olduğunda template animasyonu devralır.
+ */
+html.bb-route-pending .bb-route-view {
+  opacity: .72;
+  transform: translate3d(0, -3px, 0) scale(.998);
+  filter: saturate(.86);
+  transition:
+    opacity 140ms ease,
+    transform 180ms var(--bb-route-ease),
+    filter 140ms ease;
+  pointer-events: none;
+}
+
+html.bb-route-pending footer {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 100ms ease;
+}
+
+/* Üstte ince uygulama progress çizgisi */
+.bb-route-progress {
+  position: fixed;
+  inset: 0 0 auto;
+  height: 3px;
+  z-index: 2147483000;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(-100%);
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease;
+}
+
+.bb-route-progress--visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.bb-route-progress__bar {
+  display: block;
+  width: 42%;
+  height: 100%;
+  border-radius: 999px;
+  background:
+    linear-gradient(
+      90deg,
+      transparent,
+      var(--bb-accent, #ff941f),
+      var(--bb-accent-2, #ffc13b),
+      transparent
+    );
+  box-shadow: 0 0 16px var(--bb-glow, rgba(255, 145, 31, .38));
+  animation: bbRouteProgress 900ms ease-in-out infinite;
+}
+
+@keyframes bbRouteProgress {
+  from {
+    transform: translate3d(-115%, 0, 0);
+  }
+  to {
+    transform: translate3d(340%, 0, 0);
+  }
+}
+
+/* Ortak uygulama nav yapısı */
+.bb-app-nav {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.bb-app-nav__location {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  margin-right: .25rem;
+  font-size: .75rem;
+  opacity: .7;
+}
+
+.bb-app-nav__tabs {
+  display: flex;
+  width: max-content;
+  min-width: 100%;
+  align-items: center;
+  gap: .5rem;
+  padding: .15rem .1rem .4rem;
+}
+
+.bb-app-nav__tab,
+.bb-app-nav__cart {
+  flex: 0 0 auto;
+  min-height: 42px;
+  scroll-margin-inline: 28vw;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  transform: translateZ(0);
+}
+
+.bb-app-nav__tab {
+  position: relative;
+}
+
+.bb-app-nav__tab::after {
+  content: "";
+  position: absolute;
+  right: 22%;
+  bottom: -5px;
+  left: 22%;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--bb-accent, #ff941f);
+  box-shadow: 0 0 10px var(--bb-glow, rgba(255,145,31,.34));
+  opacity: 0;
+  transform: scaleX(.35);
+  transition:
+    opacity 160ms ease,
+    transform 220ms var(--bb-route-ease);
+}
+
+.bb-app-nav__tab[data-bb-tab-active="true"]::after {
+  opacity: 1;
+  transform: scaleX(1);
+}
+
+.bb-app-nav__tab:active,
+.bb-app-nav__cart:active {
+  transform: scale(.965);
+  transition-duration: 70ms;
+}
+
+/* Farklı sayfalardaki eski yatay ray sınıflarını tek davranışta toplar. */
+.bb-tabs-scroll,
+.bb-tabs-scroll__rail {
+  position: relative;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-inline: contain;
+  scroll-behavior: smooth;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.bb-tabs-scroll::-webkit-scrollbar,
+.bb-tabs-scroll__rail::-webkit-scrollbar {
+  display: none;
+}
+
+.bb-app-nav__tab,
+.bb-app-nav__cart {
+  scroll-snap-align: center;
+}
+
+/* Yükleme anında sayfanın boyu çökmesin. */
+.grid-cards:has(> .text-sm.text-stone-400:only-child) {
+  min-height: min(62svh, 620px);
+}
+
+.grid-cards > .text-sm.text-stone-400:only-child {
+  width: 100%;
+  min-height: 260px;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--bb-border, rgba(255,255,255,.1)) 85%, transparent);
+  border-radius: 1rem;
+  background:
+    linear-gradient(
+      105deg,
+      transparent 28%,
+      color-mix(in srgb, var(--bb-accent, #ff941f) 8%, transparent) 42%,
+      transparent 58%
+    ),
+    color-mix(in srgb, var(--bb-surface, rgba(28,25,23,.72)) 78%, transparent);
+  background-size: 240% 100%;
+  animation: bbLoadingShimmer 1.35s ease-in-out infinite;
+}
+
+@keyframes bbLoadingShimmer {
+  from {
+    background-position: 120% 0;
+  }
+  to {
+    background-position: -120% 0;
+  }
+}
+
+/* Mobilde kategori başlığı uygulama çubuğu gibi sabit ve dengeli davranır. */
+@media (max-width: 639px) {
+  .bb-tabs-scroll,
+  .bb-tabs-scroll__rail {
+    margin-inline: -1.5rem !important;
+    padding-inline: 1.5rem !important;
+    scroll-padding-inline: 38vw;
+  }
+
+  .bb-app-nav__tabs {
+    gap: .45rem;
+    padding-block: .25rem .55rem;
+  }
+
+  .bb-app-nav__tab,
+  .bb-app-nav__cart {
+    min-height: 44px;
+    padding-inline: .95rem;
+    font-size: .875rem;
+  }
+
+  .bb-app-nav__cart {
+    position: sticky;
+    right: 0;
+    z-index: 4;
+    margin-left: .15rem;
+    background-color: color-mix(
+      in srgb,
+      var(--bb-surface-strong, #0c0a09) 94%,
+      transparent
+    );
+    box-shadow:
+      -15px 0 18px color-mix(
+        in srgb,
+        var(--bb-page-bg, #050302) 88%,
+        transparent
+      ),
+      0 8px 20px rgba(0, 0, 0, .24);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+
+  /* Sayfa değişirken footer'ın içerik arasına fırlamasını önler. */
+  .bb-route-view {
+    min-height: 100svh;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bb-route-view,
+  .bb-route-progress__bar,
+  .grid-cards > .text-sm.text-stone-400:only-child {
+    animation: none !important;
+  }
+
+  html.bb-route-pending .bb-route-view,
+  .bb-app-nav__tab,
+  .bb-app-nav__cart {
+    transition: none !important;
+  }
+
+  .bb-tabs-scroll,
+  .bb-tabs-scroll__rail {
+    scroll-behavior: auto;
+  }
+}
