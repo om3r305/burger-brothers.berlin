@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { prisma, getTenantId } from "@/lib/db";
 import { readFallbackSnapshot, writeFallbackSnapshot } from "@/lib/server/fallback-snapshot";
+import { createDefaultThemeSettings } from "@/lib/themes";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -109,6 +110,8 @@ const DEFAULT_SETTINGS: PlainObject = {
     tiers: [],
   },
 
+  cartOffers: [],
+
   pricingOverrides: {
     plzMin: {},
   },
@@ -167,9 +170,7 @@ const DEFAULT_SETTINGS: PlainObject = {
     cancelled: "#ef4444",
   },
 
-  theme: {
-    active: "default",
-  },
+  theme: createDefaultThemeSettings(),
 };
 
 function isPlainObject(value: any): value is PlainObject {

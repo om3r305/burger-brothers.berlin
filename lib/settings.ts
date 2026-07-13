@@ -1,5 +1,7 @@
 import { normalizeFreebieConfig } from "@/lib/freebies";
 import type { FreebieCategory, FreebieRule } from "@/lib/freebies";
+import { createDefaultThemeSettings, normalizeThemeSettings } from "@/lib/themes";
+import type { ThemeSettings } from "@/lib/themes";
 
 // lib/settings.ts
 export const LS_SETTINGS = "bb_settings_v6";
@@ -134,6 +136,24 @@ export type FreebiesCfg = {
   category: FreebieCategory;
   mode: "pickup" | "delivery" | "both";
   tiers: FreebieTier[];
+  [key: string]: any;
+};
+
+
+export type CartOffer = {
+  id: string;
+  name: string;
+  enabled: boolean;
+  percent: number;
+  minNetTotal: number;
+  mode: "pickup" | "delivery" | "both";
+  startAt?: string;
+  endAt?: string;
+  priority?: number;
+  customerNotice?: string;
+  overrideStandardDiscount?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
   [key: string]: any;
 };
 
@@ -281,6 +301,7 @@ export type SettingsV6 = {
   };
 
   freebies?: FreebiesCfg;
+  cartOffers?: CartOffer[];
   coupons?: CouponRule[];
   announcements?: { enabled: boolean; items: AnnItem[] };
   routeDeals?: RouteDealsCfg;
@@ -327,7 +348,7 @@ export type SettingsV6 = {
     modeColors?: any;
   };
 
-  theme?: any;
+  theme?: ThemeSettings;
 
   offers?: {
     freebies?: FreebiesCfg;
@@ -472,6 +493,8 @@ const defaultSettings: SettingsV6 = {
     tiers: [],
   },
 
+  cartOffers: [],
+
   coupons: [],
 
   announcements: {
@@ -581,17 +604,7 @@ const defaultSettings: SettingsV6 = {
     },
   },
 
-  theme: {
-    active: "classic",
-    bgVideoUrl: "",
-    logos: {
-      classic: "",
-      neon: "",
-      christmas: "",
-      halloween: "",
-    },
-    snow: false,
-  },
+  theme: createDefaultThemeSettings(),
 
   offers: {
     freebies: {
@@ -1052,6 +1065,7 @@ function normalizeAndMerge(raw: any): SettingsV6 {
 
   compat.announcements = normalizeAnnouncements(compat.announcements);
   compat.routeDeals = normalizeRouteDeals(compat.routeDeals);
+  compat.theme = normalizeThemeSettings(compat.theme);
 
   const footerNote =
     compat?.printing?.footerNote ??
@@ -1104,6 +1118,7 @@ function normalizeAndMerge(raw: any): SettingsV6 {
   };
 
   let merged = mergeDeep(defaultSettings, compat) as SettingsV6;
+  merged.theme = normalizeThemeSettings(merged.theme);
 
   merged.hours = {
     ...merged.hours,

@@ -37,6 +37,25 @@ type DiscountKind = "percent" | "absolute" | "newPrice";
 type Scope = "category" | "product";
 type Mode = "delivery" | "pickup" | "both";
 
+type CartOffer = {
+  id: string;
+  name: string;
+  enabled: boolean;
+  percent: number;
+  minNetTotal: number;
+  mode: Mode;
+  startAt?: string;
+  endAt?: string;
+  priority?: number;
+  customerNotice?: string;
+  overrideStandardDiscount?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+type CampaignVisualStatus = "active" | "ending" | "upcoming" | "ended" | "inactive";
+
+
 type Campaign = {
   id: string;
   name: string;
@@ -53,6 +72,7 @@ type Campaign = {
   endAt?: string;
   mode: Mode;
   maxQtyPerOrder?: number | null;
+
 };
 
 const CATS: { value: Category; label: string }[] = [
@@ -82,6 +102,7 @@ type FreebieTier = { minTotal: number; freeSauces: number };
 type FreebieCategory = "sauces" | "drinks" | "donuts" | "bubbletea";
 
 type AdminSettings = {
+  cartOffers?: CartOffer[];
   freebies?: {
     enabled?: boolean;
     rules?: any[];
@@ -617,10 +638,15 @@ function loadSettingsFromLocal(): AdminSettings {
   }
 }
 
-async function saveSettingsToDb(settings: AdminSettings) {
+async function saveSettingsToDb(settings: AdminSettings): Promise<AdminSettings | null> {
   try {
+    /*
+     * Tam Admin ayarı olarak POST ediyoruz.
+     * Settings API bu yolu tek DB kaydıyla ve memory-cache yenilemesiyle işler.
+     */
     const res = await fetch(API_SETTINGS, {
-      method: "PUT",
+      method: "POST",
+      cache: "no-store",
       headers: {
         "Content-Type": "application/json",
         accept: "application/json",
@@ -636,14 +662,25 @@ async function saveSettingsToDb(settings: AdminSettings) {
       throw new Error(json?.error || `SETTINGS_SAVE_${res.status}`);
     }
 
+    const saved = normalizeSettingsPayload(json);
+
     try {
-      window.dispatchEvent(new CustomEvent("bb:settings-sync", { detail: json }));
+      window.dispatchEvent(
+        new CustomEvent("bb:settings-sync", {
+          detail: saved,
+        }),
+      );
+      window.dispatchEvent(
+        new CustomEvent("bb_settings_changed", {
+          detail: saved,
+        }),
+      );
     } catch {}
 
-    return true;
+    return saved;
   } catch (error) {
     console.error("saveSettingsToDb failed:", error);
-    return false;
+    return null;
   }
 }
 
@@ -684,6 +721,9 @@ export default function AdminCampaignsPage() {
   const [search, setSearch] = useState("");
   const [campaignSource, setCampaignSource] = useState<"server" | "cache" | null>(null);
   const skipNextCampaignSaveRef = useRef(false);
+  const [campaignsDirty, setCampaignsDirty] = useState(false);
+  const [savingCampaigns, setSavingCampaigns] = useState(false);
+  const [campaignSaveMessage, setCampaignSaveMessage] = useState("");
 
   const [editId, setEditId] = useState<string | null>(null);
   const [name, setName] = useState("");
@@ -705,6 +745,7 @@ export default function AdminCampaignsPage() {
   const [endAt, setEndAt] = useState<string>("");
 
   const [maxQtyPerOrder, setMaxQtyPerOrder] = useState<string>("");
+
 
   useEffect(() => {
     let alive = true;
@@ -734,23 +775,6 @@ export default function AdminCampaignsPage() {
     };
   }, []);
 
-  useDebouncedEffect(() => {
-    if (skipNextCampaignSaveRef.current) {
-      skipNextCampaignSaveRef.current = false;
-      return;
-    }
-
-    (async () => {
-      const ok = await saveCampaignsToDb(rows);
-
-      if (ok) {
-        setCampaignSource("server");
-        writeLocalCache(LS_CAMPAIGNS, rows);
-      } else {
-        setCampaignSource("cache");
-      }
-    })();
-  }, [rows], 300);
 
   const list = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -841,6 +865,8 @@ export default function AdminCampaignsPage() {
     setRows((prev) =>
       editId ? prev.map((r) => (r.id === editId ? payload : r)) : [...prev, payload],
     );
+    setCampaignsDirty(true);
+    setCampaignSaveMessage("Nicht gespeicherte Änderungen");
 
     resetForm();
   };
@@ -875,6 +901,8 @@ export default function AdminCampaignsPage() {
     if (!confirm("Diese Kampagne wirklich löschen?")) return;
 
     setRows((prev) => prev.filter((r) => r.id !== id));
+    setCampaignsDirty(true);
+    setCampaignSaveMessage("Nicht gespeicherte Änderungen");
 
     if (editId === id) resetForm();
   };
@@ -883,6 +911,25 @@ export default function AdminCampaignsPage() {
     setRows((prev) =>
       prev.map((r) => (r.id === id ? { ...r, enabled: !r.enabled } : r)),
     );
+    setCampaignsDirty(true);
+    setCampaignSaveMessage("Nicht gespeicherte Änderungen");
+  };
+
+  const saveCampaignChanges = async () => {
+    if (savingCampaigns) return;
+    setSavingCampaigns(true);
+    setCampaignSaveMessage("Wird gespeichert…");
+    const ok = await saveCampaignsToDb(rows);
+    if (ok) {
+      setCampaignSource("server");
+      writeLocalCache(LS_CAMPAIGNS, rows);
+      setCampaignsDirty(false);
+      setCampaignSaveMessage("Gespeichert ✅");
+    } else {
+      setCampaignSource("cache");
+      setCampaignSaveMessage("Speichern fehlgeschlagen");
+    }
+    setSavingCampaigns(false);
   };
 
   const [prodFilterCat, setProdFilterCat] = useState<Category | "all">("burger");
@@ -959,6 +1006,32 @@ export default function AdminCampaignsPage() {
   ]);
   const [settingsSource, setSettingsSource] = useState<"server" | "cache" | null>(null);
   const skipNextSettingsSaveRef = useRef(false);
+  const [cartOffers, setCartOffers] = useState<CartOffer[]>([]);
+
+  /*
+   * React state güncellemeleri asenkron olduğu için, formda "Übernehmen"
+   * dedikten hemen sonra "Angebote speichern" basıldığında eski liste
+   * gönderilebiliyordu. Ref her zaman en güncel listeyi taşır.
+   */
+  const cartOffersRef = useRef<CartOffer[]>([]);
+
+  const [cartOfferEditId, setCartOfferEditId] = useState<string | null>(null);
+  const [cartOfferName, setCartOfferName] = useState("");
+  const [cartOfferPercent, setCartOfferPercent] = useState("30");
+  const [cartOfferMinNet, setCartOfferMinNet] = useState("25");
+  const [cartOfferMode, setCartOfferMode] = useState<Mode>("both");
+  const [cartOfferStart, setCartOfferStart] = useState("");
+  const [cartOfferEnd, setCartOfferEnd] = useState("");
+  const [cartOfferEnabled, setCartOfferEnabled] = useState(true);
+  const [cartOfferNotice, setCartOfferNotice] = useState("Nur für Onlinebestellungen");
+  const [cartOffersDirty, setCartOffersDirty] = useState(false);
+  const [savingCartOffers, setSavingCartOffers] = useState(false);
+  const [cartOfferSaveMessage, setCartOfferSaveMessage] = useState("");
+
+  useEffect(() => {
+    cartOffersRef.current = cartOffers;
+  }, [cartOffers]);
+
 
   useEffect(() => {
     let alive = true;
@@ -975,6 +1048,13 @@ export default function AdminCampaignsPage() {
 
       setSettingsSource(fromDb ? "server" : "cache");
       setSettingsBase(obj);
+
+      const loadedCartOffers = Array.isArray(obj?.cartOffers)
+        ? obj.cartOffers
+        : [];
+
+      cartOffersRef.current = loadedCartOffers;
+      setCartOffers(loadedCartOffers);
 
       const freebies = obj?.freebies ?? obj?.offers?.freebies ?? {};
 
@@ -1006,6 +1086,206 @@ export default function AdminCampaignsPage() {
     };
   }, []);
 
+
+  const resetCartOfferForm = () => {
+    setCartOfferEditId(null);
+    setCartOfferName("");
+    setCartOfferPercent("30");
+    setCartOfferMinNet("25");
+    setCartOfferMode("both");
+    setCartOfferStart("");
+    setCartOfferEnd("");
+    setCartOfferEnabled(true);
+    setCartOfferNotice("Nur für Onlinebestellungen");
+  };
+
+  const addOrUpdateCartOffer = () => {
+    const percent = toNum(cartOfferPercent, 0);
+    const minNetTotal = toNum(cartOfferMinNet, 0);
+
+    if (!cartOfferName.trim()) {
+      return alert("Bitte Angebotsname eingeben.");
+    }
+
+    if (percent <= 0 || percent >= 100) {
+      return alert("Rabatt muss zwischen 0 und 100 liegen.");
+    }
+
+    if (minNetTotal <= 0) {
+      return alert("Bitte Mindest-Warenwert eingeben.");
+    }
+
+    if (
+      cartOfferStart &&
+      cartOfferEnd &&
+      new Date(cartOfferStart) > new Date(cartOfferEnd)
+    ) {
+      return alert("Startdatum darf nicht nach dem Enddatum liegen.");
+    }
+
+    const now = new Date().toISOString();
+    const current = cartOffersRef.current;
+    const existing = cartOfferEditId
+      ? current.find((item) => item.id === cartOfferEditId)
+      : undefined;
+
+    const offer: CartOffer = {
+      id: existing?.id || cartOfferEditId || rid(),
+      name: cartOfferName.trim(),
+      enabled: cartOfferEnabled,
+      percent,
+      minNetTotal,
+      mode: cartOfferMode,
+      startAt: cartOfferStart || undefined,
+      endAt: cartOfferEnd || undefined,
+      customerNotice: cartOfferNotice.trim() || undefined,
+      overrideStandardDiscount: true,
+      priority: existing?.priority ?? 100,
+      createdAt: existing?.createdAt || now,
+      updatedAt: now,
+    };
+
+    const next = existing
+      ? current.map((item) => (item.id === existing.id ? offer : item))
+      : [...current, offer];
+
+    /*
+     * Ref önce güncellenir. Böylece kullanıcı hemen kayıt butonuna bassa bile
+     * DB'ye eski değil, yeni düzenlenen obje gider.
+     */
+    cartOffersRef.current = next;
+    setCartOffers(next);
+    setCartOffersDirty(true);
+    setCartOfferSaveMessage(
+      existing
+        ? "Änderung übernommen – bitte Angebote speichern"
+        : "Angebot hinzugefügt – bitte Angebote speichern",
+    );
+
+    resetCartOfferForm();
+  };
+
+  const editCartOffer = (offer: CartOffer) => {
+    setCartOfferEditId(offer.id);
+    setCartOfferName(offer.name);
+    setCartOfferPercent(String(offer.percent));
+    setCartOfferMinNet(String(offer.minNetTotal));
+    setCartOfferMode(offer.mode || "both");
+    setCartOfferStart(toDatetimeLocal(offer.startAt));
+    setCartOfferEnd(toDatetimeLocal(offer.endAt));
+    setCartOfferEnabled(offer.enabled !== false);
+    setCartOfferNotice(offer.customerNotice || "");
+  };
+
+  const deleteCartOffer = (id: string) => {
+    if (!confirm("Dieses Warenkorb-Angebot wirklich löschen?")) return;
+
+    const next = cartOffersRef.current.filter((item) => item.id !== id);
+    cartOffersRef.current = next;
+    setCartOffers(next);
+    setCartOffersDirty(true);
+    setCartOfferSaveMessage("Nicht gespeicherte Änderungen");
+
+    if (cartOfferEditId === id) {
+      resetCartOfferForm();
+    }
+  };
+
+  const toggleCartOffer = (id: string) => {
+    const next = cartOffersRef.current.map((item) =>
+      item.id === id
+        ? {
+            ...item,
+            enabled: !item.enabled,
+            updatedAt: new Date().toISOString(),
+          }
+        : item,
+    );
+
+    cartOffersRef.current = next;
+    setCartOffers(next);
+    setCartOffersDirty(true);
+    setCartOfferSaveMessage("Nicht gespeicherte Änderungen");
+  };
+
+  const saveCartOffers = async () => {
+    if (savingCartOffers) return;
+
+    setSavingCartOffers(true);
+    setCartOfferSaveMessage("Wird gespeichert…");
+
+    try {
+      const latestOffers = cartOffersRef.current.map((offer) => ({
+        ...offer,
+        id: String(offer.id),
+        name: String(offer.name).trim(),
+        percent: Math.max(0, toNum(offer.percent, 0)),
+        minNetTotal: Math.max(0, toNum(offer.minNetTotal, 0)),
+        mode: normalizeMode(offer.mode),
+        updatedAt: offer.updatedAt || new Date().toISOString(),
+      }));
+
+      const nextSettings: AdminSettings = {
+        ...settingsBase,
+        cartOffers: latestOffers,
+      };
+
+      const savedSettings = await saveSettingsToDb(nextSettings);
+
+      if (!savedSettings) {
+        throw new Error("SETTINGS_SAVE_FAILED");
+      }
+
+      /*
+       * API cevabındaki cartOffers listesini tekrar kullanıyoruz.
+       * Böylece DB'nin kabul ettiği gerçek değer ekran ve local cache ile aynı olur.
+       */
+      const savedOffers = Array.isArray(savedSettings.cartOffers)
+        ? savedSettings.cartOffers
+        : latestOffers;
+
+      cartOffersRef.current = savedOffers;
+      setCartOffers(savedOffers);
+
+      const normalizedSavedSettings: AdminSettings = {
+        ...nextSettings,
+        ...savedSettings,
+        cartOffers: savedOffers,
+      };
+
+      setSettingsBase(normalizedSavedSettings);
+      writeLocalCache(LS_SETTINGS, normalizedSavedSettings);
+      setSettingsSource("server");
+      setCartOffersDirty(false);
+      setCartOfferSaveMessage("Gespeichert und aktualisiert ✅");
+    } catch (error) {
+      console.error("saveCartOffers failed:", error);
+      setCartOfferSaveMessage(
+        "Speichern fehlgeschlagen – Änderung wurde nicht verworfen",
+      );
+    } finally {
+      setSavingCartOffers(false);
+    }
+  };
+
+  const campaignStatus = (item: { enabled: boolean; startAt?: string; endAt?: string }): CampaignVisualStatus => {
+    if (!item.enabled) return "inactive";
+    const now = Date.now();
+    const start = item.startAt ? Date.parse(item.startAt) : -Infinity;
+    const end = item.endAt ? Date.parse(item.endAt) : Infinity;
+    if (Number.isFinite(start) && now < start) return "upcoming";
+    if (Number.isFinite(end) && now > end) return "ended";
+    if (Number.isFinite(end) && end - now <= 48 * 60 * 60 * 1000) return "ending";
+    return "active";
+  };
+
+  const statusUi = (status: CampaignVisualStatus) => ({
+    active: { label: "Läuft", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
+    ending: { label: "Endet bald", cls: "border-orange-500/40 bg-orange-500/10 text-orange-300" },
+    upcoming: { label: "Geplant", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
+    ended: { label: "Beendet", cls: "border-rose-500/40 bg-rose-500/10 text-rose-300" },
+    inactive: { label: "Inaktiv", cls: "border-stone-600 bg-stone-800 text-stone-300" },
+  }[status]);
 
   const addTier = () => {
     setFbTiers((prev) => [...prev, { minTotal: 30, freeSauces: 1 }]);
@@ -1059,7 +1339,15 @@ export default function AdminCampaignsPage() {
             ← Admin
           </Link>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            className="card-cta"
+            onClick={saveCampaignChanges}
+            disabled={!campaignsDirty || savingCampaigns}
+          >
+            {savingCampaigns ? "Speichert…" : "Kampagnen speichern"}
+          </button>
+          {campaignSaveMessage ? <span className="text-xs text-stone-400">{campaignSaveMessage}</span> : null}
           <button className="btn-ghost" onClick={doExport}>
             Export (JSON)
           </button>
@@ -1357,6 +1645,46 @@ export default function AdminCampaignsPage() {
         </div>
       </div>
 
+      <div className="card mb-6 border border-amber-500/20">
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="text-xl font-semibold">Warenkorb-Angebote</div>
+            <div className="mt-1 text-sm text-stone-400">
+              Unabhängig von Produkt- und Kategorie-Kampagnen. Unterhalb der Grenze gilt der Standardrabatt; ab der Grenze ersetzt dieses Angebot ihn.
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {cartOfferSaveMessage ? <span className="text-xs text-stone-400">{cartOfferSaveMessage}</span> : null}
+            <button className="card-cta" onClick={saveCartOffers} disabled={!cartOffersDirty || savingCartOffers}>
+              {savingCartOffers ? "Speichert…" : "Angebote speichern"}
+            </button>
+          </div>
+        </div>
+
+        <div className="grid gap-3 rounded-xl border border-stone-700/60 bg-stone-950/40 p-4 md:grid-cols-2">
+          <Field label="Angebotsname *"><input className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2" value={cartOfferName} onChange={(e) => setCartOfferName(e.target.value)} placeholder="z. B. 30% Online-Aktion" /></Field>
+          <Field label="Modus"><select className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2" value={cartOfferMode} onChange={(e) => setCartOfferMode(e.target.value as Mode)}><option value="both">Beides</option><option value="pickup">Nur Abholung</option><option value="delivery">Nur Lieferung</option></select></Field>
+          <Field label="Rabatt (%) *"><input type="number" step="0.01" className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2" value={cartOfferPercent} onChange={(e) => setCartOfferPercent(e.target.value)} /></Field>
+          <Field label="Mindest-Warenwert vor Rabatt (€) *"><input type="number" step="0.01" className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2" value={cartOfferMinNet} onChange={(e) => setCartOfferMinNet(e.target.value)} /></Field>
+          <Field label="Start"><input type="datetime-local" className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2" value={cartOfferStart} onChange={(e) => setCartOfferStart(e.target.value)} /></Field>
+          <Field label="Ende"><input type="datetime-local" className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2" value={cartOfferEnd} onChange={(e) => setCartOfferEnd(e.target.value)} /></Field>
+          <Field label="Kundenhinweis"><input className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2" value={cartOfferNotice} onChange={(e) => setCartOfferNotice(e.target.value)} /></Field>
+          <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={cartOfferEnabled} onChange={(e) => setCartOfferEnabled(e.target.checked)} /> Aktiv</label>
+          <div className="flex gap-2 md:col-span-2"><button className="card-cta" onClick={addOrUpdateCartOffer}>{cartOfferEditId ? "Änderung übernehmen" : "Angebot hinzufügen"}</button>{cartOfferEditId ? <button className="btn-ghost" onClick={resetCartOfferForm}>Abbrechen</button> : null}</div>
+        </div>
+
+        <div className="mt-4 grid gap-3">
+          {cartOffers.length === 0 ? <div className="rounded-xl border border-dashed border-stone-700 p-4 text-sm text-stone-400">Noch kein Warenkorb-Angebot angelegt.</div> : cartOffers.map((offer) => { const st = campaignStatus(offer); const ui = statusUi(st); return (
+            <div key={offer.id} className={`rounded-xl border p-4 ${ui.cls}`}>
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div><div className="flex flex-wrap items-center gap-2"><b>{offer.name}</b><span className="rounded-full border px-2 py-0.5 text-xs">{ui.label}</span></div><div className="mt-1 text-xs opacity-85">{offer.percent}% · {offer.minNetTotal.toFixed(2)} € netto · {offer.mode === "both" ? "Lieferung + Abholung" : offer.mode === "delivery" ? "Lieferung" : "Abholung"}</div><div className="mt-1 text-xs opacity-75">{offer.startAt ? `Start: ${new Date(offer.startAt).toLocaleString("de-DE")}` : "Start: sofort"} · {offer.endAt ? `Ende: ${new Date(offer.endAt).toLocaleString("de-DE")}` : "Ende: offen"}</div></div>
+                <div className="flex flex-wrap gap-2"><button className="btn-ghost" onClick={() => toggleCartOffer(offer.id)}>{offer.enabled ? "Deaktivieren" : "Aktivieren"}</button><button className="btn-ghost" onClick={() => editCartOffer(offer)}>Bearbeiten</button><button className="btn-ghost" onClick={() => deleteCartOffer(offer.id)}>Löschen</button></div>
+              </div>
+            </div>
+          ); })}
+        </div>
+      </div>
+
       <div className="card mb-6">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -1415,7 +1743,7 @@ export default function AdminCampaignsPage() {
 
       <div className="card">
         <div className="mb-3 flex flex-wrap items-center gap-2">
-          <div className="font-medium">Kampagnen</div>
+          <div><div className="font-medium">Kampagnenübersicht</div><div className="text-xs text-stone-400">Mehrere Kampagnen können gleichzeitig geplant und gespeichert werden.</div></div>
           <input
             className="ml-auto rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2 text-sm outline-none"
             value={search}
@@ -1453,23 +1781,19 @@ export default function AdminCampaignsPage() {
                   : c.mode === "delivery"
                     ? "Lieferung"
                     : "Abholung";
+              const visualStatus = campaignStatus(c);
+              const visualUi = statusUi(visualStatus);
 
               return (
                 <div
                   key={c.id}
-                  className="flex flex-col gap-2 rounded border border-stone-700/60 p-3 md:flex-row md:items-center md:justify-between"
+                  className={`flex flex-col gap-2 rounded-xl border p-4 md:flex-row md:items-center md:justify-between ${visualUi.cls}`}
                 >
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <div className="font-medium">{c.name}</div>
                       {c.badge ? <span className="badge badge--campaign">{c.badge}</span> : null}
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-[11px] ${
-                          c.enabled ? "bg-emerald-600 text-black" : "bg-stone-800 text-stone-200"
-                        }`}
-                      >
-                        {c.enabled ? "Aktiv" : "Inaktiv"}
-                      </span>
+                      <span className="rounded-full border px-2 py-0.5 text-[11px]">{visualUi.label}</span>
                     </div>
                     <div className="text-xs text-stone-400">
                       {c.scope === "category" ? "Kategorie" : "Produkt"} • {scopeText}

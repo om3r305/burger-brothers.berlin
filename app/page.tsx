@@ -11,6 +11,12 @@ import {
   fetchAndApplyRemoteSettings,
 } from "@/lib/settings";
 import {
+  getThemeLogo,
+  getThemeVideo,
+  normalizeThemeSettings,
+  resolveActiveTheme,
+} from "@/lib/themes";
+import {
   getAllCoupons,
   getAllIssued,
   syncCouponsFromServer,
@@ -329,6 +335,7 @@ function findLandingCouponForPhone(phoneInput: string): LandingCoupon | null {
   return null;
 }
 
+
 function persistLandingCoupon(coupon: LandingCoupon) {
   try {
     const meta = {
@@ -518,6 +525,25 @@ export default function HomePage() {
   }, []);
 
   const settings = useMemo(() => readSettings() as any, [settingsTick]);
+  const themeSettings = useMemo(
+    () => normalizeThemeSettings(settings?.theme),
+    [settings],
+  );
+  const themeResolution = useMemo(
+    () => resolveActiveTheme(themeSettings, new Date()),
+    [themeSettings, settingsTick],
+  );
+  const activeTheme = themeResolution.theme;
+  const themeLogo = useMemo(
+    () => getThemeLogo(themeSettings, activeTheme, siteConfig.brand.logoPath),
+    [themeSettings, activeTheme],
+  );
+  const themeVideo = useMemo(
+    () => getThemeVideo(themeSettings, activeTheme, "/flames/flame-loop.mp4"),
+    [themeSettings, activeTheme],
+  );
+  const themeLogoIsRemote = /^https?:\/\//i.test(themeLogo);
+
   const promo = useMemo(() => pickLandingPromo(settings), [settings]);
   const promoKey = useMemo(() => promoStorageKey(promo), [promo]);
   const promoDateRange = useMemo(() => formatDateRange(promo), [promo]);
@@ -593,39 +619,60 @@ export default function HomePage() {
   };
 
   return (
-    <main id="bb-landing-page" className="relative flex min-h-svh items-center justify-center overflow-hidden bg-black">
+    <main
+      id="bb-landing-page"
+      data-theme={activeTheme}
+      className={`bb-landing bb-landing--${activeTheme} relative flex min-h-svh items-center justify-center overflow-hidden`}
+    >
       {/* 🔥 Arka plan videosu — autoplay düşerse “Arka planı başlat” butonu çıkar */}
       <VideoBG
-        src="/flames/flame-loop.mp4"
+        key={`${activeTheme}:${themeVideo}`}
+        src={themeVideo}
         poster="/flames/poster.jpg"
-        lighten={0.35}
+        lighten={["neon", "lights", "halloween"].includes(activeTheme) ? 0.22 : 0.35}
         shiftY="-6%"
       />
 
       {/* Üstten hafif koyulaştırma: logonun okunaklı kalması için */}
-      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/45 via-black/20 to-transparent" />
+      <div className="bb-landing-overlay-top pointer-events-none absolute inset-0" />
 
       {/* Altta amber glow: canlılık + alttaki siyah bantı öldürür */}
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-44 bg-gradient-to-t from-black/55 via-amber-400/14 to-transparent mix-blend-screen sm:h-40" />
+      <div className="bb-landing-overlay-bottom pointer-events-none absolute inset-x-0 bottom-0 h-44 sm:h-40" />
 
       {/* Logo + Lokasyon + CTA */}
       <div
         className="relative z-10 mx-auto flex max-w-screen-md flex-col items-center gap-3 p-5 text-center sm:gap-4 sm:p-6"
         style={{ transform: "translateY(-9vh)" }}
       >
-        <Image
-          src={siteConfig.brand.logoPath}
-          alt={siteConfig.brand.name}
-          width={560}
-          height={560}
-          priority
-          className="h-auto w-[44vh] max-w-[68vw] select-none drop-shadow-[0_8px_24px_rgba(0,0,0,0.6)] sm:w-[52vh] sm:max-w-[72vw]"
-          draggable={false}
-        />
+        {themeLogoIsRemote ? (
+          <img
+            src={themeLogo}
+            alt={siteConfig.brand.name}
+            width={560}
+            height={560}
+            loading="eager"
+            className="h-auto w-[44vh] max-w-[68vw] select-none drop-shadow-[0_8px_24px_rgba(0,0,0,0.6)] sm:w-[52vh] sm:max-w-[72vw]"
+            draggable={false}
+            onError={(event) => {
+              event.currentTarget.onerror = null;
+              event.currentTarget.src = siteConfig.brand.logoPath;
+            }}
+          />
+        ) : (
+          <Image
+            src={themeLogo}
+            alt={siteConfig.brand.name}
+            width={560}
+            height={560}
+            priority
+            className="h-auto w-[44vh] max-w-[68vw] select-none drop-shadow-[0_8px_24px_rgba(0,0,0,0.6)] sm:w-[52vh] sm:max-w-[72vw]"
+            draggable={false}
+          />
+        )}
 
         <div
           aria-label="Standort"
-          className="rounded-full border border-white/20 bg-white/12 px-4 py-2 text-base font-semibold text-white/90 shadow backdrop-blur md:text-lg"
+          className="bb-theme-location rounded-full border px-4 py-2 text-base font-semibold text-white/90 shadow backdrop-blur md:text-lg"
           style={{ marginTop: "-0.25rem" }}
         >
           <span className="mr-1.5" aria-hidden>
@@ -637,7 +684,7 @@ export default function HomePage() {
         <button
           onClick={handleEnter}
           disabled={!ready}
-          className="mt-1 rounded-full bg-gradient-to-r from-orange-500 to-yellow-500 px-10 py-4 text-lg font-semibold text-black shadow-lg transition-all hover:scale-105 hover:shadow-amber-400/70 disabled:cursor-not-allowed disabled:opacity-60 md:text-xl"
+          className="bb-theme-primary mt-1 rounded-full px-10 py-4 text-lg font-semibold shadow-lg transition-all hover:scale-105 disabled:cursor-not-allowed disabled:opacity-60 md:text-xl"
         >
           {siteConfig?.ui?.entryButtonLabel ?? "Jetzt bestellen"}
         </button>

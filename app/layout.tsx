@@ -3,6 +3,7 @@ import "./globals.css";
 import { Inter } from "next/font/google";
 import Footer from "@/components/Footer";
 import SettingsSync from "./SettingsSync";
+import ThemeClient from "./theme-client";
 import ProductsSync from "./ProductsSync";
 import DriversSync from "./DriversSync";
 import { LS_SETTINGS } from "@/lib/settings";
@@ -52,11 +53,11 @@ export const metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="de">
+    <html lang="de" suppressHydrationWarning data-bb-theme="classic" data-bb-effects="0" data-bb-motion="1" data-bb-snow="0">
       <body
         className={`${inter.variable} bg-stone-950 text-stone-100 min-h-screen`}
         style={{
-          backgroundColor: "#000",
+          backgroundColor: "var(--bb-page-bg, #000)",
           WebkitTapHighlightColor: "transparent",
           paddingBottom: "env(safe-area-inset-bottom)",
         }}
@@ -209,6 +210,9 @@ body:has(#bb-landing-page) .bb-mobile-footer-gap {
 
         {/* 🔁 Server → localStorage ayar senkronu */}
         <SettingsSync />
+
+        {/* 🎨 DB / localStorage temasını müşteri tarafına uygular */}
+        <ThemeClient />
 
         {/* App-shell */}
         <main className="app-shell min-w-0">{children}</main>

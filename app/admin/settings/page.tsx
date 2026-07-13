@@ -11,6 +11,8 @@ import {
   normalizeFreebieConfig,
 } from "@/lib/freebies";
 import type { FreebieRule } from "@/lib/freebies";
+import SeasonalThemeEditor from "@/components/SeasonalThemeEditor";
+import { createDefaultThemeSettings, normalizeThemeSettings } from "@/lib/themes";
 
 /* ───────────────────────── constants ───────────────────────── */
 
@@ -141,17 +143,7 @@ const DEFAULT_MODEL: SettingsModel = {
     },
   },
 
-  theme: {
-    active: "classic",
-    bgVideoUrl: "",
-    logos: {
-      classic: "",
-      neon: "",
-      christmas: "",
-      halloween: "",
-    },
-    snow: false,
-  },
+  theme: createDefaultThemeSettings(),
 
   printing: {
     logoUrl: "/logo.png",
@@ -989,19 +981,7 @@ function normalizeForSave(raw: any) {
     maintenanceEnd: next.site?.maintenanceEnd ? safeIso(next.site.maintenanceEnd) : "",
   };
 
-  next.theme = {
-    ...(next.theme || {}),
-    active: next.theme?.active || "classic",
-    bgVideoUrl: next.theme?.bgVideoUrl || "",
-    logos: {
-      ...(next.theme?.logos || {}),
-      classic: next.theme?.logos?.classic || "",
-      neon: next.theme?.logos?.neon || "",
-      christmas: next.theme?.logos?.christmas || "",
-      halloween: next.theme?.logos?.halloween || "",
-    },
-    snow: bool(next.theme?.snow, false),
-  };
+  next.theme = normalizeThemeSettings(next.theme);
 
   return next;
 }
@@ -1759,96 +1739,18 @@ export default function AdminSettingsPage() {
 
         {/* THEME / BRAND */}
         <section className="card">
-          <div className="mb-3 text-lg font-medium">Design & Marke</div>
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <Field label="Aktives Design">
-              <select
-                className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2 outline-none"
-                value={m.theme?.active || "classic"}
-                onChange={(event) => setNested(["theme", "active"], event.target.value)}
-              >
-                <option value="classic">Classic</option>
-                <option value="neon">Neon</option>
-                <option value="christmas">Christmas</option>
-                <option value="halloween">Halloween</option>
-              </select>
-            </Field>
-
-            <Field label="Hintergrundvideo URL (.mp4)">
-              <input
-                className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2 outline-none"
-                value={m.theme?.bgVideoUrl || ""}
-                onChange={(event) => setNested(["theme", "bgVideoUrl"], event.target.value)}
-                placeholder="https://.../background.mp4"
-              />
-            </Field>
-
-            <div className="grid grid-cols-1 gap-3 md:col-span-2 md:grid-cols-2">
-              <Field label="Logo Classic URL">
-                <input
-                  className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2 outline-none"
-                  value={m.theme?.logos?.classic || ""}
-                  onChange={(event) =>
-                    setNested(["theme", "logos"], {
-                      ...(m.theme?.logos || {}),
-                      classic: event.target.value,
-                    })
-                  }
-                  placeholder="/logo-classic.png"
-                />
-              </Field>
-
-              <Field label="Logo Neon URL">
-                <input
-                  className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2 outline-none"
-                  value={m.theme?.logos?.neon || ""}
-                  onChange={(event) =>
-                    setNested(["theme", "logos"], {
-                      ...(m.theme?.logos || {}),
-                      neon: event.target.value,
-                    })
-                  }
-                  placeholder="/logo-neon.png"
-                />
-              </Field>
-
-              <Field label="Logo Christmas URL">
-                <input
-                  className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2 outline-none"
-                  value={m.theme?.logos?.christmas || ""}
-                  onChange={(event) =>
-                    setNested(["theme", "logos"], {
-                      ...(m.theme?.logos || {}),
-                      christmas: event.target.value,
-                    })
-                  }
-                  placeholder="/logo-christmas.png"
-                />
-              </Field>
-
-              <Field label="Logo Halloween URL">
-                <input
-                  className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2 outline-none"
-                  value={m.theme?.logos?.halloween || ""}
-                  onChange={(event) =>
-                    setNested(["theme", "logos"], {
-                      ...(m.theme?.logos || {}),
-                      halloween: event.target.value,
-                    })
-                  }
-                  placeholder="/logo-halloween.png"
-                />
-              </Field>
-            </div>
-
-            <div className="flex items-center">
-              <Toggle
-                label="Christmas: Schnee-Effekt"
-                checked={!!m.theme?.snow}
-                onChange={(value) => setNested(["theme", "snow"], value)}
-              />
+          <div className="mb-4">
+            <div className="text-lg font-medium">Design & Saison-Themen</div>
+            <div className="mt-1 text-xs leading-relaxed text-stone-400">
+              Mobile-first Saison-Designs, automatische Zeitplanung, eigene Logos und
+              Hintergrundvideos. Der Admin-Bereich bleibt bewusst im klaren Classic-Design.
             </div>
           </div>
+
+          <SeasonalThemeEditor
+            value={m.theme}
+            onChange={(value) => setNested(["theme"], value)}
+          />
         </section>
 
         {/* HOURS */}
