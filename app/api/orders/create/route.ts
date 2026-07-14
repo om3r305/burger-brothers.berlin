@@ -5,6 +5,7 @@ import { generateOrderId } from "@/lib/order-id";
 import { getServerSettings, saveServerSettings } from "@/lib/server/settings";
 import { sendTelegramNewOrder } from "@/lib/telegram";
 import { normalizePlz, routeDealMatchesAddress, routeDealStreetLabel } from "@/lib/streets";
+import { verifyPaymentFinalizeSignature } from "@/lib/server/payment-signature";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -1453,6 +1454,55 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({} as any));
   const order = body?.order && typeof body.order === "object" ? body.order : body;
 
+  /*
+   * Online / Getrennt zahlen siparişleri yalnızca Stripe tarafından gerçekten
+   * ödenmiş bir ödeme oturumu finalize edilirken oluşturulabilir.
+   * Nakit sipariş akışı bu kontrolden etkilenmez.
+   */
+  const incomingPaymentMethod = normalizePaymentMethod(order);
+  const incomingPaymentStatus = normalizePaymentStatus(order);
+  const protectedOnlinePayment =
+    incomingPaymentMethod === "online" ||
+    incomingPaymentMethod === "split_contactless";
+
+  const paymentMeta = ensureObj(ensureObj(order?.meta)?.payment ?? order?.payment);
+  const paymentSessionId = cleanText(
+    paymentMeta?.sessionId ??
+      ensureObj(order?.meta)?.paymentSessionId ??
+      req.headers.get("x-bb-payment-session"),
+  );
+  const requestedFinalOrderId = cleanText(order?.id ?? order?.orderId);
+  const finalizeSignature = cleanText(
+    req.headers.get("x-bb-payment-finalize"),
+  );
+
+  const verifiedPaymentFinalize =
+    protectedOnlinePayment &&
+    incomingPaymentStatus === "paid" &&
+    verifyPaymentFinalizeSignature(
+      paymentSessionId,
+      requestedFinalOrderId,
+      finalizeSignature,
+    );
+
+  if (protectedOnlinePayment && !verifiedPaymentFinalize) {
+    return NextResponse.json(
+      {
+        ok: false,
+        source: "stripe",
+        error: "PAYMENT_NOT_VERIFIED",
+        message:
+          "Online-Zahlung wurde noch nicht sicher bestätigt. Die Bestellung wurde nicht gesendet.",
+      },
+      {
+        status: 402,
+        headers: {
+          "Cache-Control": "no-store, no-cache, must-revalidate",
+        },
+      },
+    );
+  }
+
   if (body?.emergencyMode === true || body?.notfallMode === true) {
     try {
       return await handleEmergencyOrder(body, order);
@@ -1485,7 +1535,43 @@ export async function POST(req: Request) {
     const settings = await getServerSettings().catch(() => ({} as any));
 
     const idLength = Math.max(4, Number(settings?.orders?.idLength ?? 6) || 6);
-    const id = await generateUniqueOrderId(idLength);
+    const id =
+      verifiedPaymentFinalize && requestedFinalOrderId
+        ? requestedFinalOrderId
+        : await generateUniqueOrderId(idLength);
+
+    if (verifiedPaymentFinalize) {
+      const existing = await prisma.order.findUnique({
+        where: {
+          id,
+        },
+      });
+
+      if (existing) {
+        const serializedExisting = serializeOrder(existing);
+
+        return NextResponse.json(
+          {
+            ok: true,
+            source: "db",
+            duplicate: true,
+            id,
+            orderId: id,
+            etaMin: existing?.etaMin ?? null,
+            planned: existing?.planned ?? null,
+            notifySent: false,
+            order: serializedExisting,
+            item: serializedExisting,
+            data: serializedExisting,
+          },
+          {
+            headers: {
+              "Cache-Control": "no-store, no-cache, must-revalidate",
+            },
+          },
+        );
+      }
+    }
 
     const avgPickup = Math.max(1, Number(settings?.hours?.avgPickupMinutes ?? 15) || 15);
     const avgDelivery = Math.max(1, Number(settings?.hours?.avgDeliveryMinutes ?? 35) || 35);

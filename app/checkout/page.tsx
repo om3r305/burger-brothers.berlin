@@ -78,7 +78,22 @@ type Planned = {
   timeDelivery: string;
 };
 
-type PaymentMethod = "cash" | "online";
+type PaymentMethod = "cash" | "online" | "split_contactless";
+
+type SplitUnit = {
+  key: string;
+  label: string;
+  weightCents: number;
+};
+
+type SplitShare = {
+  index: number;
+  label: string;
+  baseAmountCents: number;
+  serviceFeeCents: number;
+  amountCents: number;
+  items: Array<{ key: string; label: string }>;
+};
 type TipChoice = "none" | "1" | "2" | "3" | "custom";
 
 type FreebieTier = {
@@ -544,6 +559,101 @@ function FieldHint({
       {ok ? okText : errorText}
     </span>
   );
+}
+
+
+function buildSplitUnits(items: any[]): SplitUnit[] {
+  const units: SplitUnit[] = [];
+
+  (Array.isArray(items) ? items : []).forEach((cartItem: any, cartIndex: number) => {
+    const qty = Math.max(1, Math.round(toNum(cartItem?.qty, 1)));
+    const basePrice = toNum(cartItem?.item?.price ?? cartItem?.price, 0);
+    const extras = (Array.isArray(cartItem?.add) ? cartItem.add : []).reduce(
+      (sum: number, extra: any) => sum + toNum(extra?.price, 0),
+      0,
+    );
+    const unitPrice = Math.max(0.01, basePrice + extras);
+    const name = String(
+      cartItem?.item?.name ??
+        cartItem?.name ??
+        cartItem?.item?.sku ??
+        "Artikel",
+    );
+
+    for (let unitIndex = 0; unitIndex < qty; unitIndex += 1) {
+      units.push({
+        key: `${cartIndex}:${String(
+          cartItem?.id ?? cartItem?.item?.id ?? cartItem?.item?.sku ?? name,
+        )}:${unitIndex}`,
+        label: qty > 1 ? `${name} (${unitIndex + 1}/${qty})` : name,
+        weightCents: Math.max(1, Math.round(unitPrice * 100)),
+      });
+    }
+  });
+
+  return units;
+}
+
+function buildSplitShares(params: {
+  units: SplitUnit[];
+  assignments: Record<string, number>;
+  people: number;
+  payableCents: number;
+  serviceFeeCents: number;
+}): SplitShare[] {
+  const { units, assignments, people, payableCents, serviceFeeCents } = params;
+  const safePeople = Math.max(2, Math.round(people));
+  const groups = Array.from({ length: safePeople }, (_, index) => ({
+    index,
+    label: `Person ${index + 1}`,
+    weightCents: 0,
+    items: [] as Array<{ key: string; label: string }>,
+  }));
+
+  for (const unit of units) {
+    const rawIndex = Number(assignments[unit.key]);
+    const personIndex =
+      Number.isInteger(rawIndex) && rawIndex >= 0 && rawIndex < safePeople
+        ? rawIndex
+        : 0;
+
+    groups[personIndex].weightCents += unit.weightCents;
+    groups[personIndex].items.push({
+      key: unit.key,
+      label: unit.label,
+    });
+  }
+
+  const totalWeight = groups.reduce(
+    (sum, group) => sum + group.weightCents,
+    0,
+  );
+
+  let allocated = 0;
+
+  return groups.map((group, index) => {
+    const isLast = index === groups.length - 1;
+    const baseAmountCents =
+      totalWeight <= 0
+        ? 0
+        : isLast
+          ? Math.max(0, payableCents - allocated)
+          : Math.max(
+              0,
+              Math.floor((payableCents * group.weightCents) / totalWeight),
+            );
+
+    allocated += baseAmountCents;
+
+    return {
+      index,
+      label: group.label,
+      baseAmountCents,
+      serviceFeeCents,
+      amountCents: baseAmountCents + serviceFeeCents,
+      items: group.items,
+    };
+  });
 }
 
 function readPaymentEnabled(settings: any, key: "cash" | "online" | "contactless" | "split", fallback: boolean) {
@@ -1237,6 +1347,17 @@ export default function CheckoutPage() {
       online: readPaymentEnabled(settingsRaw, "online", false),
       contactless: readPaymentEnabled(settingsRaw, "contactless", false),
       split: readPaymentEnabled(settingsRaw, "split", false),
+      splitServiceFee: Math.max(
+        0,
+        Math.min(5, toNum(settingsRaw?.payments?.split?.serviceFee, 0.2)),
+      ),
+      splitMaxPeople: Math.max(
+        2,
+        Math.min(
+          10,
+          Math.round(toNum(settingsRaw?.payments?.split?.maxPeople, 8)),
+        ),
+      ),
     }),
     [settingsRaw],
   );
@@ -1516,17 +1637,36 @@ export default function CheckoutPage() {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cash");
   const [tipChoice, setTipChoice] = useState<TipChoice>("none");
   const [customTip, setCustomTip] = useState("");
-  const [testPaymentOpen, setTestPaymentOpen] = useState(false);
+  const [splitPeople, setSplitPeople] = useState(2);
+  const [splitAssignments, setSplitAssignments] = useState<
+    Record<string, number>
+  >({});
 
   useEffect(() => {
     if (paymentMethod === "online" && !paymentSettings.online) {
-      setPaymentMethod("cash");
+      setPaymentMethod(paymentSettings.cash ? "cash" : "online");
     }
 
-    if (paymentMethod === "cash" && !paymentSettings.cash && paymentSettings.online) {
+    if (
+      paymentMethod === "split_contactless" &&
+      (!paymentSettings.online || !paymentSettings.split)
+    ) {
+      setPaymentMethod(paymentSettings.online ? "online" : "cash");
+    }
+
+    if (
+      paymentMethod === "cash" &&
+      !paymentSettings.cash &&
+      paymentSettings.online
+    ) {
       setPaymentMethod("online");
     }
-  }, [paymentMethod, paymentSettings.cash, paymentSettings.online]);
+  }, [
+    paymentMethod,
+    paymentSettings.cash,
+    paymentSettings.online,
+    paymentSettings.split,
+  ]);
 
   useEffect(() => {
     const onStorage = (event: StorageEvent) => {
@@ -1636,6 +1776,76 @@ export default function CheckoutPage() {
 
   const payableTotal = roundToNearest10Cents(totalFinal + tipAmount);
 
+  const splitUnits = useMemo(() => buildSplitUnits(items), [items]);
+  const splitServiceFeeCents = Math.max(
+    0,
+    Math.round(paymentSettings.splitServiceFee * 100),
+  );
+
+  useEffect(() => {
+    setSplitPeople((current) =>
+      Math.max(2, Math.min(paymentSettings.splitMaxPeople, current)),
+    );
+  }, [paymentSettings.splitMaxPeople]);
+
+  useEffect(() => {
+    setSplitAssignments((current) => {
+      const next: Record<string, number> = {};
+      let changed = false;
+
+      splitUnits.forEach((unit, index) => {
+        const existing = current[unit.key];
+        const person =
+          Number.isInteger(existing) &&
+          existing >= 0 &&
+          existing < splitPeople
+            ? existing
+            : index % splitPeople;
+
+        next[unit.key] = person;
+
+        if (current[unit.key] !== person) {
+          changed = true;
+        }
+      });
+
+      if (Object.keys(current).length !== Object.keys(next).length) {
+        changed = true;
+      }
+
+      return changed ? next : current;
+    });
+  }, [splitUnits, splitPeople]);
+
+  const splitShares = useMemo(
+    () =>
+      buildSplitShares({
+        units: splitUnits,
+        assignments: splitAssignments,
+        people: splitPeople,
+        payableCents: Math.max(0, Math.round(payableTotal * 100)),
+        serviceFeeCents: splitServiceFeeCents,
+      }),
+    [
+      splitUnits,
+      splitAssignments,
+      splitPeople,
+      payableTotal,
+      splitServiceFeeCents,
+    ],
+  );
+
+  const splitPlanValid =
+    splitUnits.length > 0 &&
+    splitShares.length >= 2 &&
+    splitShares.every(
+      (share) => share.items.length > 0 && share.baseAmountCents > 0,
+    );
+
+  const splitGrandTotal = +(
+    splitShares.reduce((sum, share) => sum + share.amountCents, 0) / 100
+  ).toFixed(2);
+
   const meetsMin =
     orderMode === "pickup"
       ? true
@@ -1702,6 +1912,16 @@ export default function CheckoutPage() {
     (orderMode === "delivery" && (!plzKnown || !meetsMin)) ||
     !phoneOk ||
     modePaused;
+
+  const paymentPlanBlocked =
+    paymentMethod === "split_contactless" && !splitPlanValid;
+  const paymentMethodUnavailable =
+    (paymentMethod === "cash" && !paymentSettings.cash) ||
+    (paymentMethod === "online" && !paymentSettings.online) ||
+    (paymentMethod === "split_contactless" &&
+      (!paymentSettings.online || !paymentSettings.split));
+  const disablePaymentSubmit =
+    disableSend || paymentPlanBlocked || paymentMethodUnavailable;
 
   const filteredStreets = useMemo(
     () => searchStreets(addr.zip, streetQuery, 50),
@@ -2509,8 +2729,9 @@ export default function CheckoutPage() {
           <div className="mb-3">
             <div className="text-sm font-semibold text-stone-100">Zahlungsart</div>
             <div className="mt-1 text-xs text-stone-400">
-              Aktuell ist im Shop nur Barzahlung aktiv. Online-Zahlung und Kartenzahlung
-              können später im Adminbereich freigeschaltet werden.
+              Wähle Barzahlung, sichere Stripe Online-Zahlung oder – wenn aktiviert –
+              Getrennt zahlen. Online bezahlte Bestellungen werden erst nach erfolgreicher
+              Zahlungsbestätigung an die Küche gesendet.
             </div>
           </div>
 
@@ -2545,7 +2766,26 @@ export default function CheckoutPage() {
               >
                 <div className="font-medium">Online-Zahlung</div>
                 <div className="mt-1 text-xs text-stone-400">
-                  Testmodus: Zahlung simulieren. Später mit Stripe, Apple Pay und Google Pay.
+                  Sichere Zahlung über Stripe. Verfügbare Karten, Apple Pay, Google Pay,
+                  Klarna und weitere aktivierte Methoden werden automatisch angezeigt.
+                </div>
+              </button>
+            )}
+
+            {paymentSettings.online && paymentSettings.split && (
+              <button
+                type="button"
+                onClick={() => setPaymentMethod("split_contactless")}
+                className={`rounded-xl border p-3 text-left transition ${
+                  paymentMethod === "split_contactless"
+                    ? "border-amber-500/70 bg-amber-500/10"
+                    : "border-stone-700/60 bg-stone-900/60 hover:bg-stone-800/60"
+                }`}
+              >
+                <div className="font-medium">Getrennt zahlen</div>
+                <div className="mt-1 text-xs text-stone-400">
+                  Produkte auf Personen verteilen und jeden Anteil nacheinander online
+                  bezahlen. Servicegebühr: {fmt(paymentSettings.splitServiceFee)} pro Person.
                 </div>
               </button>
             )}
@@ -2559,13 +2799,131 @@ export default function CheckoutPage() {
               </div>
             )}
 
-            {!paymentSettings.cash && !paymentSettings.online && !paymentSettings.contactless && (
+            {!paymentSettings.cash &&
+              !paymentSettings.online &&
+              !paymentSettings.contactless &&
+              !paymentSettings.split && (
               <div className="rounded-xl border border-rose-500/50 bg-rose-500/10 p-3 text-sm text-rose-200 md:col-span-2">
                 Es ist aktuell keine Zahlungsart aktiv. Bitte im Adminbereich mindestens
                 Barzahlung aktivieren.
               </div>
             )}
           </div>
+
+          {paymentMethod === "split_contactless" && (
+            <div className="mt-4 rounded-2xl border border-amber-500/40 bg-amber-500/5 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="font-semibold text-amber-100">
+                    Getrennt zahlen – Produkte verteilen
+                  </div>
+                  <div className="mt-1 text-xs text-stone-400">
+                    Jede Person muss mindestens einen Artikel übernehmen. Rabatte,
+                    Aufschläge und Trinkgeld werden anteilig verteilt.
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 rounded-full border border-stone-700/60 bg-stone-950/70 p-1">
+                  <button
+                    type="button"
+                    className="h-9 w-9 rounded-full bg-stone-800 text-lg"
+                    onClick={() =>
+                      setSplitPeople((current) => Math.max(2, current - 1))
+                    }
+                    disabled={splitPeople <= 2}
+                  >
+                    −
+                  </button>
+                  <div className="min-w-20 text-center text-sm font-bold">
+                    {splitPeople} Personen
+                  </div>
+                  <button
+                    type="button"
+                    className="h-9 w-9 rounded-full bg-stone-800 text-lg"
+                    onClick={() =>
+                      setSplitPeople((current) =>
+                        Math.min(paymentSettings.splitMaxPeople, current + 1),
+                      )
+                    }
+                    disabled={splitPeople >= paymentSettings.splitMaxPeople}
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-4 space-y-2">
+                {splitUnits.map((unit) => (
+                  <div
+                    key={unit.key}
+                    className="flex items-center justify-between gap-3 rounded-xl border border-stone-700/60 bg-stone-950/50 px-3 py-2"
+                  >
+                    <span className="min-w-0 flex-1 truncate text-sm">
+                      {unit.label}
+                    </span>
+                    <select
+                      value={String(splitAssignments[unit.key] ?? 0)}
+                      onChange={(event) =>
+                        setSplitAssignments((current) => ({
+                          ...current,
+                          [unit.key]: Number(event.target.value),
+                        }))
+                      }
+                      className="rounded-lg border border-stone-700/60 bg-stone-900 px-2 py-1.5 text-sm outline-none"
+                    >
+                      {Array.from({ length: splitPeople }, (_, index) => (
+                        <option key={index} value={index}>
+                          Person {index + 1}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {splitShares.map((share) => (
+                  <div
+                    key={share.index}
+                    className={`rounded-xl border p-3 ${
+                      share.items.length > 0
+                        ? "border-stone-700/60 bg-stone-950/50"
+                        : "border-rose-500/50 bg-rose-500/10"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold">{share.label}</span>
+                      <span className="font-bold">
+                        {fmt(share.amountCents / 100)}
+                      </span>
+                    </div>
+                    <div className="mt-1 text-xs text-stone-400">
+                      Anteil {fmt(share.baseAmountCents / 100)} + Service{" "}
+                      {fmt(share.serviceFeeCents / 100)}
+                    </div>
+                    <div className="mt-2 text-xs text-stone-300">
+                      {share.items.length > 0
+                        ? share.items.map((item) => item.label).join(", ")
+                        : "Noch kein Artikel zugeordnet"}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-4 flex items-center justify-between rounded-xl bg-black/30 px-3 py-2">
+                <span className="text-sm">Gesamt inkl. Servicegebühr</span>
+                <span className="font-black text-amber-300">
+                  {fmt(splitGrandTotal)}
+                </span>
+              </div>
+
+              {!splitPlanValid && (
+                <div className="mt-3 rounded-lg border border-rose-500/40 bg-rose-500/10 p-2 text-xs text-rose-200">
+                  Bitte jeder Person mindestens einen Artikel zuweisen.
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="mt-4 border-t border-stone-800/70 pt-4">
             <div className="text-sm font-semibold text-stone-100">Trinkgeld</div>
@@ -2713,13 +3071,16 @@ export default function CheckoutPage() {
                 return;
               }
 
-              if (disableSend) {
+              if (disablePaymentSubmit) {
                 event.preventDefault();
                 return;
               }
 
-              if (paymentMethod === "online") {
-                setTestPaymentOpen(true);
+              if (
+                paymentMethod === "online" ||
+                paymentMethod === "split_contactless"
+              ) {
+                await startStripeCheckout(paymentMethod);
                 return;
               }
 
@@ -2730,7 +3091,7 @@ export default function CheckoutPage() {
               });
             }}
             className={`card-cta card-cta--lg ${
-              disableSend || submitBusy || submitted
+              disablePaymentSubmit || submitBusy || submitted
                 ? "pointer-events-none opacity-50"
                 : ""
             }`}
@@ -2739,19 +3100,25 @@ export default function CheckoutPage() {
                 ? orderMode === "pickup"
                   ? "Abholung ist pausiert."
                   : "Lieferung ist pausiert."
-                : disableSend
-                  ? "Bitte Pflichtfelder/PLZ/Minimalbetrag/Zeit prüfen"
+                : disablePaymentSubmit
+                  ? paymentPlanBlocked
+                    ? "Bitte alle Artikel auf die Personen verteilen"
+                    : "Bitte Pflichtfelder/PLZ/Minimalbetrag/Zeit prüfen"
                   : paymentMethod === "online"
-                    ? "Online-Zahlung testen"
-                    : "Bestellung senden"
+                    ? "Sicher online bezahlen"
+                    : paymentMethod === "split_contactless"
+                      ? "Getrennte Zahlung starten"
+                      : "Bestellung senden"
             }
-            disabled={disableSend || submitBusy || submitted}
+            disabled={disablePaymentSubmit || submitBusy || submitted}
           >
             {submitBusy
               ? "Bestellung wird verarbeitet..."
               : paymentMethod === "online"
-                ? "Online-Zahlung testen"
-                : t("checkout.place_order")}
+                ? `Online bezahlen • ${fmt(payableTotal)}`
+                : paymentMethod === "split_contactless"
+                  ? `Getrennt zahlen • ${fmt(splitGrandTotal)}`
+                  : t("checkout.place_order")}
           </button>
 
           <button
@@ -2885,63 +3252,6 @@ export default function CheckoutPage() {
                 onClick={() => setShowConfirm(false)}
               >
                 Schließen
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {testPaymentOpen && (
-        <div className="fixed inset-0 z-[65] flex items-center justify-center bg-black/70 p-4 pt-[max(1rem,env(safe-area-inset-top))]">
-          <div className="w-full max-w-md rounded-2xl border border-stone-700/60 bg-stone-900/95 p-5 shadow-xl">
-            <div className="mb-2 text-lg font-semibold">Online-Zahlung testen</div>
-
-            <div className="space-y-2 text-sm text-stone-200">
-              <div>
-                Betrag: <b>{fmt(payableTotal)}</b>
-              </div>
-              <div className="rounded-md border border-sky-500/30 bg-sky-500/10 p-3 text-xs text-sky-100">
-                Testmodus: Es wird kein echtes Geld abgebucht. Später übernimmt Stripe
-                diesen Schritt mit Apple Pay, Google Pay und Kartenzahlung.
-              </div>
-            </div>
-
-            <div className="mt-4 flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                className="card-cta"
-                disabled={submitBusy || submitted}
-                onClick={async () => {
-                  setTestPaymentOpen(false);
-                  await submitOrderWithPayment({
-                    method: "online",
-                    status: "paid",
-                    testMode: true,
-                  });
-                }}
-              >
-                Zahlung erfolgreich simulieren
-              </button>
-
-              <button
-                type="button"
-                className="rounded-full border border-rose-500/40 bg-rose-500/10 px-4 py-2 text-sm text-rose-200"
-                disabled={submitBusy || submitted}
-                onClick={() => {
-                  setTestPaymentOpen(false);
-                  alert("Test-Zahlung fehlgeschlagen. Die Bestellung wurde nicht gesendet.");
-                }}
-              >
-                Fehlschlag simulieren
-              </button>
-
-              <button
-                type="button"
-                className="btn-ghost ml-auto"
-                disabled={submitBusy}
-                onClick={() => setTestPaymentOpen(false)}
-              >
-                Abbrechen
               </button>
             </div>
           </div>
@@ -3094,6 +3404,76 @@ export default function CheckoutPage() {
     </main>
   );
 
+  async function startStripeCheckout(
+    method: "online" | "split_contactless",
+  ) {
+    try {
+      setSubmitBusy(true);
+
+      const orderBase = await handleLogBeforeNavigate(
+        {
+          method,
+          status: "pending",
+          testMode: false,
+        },
+        {
+          prepareOnly: true,
+        },
+      );
+
+      const shares =
+        method === "split_contactless"
+          ? splitShares.map((share) => ({
+              index: share.index,
+              label: share.label,
+              baseAmountCents: share.baseAmountCents,
+              serviceFeeCents: share.serviceFeeCents,
+              amountCents: share.amountCents,
+              items: share.items,
+            }))
+          : undefined;
+
+      const response = await fetch("/api/payments/prepare", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          paymentKind: method,
+          order: orderBase,
+          shares,
+        }),
+        cache: "no-store",
+      });
+
+      const payload = await response.json().catch(() => ({} as any));
+
+      if (!response.ok || payload?.ok === false || !payload?.url) {
+        throw new Error(
+          payload?.message ||
+            payload?.error ||
+            "Online-Zahlung konnte nicht gestartet werden.",
+        );
+      }
+
+      try {
+        sessionStorage.setItem(
+          "bb_active_payment_session",
+          String(payload.paymentSessionId || ""),
+        );
+      } catch {}
+
+      window.location.assign(String(payload.url));
+    } catch (error: any) {
+      console.error("[checkout/stripe]", error);
+      alert(
+        error?.message ||
+          "Online-Zahlung konnte nicht gestartet werden. Bitte erneut versuchen.",
+      );
+      setSubmitBusy(false);
+    }
+  }
+
   async function submitOrderWithPayment(payment: {
     method: PaymentMethod;
     status: "pending" | "paid" | "failed";
@@ -3102,7 +3482,7 @@ export default function CheckoutPage() {
     try {
       setSubmitBusy(true);
 
-      const result = await handleLogBeforeNavigate(payment);
+      const result: any = await handleLogBeforeNavigate(payment);
       const emergencyMode = Boolean(result?.emergencyMode);
       const etaMin = emergencyMode
         ? undefined
@@ -3176,11 +3556,16 @@ export default function CheckoutPage() {
     });
   }
 
-  async function handleLogBeforeNavigate(payment: {
-    method: PaymentMethod;
-    status: "pending" | "paid" | "failed";
-    testMode: boolean;
-  }) {
+  async function handleLogBeforeNavigate(
+    payment: {
+      method: PaymentMethod;
+      status: "pending" | "paid" | "failed";
+      testMode: boolean;
+    },
+    options?: {
+      prepareOnly?: boolean;
+    },
+  ): Promise<any> {
     const ts = Date.now();
     const officialStreetForOrder =
       orderMode === "delivery"
@@ -3319,7 +3704,7 @@ export default function CheckoutPage() {
         payment: {
           method: payment.method,
           status: payment.status,
-          provider: payment.method === "online" ? "stripe_test" : "manual",
+          provider: payment.method === "cash" ? "manual" : "stripe_checkout",
           testMode: payment.testMode,
           tip: latestTipAmount,
           baseTotal: latestTotalFinal,
@@ -3353,6 +3738,10 @@ export default function CheckoutPage() {
           : null,
       },
     };
+
+    if (options?.prepareOnly) {
+      return orderBase;
+    }
 
     return await createOrderWithRetryAndEmergency(orderBase);
   }

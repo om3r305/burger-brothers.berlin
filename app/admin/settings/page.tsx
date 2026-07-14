@@ -244,12 +244,16 @@ const DEFAULT_MODEL: SettingsModel = {
     },
     online: {
       enabled: false,
+      provider: "stripe_checkout",
+      refundOnCancel: true,
     },
     contactless: {
       enabled: false,
     },
     split: {
       enabled: false,
+      serviceFee: 0.2,
+      maxPeople: 8,
     },
   },
 
@@ -888,6 +892,11 @@ function normalizeForSave(raw: any) {
     online: {
       ...(next.payments?.online || {}),
       enabled: onlinePaymentEnabled,
+      provider: "stripe_checkout",
+      refundOnCancel: bool(
+        next.payments?.online?.refundOnCancel,
+        true
+      ),
     },
     contactless: {
       ...(next.payments?.contactless || {}),
@@ -896,6 +905,14 @@ function normalizeForSave(raw: any) {
     split: {
       ...(next.payments?.split || {}),
       enabled: splitPaymentEnabled,
+      serviceFee: Math.max(
+        0,
+        Math.min(5, num(next.payments?.split?.serviceFee, 0.2))
+      ),
+      maxPeople: Math.max(
+        2,
+        Math.min(10, Math.round(num(next.payments?.split?.maxPeople, 8)))
+      ),
     },
   };
 
@@ -1505,46 +1522,44 @@ export default function AdminSettingsPage() {
         <section className="card">
           <div className="mb-3 text-lg font-medium">Zahlungsarten</div>
 
-          <div className="mb-3 rounded-md border border-amber-700/40 bg-amber-950/20 p-3 text-sm text-amber-100">
-            Aktuell arbeitet der Shop nur mit Barzahlung. Online-Zahlung und Kartenzahlung
-            bei Lieferung bleiben vorbereitet, sind aber für Kunden unsichtbar, solange sie hier
-            deaktiviert sind.
+          <div className="mb-4 rounded-md border border-emerald-700/40 bg-emerald-950/20 p-3 text-sm text-emerald-100">
+            Stripe Online-Zahlung hazırdır. Kart, Apple Pay, Google Pay ve Stripe hesabında
+            açılan diğer yöntemler güvenli Stripe ödeme sayfasında gösterilir. TV üzerinden
+            storno verilen online siparişler otomatik olarak iade edilir.
           </div>
 
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
             <div className="rounded-md border border-stone-700/60 p-3">
-              <div className="mb-2 font-medium">Aktive Zahlung</div>
-              <div className="space-y-2">
-                <Toggle
-                  label="Barzahlung / Nakit ödeme aktiv"
-                  checked={!!m.payments?.cash?.enabled}
-                  onChange={(value) => {
-                    setNested(["payments", "cash", "enabled"], value);
-                    setNested(["features", "payments"], {
-                      ...(m.features?.payments || {}),
-                      cashPayment: value,
-                      onlinePayment: !!m.payments?.online?.enabled,
-                      contactlessPayment: !!m.payments?.contactless?.enabled,
-                      splitPayment: !!m.payments?.split?.enabled,
-                    });
-                    setNested(["features", "cashPayment", "enabled"], value);
-                  }}
-                />
-              </div>
-
+              <div className="mb-2 font-medium">Barzahlung</div>
+              <Toggle
+                label="Barzahlung / Nakit ödeme aktiv"
+                checked={!!m.payments?.cash?.enabled}
+                onChange={(value) => {
+                  setNested(["payments", "cash", "enabled"], value);
+                  setNested(["features", "payments"], {
+                    ...(m.features?.payments || {}),
+                    cashPayment: value,
+                    onlinePayment: !!m.payments?.online?.enabled,
+                    contactlessPayment: !!m.payments?.contactless?.enabled,
+                    splitPayment: !!m.payments?.split?.enabled,
+                  });
+                  setNested(["features", "cashPayment", "enabled"], value);
+                }}
+              />
               <p className="mt-3 text-xs text-stone-400">
-                Şu an müşteriye sadece bu ödeme yöntemi gösterilecek.
+                Müşteri teslimatta veya Abholung sırasında nakit öder.
               </p>
             </div>
 
-            <div className="rounded-md border border-stone-700/60 p-3">
-              <div className="mb-2 font-medium">Hazır ama gizli ödeme altyapıları</div>
-              <div className="space-y-2">
+            <div className="rounded-md border border-sky-700/60 bg-sky-950/10 p-3">
+              <div className="mb-2 font-medium">Stripe Online-Zahlung</div>
+              <div className="space-y-3">
                 <Toggle
                   label="Online ödeme aktiv"
                   checked={!!m.payments?.online?.enabled}
                   onChange={(value) => {
                     setNested(["payments", "online", "enabled"], value);
+                    setNested(["payments", "online", "provider"], "stripe_checkout");
                     setNested(["features", "payments"], {
                       ...(m.features?.payments || {}),
                       cashPayment: !!m.payments?.cash?.enabled,
@@ -1555,43 +1570,103 @@ export default function AdminSettingsPage() {
                     setNested(["features", "onlinePayment", "enabled"], value);
                   }}
                 />
+
                 <Toggle
-                  label="Kapıda kart / POS ödeme aktiv"
-                  checked={!!m.payments?.contactless?.enabled}
-                  onChange={(value) => {
-                    setNested(["payments", "contactless", "enabled"], value);
-                    setNested(["features", "payments"], {
-                      ...(m.features?.payments || {}),
-                      cashPayment: !!m.payments?.cash?.enabled,
-                      onlinePayment: !!m.payments?.online?.enabled,
-                      contactlessPayment: value,
-                      splitPayment: !!m.payments?.split?.enabled,
-                    });
-                    setNested(["features", "contactlessPayment", "enabled"], value);
-                  }}
-                />
-                <Toggle
-                  label="Split / Alman usulü ödeme aktiv"
-                  checked={!!m.payments?.split?.enabled}
-                  onChange={(value) => {
-                    setNested(["payments", "split", "enabled"], value);
-                    setNested(["features", "payments"], {
-                      ...(m.features?.payments || {}),
-                      cashPayment: !!m.payments?.cash?.enabled,
-                      onlinePayment: !!m.payments?.online?.enabled,
-                      contactlessPayment: !!m.payments?.contactless?.enabled,
-                      splitPayment: value,
-                    });
-                    setNested(["features", "splitPayment", "enabled"], value);
-                  }}
+                  label="TV storno durumunda otomatik iade"
+                  checked={m.payments?.online?.refundOnCancel !== false}
+                  onChange={(value) =>
+                    setNested(["payments", "online", "refundOnCancel"], value)
+                  }
                 />
               </div>
 
+              <div className="mt-3 rounded-md bg-black/25 p-2 text-xs text-stone-300">
+                Provider: <b>Stripe Checkout</b><br />
+                Ödeme başarıyla onaylanmadan sipariş TV ekranına düşmez.
+              </div>
+            </div>
+
+            <div className="rounded-md border border-amber-700/60 bg-amber-950/10 p-3">
+              <div className="mb-2 font-medium">Getrennt zahlen / Alman usulü</div>
+              <Toggle
+                label="Split / Alman usulü ödeme aktiv"
+                checked={!!m.payments?.split?.enabled}
+                onChange={(value) => {
+                  setNested(["payments", "split", "enabled"], value);
+                  setNested(["features", "payments"], {
+                    ...(m.features?.payments || {}),
+                    cashPayment: !!m.payments?.cash?.enabled,
+                    onlinePayment: !!m.payments?.online?.enabled,
+                    contactlessPayment: !!m.payments?.contactless?.enabled,
+                    splitPayment: value,
+                  });
+                  setNested(["features", "splitPayment", "enabled"], value);
+                }}
+              />
+
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <Field label="Kişi başı servis ücreti (€)">
+                  <input
+                    type="number"
+                    min={0}
+                    max={5}
+                    step="0.05"
+                    className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2 outline-none"
+                    value={String(m.payments?.split?.serviceFee ?? 0.2)}
+                    onChange={(event) =>
+                      setNested(
+                        ["payments", "split", "serviceFee"],
+                        Math.max(0, Math.min(5, Number(event.target.value || 0)))
+                      )
+                    }
+                  />
+                </Field>
+
+                <Field label="Maksimum kişi">
+                  <input
+                    type="number"
+                    min={2}
+                    max={10}
+                    step="1"
+                    className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2 outline-none"
+                    value={String(m.payments?.split?.maxPeople ?? 8)}
+                    onChange={(event) =>
+                      setNested(
+                        ["payments", "split", "maxPeople"],
+                        Math.max(2, Math.min(10, Math.round(Number(event.target.value || 8))))
+                      )
+                    }
+                  />
+                </Field>
+              </div>
+
               <p className="mt-3 text-xs text-stone-400">
-                Kapalı olan ödeme yöntemleri checkout tarafında görünmez. İleride açmak için
-                buradan aktif etmen yeterli olacak.
+                Ürünler kişilere dağıtılır ve herkes kendi payını sırayla online öder.
+                Bu seçenek için Online-Zahlung da açık olmalıdır.
               </p>
             </div>
+          </div>
+
+          <div className="mt-4 rounded-md border border-stone-700/60 p-3">
+            <Toggle
+              label="Kapıda kart / POS ödeme aktiv"
+              checked={!!m.payments?.contactless?.enabled}
+              onChange={(value) => {
+                setNested(["payments", "contactless", "enabled"], value);
+                setNested(["features", "payments"], {
+                  ...(m.features?.payments || {}),
+                  cashPayment: !!m.payments?.cash?.enabled,
+                  onlinePayment: !!m.payments?.online?.enabled,
+                  contactlessPayment: value,
+                  splitPayment: !!m.payments?.split?.enabled,
+                });
+                setNested(["features", "contactlessPayment", "enabled"], value);
+              }}
+            />
+            <p className="mt-2 text-xs text-stone-400">
+              POS cihazı için hazırlanmış ayrı ödeme yöntemidir; Stripe online ödeme akışından
+              bağımsızdır.
+            </p>
           </div>
         </section>
 

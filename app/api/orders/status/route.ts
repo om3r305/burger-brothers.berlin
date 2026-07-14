@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma, getTenantId } from "@/lib/db";
+import { refundOrderPayments } from "@/lib/server/payment-refund";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -1018,9 +1019,65 @@ async function handleStatusUpdate(req: Request) {
     const currentStatus = normalizeStatus(metaObj?.statusManual ?? (row as any)?.status) || "new";
     const next = requestedStatus || currentStatus;
 
+    const refundResult =
+      requestedStatus === "cancelled"
+        ? await refundOrderPayments(row, String(body?.by || "tv")).catch(
+            (error: any) => ({
+              attempted: true,
+              ok: false,
+              skipped: false,
+              reason: null,
+              status: "refund_failed",
+              paymentIntentIds: [],
+              refunds: [
+                {
+                  paymentIntentId: "",
+                  error: error?.message || "REFUND_FAILED",
+                },
+              ],
+              at: new Date().toISOString(),
+            }),
+          )
+        : null;
+
     const data = buildStatusUpdateData(row, next, body, {
       statusChanged: Boolean(requestedStatus),
     });
+
+    if (refundResult) {
+      const nextMeta = ensureObj(data?.meta);
+      const previousPayment = ensureObj(nextMeta?.payment);
+
+      data.meta = sanitizeJson({
+        ...nextMeta,
+        paymentStatus:
+          refundResult.status === "refunded" ||
+          refundResult.status === "refund_pending" ||
+          refundResult.status === "partially_refunded"
+            ? refundResult.status
+            : previousPayment?.status || nextMeta?.paymentStatus || "paid",
+        payment: {
+          ...previousPayment,
+          status:
+            refundResult.status === "refunded" ||
+            refundResult.status === "refund_pending" ||
+            refundResult.status === "partially_refunded"
+              ? refundResult.status
+              : previousPayment?.status || "paid",
+          refund: {
+            status: refundResult.status,
+            attempted: refundResult.attempted,
+            ok: refundResult.ok,
+            skipped: refundResult.skipped || false,
+            reason: refundResult.reason || null,
+            paymentIntentIds: refundResult.paymentIntentIds,
+            refunds: refundResult.refunds,
+            at: refundResult.at,
+            by: String(body?.by || "tv"),
+          },
+        },
+      });
+    }
 
     const updated = await prisma.order.update({
       where: {
@@ -1042,6 +1099,11 @@ async function handleStatusUpdate(req: Request) {
       order,
       item: order,
       data: order,
+      refund: refundResult,
+      refundWarning:
+        refundResult && refundResult.attempted && !refundResult.ok
+          ? "Die Bestellung wurde storniert, aber die automatische Rückerstattung muss geprüft werden."
+          : null,
     });
   } catch (error: any) {
     console.error("[orders/status] update failed:", error);

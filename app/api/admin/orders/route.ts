@@ -932,6 +932,7 @@ async function listOrders(tenantId: string, req?: Request) {
 
   const where: any = {
     tenantId,
+    archivedAt: null,
   };
 
   const fromDate = toDate(from);
