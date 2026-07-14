@@ -126,61 +126,33 @@ function useSettingsRefreshTick() {
   const [settingsTick, setSettingsTick] = useState(0);
 
   useEffect(() => {
-    let stop = false;
-
-    const refreshRemoteSettings = async () => {
-      try {
-        const res = await fetch(`/api/settings?ts=${Date.now()}`, {
-          method: "GET",
-          cache: "no-store",
-          headers: {
-            accept: "application/json",
-          },
-        });
-
-        const json = await res.json().catch(() => ({}));
-
-        if (res.ok && json?.ok !== false) {
-          const settings = stripResponseMetadata(json);
-          dispatchSettingsChangedFromCart(settings);
-        }
-      } catch {
-        // localStorage fallback devam eder
-      } finally {
-        if (!stop) setSettingsTick((tick) => tick + 1);
-      }
+    const bump = () => {
+      setSettingsTick((tick) => tick + 1);
     };
-
-    refreshRemoteSettings();
 
     const onStorage = (event: StorageEvent) => {
       if (!event.key || event.key === LS_SETTINGS) {
-        setSettingsTick((tick) => tick + 1);
+        bump();
       }
     };
 
-    const onSettingsSync = () => setSettingsTick((tick) => tick + 1);
-
-    const onFocus = () => refreshRemoteSettings();
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") {
-        refreshRemoteSettings();
-      }
-    };
-
+    /*
+     * CartSummary artık kendi başına /api/settings çağrısı yapmaz.
+     * Public sayfalarda CatalogProvider, checkout/TV/driver tarafında
+     * SettingsSync tek merkezi okuyucudur.
+     */
     window.addEventListener("storage", onStorage);
-    window.addEventListener("focus", onFocus);
-    window.addEventListener("bb_settings_changed", onSettingsSync as EventListener);
-    window.addEventListener("bb:settings-sync", onSettingsSync as EventListener);
-    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener(
+      "bb_settings_changed",
+      bump as EventListener,
+    );
 
     return () => {
-      stop = true;
       window.removeEventListener("storage", onStorage);
-      window.removeEventListener("focus", onFocus);
-      window.removeEventListener("bb_settings_changed", onSettingsSync as EventListener);
-      window.removeEventListener("bb:settings-sync", onSettingsSync as EventListener);
-      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener(
+        "bb_settings_changed",
+        bump as EventListener,
+      );
     };
   }, []);
 

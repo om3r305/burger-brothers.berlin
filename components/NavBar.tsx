@@ -173,6 +173,7 @@ export default function NavBar(props: {
   const { donutsOn, bubbleTeaOn } = useFeatureFlags();
 
   const navRef = useRef<HTMLElement | null>(null);
+  const primedAtRef = useRef<Record<string, number>>({});
   const navigationLockRef = useRef(false);
   const unlockTimerRef = useRef<number | null>(null);
 
@@ -223,38 +224,37 @@ export default function NavBar(props: {
     const active = nav?.querySelector<HTMLElement>(
       '[data-bb-tab-active="true"]',
     );
+    const rail = active?.closest<HTMLElement>(
+      ".bb-tabs-scroll__rail",
+    );
 
-    if (!active) return;
+    if (!active || !rail) return;
 
-    try {
-      active.scrollIntoView({
-        behavior,
-        block: "nearest",
-        inline: "center",
-      });
-    } catch {
-      const parent = active.parentElement;
-      if (!parent) return;
+    const railRect = rail.getBoundingClientRect();
+    const activeRect = active.getBoundingClientRect();
+    const nextLeft =
+      rail.scrollLeft +
+      activeRect.left -
+      railRect.left -
+      (rail.clientWidth - activeRect.width) / 2;
 
-      parent.scrollLeft =
-        active.offsetLeft -
-        parent.clientWidth / 2 +
-        active.clientWidth / 2;
-    }
+    rail.scrollTo({
+      left: Math.max(0, nextLeft),
+      behavior,
+    });
   }, []);
 
   useEffect(() => {
-    const first = window.requestAnimationFrame(() => {
+    /*
+     * Yeni route açılırken sadece bir kere ve animasyonsuz hizala.
+     * Hot Dogs / Donuts sekmesinin önce başa gidip geri gelmesi biter.
+     */
+    const frame = window.requestAnimationFrame(() => {
       centerActiveTab("auto");
     });
 
-    const second = window.setTimeout(() => {
-      centerActiveTab("smooth");
-    }, 90);
-
     return () => {
-      window.cancelAnimationFrame(first);
-      window.clearTimeout(second);
+      window.cancelAnimationFrame(frame);
     };
   }, [activeKey, centerActiveTab]);
 
@@ -303,6 +303,13 @@ export default function NavBar(props: {
   const primeCategory = useCallback(
     (keyInput: string) => {
       const key = normalizeMenuKey(keyInput);
+      const now = Date.now();
+      const previous = primedAtRef.current[key] || 0;
+
+      if (now - previous < 60_000) return;
+
+      primedAtRef.current[key] = now;
+
       const href = hrefForKey(key);
 
       try {

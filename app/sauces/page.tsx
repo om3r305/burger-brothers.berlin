@@ -3,7 +3,7 @@
 
 import NextImage from "next/image";
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState, useLayoutEffect } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import CartSummary, { CartSummaryMobile } from "@/components/CartSummary";
 import SauceCard from "@/components/sauces/SauceCard";
@@ -219,83 +219,46 @@ export default function SaucesPage() {
   const [canRight, setCanRight] = useState(false);
 
   const updateArrows = () => {
-    const el = railRef.current;
-    if (!el) return;
+    const rail = railRef.current;
+    if (!rail) return;
 
-    const { scrollLeft, scrollWidth, clientWidth } = el;
+    const { scrollLeft, scrollWidth, clientWidth } = rail;
+
     setCanLeft(scrollLeft > 2);
     setCanRight(scrollLeft + clientWidth < scrollWidth - 2);
   };
 
-  useLayoutEffect(() => {
-    const rail = railRef.current;
-    if (!rail) return;
-
-    try {
-      const saved = sessionStorage.getItem(SCROLL_KEY);
-      if (saved) rail.scrollLeft = parseInt(saved, 10) || 0;
-    } catch {}
-
-    const active =
-      (rail.querySelector(".nav-pill--active") as HTMLElement) ||
-      (rail.querySelector('[aria-current="page"]') as HTMLElement) ||
-      (rail.querySelector('a[href="/sauces"]') as HTMLElement);
-
-    if (active) {
-      const rr = rail.getBoundingClientRect();
-      const pr = active.getBoundingClientRect();
-      const outLeft = pr.left < rr.left + EDGE;
-      const outRight = pr.right > rr.right - EDGE;
-
-      if (outLeft || outRight) scrollToSweetSpot(rail, active, false);
-    }
-  }, []);
-
   useEffect(() => {
     const rail = railRef.current;
     if (!rail) return;
 
-    updateArrows();
+    const frame = window.requestAnimationFrame(updateArrows);
 
-    const onScroll = () => {
-      updateArrows();
-      try {
-        sessionStorage.setItem(SCROLL_KEY, String(rail.scrollLeft));
-      } catch {}
-    };
+    rail.addEventListener("scroll", updateArrows, {
+      passive: true,
+    });
 
-    rail.addEventListener("scroll", onScroll, { passive: true });
-
-    const ro = new ResizeObserver(updateArrows);
-    ro.observe(rail);
+    const observer = new ResizeObserver(updateArrows);
+    observer.observe(rail);
 
     return () => {
-      rail.removeEventListener("scroll", onScroll);
-      ro.disconnect();
+      window.cancelAnimationFrame(frame);
+      rail.removeEventListener("scroll", updateArrows);
+      observer.disconnect();
     };
   }, []);
 
   const nudge = (dir: "left" | "right") => {
-    const el = railRef.current;
-    if (!el) return;
-
-    const step = Math.round(el.clientWidth * 0.6);
-    el.scrollBy({ left: dir === "left" ? -step : step, behavior: "smooth" });
-  };
-
-  useEffect(() => {
     const rail = railRef.current;
     if (!rail) return;
 
-    const onClick = (event: Event) => {
-      const target = event.target as HTMLElement;
-      const pill = target.closest(".nav-pill") as HTMLElement | null;
-      if (pill) scrollToSweetSpot(rail, pill, true);
-    };
+    const step = Math.round(rail.clientWidth * 0.6);
 
-    rail.addEventListener("click", onClick);
-    return () => rail.removeEventListener("click", onClick);
-  }, []);
+    rail.scrollBy({
+      left: dir === "left" ? -step : step,
+      behavior: "smooth",
+    });
+  };
 
   const handleTabChange = (key: string) => {
     const k = key.toLowerCase();

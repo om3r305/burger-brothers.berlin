@@ -807,7 +807,19 @@ function dispatchSettingsChanged(next: SettingsV6) {
 function writeLocalSettings(next: SettingsV6) {
   if (typeof window === "undefined") return next;
 
-  localStorage.setItem(LS_SETTINGS, safeStringify(next));
+  const serialized = safeStringify(next);
+  const previous = localStorage.getItem(LS_SETTINGS);
+
+  /*
+   * Aynı ayar tekrar geldiyse storage/custom-event zincirini yeniden
+   * çalıştırma. Böylece ThemeClient, CartSummary ve katalog sayfaları
+   * gereksiz yere tekrar render olmaz.
+   */
+  if (previous === serialized) {
+    return next;
+  }
+
+  localStorage.setItem(LS_SETTINGS, serialized);
   dispatchSettingsChanged(next);
 
   return next;

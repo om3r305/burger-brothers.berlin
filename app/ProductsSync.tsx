@@ -2,15 +2,14 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { usePathname } from "next/navigation";
 
 const LS_PRODUCTS = "bb_products_v1";
 const LS_CAMPAIGNS = "bb_campaigns_v1";
-
-const REFRESH_MS = 15_000;
+const PASSIVE_REFRESH_GAP_MS = 60_000;
 
 type CatalogPayload = {
   ok?: boolean;
-  source?: string;
   products?: any[];
   campaigns?: any[];
   items?: any[];
@@ -20,14 +19,21 @@ type CatalogPayload = {
   };
 };
 
-function hash(value: string) {
-  let h = 0;
+function isAdminRoute(path: string) {
+  return path === "/admin" || path.startsWith("/admin/");
+}
 
-  for (let i = 0; i < value.length; i += 1) {
-    h = (h * 31 + value.charCodeAt(i)) | 0;
-  }
-
-  return String(h >>> 0);
+function isCustomerCatalogRoute(path: string) {
+  return [
+    "/",
+    "/menu",
+    "/extras",
+    "/drinks",
+    "/sauces",
+    "/hotdogs",
+    "/donuts",
+    "/bubble-tea",
+  ].includes(path);
 }
 
 function safeStringify(value: any) {
@@ -44,68 +50,48 @@ function asArray(value: any): any[] {
   if (Array.isArray(value?.data)) return value.data;
   if (Array.isArray(value?.products)) return value.products;
   if (Array.isArray(value?.campaigns)) return value.campaigns;
-
   return [];
 }
 
-function readCatalogArrays(payload: CatalogPayload | null | undefined) {
-  const products = asArray(
-    payload?.products ?? payload?.items ?? payload?.data?.products ?? [],
-  );
-
-  const campaigns = asArray(payload?.campaigns ?? payload?.data?.campaigns ?? []);
-
-  return {
-    products,
-    campaigns,
-  };
-}
-
-function dispatchLocalStorageUpdate(key: string, oldValue: string | null, newValue: string) {
-  try {
-    window.dispatchEvent(
-      new StorageEvent("storage", {
-        key,
-        oldValue,
-        newValue,
-        storageArea: window.localStorage,
-      }),
-    );
-  } catch {
-    try {
-      window.dispatchEvent(new Event("storage"));
-    } catch {}
-  }
-}
-
-function writeCacheIfChanged(key: string, value: any[]) {
+function writeIfChanged(key: string, value: any[]) {
   const next = safeStringify(value);
-  const prev = localStorage.getItem(key);
+  const previous = localStorage.getItem(key);
 
-  if (hash(prev || "[]") === hash(next)) return false;
+  if (previous === next) return false;
 
   localStorage.setItem(key, next);
-  dispatchLocalStorageUpdate(key, prev, next);
-
   return true;
 }
 
 export default function ProductsSync() {
+  const pathname = usePathname();
   const runningRef = useRef(false);
-  const lastCatalogHashRef = useRef("");
+  const lastRefreshRef = useRef(0);
 
   useEffect(() => {
-    let alive = true;
-    let intervalId: ReturnType<typeof setInterval> | null = null;
+    if (isAdminRoute(pathname) || isCustomerCatalogRoute(pathname)) {
+      return;
+    }
 
-    const pullCatalogFromDb = async () => {
-      if (!alive) return;
-      if (runningRef.current) return;
+    let stopped = false;
 
+    const pullCatalogFromDb = async (force = false) => {
+      if (stopped || runningRef.current || isAdminRoute(pathname)) return;
+
+      const now = Date.now();
+
+      if (
+        !force &&
+        now - lastRefreshRef.current < PASSIVE_REFRESH_GAP_MS
+      ) {
+        return;
+      }
+
+      lastRefreshRef.current = now;
       runningRef.current = true;
 
       try {
-        const res = await fetch("/api/catalog", {
+        const response = await fetch("/api/catalog", {
           method: "GET",
           cache: "no-store",
           headers: {
@@ -113,89 +99,83 @@ export default function ProductsSync() {
           },
         });
 
-        const payload = (await res.json().catch(() => ({}))) as CatalogPayload;
+        const payload = (await response
+          .json()
+          .catch(() => ({}))) as CatalogPayload;
 
-        if (!res.ok || payload?.ok === false) {
-          throw new Error(`CATALOG_${res.status}`);
+        if (!response.ok || payload?.ok === false) {
+          throw new Error(`CATALOG_${response.status}`);
         }
 
-        const { products, campaigns } = readCatalogArrays(payload);
-
-        const catalogHash = hash(
-          safeStringify({
-            products,
-            campaigns,
-          }),
+        const products = asArray(
+          payload?.products ??
+            payload?.items ??
+            payload?.data?.products ??
+            [],
         );
 
-        if (catalogHash === lastCatalogHashRef.current) {
-          return;
-        }
+        const campaigns = asArray(
+          payload?.campaigns ??
+            payload?.data?.campaigns ??
+            [],
+        );
 
-        lastCatalogHashRef.current = catalogHash;
-
-        const productsChanged = writeCacheIfChanged(LS_PRODUCTS, products);
-        const campaignsChanged = writeCacheIfChanged(LS_CAMPAIGNS, campaigns);
+        const productsChanged = writeIfChanged(
+          LS_PRODUCTS,
+          products,
+        );
+        const campaignsChanged = writeIfChanged(
+          LS_CAMPAIGNS,
+          campaigns,
+        );
 
         if (productsChanged || campaignsChanged) {
-          try {
-            window.dispatchEvent(
-              new CustomEvent("bb:catalog-sync", {
-                detail: {
-                  source: "db",
-                  products,
-                  campaigns,
-                },
-              }),
-            );
-          } catch {}
+          window.dispatchEvent(
+            new CustomEvent("bb:catalog-sync", {
+              detail: payload,
+            }),
+          );
         }
       } catch {
-        /*
-          DB-first kuralı:
-          - API başarısızsa local cache'i DB'ye basmıyoruz.
-          - Mevcut local cache'i silmiyoruz.
-          - Eski /api/products fallback yapmıyoruz.
-        */
+        // Son sağlam cache korunur.
       } finally {
         runningRef.current = false;
       }
     };
 
-    pullCatalogFromDb();
-
     const onFocus = () => {
-      pullCatalogFromDb();
+      void pullCatalogFromDb();
     };
 
     const onVisibility = () => {
       if (document.visibilityState === "visible") {
-        pullCatalogFromDb();
+        void pullCatalogFromDb();
       }
     };
 
     const onManualRefresh = () => {
-      pullCatalogFromDb();
+      void pullCatalogFromDb(true);
     };
+
+    void pullCatalogFromDb();
 
     window.addEventListener("focus", onFocus);
-    window.addEventListener("bb:refresh-catalog", onManualRefresh as EventListener);
+    window.addEventListener(
+      "bb:refresh-catalog",
+      onManualRefresh as EventListener,
+    );
     document.addEventListener("visibilitychange", onVisibility);
 
-    intervalId = setInterval(pullCatalogFromDb, REFRESH_MS);
-
     return () => {
-      alive = false;
-
-      if (intervalId) {
-        clearInterval(intervalId);
-      }
-
+      stopped = true;
       window.removeEventListener("focus", onFocus);
-      window.removeEventListener("bb:refresh-catalog", onManualRefresh as EventListener);
+      window.removeEventListener(
+        "bb:refresh-catalog",
+        onManualRefresh as EventListener,
+      );
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, []);
+  }, [pathname]);
 
   return null;
 }

@@ -89,66 +89,47 @@ export default function ExtrasPage() {
   const [canRight, setCanRight] = useState(false);
 
   const updateArrows = () => {
-    const el = railRef.current;
-    if (!el) return;
-    const { scrollLeft, scrollWidth, clientWidth } = el;
+    const rail = railRef.current;
+    if (!rail) return;
+
+    const { scrollLeft, scrollWidth, clientWidth } = rail;
+
     setCanLeft(scrollLeft > 2);
     setCanRight(scrollLeft + clientWidth < scrollWidth - 2);
-  };
-
-  // Ray içinde bir sekmeyi merkeze hizala
-  const centerEl = (pill: HTMLElement | null) => {
-    const rail = railRef.current;
-    if (!rail || !pill) return;
-    const railRect = rail.getBoundingClientRect();
-    const pillRect = pill.getBoundingClientRect();
-    const targetLeft =
-      rail.scrollLeft +
-      (pillRect.left + pillRect.width / 2 - (railRect.left + railRect.width / 2));
-    rail.scrollTo({ left: targetLeft, behavior: "smooth" });
-    setTimeout(updateArrows, 250);
   };
 
   useEffect(() => {
     const rail = railRef.current;
     if (!rail) return;
 
-    // İlk açılışta aktif "Extras" sekmesini ortala
-    const active =
-      (rail.querySelector(".nav-pill--active") as HTMLElement) ||
-      (rail.querySelector('[aria-current="page"]') as HTMLElement) ||
-      (rail.querySelector('[data-active-tab="true"]') as HTMLElement);
-    requestAnimationFrame(() => centerEl(active));
+    const frame = window.requestAnimationFrame(updateArrows);
 
-    updateArrows();
-    rail.addEventListener("scroll", updateArrows, { passive: true });
-    const ro = new ResizeObserver(updateArrows);
-    ro.observe(rail);
+    rail.addEventListener("scroll", updateArrows, {
+      passive: true,
+    });
 
-    // Sekmeye tıklanınca yeni aktifi ortala
-    const onClick = (e: Event) => {
-      const t = e.target as HTMLElement;
-      const pill = t.closest(".nav-pill") as HTMLElement | null;
-      if (pill) setTimeout(() => centerEl(pill), 40);
-    };
-    rail.addEventListener("click", onClick);
+    const observer = new ResizeObserver(updateArrows);
+    observer.observe(rail);
 
     return () => {
+      window.cancelAnimationFrame(frame);
       rail.removeEventListener("scroll", updateArrows);
-      rail.removeEventListener("click", onClick);
-      ro.disconnect();
+      observer.disconnect();
     };
   }, []);
 
   const nudge = (dir: "left" | "right") => {
-    const el = railRef.current;
-    if (!el) return;
-    const step = Math.round(el.clientWidth * 0.6);
-    el.scrollBy({ left: dir === "left" ? -step : step, behavior: "smooth" });
-    setTimeout(updateArrows, 250);
+    const rail = railRef.current;
+    if (!rail) return;
+
+    const step = Math.round(rail.clientWidth * 0.6);
+
+    rail.scrollBy({
+      left: dir === "left" ? -step : step,
+      behavior: "smooth",
+    });
   };
 
-  // Sekme tıklanınca doğru sayfaya git
   const handleTabChange = (key: string) => {
     const k = key.toLowerCase();
     if (k === "extras") return;

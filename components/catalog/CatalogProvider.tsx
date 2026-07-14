@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import {
   installPublicDataFetchCache,
   invalidatePublicData,
@@ -9,6 +9,8 @@ import {
   warmCategoryData,
   warmPublicData,
 } from "@/lib/public-data-cache";
+
+const PASSIVE_REFRESH_GAP_MS = 60_000;
 
 function isCustomerCatalogPath() {
   if (typeof window === "undefined") return false;
@@ -25,15 +27,24 @@ function isCustomerCatalogPath() {
   ].includes(window.location.pathname || "/");
 }
 
+function safeParse(value: string | null) {
+  if (!value) return null;
+
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
 export default function CatalogProvider({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  /*
-   * Parent render sırasında kurulur; böylece kategori sayfalarının useEffect
-   * fetch çağrıları başlamadan merkezi cache hazır olur.
-   */
+  const lastPassiveRefreshRef = useRef(0);
+  const externalRefreshTimerRef = useRef<number | null>(null);
+
   if (typeof window !== "undefined") {
     installPublicDataFetchCache();
   }
@@ -41,8 +52,19 @@ export default function CatalogProvider({
   useEffect(() => {
     let stopped = false;
 
-    const warmInitialData = async () => {
-      if (!isCustomerCatalogPath()) return;
+    const passiveRefresh = async () => {
+      if (stopped || !isCustomerCatalogPath()) return;
+
+      const now = Date.now();
+
+      if (
+        now - lastPassiveRefreshRef.current <
+        PASSIVE_REFRESH_GAP_MS
+      ) {
+        return;
+      }
+
+      lastPassiveRefreshRef.current = now;
 
       await warmPublicData(["catalog", "groups", "settings"]);
 
@@ -51,22 +73,9 @@ export default function CatalogProvider({
       }
     };
 
-    const onFocus = () => {
-      if (isCustomerCatalogPath()) {
-        void warmPublicData(["catalog", "groups", "settings"]);
-      }
-    };
+    const forceCatalogRefresh = () => {
+      if (!isCustomerCatalogPath()) return;
 
-    const onVisibility = () => {
-      if (
-        document.visibilityState === "visible" &&
-        isCustomerCatalogPath()
-      ) {
-        void warmPublicData(["catalog", "groups", "settings"]);
-      }
-    };
-
-    const onCatalogRefresh = () => {
       invalidatePublicData("catalog");
       invalidatePublicData("products");
       invalidatePublicData("groups");
@@ -77,43 +86,62 @@ export default function CatalogProvider({
       ]);
     };
 
-    const onSettingsChanged = (event: Event) => {
-      const custom = event as CustomEvent<any>;
+    const onFocus = () => {
+      void passiveRefresh();
+    };
 
-      if (custom?.detail && typeof custom.detail === "object") {
-        seedPublicData("settings", custom.detail);
-      } else {
-        invalidatePublicData("settings");
-        void refreshPublicData("settings", { force: true });
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        void passiveRefresh();
+      }
+    };
+
+    const onSettingsChanged = (event: Event) => {
+      const detail = (event as CustomEvent<any>)?.detail;
+
+      if (detail && typeof detail === "object") {
+        seedPublicData("settings", detail);
       }
     };
 
     const onStorage = (event: StorageEvent) => {
-      if (
-        event.key === "bb_products_v1" ||
-        event.key === "bb_campaigns_v1"
-      ) {
-        invalidatePublicData("catalog");
+      if (event.key === "bb_settings_v6") {
+        const parsed = safeParse(event.newValue);
+
+        if (parsed) {
+          seedPublicData("settings", parsed);
+        }
+
+        return;
       }
 
-      if (event.key === "bb_settings_v6") {
-        invalidatePublicData("settings");
+      if (
+        event.key !== "bb_products_v1" &&
+        event.key !== "bb_campaigns_v1"
+      ) {
+        return;
       }
+
+      invalidatePublicData("catalog");
+
+      if (externalRefreshTimerRef.current) {
+        window.clearTimeout(externalRefreshTimerRef.current);
+      }
+
+      externalRefreshTimerRef.current = window.setTimeout(() => {
+        void refreshPublicData("catalog", { force: true });
+      }, 250);
     };
 
-    void warmInitialData();
+    void passiveRefresh();
 
     window.addEventListener("focus", onFocus);
     window.addEventListener(
       "bb:refresh-catalog",
-      onCatalogRefresh as EventListener,
+      forceCatalogRefresh as EventListener,
     );
     window.addEventListener(
       "bb_settings_changed",
-      onSettingsChanged as EventListener,
-    );
-    window.addEventListener(
-      "bb:settings-sync",
       onSettingsChanged as EventListener,
     );
     window.addEventListener("storage", onStorage);
@@ -121,17 +149,18 @@ export default function CatalogProvider({
 
     return () => {
       stopped = true;
+
+      if (externalRefreshTimerRef.current) {
+        window.clearTimeout(externalRefreshTimerRef.current);
+      }
+
       window.removeEventListener("focus", onFocus);
       window.removeEventListener(
         "bb:refresh-catalog",
-        onCatalogRefresh as EventListener,
+        forceCatalogRefresh as EventListener,
       );
       window.removeEventListener(
         "bb_settings_changed",
-        onSettingsChanged as EventListener,
-      );
-      window.removeEventListener(
-        "bb:settings-sync",
         onSettingsChanged as EventListener,
       );
       window.removeEventListener("storage", onStorage);

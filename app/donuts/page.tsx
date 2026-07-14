@@ -3,7 +3,7 @@
 
 import NextImage from "next/image";
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState, useLayoutEffect } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import CartSummary, { CartSummaryMobile } from "@/components/CartSummary";
 import SauceCard from "@/components/sauces/SauceCard";
@@ -18,7 +18,6 @@ import {
 } from "@/lib/catalog";
 
 const LS_PRODUCTS = "bb_products_v1";
-const SS_TABS_X = "bb_tabs_scroll_x_v1";
 
 type LocalCategory =
   | "burger"
@@ -220,83 +219,45 @@ export default function DonutsPage() {
   const [canRight, setCanRight] = useState(false);
 
   const updateArrows = () => {
-    const el = railRef.current;
-    if (!el) return;
-
-    const { scrollLeft, scrollWidth, clientWidth } = el;
-    setCanLeft(scrollLeft > 2);
-    setCanRight(scrollLeft + clientWidth < scrollWidth - 2);
-  };
-
-  const centerEl = (pill: HTMLElement | null, bias = 0.55) => {
-    const rail = railRef.current;
-    if (!rail || !pill) return;
-
-    const railRect = rail.getBoundingClientRect();
-    const pillRect = pill.getBoundingClientRect();
-    const targetViewportX = railRect.left + railRect.width * bias;
-    const delta = pillRect.left + pillRect.width / 2 - targetViewportX;
-
-    rail.scrollTo({ left: rail.scrollLeft + delta, behavior: "smooth" });
-    setTimeout(updateArrows, 250);
-  };
-
-  useLayoutEffect(() => {
     const rail = railRef.current;
     if (!rail) return;
 
-    try {
-      const saved = Number(sessionStorage.getItem(SS_TABS_X) || "0");
-      if (Number.isFinite(saved) && saved > 0) rail.scrollLeft = saved;
-    } catch {}
-  }, []);
+    const { scrollLeft, scrollWidth, clientWidth } = rail;
+
+    setCanLeft(scrollLeft > 2);
+    setCanRight(scrollLeft + clientWidth < scrollWidth - 2);
+  };
 
   useEffect(() => {
     const rail = railRef.current;
     if (!rail) return;
 
-    const active =
-      (rail.querySelector(".nav-pill--active") as HTMLElement) ||
-      (rail.querySelector('[aria-current="page"]') as HTMLElement) ||
-      (rail.querySelector('[data-active-tab="true"]') as HTMLElement);
+    const frame = window.requestAnimationFrame(updateArrows);
 
-    requestAnimationFrame(() => centerEl(active, 0.55));
+    rail.addEventListener("scroll", updateArrows, {
+      passive: true,
+    });
 
-    updateArrows();
-    rail.addEventListener("scroll", updateArrows, { passive: true });
-
-    const onClick = (event: Event) => {
-      const target = event.target as HTMLElement;
-      const pill = target.closest(".nav-pill") as HTMLElement | null;
-
-      if (pill) {
-        try {
-          sessionStorage.setItem(SS_TABS_X, String(rail.scrollLeft));
-        } catch {}
-
-        setTimeout(() => centerEl(pill, 0.55), 40);
-      }
-    };
-
-    rail.addEventListener("click", onClick, true);
-
-    const ro = new ResizeObserver(updateArrows);
-    ro.observe(rail);
+    const observer = new ResizeObserver(updateArrows);
+    observer.observe(rail);
 
     return () => {
+      window.cancelAnimationFrame(frame);
       rail.removeEventListener("scroll", updateArrows);
-      rail.removeEventListener("click", onClick, true);
-      ro.disconnect();
+      observer.disconnect();
     };
   }, []);
 
   const nudge = (dir: "left" | "right") => {
-    const el = railRef.current;
-    if (!el) return;
+    const rail = railRef.current;
+    if (!rail) return;
 
-    const step = Math.round(el.clientWidth * 0.6);
-    el.scrollBy({ left: dir === "left" ? -step : step, behavior: "smooth" });
-    setTimeout(updateArrows, 250);
+    const step = Math.round(rail.clientWidth * 0.6);
+
+    rail.scrollBy({
+      left: dir === "left" ? -step : step,
+      behavior: "smooth",
+    });
   };
 
   const handleTabChange = (key: string) => {

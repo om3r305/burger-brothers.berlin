@@ -2,197 +2,114 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { usePathname } from "next/navigation";
 import {
-  LS_SETTINGS,
   applyRemoteSettings,
   fetchServerSettings,
   readSettings,
-  type SettingsV6,
 } from "@/lib/settings";
 
-/** Admin route mu? Admin’deyken sync kapalı; düzenlenen formu ezmesin. */
-function isAdminRoute() {
-  try {
-    const path = window.location.pathname || "/";
-    return path === "/admin" || path.startsWith("/admin/");
-  } catch {
-    return false;
-  }
+const PASSIVE_REFRESH_GAP_MS = 60_000;
+
+function isAdminRoute(path: string) {
+  return path === "/admin" || path.startsWith("/admin/");
 }
 
-function isPlainObject(value: any): value is Record<string, any> {
-  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+function isCustomerCatalogRoute(path: string) {
+  return [
+    "/",
+    "/menu",
+    "/extras",
+    "/drinks",
+    "/sauces",
+    "/hotdogs",
+    "/donuts",
+    "/bubble-tea",
+  ].includes(path);
 }
 
-function isSafeKey(key: string) {
-  if (!key) return false;
-  if (key === "__proto__") return false;
-  if (key === "prototype") return false;
-  if (key === "constructor") return false;
-  return true;
-}
-
-function deepMerge(base: any, override: any): any {
-  if (override === undefined) return base;
-
-  if (Array.isArray(base) || Array.isArray(override)) {
-    return override;
-  }
-
-  if (!isPlainObject(base) || !isPlainObject(override)) {
-    return override;
-  }
-
-  const out: Record<string, any> = { ...base };
-
-  for (const [key, value] of Object.entries(override)) {
-    if (!isSafeKey(key)) continue;
-
-    if (isPlainObject(out[key]) && isPlainObject(value)) {
-      out[key] = deepMerge(out[key], value);
-    } else {
-      out[key] = value;
-    }
-  }
-
-  return out;
-}
-
-function stripResponseMeta(payload: any) {
-  if (!isPlainObject(payload)) return null;
-
-  const raw = isPlainObject(payload.settings) ? payload.settings : payload;
-  const out: Record<string, any> = {};
-
-  const ignoredKeys = new Set([
-    "ok",
-    "source",
-    "tenant",
-    "count",
-    "counts",
-    "saved",
-    "keys",
-    "replace",
-    "createdAt",
-    "updatedAt",
-  ]);
-
-  for (const [key, value] of Object.entries(raw)) {
-    if (ignoredKeys.has(key)) continue;
-    if (!isSafeKey(key)) continue;
-    if (value === undefined) continue;
-
-    out[key] = value;
-  }
-
-  return Object.keys(out).length ? out : null;
-}
-
-/**
- * Server → Local:
- * - DB ana kaynak.
- * - Local sadece eksik alanları doldurur.
- * - Çakışmada server kazanır.
- */
-function mergeSettings(localSettings: any, serverSettings: any): SettingsV6 {
-  const local = isPlainObject(localSettings) ? localSettings : {};
-  const remote = stripResponseMeta(serverSettings);
-
-  if (!remote) {
-    return local as SettingsV6;
-  }
-
-  return deepMerge(local, remote) as SettingsV6;
-}
-
-async function syncSettingsOnce(reason: string) {
-  if (typeof window === "undefined") return null;
-  if (isAdminRoute()) return null;
-
+async function syncSettingsOnce() {
   try {
     const server = await fetchServerSettings();
 
-    if (!server) {
-      return readSettings();
-    }
+    if (!server) return readSettings();
 
-    const localNow = readSettings();
-    const merged = mergeSettings(localNow, server);
-
-    return applyRemoteSettings(merged);
-  } catch (error) {
-    console.warn(`[SettingsSync] sync failed (${reason}):`, error);
+    return applyRemoteSettings(server);
+  } catch {
     return readSettings();
   }
 }
 
 export default function SettingsSync() {
+  const pathname = usePathname();
   const syncingRef = useRef(false);
+  const lastRefreshRef = useRef(0);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    if (isAdminRoute()) {
+    if (isAdminRoute(pathname) || isCustomerCatalogRoute(pathname)) {
       return;
     }
 
     let stopped = false;
 
-    const runSync = async (reason: string) => {
-      if (stopped) return;
-      if (syncingRef.current) return;
-      if (isAdminRoute()) return;
+    const runSync = async (force = false) => {
+      if (stopped || syncingRef.current || isAdminRoute(pathname)) return;
 
+      const now = Date.now();
+
+      if (
+        !force &&
+        now - lastRefreshRef.current < PASSIVE_REFRESH_GAP_MS
+      ) {
+        return;
+      }
+
+      lastRefreshRef.current = now;
       syncingRef.current = true;
 
       try {
-        await syncSettingsOnce(reason);
+        await syncSettingsOnce();
       } finally {
         syncingRef.current = false;
       }
     };
 
-    runSync("initial");
-
-    const onVisibilityChange = () => {
-      if (document.visibilityState !== "visible") return;
-      runSync("visibility");
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        void runSync();
+      }
     };
 
     const onFocus = () => {
-      runSync("focus");
+      void runSync();
     };
 
     const onManualSync = () => {
-      runSync("manual-event");
+      void runSync(true);
     };
 
-    const onStorage = (event: StorageEvent) => {
-      if (event.key !== LS_SETTINGS) return;
-      /*
-        Başka sekmede local cache değişti.
-        Burada ekstra işlem yapmıyoruz; component'ler storage/custom event dinliyorsa zaten güncellenir.
-      */
-    };
+    void runSync();
 
-    document.addEventListener("visibilitychange", onVisibilityChange);
+    document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("focus", onFocus);
-    window.addEventListener("storage", onStorage);
-    window.addEventListener("bb:settings-sync-now", onManualSync as EventListener);
-
-    const intervalId = window.setInterval(() => {
-      runSync("interval");
-    }, 30_000);
+    window.addEventListener(
+      "bb:settings-sync-now",
+      onManualSync as EventListener,
+    );
 
     return () => {
       stopped = true;
-      window.clearInterval(intervalId);
-      document.removeEventListener("visibilitychange", onVisibilityChange);
+      document.removeEventListener(
+        "visibilitychange",
+        onVisibility,
+      );
       window.removeEventListener("focus", onFocus);
-      window.removeEventListener("storage", onStorage);
-      window.removeEventListener("bb:settings-sync-now", onManualSync as EventListener);
+      window.removeEventListener(
+        "bb:settings-sync-now",
+        onManualSync as EventListener,
+      );
     };
-  }, []);
+  }, [pathname]);
 
   return null;
 }

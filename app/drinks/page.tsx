@@ -88,84 +88,48 @@ export default function DrinksPage() {
   const [canLeft, setCanLeft] = useState(false);
   const [canRight, setCanRight] = useState(false);
 
-  // ► Scroll pozisyonunu sayfa bazında koru (ilk yüklemede zıplama olmasın)
-  const keepKeyRef = useRef<string>(
-    `bb_tabs_scroll_${typeof window !== "undefined" ? window.location.pathname : "/drinks"}`
-  );
-
   const updateArrows = () => {
-    const el = railRef.current;
-    if (!el) return;
-    const { scrollLeft, scrollWidth, clientWidth } = el;
+    const rail = railRef.current;
+    if (!rail) return;
+
+    const { scrollLeft, scrollWidth, clientWidth } = rail;
+
     setCanLeft(scrollLeft > 2);
     setCanRight(scrollLeft + clientWidth < scrollWidth - 2);
-    // konumu sakla
-    try {
-      sessionStorage.setItem(keepKeyRef.current, String(scrollLeft));
-    } catch {}
-  };
-
-  // Ray içinde bir sekmeyi merkeze hizala
-  const centerEl = (pill: HTMLElement | null, smooth = true) => {
-    const rail = railRef.current;
-    if (!rail || !pill) return;
-    const left = pill.offsetLeft + pill.offsetWidth / 2 - rail.clientWidth / 2;
-    rail.scrollTo({ left: Math.max(0, left), behavior: smooth ? "smooth" : "auto" });
-    setTimeout(updateArrows, smooth ? 250 : 0);
   };
 
   useEffect(() => {
     const rail = railRef.current;
     if (!rail) return;
 
-    const saved = (() => {
-      try {
-        const v = sessionStorage.getItem(keepKeyRef.current);
-        return v ? Number(v) : NaN;
-      } catch {
-        return NaN;
-      }
-    })();
+    const frame = window.requestAnimationFrame(updateArrows);
 
-    const active =
-      (rail.querySelector(".nav-pill--active") as HTMLElement) ||
-      (rail.querySelector('[aria-current="page"]') as HTMLElement) ||
-      (rail.querySelector('[data-active-tab="true"]') as HTMLElement);
+    rail.addEventListener("scroll", updateArrows, {
+      passive: true,
+    });
 
-    if (!Number.isNaN(saved)) {
-      rail.scrollLeft = saved;
-      updateArrows();
-    } else {
-      requestAnimationFrame(() => centerEl(active || null, false));
-    }
-
-    rail.addEventListener("scroll", updateArrows, { passive: true });
-    const ro = new ResizeObserver(updateArrows);
-    ro.observe(rail);
-
-    const onClick = (e: Event) => {
-      const t = e.target as HTMLElement;
-      const pill = t.closest(".nav-pill") as HTMLElement | null;
-      if (pill) setTimeout(() => centerEl(pill, true), 40);
-    };
-    rail.addEventListener("click", onClick);
+    const observer = new ResizeObserver(updateArrows);
+    observer.observe(rail);
 
     return () => {
+      window.cancelAnimationFrame(frame);
       rail.removeEventListener("scroll", updateArrows);
-      rail.removeEventListener("click", onClick);
-      ro.disconnect();
+      observer.disconnect();
     };
   }, []);
 
   const nudge = (dir: "left" | "right") => {
-    const el = railRef.current;
-    if (!el) return;
-    const step = Math.round(el.clientWidth * 0.6);
-    el.scrollBy({ left: dir === "left" ? -step : step, behavior: "smooth" });
-    setTimeout(updateArrows, 250);
+    const rail = railRef.current;
+    if (!rail) return;
+
+    const step = Math.round(rail.clientWidth * 0.6);
+
+    rail.scrollBy({
+      left: dir === "left" ? -step : step,
+      behavior: "smooth",
+    });
   };
 
-  // Sekme navigasyonu
   const handleTabChange = (key: string) => {
     const k = key.toLowerCase();
     if (k === "drinks") return;

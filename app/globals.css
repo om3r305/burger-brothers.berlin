@@ -1017,7 +1017,7 @@ html.bb-route-pending footer {
   overflow-x: auto;
   overflow-y: hidden;
   overscroll-behavior-inline: contain;
-  scroll-behavior: smooth;
+  scroll-behavior: auto;
   scroll-snap-type: x proximity;
   scrollbar-width: none;
   -ms-overflow-style: none;
@@ -1277,7 +1277,7 @@ body.bb-modal-open {
    ========================================================= */
 
 :root {
-  --bb-route-duration: 150ms;
+  --bb-route-duration: 110ms;
 }
 
 /* Geçiş sırasında ekranı fazla karartma; eski içerik yeni route hazır olana kadar kalır. */
@@ -1359,4 +1359,17 @@ html.bb-route-pending .bb-route-view {
   body:not(:has(.bb-mobile-cart-trigger)) .bb-mobile-footer-gap {
     height: env(safe-area-inset-bottom);
   }
+}
+/* =========================================================
+   CATALOG PING + TAB JUMP FIX
+   ========================================================= */
+
+.bb-tabs-scroll__rail {
+  overflow-anchor: none;
+}
+
+/* Route geçişinde görsellerin gereksiz kararmasını azaltır. */
+html.bb-route-pending .bb-route-view {
+  opacity: .97;
+  transition: opacity 70ms ease;
 }

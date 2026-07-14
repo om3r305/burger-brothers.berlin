@@ -757,14 +757,61 @@ export default function MenuPage() {
       if (document.visibilityState === "visible") safeReload();
     };
 
+    const onCatalogSync = (event: Event) => {
+      const detail = (event as CustomEvent<any>)?.detail || {};
+
+      setProducts(
+        normalizeProducts(
+          detail?.products ??
+            detail?.items ??
+            detail?.data?.products ??
+            [],
+        ),
+      );
+
+      setCampaigns(
+        normalizeCampaigns(
+          detail?.campaigns ??
+            detail?.data?.campaigns ??
+            [],
+        ),
+      );
+    };
+
+    const onSettingsChanged = (event: Event) => {
+      const flags = parseFeatureFlags(
+        (event as CustomEvent<any>)?.detail,
+      );
+
+      if (flags) {
+        setFeatures(flags);
+      }
+    };
+
     window.addEventListener("storage", onStorage);
     window.addEventListener("focus", onFocus);
+    window.addEventListener(
+      "bb:catalog-sync",
+      onCatalogSync as EventListener,
+    );
+    window.addEventListener(
+      "bb_settings_changed",
+      onSettingsChanged as EventListener,
+    );
     document.addEventListener("visibilitychange", onVisibility);
 
     return () => {
       alive = false;
       window.removeEventListener("storage", onStorage);
       window.removeEventListener("focus", onFocus);
+      window.removeEventListener(
+        "bb:catalog-sync",
+        onCatalogSync as EventListener,
+      );
+      window.removeEventListener(
+        "bb_settings_changed",
+        onSettingsChanged as EventListener,
+      );
       document.removeEventListener("visibilitychange", onVisibility);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
