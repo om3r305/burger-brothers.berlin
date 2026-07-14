@@ -218,10 +218,11 @@ export default function Footer() {
 
   return (
     <footer
+      data-bb-footer-page={isLanding ? "landing" : "default"}
       className={`bb-site-footer ${
         isLanding
-          ? "relative z-20 -mt-36 border-t-0 bg-transparent pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-0 sm:-mt-32 md:-mt-28"
-          : "border-t border-stone-800/60 bg-black py-4 sm:py-6"
+          ? "bb-site-footer--landing relative -mt-36 border-t-0 bg-transparent pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-0 sm:-mt-32 md:-mt-28"
+          : "bb-site-footer--default border-t border-stone-800/60 bg-black py-4 sm:py-6"
       }`}
     >
       <div
@@ -291,7 +292,7 @@ export default function Footer() {
         <div
           className={
             isLanding
-              ? "order-1 flex flex-wrap items-center justify-center gap-2 sm:gap-3 md:order-none md:justify-start"
+              ? "bb-landing-socials order-1 flex flex-wrap items-center justify-center gap-2 sm:gap-3 md:order-none md:justify-start"
               : "flex flex-wrap items-center gap-2 sm:gap-3"
           }
         >

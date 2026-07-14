@@ -1470,3 +1470,83 @@ html.bb-route-pending .bb-route-view {
     width: 100%;
   }
 }
+/* =========================================================
+   LANDING FOOTER / VIDEO STACKING FIX
+   Ana girişte sosyal butonları video katmanının önüne getirir.
+   Menü, checkout, modal ve mobil sepet katmanları değişmez.
+   ========================================================= */
+
+/*
+ * Normal müşteri sayfalarında Footer düşük katmanda kalmaya devam eder.
+ * Sadece "/" sayfasında explicit modifier sınıfıyla video/route alanının
+ * önüne çıkarılır.
+ */
+.bb-site-footer--landing {
+  position: relative !important;
+  z-index: 40 !important;
+  isolation: isolate;
+  pointer-events: auto;
+}
+
+/*
+ * Önceki kategori/footer güvenlik kuralında .bb-route-view z-index:1 idi.
+ * Landing sayfasında bu wrapper'ı geri plana alıyoruz; ürün sayfalarına
+ * veya modal davranışına dokunmuyoruz.
+ */
+body:has(#bb-landing-page) .bb-route-view {
+  z-index: 0 !important;
+}
+
+body:has(#bb-landing-page) .app-shell {
+  position: relative;
+  z-index: 0;
+}
+
+/* Video her zaman dekoratif arka plan olarak kalır. */
+body:has(#bb-landing-page) #bb-landing-page {
+  position: relative;
+  z-index: 0;
+  isolation: isolate;
+}
+
+/* Landing sosyal butonları Footer içinde tıklanabilir ve görünür kalır. */
+.bb-site-footer--landing .bb-landing-socials,
+.bb-site-footer--landing .flash-btn {
+  position: relative;
+  z-index: 1 !important;
+  pointer-events: auto;
+}
+
+/*
+ * Parlak alevlerin üzerinde butonların okunabilirliğini koruyan hafif
+ * arka gölge. Tasarımı kapatmaz, sadece kontrast sağlar.
+ */
+.bb-site-footer--landing .bb-landing-socials {
+  border-radius: 1.25rem;
+  filter: drop-shadow(0 12px 28px rgba(0, 0, 0, .52));
+}
+
+/* iPhone/PWA: alt güvenli alan ve görünür sosyal satır. */
+@media (max-width: 639px) {
+  .bb-site-footer--landing {
+    margin-top: -9rem !important;
+    padding-inline: .25rem;
+    padding-bottom: calc(env(safe-area-inset-bottom) + .9rem) !important;
+  }
+
+  .bb-site-footer--landing .bb-landing-socials {
+    width: 100%;
+    padding-inline: .25rem;
+  }
+
+  .bb-site-footer--landing .flash-btn {
+    min-height: 42px;
+  }
+}
+
+/* Çok kısa telefon ekranlarında Footer biraz daha aşağıda başlar. */
+@media (max-width: 639px) and (max-height: 700px) {
+  .bb-site-footer--landing {
+    margin-top: -7rem !important;
+  }
+}
