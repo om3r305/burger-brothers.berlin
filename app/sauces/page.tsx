@@ -3,7 +3,7 @@
 
 import NextImage from "next/image";
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import CartSummary, { CartSummaryMobile } from "@/components/CartSummary";
 import SauceCard from "@/components/sauces/SauceCard";
@@ -227,6 +227,50 @@ export default function SaucesPage() {
     setCanLeft(scrollLeft > 2);
     setCanRight(scrollLeft + clientWidth < scrollWidth - 2);
   };
+
+  /*
+   * Aktif sekme ilk çizimden önce doğru konuma alınır.
+   * Böylece sayfa açılırken kategori rayı Burger başlangıcına dönmez.
+   */
+  useLayoutEffect(() => {
+    const rail = railRef.current;
+    if (!rail) return;
+
+    const placeActiveTab = () => {
+      const active =
+        rail.querySelector<HTMLElement>(
+          '[data-bb-tab-key="sauces"]',
+        ) ||
+        rail.querySelector<HTMLElement>(
+          '[data-bb-tab-active="true"]',
+        ) ||
+        rail.querySelector<HTMLElement>(
+          '[aria-selected="true"]',
+        );
+
+      if (!active) return;
+
+      const maxLeft = Math.max(0, rail.scrollWidth - rail.clientWidth);
+      const desiredLeft =
+        active.offsetLeft -
+        rail.clientWidth / 2 +
+        active.clientWidth / 2;
+
+      rail.scrollLeft = Math.max(0, Math.min(desiredLeft, maxLeft));
+
+      const { scrollLeft, scrollWidth, clientWidth } = rail;
+      setCanLeft(scrollLeft > 2);
+      setCanRight(scrollLeft + clientWidth < scrollWidth - 2);
+    };
+
+    placeActiveTab();
+
+    const frame = window.requestAnimationFrame(placeActiveTab);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+    };
+  }, []);
 
   useEffect(() => {
     const rail = railRef.current;
