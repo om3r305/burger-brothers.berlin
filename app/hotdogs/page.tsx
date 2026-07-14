@@ -335,8 +335,8 @@ export default function HotDogsPage() {
   };
 
   return (
-    <main className="bb-menu-page bb-category-page mx-auto max-w-7xl p-6">
-      <div className="bb-menu-header bb-category-header mb-4 flex flex-col gap-3 sm:mb-6 sm:flex-row sm:items-center sm:justify-between">
+    <main className="bb-menu-page bb-category-page bb-hotdogs-page mx-auto max-w-7xl p-6">
+      <div className="bb-menu-header bb-category-header bb-hotdogs-header mb-4 flex flex-col gap-3 sm:mb-6 sm:flex-row sm:items-center sm:justify-between">
         <Link href="/" className="flex items-center gap-3">
           <Image
             src="/logo-burger-brothers.png"
@@ -352,43 +352,49 @@ export default function HotDogsPage() {
           </div>
         </Link>
 
-        <div className="bb-category-tabs bb-tabs-scroll -mx-6 px-6 sm:mx-0 sm:px-0">
+                {/* Sekmeler — Extras sayfasında doğrulanan tam genişlik düzeni */}
+        <div className="bb-hotdogs-tabs relative -mx-6 px-6 sm:mx-0 sm:px-0">
           {canLeft && (
             <button
               aria-label="Tabs nach links"
-              className="bb-tabs-scroll__btn bb-tabs-scroll__btn--left"
+              className="bb-tab-arrow bb-tab-arrow--left"
               onClick={() => nudge("left")}
             >
               ‹
             </button>
           )}
 
-          <div ref={railRef} className="bb-category-tabs__rail bb-tabs-scroll__rail whitespace-nowrap">
-            <NavBar
-              variant="menu"
-              tab={"hotdogs" as any}
-              onTabChange={handleTabChange as any}
-              showLocationCaption={false}
-            />
-          </div>
-
           {canRight && (
             <button
               aria-label="Tabs nach rechts"
-              className="bb-tabs-scroll__btn bb-tabs-scroll__btn--right"
+              className="bb-tab-arrow bb-tab-arrow--right"
               onClick={() => nudge("right")}
             >
               ›
             </button>
           )}
+
+          <div
+            ref={railRef}
+            className="bb-hotdogs-tabs__rail bb-tabs-scroll bb-tabs-mask"
+          >
+            <div className="whitespace-nowrap">
+              <NavBar
+                variant="menu"
+                tab={"hotdogs" as any}
+                onTabChange={handleTabChange as any}
+                showLocationCaption={false}
+              />
+            </div>
+          </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_380px]">
-        <div>
+      <div className="bb-hotdogs-layout grid grid-cols-1 gap-6 lg:grid-cols-[1fr_380px]">
+        <div className="bb-hotdogs-content min-w-0">
           <CategoryBlurb category="hotdogs" />
 
-          <div className="grid-cards">
+          <div className="bb-hotdogs-grid grid-cards">
             {!loaded ? (
               <div className="text-sm text-stone-400">Lädt …</div>
             ) : hotdogs.length === 0 ? (
@@ -398,7 +404,7 @@ export default function HotDogsPage() {
               </div>
             ) : (
               hotdogs.map((h) => (
-                <div key={h.id} className="menu-card">
+                <div key={h.id} className="bb-hotdogs-card menu-card">
                   <article className="product-card card">
                     <div className="cover" aria-hidden>
                       {h.imageUrl ? (
@@ -558,6 +564,106 @@ export default function HotDogsPage() {
 
         .grid-cards > .menu-card .product-card__cta {
           margin-top: auto;
+        }
+
+
+        /* HOTDOGS — Extras sayfasında doğrulanan mobil tam genişlik */
+        .bb-hotdogs-page,
+        .bb-hotdogs-header,
+        .bb-hotdogs-layout,
+        .bb-hotdogs-content,
+        .bb-hotdogs-grid,
+        .bb-hotdogs-card {
+          min-width: 0;
+        }
+
+        .bb-hotdogs-tabs {
+          min-width: 0;
+          max-width: 100%;
+        }
+
+        .bb-hotdogs-tabs__rail {
+          overflow-x: auto;
+          overflow-y: hidden;
+          scrollbar-width: none;
+          -webkit-overflow-scrolling: touch;
+          overscroll-behavior-x: contain;
+          scroll-behavior: auto;
+        }
+
+        .bb-hotdogs-tabs__rail::-webkit-scrollbar {
+          display: none;
+        }
+
+        .bb-hotdogs-grid > .bb-hotdogs-card {
+          display: flex;
+          height: 100%;
+        }
+
+        .bb-hotdogs-grid > .bb-hotdogs-card > .card,
+        .bb-hotdogs-grid > .bb-hotdogs-card > .product-card {
+          width: 100%;
+          min-width: 0;
+          max-width: none;
+        }
+
+        @media (max-width: 639px) {
+          .bb-hotdogs-page {
+            box-sizing: border-box;
+            width: 100%;
+            max-width: 100%;
+            overflow-x: clip;
+          }
+
+          .bb-hotdogs-header {
+            box-sizing: border-box;
+            width: 100%;
+            max-width: 100%;
+          }
+
+          .bb-hotdogs-tabs {
+            box-sizing: border-box;
+            width: calc(100% + 3rem);
+            max-width: none;
+            margin-inline: -1.5rem;
+            padding-inline: 1.5rem;
+          }
+
+          .bb-hotdogs-tabs__rail {
+            box-sizing: border-box;
+            width: 100%;
+            max-width: 100%;
+            margin-inline: 0 !important;
+            padding-inline: 0 !important;
+            scroll-padding-inline: 30vw;
+          }
+
+          .bb-hotdogs-layout {
+            display: block !important;
+            width: 100%;
+            max-width: 100%;
+          }
+
+          .bb-hotdogs-content,
+          .bb-hotdogs-grid {
+            box-sizing: border-box;
+            width: 100%;
+            max-width: 100%;
+          }
+
+          .bb-hotdogs-grid {
+            grid-template-columns: minmax(0, 1fr) !important;
+            gap: 1rem;
+          }
+
+          .bb-hotdogs-card,
+          .bb-hotdogs-card > .card,
+          .bb-hotdogs-card > .product-card {
+            box-sizing: border-box;
+            width: 100% !important;
+            min-width: 0 !important;
+            max-width: none !important;
+          }
         }
       `}</style>
     </main>

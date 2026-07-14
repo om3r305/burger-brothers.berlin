@@ -187,9 +187,9 @@ export default function DrinksPage() {
   };
 
   return (
-    <main className="bb-menu-page bb-category-page mx-auto max-w-7xl p-6">
+    <main className="bb-menu-page bb-category-page bb-drinks-page mx-auto max-w-7xl p-6">
       {/* KOPF: Logo + Navigation */}
-      <div className="bb-menu-header bb-category-header mb-4 flex flex-col gap-3 sm:mb-6 sm:flex-row sm:items-center sm:justify-between">
+      <div className="bb-menu-header bb-category-header bb-drinks-header mb-4 flex flex-col gap-3 sm:mb-6 sm:flex-row sm:items-center sm:justify-between">
         <Link href="/" className="flex items-center gap-3">
           <NextImage
             src="/logo-burger-brothers.png"
@@ -206,42 +206,49 @@ export default function DrinksPage() {
         </Link>
 
         {/* Sekmeler — oklar yalnızca gerektiğinde görünür, aktif sekme ortalanır */}
-        <div className="bb-category-tabs bb-tabs-scroll -mx-6 px-6 sm:mx-0 sm:px-0">
+                {/* Sekmeler — Extras sayfasında doğrulanan tam genişlik düzeni */}
+        <div className="bb-drinks-tabs relative -mx-6 px-6 sm:mx-0 sm:px-0">
           {canLeft && (
             <button
               aria-label="Tabs nach links"
-              className="bb-tabs-scroll__btn bb-tabs-scroll__btn--left"
+              className="bb-tab-arrow bb-tab-arrow--left"
               onClick={() => nudge("left")}
             >
               ‹
             </button>
           )}
 
-          <div ref={railRef} className="bb-category-tabs__rail bb-tabs-scroll__rail whitespace-nowrap">
-            <NavBar
-              variant="menu"
-              tab={"drinks" as any}
-              onTabChange={handleTabChange as any}
-              showLocationCaption={false}
-            />
-          </div>
-
           {canRight && (
             <button
               aria-label="Tabs nach rechts"
-              className="bb-tabs-scroll__btn bb-tabs-scroll__btn--right"
+              className="bb-tab-arrow bb-tab-arrow--right"
               onClick={() => nudge("right")}
             >
               ›
             </button>
           )}
+
+          <div
+            ref={railRef}
+            className="bb-drinks-tabs__rail bb-tabs-scroll bb-tabs-mask"
+          >
+            <div className="whitespace-nowrap">
+              <NavBar
+                variant="menu"
+                tab={"drinks" as any}
+                onTabChange={handleTabChange as any}
+                showLocationCaption={false}
+              />
+            </div>
+          </div>
         </div>
       </div>
 
       {/* GRID + RECHTS: Warenkorb */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_380px]">
+      <div className="bb-drinks-layout grid grid-cols-1 gap-6 lg:grid-cols-[1fr_380px]">
         {/* Sol: Kartlar */}
-        <div className="grid-cards">
+        <div className="bb-drinks-content min-w-0">
+          <div className="bb-drinks-grid grid-cards">
           {!loaded ? (
             <div className="text-sm text-stone-400">Lädt …</div>
           ) : groups.length === 0 ? (
@@ -251,7 +258,7 @@ export default function DrinksPage() {
             </div>
           ) : (
             groups.map((g) => (
-              <div key={g.sku || g.name} className="menu-card">
+              <div key={g.sku || g.name} className="bb-drinks-card menu-card">
                 <VariantGroupCard
                   sku={g.sku || g.name}
                   name={g.name}
@@ -263,6 +270,7 @@ export default function DrinksPage() {
               </div>
             ))
           )}
+          </div>
         </div>
 
         {/* Sağ: Sepet */}
@@ -334,6 +342,106 @@ export default function DrinksPage() {
         }
         .grid-cards > .menu-card .product-card .product-card__cta {
           margin-top: auto;
+        }
+
+
+        /* DRINKS — Extras sayfasında doğrulanan mobil tam genişlik */
+        .bb-drinks-page,
+        .bb-drinks-header,
+        .bb-drinks-layout,
+        .bb-drinks-content,
+        .bb-drinks-grid,
+        .bb-drinks-card {
+          min-width: 0;
+        }
+
+        .bb-drinks-tabs {
+          min-width: 0;
+          max-width: 100%;
+        }
+
+        .bb-drinks-tabs__rail {
+          overflow-x: auto;
+          overflow-y: hidden;
+          scrollbar-width: none;
+          -webkit-overflow-scrolling: touch;
+          overscroll-behavior-x: contain;
+          scroll-behavior: auto;
+        }
+
+        .bb-drinks-tabs__rail::-webkit-scrollbar {
+          display: none;
+        }
+
+        .bb-drinks-grid > .bb-drinks-card {
+          display: flex;
+          height: 100%;
+        }
+
+        .bb-drinks-grid > .bb-drinks-card > .card,
+        .bb-drinks-grid > .bb-drinks-card > .product-card {
+          width: 100%;
+          min-width: 0;
+          max-width: none;
+        }
+
+        @media (max-width: 639px) {
+          .bb-drinks-page {
+            box-sizing: border-box;
+            width: 100%;
+            max-width: 100%;
+            overflow-x: clip;
+          }
+
+          .bb-drinks-header {
+            box-sizing: border-box;
+            width: 100%;
+            max-width: 100%;
+          }
+
+          .bb-drinks-tabs {
+            box-sizing: border-box;
+            width: calc(100% + 3rem);
+            max-width: none;
+            margin-inline: -1.5rem;
+            padding-inline: 1.5rem;
+          }
+
+          .bb-drinks-tabs__rail {
+            box-sizing: border-box;
+            width: 100%;
+            max-width: 100%;
+            margin-inline: 0 !important;
+            padding-inline: 0 !important;
+            scroll-padding-inline: 30vw;
+          }
+
+          .bb-drinks-layout {
+            display: block !important;
+            width: 100%;
+            max-width: 100%;
+          }
+
+          .bb-drinks-content,
+          .bb-drinks-grid {
+            box-sizing: border-box;
+            width: 100%;
+            max-width: 100%;
+          }
+
+          .bb-drinks-grid {
+            grid-template-columns: minmax(0, 1fr) !important;
+            gap: 1rem;
+          }
+
+          .bb-drinks-card,
+          .bb-drinks-card > .card,
+          .bb-drinks-card > .product-card {
+            box-sizing: border-box;
+            width: 100% !important;
+            min-width: 0 !important;
+            max-width: none !important;
+          }
         }
       `}</style>
     </main>
