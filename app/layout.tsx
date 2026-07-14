@@ -9,6 +9,7 @@ import DriversSync from "./DriversSync";
 import { LS_SETTINGS } from "@/lib/settings";
 import AnalyticsPing from "@/components/AnalyticsPing";
 import AppRouteTransition from "@/components/AppRouteTransition";
+import CatalogProvider from "@/components/catalog/CatalogProvider";
 
 /* 🔧 SSG yerine runtime render (prerender hatalarını engelle) */
 export const dynamic = "force-dynamic";
@@ -218,8 +219,11 @@ body:has(#bb-landing-page) .bb-mobile-footer-gap {
         {/* 🎨 DB / localStorage temasını müşteri tarafına uygular */}
         <ThemeClient />
 
-        {/* App-shell */}
-        <main className="app-shell min-w-0">{children}</main>
+        {/* Merkezi katalog/cache katmanı — DB ana kaynak olarak kalır */}
+        <CatalogProvider>
+          {/* App-shell */}
+          <main className="app-shell min-w-0">{children}</main>
+        </CatalogProvider>
 
         {/* 
           Kampanya / broşür artık global layout'ta gösterilmiyor.

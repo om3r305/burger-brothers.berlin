@@ -47,16 +47,39 @@ export default function ExtrasPage() {
 
   useEffect(() => {
     let mounted = true;
-    (async () => {
+
+    const reloadGroups = async () => {
       try {
         const data = await loadGroupsWithFallback();
         if (mounted) setGroups(data);
       } finally {
         if (mounted) setLoaded(true);
       }
-    })();
+    };
+
+    const onGroupsSync = () => {
+      void reloadGroups();
+    };
+
+    const onFocus = () => {
+      void reloadGroups();
+    };
+
+    void reloadGroups();
+
+    window.addEventListener(
+      "bb:groups-sync",
+      onGroupsSync as EventListener,
+    );
+    window.addEventListener("focus", onFocus);
+
     return () => {
       mounted = false;
+      window.removeEventListener(
+        "bb:groups-sync",
+        onGroupsSync as EventListener,
+      );
+      window.removeEventListener("focus", onFocus);
     };
   }, []);
 

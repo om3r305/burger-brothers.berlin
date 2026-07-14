@@ -1271,3 +1271,92 @@ body.bb-modal-open {
     max-height: min(90dvh, 860px) !important;
   }
 }
+/* =========================================================
+   FAST CATALOG + MOBILE NAV UX
+   Merkezi cache DB'yi değiştirmez; yalnızca müşteri tarafını hızlandırır.
+   ========================================================= */
+
+:root {
+  --bb-route-duration: 150ms;
+}
+
+/* Geçiş sırasında ekranı fazla karartma; eski içerik yeni route hazır olana kadar kalır. */
+html.bb-route-pending .bb-route-view {
+  opacity: .92;
+  transition: opacity 90ms ease;
+}
+
+/*
+ * Sepet artık kategori çubuğunda sabit/floating değildir.
+ * Normal son öğe olarak kalır; müşterinin kategori alanını kapatmaz.
+ */
+.bb-app-nav__cart {
+  position: static !important;
+  right: auto !important;
+  left: auto !important;
+  z-index: auto !important;
+  width: auto !important;
+  min-width: max-content !important;
+  max-width: none !important;
+  margin-left: .25rem !important;
+  overflow: visible !important;
+  white-space: nowrap;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.bb-app-nav__cart > span:last-child {
+  max-width: none !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+}
+
+/* Dokunma ve yatay momentum mümkün olduğunca native/app hissinde kalsın. */
+.bb-tabs-scroll,
+.bb-tabs-scroll__rail {
+  scroll-behavior: smooth;
+  overscroll-behavior-inline: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* İlk ağ yüklemesinde boş yazı yerine dengeli iskelet hissi. */
+.grid-cards > .text-sm.text-stone-400:only-child {
+  min-height: min(52svh, 520px);
+}
+
+/* Görseller browser cache'den geldiğinde sert şekilde patlamasın. */
+.product-card img,
+.menu-card img {
+  opacity: 1;
+  transition: opacity 120ms ease;
+}
+
+@media (max-width: 639px) {
+  .bb-app-nav__cart {
+    min-height: 42px !important;
+    padding-inline: .8rem !important;
+    font-size: .78rem !important;
+  }
+
+  /*
+   * Kategori rayının sonunda doğal boşluk bırakır; son öğe olan sepet
+   * sağ kenara yapışmadan tamamen görülebilir.
+   */
+  .bb-app-nav__tabs {
+    padding-right: calc(1rem + env(safe-area-inset-right));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .product-card img,
+  .menu-card img {
+    transition: none;
+  }
+}
+/* Mobil sepet boşken gereksiz 96px alt alan ayırma. */
+@media (max-width: 639px) {
+  body:not(:has(.bb-mobile-cart-trigger)) .bb-mobile-footer-gap {
+    height: env(safe-area-inset-bottom);
+  }
+}

@@ -12,6 +12,7 @@ import {
 } from "react";
 import { useCart } from "@/components/store";
 import { startAppNavigation } from "@/components/AppRouteTransition";
+import { warmCategoryData } from "@/lib/public-data-cache";
 
 type Variant = "menu" | "plain";
 
@@ -299,6 +300,20 @@ export default function NavBar(props: {
     return true;
   }, []);
 
+  const primeCategory = useCallback(
+    (keyInput: string) => {
+      const key = normalizeMenuKey(keyInput);
+      const href = hrefForKey(key);
+
+      try {
+        router.prefetch(href.split("?")[0]);
+      } catch {}
+
+      void warmCategoryData(key);
+    },
+    [router],
+  );
+
   const handleTabClick = useCallback(
     (keyInput: string) => {
       const key = normalizeMenuKey(keyInput);
@@ -421,6 +436,9 @@ export default function NavBar(props: {
               ]
                 .filter(Boolean)
                 .join(" ")}
+              onPointerDown={() => primeCategory(key)}
+              onMouseEnter={() => primeCategory(key)}
+              onFocus={() => primeCategory(key)}
               onClick={() => handleTabClick(key)}
             >
               {vegan ? (

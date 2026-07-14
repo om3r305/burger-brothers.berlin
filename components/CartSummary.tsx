@@ -1570,12 +1570,12 @@ export function CartSummaryMobile() {
 
   return (
     <>
-      {mounted && !open && !overlayOpen && (
+      {mounted && !isEmpty && !open && !overlayOpen && (
         <button
           suppressHydrationWarning
           onClick={() => setOpen(true)}
           style={{ bottom: safeBottom }}
-          className="fixed left-1/2 z-40 -translate-x-1/2 rounded-full bg-amber-600 px-5 py-3 text-black shadow-xl sm:hidden"
+          className="bb-mobile-cart-trigger fixed left-1/2 z-40 -translate-x-1/2 rounded-full bg-amber-600 px-5 py-3 text-black shadow-xl sm:hidden"
         >
           Warenkorb ansehen {routeDealBenefit.applied ? "🎁" : ""} • {fmt(totalFinal)}
         </button>
