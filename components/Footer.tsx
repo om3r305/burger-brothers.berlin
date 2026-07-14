@@ -218,11 +218,11 @@ export default function Footer() {
 
   return (
     <footer
-      className={
+      className={`bb-site-footer ${
         isLanding
           ? "relative z-20 -mt-36 border-t-0 bg-transparent pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-0 sm:-mt-32 md:-mt-28"
           : "border-t border-stone-800/60 bg-black py-4 sm:py-6"
-      }
+      }`}
     >
       <div
         className={

@@ -187,9 +187,9 @@ export default function DrinksPage() {
   };
 
   return (
-    <main className="mx-auto max-w-7xl p-6">
+    <main className="bb-menu-page bb-category-page mx-auto max-w-7xl p-6">
       {/* KOPF: Logo + Navigation */}
-      <div className="mb-4 flex flex-col gap-3 sm:mb-6 sm:flex-row sm:items-center sm:justify-between">
+      <div className="bb-menu-header bb-category-header mb-4 flex flex-col gap-3 sm:mb-6 sm:flex-row sm:items-center sm:justify-between">
         <Link href="/" className="flex items-center gap-3">
           <NextImage
             src="/logo-burger-brothers.png"
@@ -206,7 +206,7 @@ export default function DrinksPage() {
         </Link>
 
         {/* Sekmeler — oklar yalnızca gerektiğinde görünür, aktif sekme ortalanır */}
-        <div className="bb-tabs-scroll -mx-6 px-6 sm:mx-0 sm:px-0">
+        <div className="bb-category-tabs bb-tabs-scroll -mx-6 px-6 sm:mx-0 sm:px-0">
           {canLeft && (
             <button
               aria-label="Tabs nach links"
@@ -217,7 +217,7 @@ export default function DrinksPage() {
             </button>
           )}
 
-          <div ref={railRef} className="bb-tabs-scroll__rail whitespace-nowrap">
+          <div ref={railRef} className="bb-category-tabs__rail bb-tabs-scroll__rail whitespace-nowrap">
             <NavBar
               variant="menu"
               tab={"drinks" as any}
