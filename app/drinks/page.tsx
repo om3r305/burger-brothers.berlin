@@ -3,7 +3,7 @@
 
 import NextImage from "next/image";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import CartSummary, { CartSummaryMobile } from "@/components/CartSummary";
 import VariantGroupCard from "@/components/shared/VariantGroupCard";
@@ -97,6 +97,51 @@ export default function DrinksPage() {
     setCanLeft(scrollLeft > 2);
     setCanRight(scrollLeft + clientWidth < scrollWidth - 2);
   };
+
+  /*
+   * Aktif sekme ilk çizimden önce doğru konuma alınır.
+   * Böylece sayfa açılırken ray önce Burger başlangıcına dönüp
+   * ardından aktif kategoriye kaymaz.
+   */
+  useLayoutEffect(() => {
+    const rail = railRef.current;
+    if (!rail) return;
+
+    const placeActiveTab = () => {
+      const active =
+        rail.querySelector<HTMLElement>(
+          '[data-bb-tab-key="drinks"]',
+        ) ||
+        rail.querySelector<HTMLElement>(
+          '[data-bb-tab-active="true"]',
+        ) ||
+        rail.querySelector<HTMLElement>(
+          '[aria-selected="true"]',
+        );
+
+      if (!active) return;
+
+      const maxLeft = Math.max(0, rail.scrollWidth - rail.clientWidth);
+      const desiredLeft =
+        active.offsetLeft -
+        rail.clientWidth / 2 +
+        active.clientWidth / 2;
+
+      rail.scrollLeft = Math.max(0, Math.min(desiredLeft, maxLeft));
+
+      const { scrollLeft, scrollWidth, clientWidth } = rail;
+      setCanLeft(scrollLeft > 2);
+      setCanRight(scrollLeft + clientWidth < scrollWidth - 2);
+    };
+
+    placeActiveTab();
+
+    const frame = window.requestAnimationFrame(placeActiveTab);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+    };
+  }, []);
 
   useEffect(() => {
     const rail = railRef.current;
@@ -236,8 +281,11 @@ export default function DrinksPage() {
         }
         .bb-tabs-scroll__rail {
           overflow-x: auto;
+          overflow-y: hidden;
           scrollbar-width: none;
           -webkit-overflow-scrolling: touch;
+          overscroll-behavior-x: contain;
+          scroll-behavior: auto;
         }
         .bb-tabs-scroll__rail::-webkit-scrollbar {
           display: none;
