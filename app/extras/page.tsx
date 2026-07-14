@@ -187,9 +187,9 @@ export default function ExtrasPage() {
   };
 
   return (
-    <main className="bb-menu-page bb-category-page mx-auto max-w-7xl p-6">
+    <main className="bb-menu-page bb-category-page bb-extras-page mx-auto max-w-7xl p-6">
       {/* KOPF: Logo + Navigation (oklu yatay sekmeler) */}
-      <div className="bb-menu-header bb-category-header mb-4 flex flex-col gap-3 sm:mb-6 sm:flex-row sm:items-center sm:justify-between">
+      <div className="bb-menu-header bb-category-header bb-extras-header mb-4 flex flex-col gap-3 sm:mb-6 sm:flex-row sm:items-center sm:justify-between">
         <Link href="/" className="flex items-center gap-3">
           <NextImage
             src="/logo-burger-brothers.png"
@@ -205,43 +205,49 @@ export default function ExtrasPage() {
           </div>
         </Link>
 
-        {/* Sekmeler — oklar yalnızca gerektiğinde görünür, aktif sekme ortalanır */}
-        <div className="bb-category-tabs bb-tabs-scroll -mx-6 px-6 sm:mx-0 sm:px-0">
+        {/* Sekmeler — Burger sayfasındaki tam genişlik düzeni */}
+        <div className="bb-extras-tabs relative -mx-6 px-6 sm:mx-0 sm:px-0">
           {canLeft && (
             <button
               aria-label="Tabs nach links"
-              className="bb-tabs-scroll__btn bb-tabs-scroll__btn--left"
+              className="bb-tab-arrow bb-tab-arrow--left"
               onClick={() => nudge("left")}
             >
               ‹
             </button>
           )}
 
-          <div ref={railRef} className="bb-category-tabs__rail bb-tabs-scroll__rail whitespace-nowrap">
-            <NavBar
-              variant="menu"
-              tab={"extras" as any}
-              onTabChange={handleTabChange as any}
-              showLocationCaption={false}
-            />
-          </div>
-
           {canRight && (
             <button
               aria-label="Tabs nach rechts"
-              className="bb-tabs-scroll__btn bb-tabs-scroll__btn--right"
+              className="bb-tab-arrow bb-tab-arrow--right"
               onClick={() => nudge("right")}
             >
               ›
             </button>
           )}
+
+          <div
+            ref={railRef}
+            className="bb-extras-tabs__rail bb-tabs-scroll bb-tabs-mask"
+          >
+            <div className="whitespace-nowrap">
+              <NavBar
+                variant="menu"
+                tab={"extras" as any}
+                onTabChange={handleTabChange as any}
+                showLocationCaption={false}
+              />
+            </div>
+          </div>
         </div>
       </div>
 
       {/* GRID + RECHTS: Warenkorb */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_380px]">
+      <div className="bb-extras-layout grid grid-cols-1 gap-6 lg:grid-cols-[1fr_380px]">
         {/* Sol: Kartlar */}
-        <div className="grid-cards">
+        <div className="bb-extras-content min-w-0">
+          <div className="bb-extras-grid grid-cards">
           {!loaded ? (
             <div className="text-sm text-stone-400">Lädt …</div>
           ) : groups.length === 0 ? (
@@ -251,7 +257,7 @@ export default function ExtrasPage() {
             </div>
           ) : (
             groups.map((g) => (
-              <div key={g.sku || g.name} className="menu-card">
+              <div key={g.sku || g.name} className="bb-extras-card menu-card">
                 <VariantGroupCard
                   sku={g.sku || g.name}
                   name={g.name}
@@ -263,6 +269,7 @@ export default function ExtrasPage() {
               </div>
             ))
           )}
+          </div>
         </div>
 
         {/* Sağ: Sepet */}
@@ -276,10 +283,21 @@ export default function ExtrasPage() {
 
       {/* Stil */}
       <style jsx global>{`
-        .bb-tabs-scroll {
-          position: relative;
+        .bb-extras-page,
+        .bb-extras-header,
+        .bb-extras-layout,
+        .bb-extras-content,
+        .bb-extras-grid,
+        .bb-extras-card {
+          min-width: 0;
         }
-        .bb-tabs-scroll__rail {
+
+        .bb-extras-tabs {
+          min-width: 0;
+          max-width: 100%;
+        }
+
+        .bb-extras-tabs__rail {
           overflow-x: auto;
           overflow-y: hidden;
           scrollbar-width: none;
@@ -287,53 +305,105 @@ export default function ExtrasPage() {
           overscroll-behavior-x: contain;
           scroll-behavior: auto;
         }
-        .bb-tabs-scroll__rail::-webkit-scrollbar {
+
+        .bb-extras-tabs__rail::-webkit-scrollbar {
           display: none;
-        }
-        .bb-tabs-scroll__btn {
-          position: absolute;
-          top: 50%;
-          transform: translateY(-50%);
-          width: 36px;
-          height: 36px;
-          border-radius: 9999px;
-          display: grid;
-          place-items: center;
-          background: rgba(32, 32, 32, 0.85);
-          color: #e7e5e4;
-          border: 1px solid rgba(120, 113, 108, 0.5);
-          box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
-          z-index: 10;
-        }
-        .bb-tabs-scroll__btn--left {
-          left: 0.25rem;
-        }
-        .bb-tabs-scroll__btn--right {
-          right: 0.25rem;
         }
 
         .grid-cards {
           display: grid;
           grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
           gap: 16px;
-          align-items: start;
+          align-items: stretch;
         }
+
         .grid-cards > .menu-card {
           display: flex;
+          height: 100%;
         }
+
         .grid-cards > .menu-card .product-card {
           display: flex;
+          width: 100%;
+          min-width: 0;
+          max-width: none;
           flex-direction: column;
           min-height: 300px;
-          height: auto;
+          height: 100%;
         }
+
         .grid-cards > .menu-card .product-card .product-card__body {
           flex: 1 1 auto;
           display: flex;
+          min-width: 0;
           flex-direction: column;
         }
+
         .grid-cards > .menu-card .product-card .product-card__cta {
           margin-top: auto;
+        }
+
+        /*
+         * Mobilde Extras sayfası Burger sayfasıyla aynı tam genişliği kullanır.
+         * Yatay sekme rayı sayfa genişliğini büyütemez; kartlar tek sütun ve
+         * kullanılabilir alanın tamamıdır.
+         */
+        @media (max-width: 639px) {
+          .bb-extras-page {
+            box-sizing: border-box;
+            width: 100%;
+            max-width: 100%;
+            overflow-x: clip;
+          }
+
+          .bb-extras-header {
+            box-sizing: border-box;
+            width: 100%;
+            max-width: 100%;
+          }
+
+          .bb-extras-tabs {
+            box-sizing: border-box;
+            width: calc(100% + 3rem);
+            max-width: none;
+            margin-inline: -1.5rem;
+            padding-inline: 1.5rem;
+          }
+
+          .bb-extras-tabs__rail {
+            box-sizing: border-box;
+            width: 100%;
+            max-width: 100%;
+            margin-inline: 0 !important;
+            padding-inline: 0 !important;
+            scroll-padding-inline: 30vw;
+          }
+
+          .bb-extras-layout {
+            display: block !important;
+            width: 100%;
+            max-width: 100%;
+          }
+
+          .bb-extras-content,
+          .bb-extras-grid {
+            box-sizing: border-box;
+            width: 100%;
+            max-width: 100%;
+          }
+
+          .bb-extras-grid {
+            grid-template-columns: minmax(0, 1fr) !important;
+            gap: 1rem;
+          }
+
+          .bb-extras-card,
+          .bb-extras-card > .product-card {
+            box-sizing: border-box;
+            width: 100% !important;
+            min-width: 0 !important;
+            max-width: none !important;
+          }
         }
       `}</style>
     </main>
