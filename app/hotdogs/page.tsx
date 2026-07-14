@@ -3,7 +3,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useCart } from "@/components/store";
 import CartSummary, { CartSummaryMobile } from "@/components/CartSummary";
@@ -247,6 +247,48 @@ export default function HotDogsPage() {
     setCanRight(scrollLeft + clientWidth < scrollWidth - 2);
   };
 
+  /*
+   * Hot Dogs sayfası açılırken sekme rayı önce Burger konumunda
+   * görünmemeli. Aktif sekmeyi tarayıcının ilk boyamasından önce
+   * doğrudan görünür alanın ortasına yerleştiriyoruz.
+   */
+  useLayoutEffect(() => {
+    const rail = railRef.current;
+    if (!rail) return;
+
+    const placeActiveTab = () => {
+      const active =
+        rail.querySelector<HTMLElement>(
+          '[data-bb-tab-key="hotdogs"]',
+        ) ||
+        rail.querySelector<HTMLElement>(
+          '[data-bb-tab-active="true"]',
+        ) ||
+        rail.querySelector<HTMLElement>(
+          '[aria-selected="true"]',
+        );
+
+      if (!active) return;
+
+      const maxLeft = Math.max(0, rail.scrollWidth - rail.clientWidth);
+      const desiredLeft =
+        active.offsetLeft -
+        rail.clientWidth / 2 +
+        active.clientWidth / 2;
+
+      rail.scrollLeft = Math.max(0, Math.min(desiredLeft, maxLeft));
+      updateArrows();
+    };
+
+    placeActiveTab();
+
+    const frame = window.requestAnimationFrame(placeActiveTab);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+    };
+  }, []);
+
   useEffect(() => {
     const rail = railRef.current;
     if (!rail) return;
@@ -310,28 +352,18 @@ export default function HotDogsPage() {
           </div>
         </Link>
 
-        <div className="relative -mx-6 px-6 sm:mx-0 sm:px-0">
+        <div className="bb-tabs-scroll -mx-6 px-6 sm:mx-0 sm:px-0">
           {canLeft && (
             <button
               aria-label="Tabs nach links"
-              className="bb-tab-arrow bb-tab-arrow--left"
+              className="bb-tabs-scroll__btn bb-tabs-scroll__btn--left"
               onClick={() => nudge("left")}
             >
               ‹
             </button>
           )}
 
-          {canRight && (
-            <button
-              aria-label="Tabs nach rechts"
-              className="bb-tab-arrow bb-tab-arrow--right"
-              onClick={() => nudge("right")}
-            >
-              ›
-            </button>
-          )}
-
-          <div ref={railRef} className="bb-tabs-scroll bb-tabs-mask whitespace-nowrap">
+          <div ref={railRef} className="bb-tabs-scroll__rail whitespace-nowrap">
             <NavBar
               variant="menu"
               tab={"hotdogs" as any}
@@ -339,6 +371,16 @@ export default function HotDogsPage() {
               showLocationCaption={false}
             />
           </div>
+
+          {canRight && (
+            <button
+              aria-label="Tabs nach rechts"
+              className="bb-tabs-scroll__btn bb-tabs-scroll__btn--right"
+              onClick={() => nudge("right")}
+            >
+              ›
+            </button>
+          )}
         </div>
       </div>
 
@@ -429,7 +471,24 @@ export default function HotDogsPage() {
       <CartSummaryMobile />
 
       <style jsx global>{`
-        .bb-tab-arrow {
+        .bb-tabs-scroll {
+          position: relative;
+        }
+
+        .bb-tabs-scroll__rail {
+          overflow-x: auto;
+          overflow-y: hidden;
+          scrollbar-width: none;
+          -webkit-overflow-scrolling: touch;
+          overscroll-behavior-x: contain;
+          scroll-behavior: auto;
+        }
+
+        .bb-tabs-scroll__rail::-webkit-scrollbar {
+          display: none;
+        }
+
+        .bb-tabs-scroll__btn {
           position: absolute;
           top: 50%;
           transform: translateY(-50%);
@@ -445,32 +504,12 @@ export default function HotDogsPage() {
           z-index: 10;
         }
 
-        .bb-tab-arrow--left {
+        .bb-tabs-scroll__btn--left {
           left: 0.25rem;
         }
 
-        .bb-tab-arrow--right {
+        .bb-tabs-scroll__btn--right {
           right: 0.25rem;
-        }
-
-        .bb-tabs-scroll {
-          overflow-x: auto;
-          -webkit-overflow-scrolling: touch;
-          scrollbar-width: none;
-        }
-
-        .bb-tabs-scroll::-webkit-scrollbar {
-          display: none;
-        }
-
-        .bb-tabs-mask {
-          mask-image: linear-gradient(
-            90deg,
-            transparent,
-            #000 24px,
-            #000 calc(100% - 24px),
-            transparent
-          );
         }
 
         .grid-cards {
