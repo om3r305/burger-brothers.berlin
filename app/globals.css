@@ -1454,8 +1454,33 @@ html.bb-route-pending .bb-route-view {
     z-index: 2147481000 !important;
   }
 
-  .bb-route-view [class*="fixed"][class*="inset-0"] {
+  /*
+   * Yalnızca gerçek tam ekran modal/drawer katmanlarını yükselt.
+   *
+   * Önceki genel selector, Driver ve TV sayfalarındaki dekoratif
+   * "fixed inset-0 -z-10" arka planlarını da en üste çıkarıyordu.
+   * Sonuç: masaüstünde çalışan içerik iPhone'da arka planın altında kalıyordu.
+   */
+  .bb-route-view
+    [class*="fixed"][class*="inset-0"]:not(.pointer-events-none):not([class*="-z-"]) {
     z-index: 2147482000;
+  }
+
+  /*
+   * TV ve Driver dekoratif arka planları her koşulda gerçek arka planda kalır.
+   * Bu kurallar yalnızca operasyon ekranlarında geçerlidir.
+   */
+  .bb-operational-route
+    .pointer-events-none[class*="fixed"][class*="inset-0"],
+  .bb-operational-route
+    [class*="fixed"][class*="inset-0"][class*="-z-"] {
+    z-index: -10 !important;
+    pointer-events: none !important;
+  }
+
+  .bb-operational-route {
+    position: relative;
+    isolation: isolate;
   }
 }
 
