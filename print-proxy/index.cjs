@@ -175,6 +175,33 @@ function num(v){
 }
 const money = v => num(v).toFixed(2)+'€';
 
+function orderPfand(o){
+  const direct = num(o?.pfand ?? o?.deposit);
+  if (direct > 0) return direct;
+
+  const meta = o?.meta && typeof o.meta === 'object' ? o.meta : {};
+  const nested = num(
+    meta?.pfand?.amount ??
+    meta?.deposit?.amount ??
+    meta?.pfandAmount ??
+    meta?.depositAmount
+  );
+  if (nested > 0) return nested;
+
+  const items = Array.isArray(o?.items) ? o.items : [];
+  return items.reduce((sum, item) => {
+    const qty = Math.max(1, num(item?.qty || item?.quantity || 1));
+    const unit = num(
+      item?.pfandAmount ??
+      item?.depositAmount ??
+      item?.pfand ??
+      item?.deposit
+    );
+    return sum + unit * qty;
+  }, 0);
+}
+
+
 const STRIP_SEPARATORS = [' - ', ' – ', ' — ', ': '];
 function cleanName(name=''){
   let s=String(name).trim();
@@ -689,6 +716,8 @@ async function buildTicketFromOrder(o, opts={}){
   out.push(text(twoCol('Netto MwSt 7 %',  money(net7))));
   out.push(text(twoCol('MwSt 7 %',        money(vat7))));
 
+  const pfandAmount = orderPfand(o);
+  if (pfandAmount > 0) out.push(text(twoCol('Pfand', money(pfandAmount))));
   out.push(bold(1), size(1,2), text(twoCol('Gesamt', money(explicitTotal))), size(1,1), bold(0), text(''));
 
   // ===== ADRES (barkod ÜSTÜ) + Lifa notu =====

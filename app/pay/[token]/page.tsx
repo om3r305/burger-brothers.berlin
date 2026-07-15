@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
+import PaymentTrustBadges from "@/components/PaymentTrustBadges";
 
 type ShareState = {
   ok?: boolean;
@@ -353,6 +354,7 @@ export default function SharedPaymentPage() {
           Zur Speisekarte
         </Link>
       </div>
-    </main>
+    <PaymentTrustBadges className="mt-4" />
+</main>
   );
 }

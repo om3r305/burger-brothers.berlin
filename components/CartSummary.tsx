@@ -19,6 +19,7 @@ import {
 } from "@/lib/freebies";
 import type { FreebieEvaluation, FreebieUnit } from "@/lib/freebies";
 import { evaluateConditionalCartCampaign } from "@/lib/conditional-campaign";
+import { computePfand } from "@/lib/pfand";
 
 /* LS Keys */
 const LS_CHECKOUT = "bb_checkout_info_v1";
@@ -721,7 +722,9 @@ function computePricingFromSettings_CS(
   surcharges = +surcharges.toFixed(2);
 
   const afterDiscount = +Math.max(0, merchandise - discount).toFixed(2);
-  const totalPreCoupon = +(afterDiscount + surcharges).toFixed(2);
+  const pfandSummary = computePfand(items);
+  const pfand = pfandSummary.amount;
+  const totalPreCoupon = +(afterDiscount + surcharges + pfand).toFixed(2);
 
   const minMap = (overrides.plzMin || {}) as Record<string, number>;
   const record = plz ? minMap[String(plz)] : undefined;
@@ -733,6 +736,8 @@ function computePricingFromSettings_CS(
     surcharges,
     afterDiscount,
     totalPreCoupon,
+    pfand,
+    pfandLines: pfandSummary.lines,
     plzKnown,
     requiredMin: record,
     freebie,
@@ -1001,7 +1006,7 @@ export default function CartSummary() {
     () => computePricingFromSettings_CS(items, orderMode, plzEffective, campaigns, catalog),
     [items, orderMode, plzEffective, campaigns, catalog]
   );
-  const { merchandise, discount, surcharges, afterDiscount, requiredMin, plzKnown, conditionalCampaign } = base;
+  const { merchandise, discount, surcharges, afterDiscount, pfand, requiredMin, plzKnown, conditionalCampaign } = base;
 
   const activeCode = useMemo(() => {
     try { return localStorage.getItem(LS_ACTIVE_COUPON) || ""; } catch { return ""; }
@@ -1046,13 +1051,13 @@ export default function CartSummary() {
   );
 
   const routeDealDiscount = routeDealBenefit.discountAmount;
-  const totalFinal = roundToNearest10Cents(Math.max(0, routeDealBaseTotal - routeDealDiscount));
+  const totalFinal = roundToNearest10Cents(Math.max(0, routeDealBaseTotal - routeDealDiscount) + pfand);
 
   const meetsMin =
     orderMode === "pickup"
       ? true
       : (plzKnown
-          ? Math.round(totalFinal * 100) >= Math.round(Number(requiredMin || 0) * 100)
+          ? Math.round(Math.max(0, totalFinal - pfand) * 100) >= Math.round(Number(requiredMin || 0) * 100)
           : false);
 
   const isEmpty = items.length === 0;
@@ -1287,6 +1292,12 @@ export default function CartSummary() {
               </div>
             )}
 
+          {pfand > 0 && (
+            <div className="flex justify-between text-stone-300">
+              <span>Pfand</span><span>{fmt(pfand)}</span>
+            </div>
+          )}
+
           <div className="flex items-center justify-between font-semibold">
             <span>Gesamt</span><span>{fmt(totalFinal)}</span>
           </div>
@@ -1402,7 +1413,7 @@ export function CartSummaryMobile() {
     () => computePricingFromSettings_CS(items, orderMode, plzEffective, campaigns, catalog),
     [items, orderMode, plzEffective, campaigns, catalog]
   );
-  const { merchandise, discount, surcharges, afterDiscount, requiredMin, plzKnown, conditionalCampaign } = base;
+  const { merchandise, discount, surcharges, afterDiscount, pfand, requiredMin, plzKnown, conditionalCampaign } = base;
 
   const activeCode = useMemo(() => {
     try { return localStorage.getItem(LS_ACTIVE_COUPON) || ""; } catch { return ""; }
@@ -1447,13 +1458,13 @@ export function CartSummaryMobile() {
   );
 
   const routeDealDiscount = routeDealBenefit.discountAmount;
-  const totalFinal = roundToNearest10Cents(Math.max(0, routeDealBaseTotal - routeDealDiscount));
+  const totalFinal = roundToNearest10Cents(Math.max(0, routeDealBaseTotal - routeDealDiscount) + pfand);
 
   const meetsMin =
     orderMode === "pickup"
       ? true
       : (plzKnown
-          ? Math.round(totalFinal * 100) >= Math.round(Number(requiredMin || 0) * 100)
+          ? Math.round(Math.max(0, totalFinal - pfand) * 100) >= Math.round(Number(requiredMin || 0) * 100)
           : false);
 
   const isEmpty = items.length === 0;
@@ -1737,6 +1748,11 @@ export function CartSummaryMobile() {
                   </div>
                 )}
 
+              {pfand > 0 && (
+                <div className="flex justify-between text-stone-300">
+                  <span>Pfand</span><span>{fmt(pfand)}</span>
+                </div>
+              )}
               <div className="flex justify-between font-semibold"><span>Gesamt</span><span>{fmt(totalFinal)}</span></div>
 
               <button

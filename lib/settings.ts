@@ -309,6 +309,13 @@ export type SettingsV6 = {
   printing?: Printing;
   tv?: TVSettings;
   security?: SecuritySettings;
+  pfand?: {
+    enabled: boolean;
+    einwegAmount: number;
+    mehrwegAmount: number;
+    showInfo?: boolean;
+    [key: string]: any;
+  };
 
   contact?: {
     phone?: string;
@@ -508,6 +515,13 @@ const defaultSettings: SettingsV6 = {
     defaultDurationMinutes: 12,
     rules: [],
     active: [],
+  },
+
+  pfand: {
+    enabled: true,
+    einwegAmount: 0.25,
+    mehrwegAmount: 0.15,
+    showInfo: true,
   },
 
   productAvailability: {},

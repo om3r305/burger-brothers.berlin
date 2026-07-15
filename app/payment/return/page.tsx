@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useCart } from "@/components/store";
+import PaymentTrustBadges from "@/components/PaymentTrustBadges";
 
 type ShareItem = {
   key?: string;
@@ -444,7 +445,8 @@ function PaymentReturnFallback() {
           Zahlung wird geladen …
         </div>
       </div>
-    </main>
+    <PaymentTrustBadges className="mt-4" />
+</main>
   );
 }
 

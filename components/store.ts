@@ -9,6 +9,7 @@ import { getPricingOverrides, readSettings } from "@/lib/settings";
 import { evaluateFreebieRules, parseFreebieCategory } from "@/lib/freebies";
 import type { FreebieCategory, FreebieEvaluation, FreebieUnit } from "@/lib/freebies";
 import { evaluateConditionalCartCampaign } from "@/lib/conditional-campaign";
+import { computePfand } from "@/lib/pfand";
 
 /* =========================================
    Tipler
@@ -36,6 +37,8 @@ type Pricing = {
   subtotal: number;
   discount: number;
   total: number;
+  pfand: number;
+  pfandLines?: ReturnType<typeof computePfand>["lines"];
   meetsMin: boolean;
   requiredMin?: number;
   plzKnown: boolean;
@@ -325,7 +328,11 @@ function computePricingRaw(items: CartItemFixed[], mode: OrderMode, plz: string 
 
   const freebieDiscount = freebieEvaluation.discountedAmount;
   const discount = +(deliveryDiscount + freebieDiscount).toFixed(2);
-  const total = roundToNearest10Cents(Math.max(0, subtotal - discount));
+  const pfandSummary = computePfand(items);
+  const pfand = pfandSummary.amount;
+  const total = roundToNearest10Cents(
+    Math.max(0, subtotal - discount) + pfand,
+  );
 
   // --- PLZ min (yalnız DELIVERY, indirim SONRASI)
   let meetsMin = true;
@@ -356,6 +363,8 @@ function computePricingRaw(items: CartItemFixed[], mode: OrderMode, plz: string 
     subtotal,
     discount,
     total,
+    pfand,
+    pfandLines: pfandSummary.lines,
     meetsMin,
     requiredMin,
     plzKnown,

@@ -39,6 +39,8 @@ import {
   onPauseChange,
   syncPauseFromServer,
 } from "@/lib/pause";
+import PaymentTrustBadges from "@/components/PaymentTrustBadges";
+import { attachPfandToOrderItems, computePfand, resolvePfandUnit } from "@/lib/pfand";
 
 /* ───────── helpers ───────── */
 
@@ -572,7 +574,8 @@ function buildSplitUnits(items: any[]): SplitUnit[] {
       (sum: number, extra: any) => sum + toNum(extra?.price, 0),
       0,
     );
-    const unitPrice = Math.max(0.01, basePrice + extras);
+    const pfandUnit = resolvePfandUnit(cartItem).amount;
+    const unitPrice = Math.max(0.01, basePrice + extras + pfandUnit);
     const name = String(
       cartItem?.item?.name ??
         cartItem?.name ??
@@ -1114,6 +1117,8 @@ function computePricingV6(
   ).toFixed(2);
 
   const afterDiscount = +Math.max(0, merchandise - discount).toFixed(2);
+  const pfandSummary = computePfand(items);
+  const pfand = pfandSummary.amount;
 
   const plzMap = overrides.plzMin || {};
   const code = (plz || "").replace(/[^\d]/g, "").slice(0, 5);
@@ -1136,13 +1141,15 @@ function computePricingV6(
 
   surcharges = +surcharges.toFixed(2);
 
-  const totalPreCoupon = +(afterDiscount + surcharges).toFixed(2);
+  const totalPreCoupon = +(afterDiscount + surcharges + pfand).toFixed(2);
 
   return {
     merchandise,
     discount,
     afterDiscount,
     surcharges,
+    pfand,
+    pfandLines: pfandSummary.lines,
     totalPreCoupon,
     requiredMin: requiredMin ?? null,
     plzKnown,
@@ -1610,6 +1617,7 @@ export default function CheckoutPage() {
     discount,
     afterDiscount,
     surcharges,
+    pfand,
     requiredMin,
     plzKnown,
   } = base;
@@ -1790,7 +1798,7 @@ export default function CheckoutPage() {
 
   const routeDealDiscount = routeDealBenefit.discountAmount;
   const totalFinal = roundToNearest10Cents(
-    Math.max(0, routeDealBaseTotal - routeDealDiscount),
+    Math.max(0, routeDealBaseTotal - routeDealDiscount) + pfand,
   );
 
   const tipAmount = useMemo(() => {
@@ -1878,7 +1886,7 @@ export default function CheckoutPage() {
     orderMode === "pickup"
       ? true
       : plzKnown
-        ? Math.round(totalFinal * 100) >= Math.round(toNum(requiredMin, 0) * 100)
+        ? Math.round(Math.max(0, totalFinal - pfand) * 100) >= Math.round(toNum(requiredMin, 0) * 100)
         : false;
 
   const freebieEvaluation: FreebieEvaluation =
@@ -2804,6 +2812,7 @@ export default function CheckoutPage() {
                   Sichere Zahlung über Stripe. Karten, Apple Pay, Google Pay, Link, PayPal,
                   Klarna und weitere aktivierte Methoden werden automatisch angezeigt.
                 </div>
+                <PaymentTrustBadges compact className="mt-3" />
               </button>
             )}
 
@@ -3737,8 +3746,9 @@ export default function CheckoutPage() {
       nowMs: ts,
     });
     const latestRouteDealDiscount = latestRouteDealBenefit.discountAmount;
+    const latestPfand = computePfand(items).amount;
     const latestTotalFinal = roundToNearest10Cents(
-      Math.max(0, latestRouteDealBaseTotal - latestRouteDealDiscount),
+      Math.max(0, latestRouteDealBaseTotal - latestRouteDealDiscount) + latestPfand,
     );
     const latestTipAmount = +Math.max(0, tipAmount).toFixed(2);
     const latestPayableTotal = roundToNearest10Cents(latestTotalFinal + latestTipAmount);
@@ -3756,10 +3766,10 @@ export default function CheckoutPage() {
       channel: "web",
       orderChannel: orderMode === "pickup" ? "abholung" : "lieferung",
       plz: orderMode === "delivery" ? addr.zip || null : null,
-      items: mapCartToOrderItems(),
+      items: attachPfandToOrderItems(mapCartToOrderItems()),
       merchandise,
       discount: +(discount + latestRouteDealDiscount).toFixed(2),
-      surcharges,
+      surcharges: +(surcharges + latestPfand).toFixed(2),
       total: latestPayableTotal,
       coupon: activeCode || undefined,
       couponDiscount: latestCouponAmount || 0,
@@ -3836,6 +3846,11 @@ export default function CheckoutPage() {
           : null,
         routeDealDiscount: latestRouteDealDiscount,
         tip: latestTipAmount,
+        pfand: {
+          amount: latestPfand,
+          lines: computePfand(items).lines,
+          excludedFromDiscounts: true,
+        },
         couponLifecycle: activeCode
           ? {
               code: activeCode,
