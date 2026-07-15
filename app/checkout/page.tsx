@@ -2848,18 +2848,42 @@ export default function CheckoutPage() {
 
           {paymentMethod === "online" && paymentSettings.rememberPaymentMethods && (
             <>
-              <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-xl border border-sky-500/30 bg-sky-500/10 p-3">
+              <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-xl border border-sky-500/30 bg-sky-500/10 p-3 sm:p-4">
                 <input
                   type="checkbox"
                   checked={rememberPaymentMethod}
                   onChange={(event) => setRememberPaymentMethod(event.target.checked)}
-                  className="mt-1 h-4 w-4"
+                  className="peer sr-only"
                 />
-                <span>
-                  <span className="block text-sm font-semibold text-sky-100">
+                <span
+                  aria-hidden="true"
+                  className={`mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-md border transition-colors ${
+                    rememberPaymentMethod
+                      ? "border-sky-400 bg-sky-500 text-white"
+                      : "border-stone-500 bg-stone-950/70 text-transparent"
+                  } peer-focus-visible:ring-2 peer-focus-visible:ring-sky-400/70 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-stone-950`}
+                >
+                  <svg
+                    viewBox="0 0 20 20"
+                    fill="none"
+                    className={`h-4 w-4 transition-opacity ${
+                      rememberPaymentMethod ? "opacity-100" : "opacity-0"
+                    }`}
+                  >
+                    <path
+                      d="M4.5 10.5 8 14l7.5-8"
+                      stroke="currentColor"
+                      strokeWidth="2.25"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block break-words text-sm font-semibold leading-5 text-sky-100">
                     Zahlungsart für zukünftige Bestellungen merken
                   </span>
-                  <span className="mt-1 block text-xs text-stone-400">
+                  <span className="mt-1 block break-words text-xs leading-5 text-stone-400">
                     {paymentProfileRemembered
                       ? "Deine gespeicherte Zahlungsart wird bei Stripe direkt angezeigt. "
                       : "Stripe speichert kompatible Zahlungsarten sicher. "}

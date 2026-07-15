@@ -1068,20 +1068,32 @@ function Toggle({
   disabled?: boolean;
 }) {
   return (
-    <label className="flex items-center justify-between gap-3 text-sm">
-      <span className="text-stone-300/90">{label}</span>
+    <label
+      className={`bb-admin-toggle flex w-full min-w-0 items-center justify-between gap-3 text-sm ${
+        disabled ? "opacity-50" : ""
+      }`}
+    >
+      <span className="min-w-0 flex-1 break-words pr-1 text-stone-300/90">
+        {label}
+      </span>
       <button
         type="button"
         role="switch"
         aria-checked={checked}
+        aria-label={label}
         disabled={disabled}
         onClick={() => !disabled && onChange(!checked)}
-        className={`inline-flex h-6 w-11 items-center rounded-full transition ${
-          disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"
-        } ${checked ? "bg-emerald-500" : "bg-stone-600"}`}
+        className={`relative inline-flex h-6 w-11 shrink-0 appearance-none items-center rounded-full border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70 focus-visible:ring-offset-2 focus-visible:ring-offset-stone-950 ${
+          disabled ? "cursor-not-allowed" : "cursor-pointer"
+        } ${
+          checked
+            ? "border-emerald-400/70 bg-emerald-500"
+            : "border-stone-500/70 bg-stone-700"
+        }`}
       >
         <span
-          className={`ml-0.5 inline-block h-5 w-5 transform rounded-full bg-white transition ${
+          aria-hidden="true"
+          className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform duration-200 ${
             checked ? "translate-x-5" : "translate-x-0"
           }`}
         />
@@ -1361,9 +1373,9 @@ export default function AdminSettingsPage() {
 
   if (!mounted || model == null) {
     return (
-      <main className="mx-auto max-w-6xl p-6">
-        <div className="mb-5 flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-baseline gap-3">
+      <main className="bb-admin-settings-page mx-auto w-full max-w-6xl overflow-x-hidden px-3 py-4 sm:p-6">
+        <div className="bb-admin-settings-header mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
             <h1 className="text-2xl font-semibold">Einstellungen</h1>
             <span className="text-sm text-stone-400">wird geladen…</span>
           </div>
@@ -1381,22 +1393,22 @@ export default function AdminSettingsPage() {
   const m = model as any;
 
   return (
-    <main className="mx-auto max-w-6xl p-6">
+    <main className="bb-admin-settings-page mx-auto w-full max-w-6xl overflow-x-hidden px-3 py-4 sm:p-6">
       {/* HEADER */}
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-baseline gap-3">
+      <div className="bb-admin-settings-header mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
           <h1 className="text-2xl font-semibold">Einstellungen</h1>
           <Link href="/admin" className="text-sm text-stone-300 hover:text-stone-100">
             ← Admin
           </Link>
         </div>
 
-        <div className="flex items-center gap-2">
-          <button className="btn-ghost" onClick={doExport}>
+        <div className="grid w-full grid-cols-3 gap-2 sm:flex sm:w-auto sm:items-center">
+          <button className="btn-ghost w-full text-center sm:w-auto" onClick={doExport}>
             Export
           </button>
           <label
-            className={`btn-ghost cursor-pointer ${
+            className={`btn-ghost w-full cursor-pointer text-center sm:w-auto ${
               settingsReadOnly ? "pointer-events-none opacity-50" : ""
             }`}
             title={settingsReadOnly ? "DB-Verbindung gestört – Import ist gesperrt." : undefined}
@@ -1411,7 +1423,7 @@ export default function AdminSettingsPage() {
             />
           </label>
           <button
-            className={`pill ${settingsReadOnly ? "cursor-not-allowed opacity-50" : ""}`}
+            className={`pill w-full text-center sm:w-auto ${settingsReadOnly ? "cursor-not-allowed opacity-50" : ""}`}
             onClick={saveNow}
             disabled={settingsReadOnly || saving}
             title={settingsReadOnly ? "DB-Verbindung gestört – Speichern ist gesperrt." : undefined}
@@ -2365,6 +2377,91 @@ export default function AdminSettingsPage() {
           </div>
         </section>
       </div>
+
+      <style jsx global>{`
+        .bb-admin-settings-page {
+          width: 100%;
+          min-width: 0;
+        }
+
+        .bb-admin-settings-page section,
+        .bb-admin-settings-page .card,
+        .bb-admin-settings-page .grid,
+        .bb-admin-settings-page .flex,
+        .bb-admin-settings-page label,
+        .bb-admin-settings-page fieldset {
+          min-width: 0;
+          max-width: 100%;
+        }
+
+        .bb-admin-settings-page input:not([type="checkbox"]):not([type="radio"]),
+        .bb-admin-settings-page select,
+        .bb-admin-settings-page textarea {
+          box-sizing: border-box;
+          min-width: 0;
+          max-width: 100%;
+        }
+
+        .bb-admin-settings-page img,
+        .bb-admin-settings-page video,
+        .bb-admin-settings-page canvas {
+          max-width: 100%;
+          height: auto;
+        }
+
+        .bb-admin-toggle button[role="switch"] {
+          flex: 0 0 2.75rem;
+        }
+
+        @media (max-width: 639px) {
+          .bb-admin-settings-page {
+            padding-left: 0.75rem !important;
+            padding-right: 0.75rem !important;
+            padding-top: 1rem !important;
+            padding-bottom: calc(1.25rem + env(safe-area-inset-bottom)) !important;
+          }
+
+          .bb-admin-settings-header h1 {
+            font-size: 1.5rem;
+            line-height: 1.9rem;
+          }
+
+          .bb-admin-settings-page .card {
+            width: 100%;
+            padding: 0.875rem !important;
+            border-radius: 0.875rem;
+            overflow-wrap: anywhere;
+          }
+
+          .bb-admin-settings-page .btn-ghost,
+          .bb-admin-settings-page .pill {
+            min-height: 2.75rem;
+            padding: 0.65rem 0.7rem;
+            white-space: normal;
+          }
+
+          .bb-admin-settings-page table {
+            display: block;
+            width: 100%;
+            max-width: 100%;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+          }
+
+          .bb-admin-settings-page pre,
+          .bb-admin-settings-page code {
+            max-width: 100%;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+            word-break: break-word;
+          }
+
+          .bb-admin-toggle {
+            align-items: center;
+            gap: 0.75rem;
+          }
+        }
+      `}</style>
     </main>
   );
 }
