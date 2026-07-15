@@ -271,6 +271,16 @@ function normalizeGroupArray(value: any): any[] {
           group?.image || group?.imageUrl || group?.cover
             ? String(group.image ?? group.imageUrl ?? group.cover)
             : undefined,
+        pfandType: cleanText(group?.pfandType ?? group?.depositType, "none"),
+        pfandAmount: Math.max(
+          0,
+          toNumber(group?.pfandAmount ?? group?.depositAmount, 0),
+        ),
+        depositType: cleanText(group?.depositType ?? group?.pfandType, "none"),
+        depositAmount: Math.max(
+          0,
+          toNumber(group?.depositAmount ?? group?.pfandAmount, 0),
+        ),
         variants: normalizeVariantArray(variantsSource),
       });
     });

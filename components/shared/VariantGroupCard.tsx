@@ -14,6 +14,10 @@ type Variant = {
   active?: boolean;
   startAt?: string; // ISO
   endAt?: string;   // ISO
+  pfandType?: "none" | "einweg" | "mehrweg" | "custom" | string;
+  pfandAmount?: number;
+  depositType?: string;
+  depositAmount?: number;
 };
 
 type Props = {
@@ -25,6 +29,8 @@ type Props = {
   category?: "burger" | "vegan" | "extras" | "sauces" | "drinks" | "hotdogs";
   campaignLabel?: string;
   outOfStock?: boolean;
+  pfandType?: "none" | "einweg" | "mehrweg" | "custom" | string;
+  pfandAmount?: number;
 };
 
 const fmt = (n: number) =>
@@ -39,6 +45,8 @@ export default function VariantGroupCard({
   category,
   campaignLabel,
   outOfStock = false,
+  pfandType = "none",
+  pfandAmount = 0,
 }: Props) {
   const addToCart = useCart((s: any) => s.addToCart);
 
@@ -87,6 +95,10 @@ export default function VariantGroupCard({
             price: v.price,
             category: cat,
             ...(v.image ? { imageUrl: v.image } : {}),
+            pfandType: v.pfandType ?? v.depositType ?? pfandType,
+            pfandAmount: v.pfandAmount ?? v.depositAmount ?? pfandAmount,
+            depositType: v.depositType ?? v.pfandType ?? pfandType,
+            depositAmount: v.depositAmount ?? v.pfandAmount ?? pfandAmount,
           },
           add: [],
           rm: [],
