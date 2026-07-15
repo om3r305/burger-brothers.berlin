@@ -21,7 +21,7 @@ export default function TVProtectedLayout({
   const cookieStore = cookies();
 
   // 🔐 Server-side TV session cookie
-  const tvSess = cookieStore.get("bb_tv_sess");
+  const tvSess = cookieStore.get("bb_tv_auth");
 
   // Cookie yoksa → login
   if (!tvSess) {
@@ -29,7 +29,7 @@ export default function TVProtectedLayout({
   }
 
   return (
-    <div>
+    <div className="bb-operational-route bb-operational-route--tv-protected">
       {/* TV PWA manifest */}
       <link rel="manifest" href="/manifest-tv.webmanifest?v=5" />
 

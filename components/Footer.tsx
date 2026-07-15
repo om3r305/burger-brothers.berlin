@@ -139,6 +139,42 @@ export default function Footer() {
   const [contact, setContact] = useState<Contact>(() =>
     withDefaultSocialLinks((siteConfig as any)?.contact || {}),
   );
+  const [standaloneMode, setStandaloneMode] = useState(false);
+
+  // iPhone/Android ana ekran uygulaması algılama
+  useEffect(() => {
+    const detect = () => {
+      const standalone =
+        Boolean((navigator as any)?.standalone) ||
+        Boolean(window.matchMedia?.("(display-mode: standalone)")?.matches) ||
+        Boolean(window.matchMedia?.("(display-mode: fullscreen)")?.matches);
+
+      setStandaloneMode(standalone);
+    };
+
+    detect();
+
+    const media = window.matchMedia?.("(display-mode: standalone)");
+    media?.addEventListener?.("change", detect);
+
+    return () => {
+      media?.removeEventListener?.("change", detect);
+    };
+  }, []);
+
+  // Ana ekran uygulamasında Google bağlantısını uygulama içi yeni pencereye
+  // değil, aynı dış navigasyona verir. iOS bunu Safari'ye aktarır ve Safari'de
+  // açık olan Google oturumu kullanılabilir.
+  const openGoogleExternally = (
+    event: React.MouseEvent<HTMLAnchorElement>,
+    href?: string,
+  ) => {
+    if (!standaloneMode || !href) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    window.location.assign(href);
+  };
 
   // LS’ten yükle + diğer sekmelerde değişirse güncelle
   useEffect(() => {
@@ -342,9 +378,12 @@ export default function Footer() {
             <a
               className={socialButtonClass("google")}
               href={contact.googleReviews}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="Google-Bewertungen ansehen"
+              target={standaloneMode ? "_self" : "_blank"}
+              rel="noopener noreferrer external"
+              onClick={(event) =>
+                openGoogleExternally(event, contact.googleReviews)
+              }
+              aria-label="Google-Bewertungen in Safari ansehen"
             >
               <span className="mr-1.5" aria-hidden>
                 ⭐
@@ -357,9 +396,12 @@ export default function Footer() {
             <a
               className={socialButtonClass("maps")}
               href={contact.googleMaps}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="Google Maps öffnen"
+              target={standaloneMode ? "_self" : "_blank"}
+              rel="noopener noreferrer external"
+              onClick={(event) =>
+                openGoogleExternally(event, contact.googleMaps)
+              }
+              aria-label="Google Maps extern öffnen"
             >
               <span className="mr-1.5" aria-hidden>
                 📍
