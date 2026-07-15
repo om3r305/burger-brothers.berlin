@@ -44,6 +44,10 @@ type Variant = {
   active?: boolean;
   stock?: number | null;
   image?: string;
+  pfandType?: PfandType | string;
+  pfandAmount?: number;
+  depositType?: string;
+  depositAmount?: number;
 };
 
 type PfandType = "none" | "einweg" | "mehrweg" | "custom";
@@ -55,10 +59,6 @@ type VariantGroup = {
   description?: string;
   image?: string;
   variants: Variant[];
-  pfandType?: PfandType | string;
-  pfandAmount?: number;
-  depositType?: string;
-  depositAmount?: number;
 };
 
 /* =========================
@@ -489,10 +489,6 @@ function normalizeVariantGroups(arr: any[]): VariantGroup[] {
     name: String(g?.name ?? ""),
     description: g?.description ? String(g.description) : undefined,
     image: g?.image ? String(g.image) : undefined,
-    pfandType: String(g?.pfandType ?? g?.depositType ?? "none"),
-    pfandAmount: Math.max(0, Number(g?.pfandAmount ?? g?.depositAmount ?? 0) || 0),
-    depositType: String(g?.depositType ?? g?.pfandType ?? "none"),
-    depositAmount: Math.max(0, Number(g?.depositAmount ?? g?.pfandAmount ?? 0) || 0),
     variants: Array.isArray(g?.variants)
       ? g.variants.map((v: any) => ({
           id: v?.id || rid(),
@@ -505,6 +501,16 @@ function normalizeVariantGroups(arr: any[]): VariantGroup[] {
               ? 0
               : null,
           image: v?.image ? String(v.image) : undefined,
+          pfandType: String(v?.pfandType ?? v?.depositType ?? "none"),
+          pfandAmount: Math.max(
+            0,
+            Number(v?.pfandAmount ?? v?.depositAmount ?? 0) || 0,
+          ),
+          depositType: String(v?.depositType ?? v?.pfandType ?? "none"),
+          depositAmount: Math.max(
+            0,
+            Number(v?.depositAmount ?? v?.pfandAmount ?? 0) || 0,
+          ),
         }))
       : [],
   }));
@@ -616,8 +622,6 @@ export default function AdminPage() {
   const [dgName, setDgName] = useState("");
   const [dgDesc, setDgDesc] = useState("");
   const [dgImage, setDgImage] = useState("");
-  const [dgPfandPreset, setDgPfandPreset] = useState<"none" | "0.08" | "0.15" | "0.25" | "custom">("none");
-  const [dgPfandCustom, setDgPfandCustom] = useState<number>(0);
   const [dgVarName, setDgVarName] = useState("");
   const [dgVarPrice, setDgVarPrice] = useState<number>(0);
   const [dgVariants, setDgVariants] = useState<Variant[]>([]);
@@ -956,8 +960,6 @@ export default function AdminPage() {
     setDgName("");
     setDgDesc("");
     setDgImage("");
-    setDgPfandPreset("none");
-    setDgPfandCustom(0);
     setDgVariants([]);
     setDgVarName("");
     setDgVarPrice(0);
@@ -974,6 +976,10 @@ export default function AdminPage() {
         price: Number(dgVarPrice) || 0,
         active: true,
         stock: null,
+        pfandType: "none",
+        pfandAmount: 0,
+        depositType: "none",
+        depositAmount: 0,
       },
     ]);
 
@@ -989,32 +995,12 @@ export default function AdminPage() {
   const saveDG = () => {
     if (!dgSku.trim() || !dgName.trim()) return;
 
-    const pfandAmount =
-      dgPfandPreset === "custom"
-        ? Math.max(0, Number(dgPfandCustom) || 0)
-        : dgPfandPreset === "none"
-          ? 0
-          : Number(dgPfandPreset);
-
-    const pfandType: PfandType =
-      pfandAmount <= 0
-        ? "none"
-        : pfandAmount === 0.25
-          ? "einweg"
-          : pfandAmount === 0.08 || pfandAmount === 0.15
-            ? "mehrweg"
-            : "custom";
-
     const g: VariantGroup = {
       id: dgEditId || rid(),
       sku: dgSku.trim(),
       name: dgName.trim(),
       description: dgDesc.trim() || undefined,
       image: dgImage.trim() || undefined,
-      pfandType,
-      pfandAmount,
-      depositType: pfandType,
-      depositAmount: pfandAmount,
       variants: dgVariants.map((v) => ({
         ...v,
         active: v.active !== false,
@@ -1023,6 +1009,16 @@ export default function AdminPage() {
           : v.stock === 0
             ? 0
             : null,
+        pfandType: String(v.pfandType ?? v.depositType ?? "none"),
+        pfandAmount: Math.max(
+          0,
+          Number(v.pfandAmount ?? v.depositAmount ?? 0) || 0,
+        ),
+        depositType: String(v.depositType ?? v.pfandType ?? "none"),
+        depositAmount: Math.max(
+          0,
+          Number(v.depositAmount ?? v.pfandAmount ?? 0) || 0,
+        ),
       })),
     };
 
@@ -1039,19 +1035,6 @@ export default function AdminPage() {
     setDgName(g.name);
     setDgDesc(g.description || "");
     setDgImage(g.image || "");
-    const groupPfand = Math.max(0, Number(g.pfandAmount ?? g.depositAmount ?? 0) || 0);
-    setDgPfandPreset(
-      groupPfand === 0
-        ? "none"
-        : groupPfand === 0.08
-          ? "0.08"
-          : groupPfand === 0.15
-            ? "0.15"
-            : groupPfand === 0.25
-              ? "0.25"
-              : "custom",
-    );
-    setDgPfandCustom(groupPfand);
     setDgVariants(
       g.variants.map((v) => ({
         id: v.id,
@@ -1064,6 +1047,16 @@ export default function AdminPage() {
             ? 0
             : null,
         image: v.image,
+        pfandType: String(v.pfandType ?? v.depositType ?? "none"),
+        pfandAmount: Math.max(
+          0,
+          Number(v.pfandAmount ?? v.depositAmount ?? 0) || 0,
+        ),
+        depositType: String(v.depositType ?? v.pfandType ?? "none"),
+        depositAmount: Math.max(
+          0,
+          Number(v.depositAmount ?? v.pfandAmount ?? 0) || 0,
+        ),
       })),
     );
 
@@ -1776,11 +1769,6 @@ export default function AdminPage() {
                 setDescription={setDgDesc}
                 image={dgImage}
                 setImage={setDgImage}
-                pfandPreset={dgPfandPreset}
-                setPfandPreset={setDgPfandPreset}
-                pfandCustom={dgPfandCustom}
-                setPfandCustom={setDgPfandCustom}
-                showPfand
                 varName={dgVarName}
                 setVarName={setDgVarName}
                 varPrice={dgVarPrice}
@@ -1909,11 +1897,6 @@ function VariantGroupForm({
   setDescription,
   image,
   setImage,
-  pfandPreset,
-  setPfandPreset,
-  pfandCustom,
-  setPfandCustom,
-  showPfand = false,
   varName,
   setVarName,
   varPrice,
@@ -1936,11 +1919,6 @@ function VariantGroupForm({
   setDescription: (value: string) => void;
   image: string;
   setImage: (value: string) => void;
-  pfandPreset?: "none" | "0.08" | "0.15" | "0.25" | "custom";
-  setPfandPreset?: (value: "none" | "0.08" | "0.15" | "0.25" | "custom") => void;
-  pfandCustom?: number;
-  setPfandCustom?: (value: number) => void;
-  showPfand?: boolean;
   varName: string;
   setVarName: (value: string) => void;
   varPrice: number;
@@ -2003,51 +1981,6 @@ function VariantGroupForm({
         </div>
       </div>
 
-      {showPfand && (
-        <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-950/10 p-3">
-          <div className="mb-1 text-sm font-semibold text-amber-100">
-            Pfand für diese Getränke-Gruppe
-          </div>
-          <div className="mb-3 text-xs text-stone-400">
-            Dieser Wert gilt für alle Varianten der Gruppe. Kartongetränke auf
-            „Kein Pfand“ stellen.
-          </div>
-
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_160px]">
-            <select
-              value={pfandPreset || "none"}
-              onChange={(event) =>
-                setPfandPreset?.(
-                  event.target.value as "none" | "0.08" | "0.15" | "0.25" | "custom",
-                )
-              }
-              className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2 outline-none"
-            >
-              <option value="none">Kein Pfand</option>
-              <option value="0.08">Mehrweg 0,08 €</option>
-              <option value="0.15">Mehrweg 0,15 €</option>
-              <option value="0.25">Einweg 0,25 €</option>
-              <option value="custom">Eigener Betrag</option>
-            </select>
-
-            {pfandPreset === "custom" && (
-              <input
-                type="number"
-                min={0}
-                max={5}
-                step="0.01"
-                value={String(pfandCustom ?? 0)}
-                onChange={(event) =>
-                  setPfandCustom?.(Math.max(0, toNum(event.target.value, 0)))
-                }
-                className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2 outline-none"
-                placeholder="z. B. 0,10"
-              />
-            )}
-          </div>
-        </div>
-      )}
-
       <div className="mt-3">
         <div className="mb-1 text-sm opacity-80">Varianten</div>
         <div className="flex flex-wrap items-center gap-2">
@@ -2074,7 +2007,7 @@ function VariantGroupForm({
           <div className="mt-3 grid gap-2">
             {variants.map((v) => (
               <div key={v.id} className="rounded border border-stone-700/60 p-2">
-                <div className="grid grid-cols-1 gap-2 md:grid-cols-5 md:items-center">
+                <div className="grid grid-cols-1 gap-2 md:grid-cols-7 md:items-center">
                   <div className="md:col-span-2">
                     <input
                       value={v.name}
@@ -2091,6 +2024,79 @@ function VariantGroupForm({
                       onChange={(e) => updateVariant(v.id, { price: toNum(e.target.value, 0) })}
                       className="w-28 rounded-md border border-stone-700/60 bg-stone-950 px-2 py-1.5 outline-none text-sm"
                     />
+                  </div>
+                  <div className="flex min-w-0 items-center gap-2 md:col-span-2">
+                    <span className="shrink-0 text-xs opacity-80">Pfand</span>
+                    <select
+                      value={
+                        String(v.pfandType ?? v.depositType ?? "none") === "custom"
+                          ? "custom"
+                          : Number(v.pfandAmount ?? v.depositAmount ?? 0) === 0
+                            ? "none"
+                            : Number(v.pfandAmount ?? v.depositAmount ?? 0) === 0.08
+                              ? "0.08"
+                              : Number(v.pfandAmount ?? v.depositAmount ?? 0) === 0.15
+                                ? "0.15"
+                                : Number(v.pfandAmount ?? v.depositAmount ?? 0) === 0.25
+                                  ? "0.25"
+                                  : "custom"
+                      }
+                      onChange={(event) => {
+                        const preset = event.target.value;
+                        const amount =
+                          preset === "none"
+                            ? 0
+                            : preset === "custom"
+                              ? Math.max(
+                                  0,
+                                  Number(v.pfandAmount ?? v.depositAmount ?? 0) || 0,
+                                )
+                              : Number(preset);
+                        const type: PfandType =
+                          preset === "custom"
+                            ? "custom"
+                            : amount <= 0
+                              ? "none"
+                              : amount === 0.25
+                                ? "einweg"
+                                : amount === 0.08 || amount === 0.15
+                                  ? "mehrweg"
+                                  : "custom";
+                        updateVariant(v.id, {
+                          pfandType: type,
+                          pfandAmount: amount,
+                          depositType: type,
+                          depositAmount: amount,
+                        });
+                      }}
+                      className="min-w-0 flex-1 rounded-md border border-stone-700/60 bg-stone-950 px-2 py-1.5 text-sm outline-none"
+                    >
+                      <option value="none">Kein Pfand</option>
+                      <option value="0.08">0,08 €</option>
+                      <option value="0.15">0,15 €</option>
+                      <option value="0.25">0,25 €</option>
+                      <option value="custom">Eigener Betrag</option>
+                    </select>
+                    {String(v.pfandType ?? v.depositType ?? "none") === "custom" && (
+                      <input
+                        type="number"
+                        min={0}
+                        max={5}
+                        step="0.01"
+                        value={String(v.pfandAmount ?? v.depositAmount ?? 0)}
+                        onChange={(event) => {
+                          const amount = Math.max(0, toNum(event.target.value, 0));
+                          updateVariant(v.id, {
+                            pfandType: amount > 0 ? "custom" : "none",
+                            pfandAmount: amount,
+                            depositType: amount > 0 ? "custom" : "none",
+                            depositAmount: amount,
+                          });
+                        }}
+                        className="w-24 rounded-md border border-stone-700/60 bg-stone-950 px-2 py-1.5 text-sm outline-none"
+                        placeholder="0,10"
+                      />
+                    )}
                   </div>
                   <div className="flex items-center gap-2">
                     <input
@@ -2195,9 +2201,17 @@ function VariantGroupList({
                 <div className="text-xs text-stone-400">
                   {g.variants.length} Variante
                   {g.description ? ` • ${g.description}` : ""}
-                  {Number(g.pfandAmount ?? g.depositAmount ?? 0) > 0
-                    ? ` • Pfand ${Number(g.pfandAmount ?? g.depositAmount ?? 0).toFixed(2).replace(".", ",")} €`
-                    : " • Kein Pfand"}
+                  {(() => {
+                    const configured = g.variants.filter(
+                      (variant) =>
+                        Number(
+                          variant.pfandAmount ?? variant.depositAmount ?? 0,
+                        ) > 0,
+                    ).length;
+                    return configured > 0
+                      ? ` • ${configured} Variante(n) mit Pfand`
+                      : " • Alle Varianten ohne Pfand";
+                  })()}
                 </div>
               </div>
               <div className="flex gap-2">

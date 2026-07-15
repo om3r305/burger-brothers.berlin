@@ -3,14 +3,14 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
+import { MENU_NAV_ITEMS } from "@/lib/menu-navigation";
 
-const tabs = [
-  { href: "/menu", label: "Burger", key: "burger", vegan: false },
-  { href: "/drinks", label: "Getränke", key: "drinks", vegan: false },
-  { href: "/sauces", label: "Soßen", key: "sauces", vegan: false },
-  { href: "/hotdogs", label: "Hot Dogs", key: "hotdogs", vegan: false },
-  { href: "/vegan", label: "Vegan", key: "vegan", vegan: true },
-];
+const tabs = MENU_NAV_ITEMS.map((item) => ({
+  href: item.href,
+  label: item.label,
+  key: item.key,
+  vegan: item.key === "vegan",
+}));
 
 export default function Header() {
   const pathname = usePathname();

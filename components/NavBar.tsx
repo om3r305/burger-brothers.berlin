@@ -13,6 +13,11 @@ import {
 import { useCart } from "@/components/store";
 import { startAppNavigation } from "@/components/AppRouteTransition";
 import { warmCategoryData } from "@/lib/public-data-cache";
+import {
+  MENU_NAV_ITEMS,
+  MENU_NAV_ROUTES,
+  type MenuNavKey,
+} from "@/lib/menu-navigation";
 
 type Variant = "menu" | "plain";
 
@@ -33,16 +38,7 @@ type MenuKey =
 
 const LS_SETTINGS = "bb_settings_v6";
 
-const ROUTE_BY_KEY: Record<MenuKey, string> = {
-  burger: "/menu?cat=burger",
-  vegan: "/menu?cat=vegan",
-  extras: "/extras",
-  drinks: "/drinks",
-  sauces: "/sauces",
-  hotdogs: "/hotdogs",
-  donuts: "/donuts",
-  bubbletea: "/bubble-tea",
-};
+const ROUTE_BY_KEY: Record<MenuKey, string> = MENU_NAV_ROUTES;
 
 const PREFETCH_ROUTES = Array.from(
   new Set(Object.values(ROUTE_BY_KEY).map((href) => href.split("?")[0])),
@@ -192,16 +188,7 @@ export default function NavBar(props: {
     const source =
       Array.isArray(tabs) && tabs.length > 0
         ? tabs
-        : [
-            { key: "burger", label: "Burger" },
-            { key: "vegan", label: "Vegan / Vegetarisch" },
-            { key: "extras", label: "Extras" },
-            { key: "drinks", label: "Getränke" },
-            { key: "sauces", label: "Soßen" },
-            { key: "hotdogs", label: "Hot Dogs" },
-            { key: "donuts", label: "Donuts" },
-            { key: "bubbletea", label: "Bubble Tea" },
-          ];
+        : MENU_NAV_ITEMS;
 
     return source.filter((item) => {
       const key = normalizeMenuKey(item.key);

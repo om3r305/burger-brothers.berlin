@@ -18,6 +18,10 @@ type Variant = {
   active?: boolean;
   startAt?: string;
   endAt?: string;
+  pfandType?: "none" | "einweg" | "mehrweg" | "custom" | string;
+  pfandAmount?: number;
+  depositType?: string;
+  depositAmount?: number;
 };
 
 type VariantGroup = {
@@ -26,8 +30,6 @@ type VariantGroup = {
   description?: string;
   image?: string;
   variants: Variant[];
-  pfandType?: "none" | "einweg" | "mehrweg" | "custom" | string;
-  pfandAmount?: number;
 };
 
 /* DB’den Getränke-Gruppen yükle */
@@ -268,8 +270,6 @@ export default function DrinksPage() {
                   image={g.image}
                   variants={g.variants}
                   category="drinks"
-                  pfandType={g.pfandType || "none"}
-                  pfandAmount={Number(g.pfandAmount || 0)}
                 />
               </div>
             ))

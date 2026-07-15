@@ -232,6 +232,22 @@ function normalizeVariantArray(value: any): any[] {
           variant?.image || variant?.imageUrl || variant?.cover
             ? String(variant.image ?? variant.imageUrl ?? variant.cover)
             : undefined,
+        pfandType: cleanText(
+          variant?.pfandType ?? variant?.depositType,
+          "none",
+        ),
+        pfandAmount: Math.max(
+          0,
+          toNumber(variant?.pfandAmount ?? variant?.depositAmount, 0),
+        ),
+        depositType: cleanText(
+          variant?.depositType ?? variant?.pfandType,
+          "none",
+        ),
+        depositAmount: Math.max(
+          0,
+          toNumber(variant?.depositAmount ?? variant?.pfandAmount, 0),
+        ),
       });
     });
 }
@@ -271,16 +287,11 @@ function normalizeGroupArray(value: any): any[] {
           group?.image || group?.imageUrl || group?.cover
             ? String(group.image ?? group.imageUrl ?? group.cover)
             : undefined,
-        pfandType: cleanText(group?.pfandType ?? group?.depositType, "none"),
-        pfandAmount: Math.max(
-          0,
-          toNumber(group?.pfandAmount ?? group?.depositAmount, 0),
-        ),
-        depositType: cleanText(group?.depositType ?? group?.pfandType, "none"),
-        depositAmount: Math.max(
-          0,
-          toNumber(group?.depositAmount ?? group?.pfandAmount, 0),
-        ),
+        // Pfand wird ausschließlich pro Variante verwaltet.
+        pfandType: "none",
+        pfandAmount: 0,
+        depositType: "none",
+        depositAmount: 0,
         variants: normalizeVariantArray(variantsSource),
       });
     });

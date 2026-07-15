@@ -19,6 +19,7 @@ import {
 } from "@/lib/catalog";
 import { loadNormalizedCampaigns } from "@/lib/campaigns-compat";
 import CategoryBlurb from "@/components/CategoryBlurb";
+import { MENU_NAV_KEYS, MENU_NAV_LABELS } from "@/lib/menu-navigation";
 
 /* ==== LS anahtarları — artık sadece cache/fallback ==== */
 const LS_PRODUCTS = "bb_products_v1";
@@ -92,27 +93,9 @@ function toProductCardCategory(tab: TabKey): ProductCardCategory {
   return tab;
 }
 
-const ALL_TABS: TabKey[] = [
-  "burger",
-  "vegan",
-  "extras",
-  "sauces",
-  "hotdogs",
-  "drinks",
-  "donuts",
-  "bubbletea",
-];
+const ALL_TABS: TabKey[] = [...MENU_NAV_KEYS];
 
-const TAB_TITLE: Record<TabKey, string> = {
-  burger: "Burger",
-  vegan: "Vegan / Vegetarisch",
-  extras: "Extras",
-  sauces: "Soßen",
-  hotdogs: "Hot Dogs",
-  drinks: "Getränke",
-  donuts: "Donuts",
-  bubbletea: "Bubble Tea",
-};
+const TAB_TITLE: Record<TabKey, string> = MENU_NAV_LABELS;
 
 /* Bu tab’lar kendi route’larına gider; Burger/Vegan /menu’da kalır */
 const ROUTE_MAP: Partial<Record<TabKey, string>> = {

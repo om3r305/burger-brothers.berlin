@@ -35,24 +35,6 @@ export function readPfandConfig(settingsInput?: any): PfandConfig {
   };
 }
 
-function textOf(item: any) {
-  return [
-    item?.name,
-    item?.title,
-    item?.sku,
-    item?.id,
-    item?.category,
-    item?.packaging,
-    item?.containerType,
-    item?.pfandType,
-    item?.depositType,
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase()
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "");
-}
 
 export function resolvePfandUnit(
   cartItemOrProduct: any,
