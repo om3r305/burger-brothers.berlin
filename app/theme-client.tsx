@@ -33,31 +33,46 @@ function isAdminPath(pathname: string) {
   return pathname === "/admin" || pathname.startsWith("/admin/");
 }
 
+function isThemeIsolatedPath(pathname: string) {
+  return (
+    pathname === "/tv" ||
+    pathname.startsWith("/tv/") ||
+    pathname === "/driver" ||
+    pathname.startsWith("/driver/")
+  );
+}
+
 function applyRootTheme(
   resolved: ResolvedTheme,
   pathname: string,
 ): ResolvedTheme {
   const admin = isAdminPath(pathname);
-  const activeTheme: ThemeId = admin ? "classic" : resolved.theme;
+  const isolated = isThemeIsolatedPath(pathname);
+  const fixedClassic = admin || isolated;
+  const activeTheme: ThemeId = fixedClassic ? "classic" : resolved.theme;
   const settings = resolved.settings;
   const root = document.documentElement;
   const body = document.body;
   const showSnow =
-    !admin &&
+    !fixedClassic &&
     settings.snow &&
     (activeTheme === "christmas" || activeTheme === "winter");
 
   root.setAttribute("data-bb-theme", activeTheme);
   root.setAttribute(
     "data-bb-effects",
-    !admin && settings.decorationsEnabled ? "1" : "0",
+    !fixedClassic && settings.decorationsEnabled ? "1" : "0",
   );
   root.setAttribute(
     "data-bb-motion",
-    !admin && settings.motionEnabled ? "1" : "0",
+    !fixedClassic && settings.motionEnabled ? "1" : "0",
   );
   root.setAttribute("data-bb-snow", showSnow ? "1" : "0");
-  root.setAttribute("data-bb-theme-source", admin ? "admin" : resolved.source);
+  root.setAttribute(
+    "data-bb-theme-source",
+    admin ? "admin" : isolated ? "route-isolated" : resolved.source,
+  );
+  root.setAttribute("data-bb-theme-isolated", isolated ? "1" : "0");
 
   if (body) {
     for (const className of Array.from(body.classList)) {
@@ -82,7 +97,11 @@ function applyRootTheme(
       detail: {
         active: activeTheme,
         selected: resolved.theme,
-        source: admin ? "admin" : resolved.source,
+        source: admin
+          ? "admin"
+          : isolated
+            ? "route-isolated"
+            : resolved.source,
         scheduleId: resolved.scheduleId,
         scheduleName: resolved.scheduleName,
         snow: showSnow,
@@ -157,7 +176,13 @@ export default function ThemeClient() {
   }, [pathname]);
 
   const decoration = useMemo(() => {
-    if (!resolved || isAdminPath(pathname)) return null;
+    if (
+      !resolved ||
+      isAdminPath(pathname) ||
+      isThemeIsolatedPath(pathname)
+    ) {
+      return null;
+    }
     if (!resolved.settings.decorationsEnabled) return null;
 
     const preset = getThemePreset(resolved.theme);
