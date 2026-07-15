@@ -1074,11 +1074,31 @@ async function upsertCustomerFromOrder(tenantId: string, order: any, total: numb
         : null;
 
     const prevStats = ensureObj((existing as any)?.stats);
+    const orderMeta = ensureObj(order?.meta);
+    const orderPayment = ensureObj(orderMeta?.payment ?? order?.payment);
+    const stripeCustomerIds = Array.isArray(orderPayment?.stripeCustomerIds)
+      ? orderPayment.stripeCustomerIds
+      : [];
+    const stripeCustomerId = String(
+      orderPayment?.stripeCustomerId || stripeCustomerIds[0] || "",
+    ).trim();
+    const hasStripeCustomer = stripeCustomerId.startsWith("cus_");
 
     const nextStats = sanitizeJson({
       ...prevStats,
       orders: toNum(prevStats?.orders, 0) + 1,
       totalSpent: toNum(prevStats?.totalSpent, 0) + toNum(total, 0),
+      ...(hasStripeCustomer
+        ? {
+            stripeCustomerId,
+            paymentProfile: {
+              ...ensureObj(prevStats?.paymentProfile),
+              provider: "stripe",
+              stripeCustomerId,
+              updatedAt: now.toISOString(),
+            },
+          }
+        : {}),
     });
 
     const data: Record<string, any> = {};

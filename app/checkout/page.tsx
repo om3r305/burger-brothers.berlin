@@ -1358,6 +1358,10 @@ export default function CheckoutPage() {
           Math.round(toNum(settingsRaw?.payments?.split?.maxPeople, 8)),
         ),
       ),
+      rememberPaymentMethods:
+        settingsRaw?.payments?.online?.rememberPaymentMethods !== false,
+      whatsappShareEnabled:
+        settingsRaw?.payments?.split?.whatsappShareEnabled !== false,
     }),
     [settingsRaw],
   );
@@ -1635,12 +1639,36 @@ export default function CheckoutPage() {
   }, []);
 
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cash");
+  const [rememberPaymentMethod, setRememberPaymentMethod] = useState(true);
+  const [paymentProfileRemembered, setPaymentProfileRemembered] = useState(false);
   const [tipChoice, setTipChoice] = useState<TipChoice>("none");
   const [customTip, setCustomTip] = useState("");
   const [splitPeople, setSplitPeople] = useState(2);
   const [splitAssignments, setSplitAssignments] = useState<
     Record<string, number>
   >({});
+
+  useEffect(() => {
+    if (!paymentSettings.online || !paymentSettings.rememberPaymentMethods) {
+      setPaymentProfileRemembered(false);
+      return;
+    }
+
+    let active = true;
+
+    void fetch("/api/payments/profile", { cache: "no-store" })
+      .then((response) => response.json().catch(() => ({})))
+      .then((payload) => {
+        if (active) setPaymentProfileRemembered(Boolean(payload?.remembered));
+      })
+      .catch(() => {
+        if (active) setPaymentProfileRemembered(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [paymentSettings.online, paymentSettings.rememberPaymentMethods]);
 
   useEffect(() => {
     if (paymentMethod === "online" && !paymentSettings.online) {
@@ -2764,9 +2792,16 @@ export default function CheckoutPage() {
                     : "border-stone-700/60 bg-stone-900/60 hover:bg-stone-800/60"
                 }`}
               >
-                <div className="font-medium">Online-Zahlung</div>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="font-medium">Online-Zahlung</div>
+                  {paymentProfileRemembered && (
+                    <span className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-bold text-emerald-200">
+                      ✓ Gespeichert
+                    </span>
+                  )}
+                </div>
                 <div className="mt-1 text-xs text-stone-400">
-                  Sichere Zahlung über Stripe. Verfügbare Karten, Apple Pay, Google Pay,
+                  Sichere Zahlung über Stripe. Karten, Apple Pay, Google Pay, Link, PayPal,
                   Klarna und weitere aktivierte Methoden werden automatisch angezeigt.
                 </div>
               </button>
@@ -2784,8 +2819,9 @@ export default function CheckoutPage() {
               >
                 <div className="font-medium">Getrennt zahlen</div>
                 <div className="mt-1 text-xs text-stone-400">
-                  Produkte auf Personen verteilen und jeden Anteil nacheinander online
-                  bezahlen. Servicegebühr: {fmt(paymentSettings.splitServiceFee)} pro Person.
+                  Produkte verteilen und jeder Person einen eigenen sicheren Zahlungslink
+                  {paymentSettings.whatsappShareEnabled ? " per WhatsApp" : ""} senden.
+                  Servicegebühr: {fmt(paymentSettings.splitServiceFee)} pro Person.
                 </div>
               </button>
             )}
@@ -2810,6 +2846,51 @@ export default function CheckoutPage() {
             )}
           </div>
 
+          {paymentMethod === "online" && paymentSettings.rememberPaymentMethods && (
+            <>
+              <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-xl border border-sky-500/30 bg-sky-500/10 p-3">
+                <input
+                  type="checkbox"
+                  checked={rememberPaymentMethod}
+                  onChange={(event) => setRememberPaymentMethod(event.target.checked)}
+                  className="mt-1 h-4 w-4"
+                />
+                <span>
+                  <span className="block text-sm font-semibold text-sky-100">
+                    Zahlungsart für zukünftige Bestellungen merken
+                  </span>
+                  <span className="mt-1 block text-xs text-stone-400">
+                    {paymentProfileRemembered
+                      ? "Deine gespeicherte Zahlungsart wird bei Stripe direkt angezeigt. "
+                      : "Stripe speichert kompatible Zahlungsarten sicher. "}
+                    Burger Brothers erhält keine Karten- oder PayPal-Zugangsdaten. Je nach
+                    Bank oder Anbieter kann später trotzdem eine kurze Bestätigung nötig sein.
+                  </span>
+                </span>
+              </label>
+
+              {paymentProfileRemembered && (
+                <button
+                  type="button"
+                  className="mt-2 text-xs text-stone-400 underline decoration-stone-600 underline-offset-4"
+                  onClick={async () => {
+                    try {
+                      await fetch("/api/payments/profile", {
+                        method: "DELETE",
+                        cache: "no-store",
+                      });
+                    } catch {}
+
+                    setPaymentProfileRemembered(false);
+                    setRememberPaymentMethod(false);
+                  }}
+                >
+                  Gespeicherte Zahlungsart auf diesem Gerät entfernen
+                </button>
+              )}
+            </>
+          )}
+
           {paymentMethod === "split_contactless" && (
             <div className="mt-4 rounded-2xl border border-amber-500/40 bg-amber-500/5 p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -2818,8 +2899,10 @@ export default function CheckoutPage() {
                     Getrennt zahlen – Produkte verteilen
                   </div>
                   <div className="mt-1 text-xs text-stone-400">
-                    Jede Person muss mindestens einen Artikel übernehmen. Rabatte,
-                    Aufschläge und Trinkgeld werden anteilig verteilt.
+                    Jede Person muss mindestens einen Artikel übernehmen. Danach erhält
+                    jede Person einen eigenen Link für ihr Handy{paymentSettings.whatsappShareEnabled
+                      ? "; die Links können direkt per WhatsApp gesendet werden"
+                      : ""}. Rabatte, Aufschläge und Trinkgeld werden anteilig verteilt.
                   </div>
                 </div>
 
@@ -3442,13 +3525,22 @@ export default function CheckoutPage() {
           paymentKind: method,
           order: orderBase,
           shares,
+          rememberPayment:
+            method === "online"
+              ? paymentSettings.rememberPaymentMethods && rememberPaymentMethod
+              : paymentSettings.rememberPaymentMethods,
         }),
         cache: "no-store",
       });
 
       const payload = await response.json().catch(() => ({} as any));
 
-      if (!response.ok || payload?.ok === false || !payload?.url) {
+      const destination =
+        method === "split_contactless"
+          ? payload?.manageUrl || payload?.url
+          : payload?.url;
+
+      if (!response.ok || payload?.ok === false || !destination) {
         throw new Error(
           payload?.message ||
             payload?.error ||
@@ -3463,7 +3555,7 @@ export default function CheckoutPage() {
         );
       } catch {}
 
-      window.location.assign(String(payload.url));
+      window.location.assign(String(destination));
     } catch (error: any) {
       console.error("[checkout/stripe]", error);
       alert(

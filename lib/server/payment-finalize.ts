@@ -38,6 +38,15 @@ function sessionPaymentIntentId(session: Stripe.Checkout.Session) {
   return "";
 }
 
+function sessionCustomerId(session: Stripe.Checkout.Session) {
+  const customer = session.customer;
+
+  if (typeof customer === "string") return customer;
+  if (customer && typeof customer === "object") return customer.id;
+
+  return "";
+}
+
 function sessionPaid(session: Stripe.Checkout.Session) {
   return session.payment_status === "paid";
 }
@@ -169,8 +178,14 @@ export type FinalizePaymentResult = {
     serviceFee: number;
     checkoutSessionId: string;
     paymentIntentId: string;
+    stripeCustomerId?: string;
     status: string;
     url?: string | null;
+    shareUrl?: string | null;
+    shareTokenHash?: string | null;
+    shareExpiresAt?: string | null;
+    attempt?: number;
+    items?: Array<{ key?: string; label?: string }>;
   }>;
   error?: string;
   message?: string;
@@ -279,6 +294,12 @@ export async function finalizePaymentSession(
     const checkoutSessionId = String(stored?.checkoutSessionId || "").trim();
 
     if (!checkoutSessionId) {
+      const shareExpiryMs = stored?.shareExpiresAt
+        ? Date.parse(String(stored.shareExpiresAt))
+        : Number.NaN;
+      const shareExpired =
+        Number.isFinite(shareExpiryMs) && shareExpiryMs <= Date.now();
+
       shares.push({
         index: Number(stored?.index || 0),
         label: String(stored?.label || ""),
@@ -287,8 +308,14 @@ export async function finalizePaymentSession(
         serviceFee: Number(stored?.serviceFee || 0),
         checkoutSessionId: "",
         paymentIntentId: "",
-        status: "missing",
-        url: null,
+        stripeCustomerId: "",
+        status: shareExpired ? "expired" : "open",
+        url: shareExpired ? null : stored?.shareUrl || null,
+        shareUrl: stored?.shareUrl || null,
+        shareTokenHash: stored?.shareTokenHash || null,
+        shareExpiresAt: stored?.shareExpiresAt || null,
+        attempt: Number(stored?.attempt || 0),
+        items: Array.isArray(stored?.items) ? stored.items : [],
       });
       continue;
     }
@@ -301,6 +328,15 @@ export async function finalizePaymentSession(
         },
       );
 
+      const shareExpiryMs = stored?.shareExpiresAt
+        ? Date.parse(String(stored.shareExpiresAt))
+        : Number.NaN;
+      const shareExpired =
+        Number.isFinite(shareExpiryMs) &&
+        shareExpiryMs <= Date.now() &&
+        !sessionPaid(checkout);
+      const checkoutState = shareExpired ? "expired" : sessionState(checkout);
+
       shares.push({
         index: Number(stored?.index || 0),
         label: String(stored?.label || `Person ${Number(stored?.index || 0) + 1}`),
@@ -309,8 +345,18 @@ export async function finalizePaymentSession(
         serviceFee: Number(stored?.serviceFee || 0),
         checkoutSessionId,
         paymentIntentId: sessionPaymentIntentId(checkout),
-        status: sessionState(checkout),
-        url: checkout.status === "open" ? checkout.url : null,
+        stripeCustomerId: sessionCustomerId(checkout),
+        status: checkoutState,
+        url:
+          checkoutState === "expired"
+            ? null
+            : stored?.shareUrl ||
+              (checkout.status === "open" ? checkout.url : null),
+        shareUrl: stored?.shareUrl || null,
+        shareTokenHash: stored?.shareTokenHash || null,
+        shareExpiresAt: stored?.shareExpiresAt || null,
+        attempt: Number(stored?.attempt || 0),
+        items: Array.isArray(stored?.items) ? stored.items : [],
       });
     } catch (error: any) {
       shares.push({
@@ -321,8 +367,14 @@ export async function finalizePaymentSession(
         serviceFee: Number(stored?.serviceFee || 0),
         checkoutSessionId,
         paymentIntentId: String(stored?.paymentIntentId || ""),
+        stripeCustomerId: String(stored?.stripeCustomerId || ""),
         status: "error",
-        url: stored?.url || null,
+        url: stored?.shareUrl || stored?.url || null,
+        shareUrl: stored?.shareUrl || null,
+        shareTokenHash: stored?.shareTokenHash || null,
+        shareExpiresAt: stored?.shareExpiresAt || null,
+        attempt: Number(stored?.attempt || 0),
+        items: Array.isArray(stored?.items) ? stored.items : [],
       });
     }
   }
@@ -519,6 +571,14 @@ export async function finalizePaymentSession(
   const checkoutSessionIds = shares
     .map((share) => share.checkoutSessionId)
     .filter(Boolean);
+  const stripeCustomerIds = Array.from(
+    new Set(
+      shares
+        .map((share) => String(share.stripeCustomerId || "").trim())
+        .filter(Boolean),
+    ),
+  );
+  const stripeCustomerId = stripeCustomerIds[0] || "";
   const paidAt = new Date().toISOString();
   const paymentId = paymentIntentIds[0] || checkoutSessionIds[0] || paymentSessionId;
 
@@ -536,6 +596,8 @@ export async function finalizePaymentSession(
       id: paymentId,
       paymentIntentIds,
       checkoutSessionIds,
+      stripeCustomerId,
+      stripeCustomerIds,
       sessionId: paymentSessionId,
       shares,
       paidAt,
@@ -554,6 +616,8 @@ export async function finalizePaymentSession(
         id: paymentId,
         paymentIntentIds,
         checkoutSessionIds,
+        stripeCustomerId,
+        stripeCustomerIds,
         sessionId: paymentSessionId,
         shares,
         paidAt,

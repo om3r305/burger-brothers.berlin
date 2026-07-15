@@ -246,6 +246,7 @@ const DEFAULT_MODEL: SettingsModel = {
       enabled: false,
       provider: "stripe_checkout",
       refundOnCancel: true,
+      rememberPaymentMethods: true,
     },
     contactless: {
       enabled: false,
@@ -254,6 +255,8 @@ const DEFAULT_MODEL: SettingsModel = {
       enabled: false,
       serviceFee: 0.2,
       maxPeople: 8,
+      whatsappShareEnabled: true,
+      linkValidityHours: 24,
     },
   },
 
@@ -897,6 +900,10 @@ function normalizeForSave(raw: any) {
         next.payments?.online?.refundOnCancel,
         true
       ),
+      rememberPaymentMethods: bool(
+        next.payments?.online?.rememberPaymentMethods,
+        true
+      ),
     },
     contactless: {
       ...(next.payments?.contactless || {}),
@@ -912,6 +919,14 @@ function normalizeForSave(raw: any) {
       maxPeople: Math.max(
         2,
         Math.min(10, Math.round(num(next.payments?.split?.maxPeople, 8)))
+      ),
+      whatsappShareEnabled: bool(
+        next.payments?.split?.whatsappShareEnabled,
+        true
+      ),
+      linkValidityHours: Math.max(
+        1,
+        Math.min(24, Math.round(num(next.payments?.split?.linkValidityHours, 24)))
       ),
     },
   };
@@ -1523,9 +1538,10 @@ export default function AdminSettingsPage() {
           <div className="mb-3 text-lg font-medium">Zahlungsarten</div>
 
           <div className="mb-4 rounded-md border border-emerald-700/40 bg-emerald-950/20 p-3 text-sm text-emerald-100">
-            Stripe Online-Zahlung hazırdır. Kart, Apple Pay, Google Pay ve Stripe hesabında
-            açılan diğer yöntemler güvenli Stripe ödeme sayfasında gösterilir. TV üzerinden
-            storno verilen online siparişler otomatik olarak iade edilir.
+            Stripe Online-Zahlung hazırdır. Kart, Apple Pay, Google Pay, Link, PayPal ve
+            Stripe hesabında açılan diğer yöntemler güvenli ödeme sayfasında gösterilir.
+            Müşteri onaylarsa uyumlu ödeme yöntemi sonraki siparişler için hatırlanır. TV
+            üzerinden storno verilen online siparişler otomatik olarak iade edilir.
           </div>
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
@@ -1578,6 +1594,14 @@ export default function AdminSettingsPage() {
                     setNested(["payments", "online", "refundOnCancel"], value)
                   }
                 />
+
+                <Toggle
+                  label="Zahlungsart sicher für nächste Bestellung merken"
+                  checked={m.payments?.online?.rememberPaymentMethods !== false}
+                  onChange={(value) =>
+                    setNested(["payments", "online", "rememberPaymentMethods"], value)
+                  }
+                />
               </div>
 
               <div className="mt-3 rounded-md bg-black/25 p-2 text-xs text-stone-300">
@@ -1604,7 +1628,17 @@ export default function AdminSettingsPage() {
                 }}
               />
 
-              <div className="mt-3 grid grid-cols-2 gap-2">
+              <div className="mt-3">
+                <Toggle
+                  label="Kişisel ödeme linklerini WhatsApp ile gönder"
+                  checked={m.payments?.split?.whatsappShareEnabled !== false}
+                  onChange={(value) =>
+                    setNested(["payments", "split", "whatsappShareEnabled"], value)
+                  }
+                />
+              </div>
+
+              <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
                 <Field label="Kişi başı servis ücreti (€)">
                   <input
                     type="number"
@@ -1638,11 +1672,29 @@ export default function AdminSettingsPage() {
                     }
                   />
                 </Field>
+
+                <Field label="Link geçerlilik süresi (saat)">
+                  <input
+                    type="number"
+                    min={1}
+                    max={24}
+                    step="1"
+                    className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2 outline-none"
+                    value={String(m.payments?.split?.linkValidityHours ?? 24)}
+                    onChange={(event) =>
+                      setNested(
+                        ["payments", "split", "linkValidityHours"],
+                        Math.max(1, Math.min(24, Math.round(Number(event.target.value || 24))))
+                      )
+                    }
+                  />
+                </Field>
               </div>
 
               <p className="mt-3 text-xs text-stone-400">
-                Ürünler kişilere dağıtılır ve herkes kendi payını sırayla online öder.
-                Bu seçenek için Online-Zahlung da açık olmalıdır.
+                Ürünler kişilere dağıtılır. Herkes kendi güvenli linkini WhatsApp ile alıp
+                kendi telefonundan ödeme yapar. Bütün paylar tamamlanınca tek sipariş TV'ye
+                düşer. Bu seçenek için Online-Zahlung da açık olmalıdır.
               </p>
             </div>
           </div>

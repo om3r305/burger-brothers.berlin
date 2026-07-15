@@ -7,6 +7,13 @@ import {
   resolveBaseUrl,
   stripeModeLabel,
 } from "@/lib/server/stripe-client";
+import { createBurgerCheckoutSession } from "@/lib/server/payment-checkout";
+import { resolvePaymentProfileCustomerId } from "@/lib/server/payment-profile";
+import {
+  buildPaymentShareUrl,
+  createPaymentShareToken,
+  hashPaymentShareToken,
+} from "@/lib/server/payment-share-token";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -228,6 +235,30 @@ function cleanSplitShares(
   return shares;
 }
 
+function normalizePhone(value: any) {
+  return String(value || "").replace(/\D/g, "");
+}
+
+async function resolveKnownStripeCustomerId(params: {
+  req: Request;
+  stripe: ReturnType<typeof getStripeClient>;
+  customer: Record<string, any>;
+}) {
+  const phone = normalizePhone(params.customer?.phone);
+
+  /*
+   * Hesap/OTP sistemi olmadığı için yalnızca bu cihazdaki imzalı HttpOnly
+   * ödeme profili kullanılır. Sadece telefon numarasıyla başka bir müşterinin
+   * kayıtlı Stripe yöntemleri kesinlikle açılmaz.
+   */
+  return resolvePaymentProfileCustomerId({
+    req: params.req,
+    stripe: params.stripe,
+    phone,
+    requirePhoneMatch: Boolean(phone),
+  });
+}
+
 function json(payload: any, status = 200) {
   return NextResponse.json(payload, {
     status,
@@ -249,6 +280,16 @@ export async function POST(req: Request) {
     const settings = await getServerSettings().catch(() => ({} as any));
     const onlineEnabled = readPaymentEnabled(settings, "online", false);
     const splitEnabled = readPaymentEnabled(settings, "split", false);
+    const rememberPaymentAllowed =
+      settings?.payments?.online?.rememberPaymentMethods !== false;
+    const rememberPayment =
+      rememberPaymentAllowed && body?.rememberPayment !== false;
+    const whatsappShareEnabled =
+      settings?.payments?.split?.whatsappShareEnabled !== false;
+    const shareLinkHours = Math.max(
+      1,
+      Math.min(24, Math.round(toNumber(settings?.payments?.split?.linkValidityHours, 24))),
+    );
 
     if (!onlineEnabled) {
       return json(
@@ -335,6 +376,26 @@ export async function POST(req: Request) {
     const now = new Date();
     const mode = normalizeMode(order?.mode);
     const customer = ensureObj(order?.customer);
+    const baseUrl = resolveBaseUrl(req.url);
+    const shareExpiresAt =
+      Math.floor(now.getTime() / 1000) + shareLinkHours * 60 * 60;
+    const preparedShares = shares.map((share) => {
+      if (requestedKind !== "split_contactless") return { ...share };
+
+      const shareToken = createPaymentShareToken({
+        paymentSessionId,
+        shareIndex: share.index,
+        expiresAt: shareExpiresAt,
+      });
+
+      return {
+        ...share,
+        shareToken,
+        shareTokenHash: hashPaymentShareToken(shareToken),
+        shareUrl: buildPaymentShareUrl(baseUrl, shareToken),
+        shareExpiresAt: new Date(shareExpiresAt * 1000).toISOString(),
+      };
+    });
     const adjustedOrder = sanitizeJson({
       ...order,
       total: fromCents(paidTotalCents),
@@ -358,13 +419,14 @@ export async function POST(req: Request) {
           baseTotal: fromCents(payableCents),
           serviceFeeTotal: fromCents(feeTotalCents),
           payableTotal: fromCents(paidTotalCents),
-          shares: shares.map((share) => ({
+          shares: preparedShares.map((share) => ({
             index: share.index,
             label: share.label,
             baseAmount: fromCents(share.baseAmountCents),
             serviceFee: fromCents(share.serviceFeeCents),
             amount: fromCents(share.amountCents),
             items: share.items,
+            shareUrl: (share as any).shareUrl || null,
           })),
         },
       },
@@ -401,13 +463,21 @@ export async function POST(req: Request) {
             baseTotal: fromCents(payableCents),
             serviceFeeTotal: fromCents(feeTotalCents),
             total: fromCents(paidTotalCents),
-            shares: shares.map((share) => ({
+            rememberPayment,
+            whatsappShareEnabled,
+            shareLinkHours,
+            shares: preparedShares.map((share) => ({
               index: share.index,
               label: share.label,
               baseAmount: fromCents(share.baseAmountCents),
               serviceFee: fromCents(share.serviceFeeCents),
               amount: fromCents(share.amountCents),
               items: share.items,
+              shareTokenHash: (share as any).shareTokenHash || null,
+              shareUrl: (share as any).shareUrl || null,
+              shareExpiresAt: (share as any).shareExpiresAt || null,
+              status: "open",
+              attempt: 0,
             })),
           },
         }),
@@ -419,12 +489,31 @@ export async function POST(req: Request) {
       } as any,
     });
 
-    const baseUrl = resolveBaseUrl(req.url);
     const customerEmail = validEmail(customer?.email);
     const checkoutShares: any[] = [];
 
     try {
-      for (const share of shares) {
+      if (requestedKind === "split_contactless") {
+        for (const share of preparedShares) {
+          checkoutShares.push({
+            index: share.index,
+            label: share.label,
+            baseAmount: fromCents(share.baseAmountCents),
+            serviceFee: fromCents(share.serviceFeeCents),
+            amount: fromCents(share.amountCents),
+            items: share.items,
+            checkoutSessionId: "",
+            paymentIntentId: "",
+            status: "open",
+            url: (share as any).shareUrl || null,
+            shareUrl: (share as any).shareUrl || null,
+            shareTokenHash: (share as any).shareTokenHash || null,
+            shareExpiresAt: (share as any).shareExpiresAt || null,
+            attempt: 0,
+          });
+        }
+      } else {
+        const share = preparedShares[0];
         const successUrl = new URL("/payment/return", baseUrl);
         successUrl.searchParams.set("paymentSession", paymentSessionId);
         successUrl.searchParams.set("share", String(share.index));
@@ -438,54 +527,30 @@ export async function POST(req: Request) {
         cancelUrl.searchParams.set("paymentSession", paymentSessionId);
         cancelUrl.searchParams.set("share", String(share.index));
 
-        const checkout = await stripe.checkout.sessions.create(
-          {
-            mode: "payment",
-            locale: "de",
-            ...(customerEmail ? { customer_email: customerEmail } : {}),
-            line_items: [
-              {
-                quantity: 1,
-                price_data: {
-                  currency: "eur",
-                  unit_amount: share.amountCents,
-                  product_data: {
-                    name:
-                      requestedKind === "split_contactless"
-                        ? `Burger Brothers – ${share.label}`
-                        : "Burger Brothers Bestellung",
-                    description:
-                      requestedKind === "split_contactless"
-                        ? `Teilzahlung ${share.index + 1} von ${shares.length}`
-                        : `Bestellung #${finalOrderId}`,
-                  },
-                },
-              },
-            ],
-            success_url: successUrl.toString(),
-            cancel_url: cancelUrl.toString(),
-            expires_at: Math.floor(Date.now() / 1000) + 23 * 60 * 60,
-            metadata: {
-              burger_payment_session: paymentSessionId,
-              burger_order_id: finalOrderId,
-              payment_kind: requestedKind,
-              share_index: String(share.index),
-              share_count: String(shares.length),
-            },
-            payment_intent_data: {
-              metadata: {
-                burger_payment_session: paymentSessionId,
-                burger_order_id: finalOrderId,
-                payment_kind: requestedKind,
-                share_index: String(share.index),
-                share_count: String(shares.length),
-              },
-            },
+        const knownCustomerId = await resolveKnownStripeCustomerId({
+          req,
+          stripe,
+          customer,
+        });
+
+        const checkout = await createBurgerCheckoutSession({
+          stripe,
+          paymentSessionId,
+          finalOrderId,
+          paymentKind: "online",
+          share: {
+            index: share.index,
+            label: share.label,
+            amountCents: share.amountCents,
           },
-          {
-            idempotencyKey: `bb-checkout-${paymentSessionId}-${share.index}`,
-          },
-        );
+          shareCount: 1,
+          successUrl: successUrl.toString(),
+          cancelUrl: cancelUrl.toString(),
+          rememberPayment,
+          customerId: knownCustomerId || undefined,
+          customerEmail: knownCustomerId ? undefined : customerEmail,
+          idempotencyKey: `bb-checkout-${paymentSessionId}-${share.index}`,
+        });
 
         checkoutShares.push({
           index: share.index,
@@ -501,6 +566,8 @@ export async function POST(req: Request) {
               : checkout.payment_intent?.id || "",
           status: checkout.payment_status === "paid" ? "paid" : "open",
           url: checkout.url,
+          checkoutUrl: checkout.url,
+          rememberPayment,
         });
       }
     } catch (error: any) {
@@ -526,6 +593,12 @@ export async function POST(req: Request) {
       throw error;
     }
 
+    const manageUrl = new URL("/payment/return", baseUrl);
+    manageUrl.searchParams.set("paymentSession", paymentSessionId);
+    if (requestedKind === "split_contactless") {
+      manageUrl.searchParams.set("split", "1");
+    }
+
     await prisma.order.update({
       where: { id: paymentSessionId },
       data: {
@@ -543,6 +616,10 @@ export async function POST(req: Request) {
             baseTotal: fromCents(payableCents),
             serviceFeeTotal: fromCents(feeTotalCents),
             total: fromCents(paidTotalCents),
+            rememberPayment,
+            whatsappShareEnabled,
+            shareLinkHours,
+            manageUrl: manageUrl.toString(),
             shares: checkoutShares,
           },
         }),
@@ -559,7 +636,12 @@ export async function POST(req: Request) {
       baseTotal: fromCents(payableCents),
       serviceFeeTotal: fromCents(feeTotalCents),
       total: fromCents(paidTotalCents),
-      url: checkoutShares[0]?.url || null,
+      url:
+        requestedKind === "split_contactless"
+          ? manageUrl.toString()
+          : checkoutShares[0]?.url || null,
+      manageUrl: manageUrl.toString(),
+      whatsappShareEnabled,
       shares: checkoutShares.map((share) => ({
         index: share.index,
         label: share.label,
@@ -567,6 +649,7 @@ export async function POST(req: Request) {
         serviceFee: share.serviceFee,
         amount: share.amount,
         status: share.status,
+        shareUrl: share.shareUrl || null,
       })),
     });
   } catch (error: any) {

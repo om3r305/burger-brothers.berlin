@@ -2,8 +2,13 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useCart } from "@/components/store";
+
+type ShareItem = {
+  key?: string;
+  label?: string;
+};
 
 type Share = {
   index: number;
@@ -12,6 +17,8 @@ type Share = {
   baseAmount: number;
   serviceFee: number;
   status: string;
+  shareUrl?: string | null;
+  items?: ShareItem[];
 };
 
 type PaymentState = {
@@ -23,6 +30,7 @@ type PaymentState = {
   totalCount?: number;
   nextUrl?: string | null;
   nextShareIndex?: number | null;
+  whatsappShareEnabled?: boolean;
   shares?: Share[];
   message?: string;
   error?: string;
@@ -34,6 +42,39 @@ const fmt = (value: number) =>
     currency: "EUR",
   }).format(Number(value || 0));
 
+function whatsappMessage(share: Share) {
+  return [
+    "Hallo 👋",
+    "",
+    "du wurdest zu einer gemeinsamen Bestellung bei Burger Brothers eingeladen.",
+    "",
+    `Dein Anteil: ${fmt(share.amount)}`,
+    "",
+    "Hier sicher bezahlen:",
+    String(share.shareUrl || ""),
+    "",
+    "Die Bestellung wird erst bestätigt, wenn alle Anteile bezahlt wurden.",
+  ].join("\n");
+}
+
+function shareStatusLabel(status: string) {
+  if (status === "paid") return "Bezahlt";
+  if (status === "processing") return "Wird bestätigt";
+  if (status === "expired") return "Abgelaufen";
+  if (status === "failed") return "Fehlgeschlagen";
+  if (status === "refunded") return "Erstattet";
+  return "Offen";
+}
+
+function shareStatusClass(status: string) {
+  if (status === "paid") return "text-emerald-300";
+  if (status === "processing") return "text-sky-300";
+  if (status === "failed" || status === "expired" || status === "refunded") {
+    return "text-rose-300";
+  }
+  return "text-amber-300";
+}
+
 function PaymentReturnContent() {
   const params = useSearchParams();
   const clear = useCart((state: any) => state.clear);
@@ -41,11 +82,18 @@ function PaymentReturnContent() {
     () => String(params.get("paymentSession") || "").trim(),
     [params],
   );
+  const checkoutSessionId = useMemo(
+    () => String(params.get("checkout_session_id") || "").trim(),
+    [params],
+  );
+  const paymentCancelled = params.get("payment") === "cancelled";
 
   const [state, setState] = useState<PaymentState>({
     status: "loading",
   });
-  const [busy, setBusy] = useState(false);
+  const [busyShare, setBusyShare] = useState<number | null>(null);
+  const [profileSaved, setProfileSaved] = useState(false);
+  const profileAttempted = useRef(false);
 
   useEffect(() => {
     if (!paymentSessionId) {
@@ -125,6 +173,40 @@ function PaymentReturnContent() {
     };
   }, [paymentSessionId, clear]);
 
+  /*
+   * Normal online ödeme sonrası Stripe Customer profili bu cihazda güvenli
+   * HttpOnly cookie ile hatırlanır. Sunucu, müşterinin onay vermediği oturumda
+   * profili kaydetmez.
+   */
+  useEffect(() => {
+    if (
+      profileAttempted.current ||
+      !checkoutSessionId ||
+      !paymentSessionId
+    ) {
+      return;
+    }
+
+    profileAttempted.current = true;
+
+    void fetch("/api/payments/profile", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        checkoutSessionId,
+        paymentSessionId,
+      }),
+      cache: "no-store",
+    })
+      .then((response) => response.json().catch(() => ({})))
+      .then((payload) => {
+        if (payload?.remembered) setProfileSaved(true);
+      })
+      .catch(() => null);
+  }, [checkoutSessionId, paymentSessionId]);
+
   const shares = Array.isArray(state.shares) ? state.shares : [];
   const finalized = state.finalized === true;
   const failed =
@@ -132,6 +214,23 @@ function PaymentReturnContent() {
     state.status === "expired" ||
     state.status === "refunded" ||
     state.ok === false;
+  const isSplit = Number(state.totalCount || shares.length) > 1;
+
+  const openShare = (share: Share) => {
+    if (!share.shareUrl) return;
+    setBusyShare(share.index);
+    window.location.assign(share.shareUrl);
+  };
+
+  const sendShareViaWhatsApp = (share: Share) => {
+    if (!share.shareUrl) return;
+
+    window.open(
+      `https://wa.me/?text=${encodeURIComponent(whatsappMessage(share))}`,
+      "_blank",
+      "noopener,noreferrer",
+    );
+  };
 
   return (
     <main className="mx-auto min-h-[100dvh] max-w-2xl px-4 py-8 text-stone-100 sm:px-6">
@@ -157,6 +256,11 @@ function PaymentReturnContent() {
             <p className="mt-2 text-stone-300">
               Deine Bestellung wurde an Burger Brothers übermittelt.
             </p>
+            {profileSaved && (
+              <div className="mt-3 rounded-xl border border-sky-500/30 bg-sky-500/10 p-3 text-sm text-sky-100">
+                Deine Zahlungsart wurde auf diesem Gerät sicher gespeichert. Stripe zeigt sie beim nächsten Mal direkt an.
+              </div>
+            )}
             <div className="mt-4 rounded-xl bg-black/35 p-4">
               <div className="text-xs uppercase tracking-wide text-stone-400">
                 Bestellnummer
@@ -204,13 +308,17 @@ function PaymentReturnContent() {
           <>
             <div className="rounded-2xl border border-sky-500/40 bg-sky-500/10 p-4">
               <div className="text-lg font-bold">
-                {state.totalCount && state.totalCount > 1
-                  ? "Getrennt zahlen"
-                  : "Zahlung wird geprüft"}
+                {isSplit ? "Getrennt zahlen" : "Zahlung wird geprüft"}
               </div>
               <div className="mt-1 text-sm text-stone-300">
-                {state.message ||
-                  "Bitte einen Moment warten. Die Zahlung wird sicher bestätigt."}
+                {paymentCancelled
+                  ? "Die letzte Zahlung wurde abgebrochen. Der offene Anteil kann erneut bezahlt werden."
+                  : state.message ||
+                    (isSplit
+                      ? state.whatsappShareEnabled !== false
+                        ? "Sende jeder Person ihren eigenen sicheren Zahlungslink per WhatsApp. Der Status wird hier automatisch aktualisiert."
+                        : "Öffne für jede Person den eigenen sicheren Zahlungslink. Der Status wird hier automatisch aktualisiert."
+                      : "Bitte einen Moment warten. Die Zahlung wird sicher bestätigt.")}
               </div>
               {!!state.totalCount && (
                 <div className="mt-3 text-sm font-semibold">
@@ -219,62 +327,105 @@ function PaymentReturnContent() {
               )}
             </div>
 
-            {shares.length > 0 && (
-              <div className="mt-4 space-y-2">
-                {shares.map((share) => (
-                  <div
-                    key={`${share.index}-${share.label}`}
-                    className="flex items-center justify-between rounded-xl border border-stone-700/60 bg-stone-900/60 px-3 py-3"
-                  >
-                    <div>
-                      <div className="font-semibold">{share.label}</div>
-                      {share.serviceFee > 0 && (
-                        <div className="text-xs text-stone-400">
-                          inkl. {fmt(share.serviceFee)} Servicegebühr
-                        </div>
-                      )}
-                    </div>
-                    <div className="text-right">
-                      <div className="font-bold">{fmt(share.amount)}</div>
-                      <div
-                        className={`text-xs ${
-                          share.status === "paid"
-                            ? "text-emerald-300"
-                            : share.status === "processing"
-                              ? "text-sky-300"
-                              : "text-amber-300"
-                        }`}
-                      >
-                        {share.status === "paid"
-                          ? "Bezahlt"
-                          : share.status === "processing"
-                            ? "Wird bestätigt"
-                            : "Offen"}
-                      </div>
-                    </div>
-                  </div>
-                ))}
+            {isSplit && (
+              <div className="mt-4 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-50">
+                <div className="font-bold">📲 Jeder bezahlt auf dem eigenen Handy</div>
+                <div className="mt-1 text-xs text-stone-300">
+                  {state.whatsappShareEnabled !== false
+                    ? "Öffne deinen eigenen Anteil direkt oder sende den jeweiligen Link per WhatsApp."
+                    : "Öffne für jede Person den eigenen sicheren Zahlungslink."}{" "}
+                  Erst wenn alle Anteile bezahlt sind, wird eine einzige Bestellung an die Küche gesendet.
+                </div>
               </div>
             )}
 
-            {state.nextUrl ? (
+            {shares.length > 0 && (
+              <div className="mt-4 space-y-3">
+                {shares.map((share) => {
+                  const open =
+                    share.status !== "paid" &&
+                    share.status !== "processing" &&
+                    Boolean(share.shareUrl);
+                  const itemLabels = (Array.isArray(share.items) ? share.items : [])
+                    .map((item) => String(item?.label || "").trim())
+                    .filter(Boolean);
+
+                  return (
+                    <div
+                      key={`${share.index}-${share.label}`}
+                      className="rounded-2xl border border-stone-700/60 bg-stone-900/60 p-4"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="font-semibold">{share.label}</div>
+                          {share.serviceFee > 0 && (
+                            <div className="text-xs text-stone-400">
+                              inkl. {fmt(share.serviceFee)} Servicegebühr
+                            </div>
+                          )}
+                          {itemLabels.length > 0 && (
+                            <div className="mt-2 line-clamp-2 text-xs text-stone-400">
+                              {itemLabels.join(", ")}
+                            </div>
+                          )}
+                        </div>
+                        <div className="shrink-0 text-right">
+                          <div className="font-bold">{fmt(share.amount)}</div>
+                          <div className={`text-xs ${shareStatusClass(share.status)}`}>
+                            {shareStatusLabel(share.status)}
+                          </div>
+                        </div>
+                      </div>
+
+                      {open && (
+                        <div
+                          className={`mt-3 grid grid-cols-1 gap-2 ${
+                            state.whatsappShareEnabled !== false ? "sm:grid-cols-2" : ""
+                          }`}
+                        >
+                          <button
+                            type="button"
+                            disabled={busyShare === share.index}
+                            onClick={() => openShare(share)}
+                            className="rounded-xl bg-amber-400 px-3 py-3 text-sm font-black text-black disabled:opacity-50"
+                          >
+                            {busyShare === share.index
+                              ? "Stripe wird geöffnet …"
+                              : "Jetzt bezahlen"}
+                          </button>
+                          {state.whatsappShareEnabled !== false && (
+                            <button
+                              type="button"
+                              onClick={() => sendShareViaWhatsApp(share)}
+                              className="rounded-xl border border-emerald-500/50 bg-emerald-500/10 px-3 py-3 text-sm font-bold text-emerald-100"
+                            >
+                              Per WhatsApp senden
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {!isSplit && state.nextUrl ? (
               <button
                 type="button"
-                disabled={busy}
+                disabled={busyShare !== null}
                 onClick={() => {
-                  setBusy(true);
+                  setBusyShare(state.nextShareIndex ?? 0);
                   window.location.assign(String(state.nextUrl));
                 }}
                 className="mt-5 w-full rounded-xl bg-amber-400 px-4 py-3 font-black text-black disabled:opacity-50"
               >
-                {state.nextShareIndex != null
-                  ? `Person ${state.nextShareIndex + 1} bezahlt jetzt`
-                  : "Zahlung fortsetzen"}
+                Zahlung fortsetzen
               </button>
             ) : (
               <div className="mt-5 flex items-center justify-center gap-3 text-sm text-stone-400">
                 <span className="h-5 w-5 animate-spin rounded-full border-2 border-stone-600 border-t-amber-300" />
-                Zahlung wird geprüft …
+                Zahlungsstatus wird automatisch aktualisiert …
               </div>
             )}
           </>
