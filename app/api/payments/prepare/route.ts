@@ -10,6 +10,10 @@ import {
 import { createBurgerCheckoutSession } from "@/lib/server/payment-checkout";
 import { resolvePaymentProfileCustomerId } from "@/lib/server/payment-profile";
 import {
+  OrderPricingError,
+  rebuildOrderPricingFromDatabase,
+} from "@/lib/server/order-pricing";
+import {
   buildPaymentShareUrl,
   createPaymentShareToken,
   hashPaymentShareToken,
@@ -64,71 +68,9 @@ function fromCents(value: number) {
   return +(Math.max(0, value) / 100).toFixed(2);
 }
 
-function roundToTenCents(value: number) {
-  return Math.max(0, Math.round(Math.max(0, value) / 10) * 10);
-}
-
-function submittedItemsTotalCents(order: any) {
-  const items = Array.isArray(order?.items) ? order.items : [];
-
-  return items.reduce((sum: number, item: any) => {
-    const qty = Math.max(1, Math.round(toNumber(item?.qty ?? item?.quantity, 1)));
-    const base = toCents(item?.price ?? item?.unitPrice);
-    const extras = (Array.isArray(item?.add ?? item?.extras)
-      ? item.add ?? item.extras
-      : []
-    ).reduce(
-      (extraSum: number, extra: any) =>
-        extraSum + toCents(extra?.price),
-      0,
-    );
-
-    return sum + (base + extras) * qty;
-  }, 0);
-}
-
-function validateSubmittedTotals(order: any, payableCents: number) {
-  const computedMerchandiseCents = submittedItemsTotalCents(order);
-  const declaredMerchandiseCents = toCents(order?.merchandise);
-
-  if (
-    computedMerchandiseCents <= 0 ||
-    Math.abs(computedMerchandiseCents - declaredMerchandiseCents) > 1
-  ) {
-    throw new Error("ORDER_MERCHANDISE_MISMATCH");
-  }
-
-  const meta = ensureObj(order?.meta);
-  const payment = ensureObj(meta?.payment ?? order?.payment);
-  const surchargesCents = toCents(order?.surcharges);
-  const discountCents = toCents(order?.discount);
-  const couponDiscountCents = toCents(order?.couponDiscount);
-  const tipCents = toCents(payment?.tip ?? meta?.tip ?? order?.tip);
-  const beforeTipCents = roundToTenCents(
-    Math.max(
-      0,
-      computedMerchandiseCents +
-        surchargesCents -
-        discountCents -
-        couponDiscountCents,
-    ),
-  );
-  const expectedPayableCents = roundToTenCents(beforeTipCents + tipCents);
-
-  if (Math.abs(expectedPayableCents - payableCents) > 1) {
-    throw new Error("ORDER_TOTAL_MISMATCH");
-  }
-}
-
 function validEmail(value: any) {
   const email = String(value || "").trim();
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : "";
-}
-
-function normalizeMode(value: any) {
-  return String(value || "").toLowerCase().trim() === "pickup"
-    ? "pickup"
-    : "delivery";
 }
 
 function cleanOrderId(value: string) {
@@ -313,8 +255,13 @@ export async function POST(req: Request) {
       );
     }
 
-    const payableCents = toCents(order?.total);
-    validateSubmittedTotals(order, payableCents);
+    const tenantId = await getTenantId();
+    const rebuiltPricing = await rebuildOrderPricingFromDatabase({
+      tenantId,
+      order,
+      settings,
+    });
+    const payableCents = rebuiltPricing.payableCents;
 
     if (payableCents < 50) {
       return json(
@@ -366,7 +313,6 @@ export async function POST(req: Request) {
     );
 
     const stripe = getStripeClient();
-    const tenantId = await getTenantId();
     const idLength = Math.max(
       4,
       Math.min(12, Math.round(toNumber(settings?.orders?.idLength, 6))),
@@ -374,7 +320,7 @@ export async function POST(req: Request) {
     const finalOrderId = await generateFinalOrderId(idLength);
     const paymentSessionId = `PAY-${randomUUID()}`;
     const now = new Date();
-    const mode = normalizeMode(order?.mode);
+    const mode = rebuiltPricing.mode;
     const customer = ensureObj(order?.customer);
     const baseUrl = resolveBaseUrl(req.url);
     const shareExpiresAt =
@@ -398,10 +344,15 @@ export async function POST(req: Request) {
     });
     const adjustedOrder = sanitizeJson({
       ...order,
+      items: rebuiltPricing.items,
+      merchandise: fromCents(rebuiltPricing.merchandiseCents),
+      discount: fromCents(rebuiltPricing.discountCents),
+      surcharges: fromCents(
+        rebuiltPricing.surchargesCents + feeTotalCents,
+      ),
       total: fromCents(paidTotalCents),
-      surcharges: +(
-        toNumber(order?.surcharges, 0) + fromCents(feeTotalCents)
-      ).toFixed(2),
+      coupon: rebuiltPricing.couponCode,
+      couponDiscount: fromCents(rebuiltPricing.couponDiscountCents),
       paymentMethod: requestedKind,
       paymentStatus: "pending",
       paymentProvider: "stripe_checkout",
@@ -419,6 +370,8 @@ export async function POST(req: Request) {
           baseTotal: fromCents(payableCents),
           serviceFeeTotal: fromCents(feeTotalCents),
           payableTotal: fromCents(paidTotalCents),
+          pricingSource: "db",
+          pricing: rebuiltPricing.pricingMeta,
           shares: preparedShares.map((share) => ({
             index: share.index,
             label: share.label,
@@ -439,16 +392,16 @@ export async function POST(req: Request) {
         mode,
         channel: "web",
         status: "payment_pending",
-        merchandise: toNumber(order?.merchandise, 0),
-        discount: toNumber(order?.discount, 0),
-        surcharges: toNumber(adjustedOrder?.surcharges, 0),
-        total: toNumber(adjustedOrder?.total, 0),
-        coupon: order?.coupon ? String(order.coupon) : null,
-        couponDiscount: toNumber(order?.couponDiscount, 0),
-        customer: sanitizeJson(customer),
-        items: sanitizeJson(
-          Array.isArray(order?.items) ? order.items : [],
+        merchandise: fromCents(rebuiltPricing.merchandiseCents),
+        discount: fromCents(rebuiltPricing.discountCents),
+        surcharges: fromCents(
+          rebuiltPricing.surchargesCents + feeTotalCents,
         ),
+        total: fromCents(paidTotalCents),
+        coupon: rebuiltPricing.couponCode,
+        couponDiscount: fromCents(rebuiltPricing.couponDiscountCents),
+        customer: sanitizeJson(customer),
+        items: sanitizeJson(rebuiltPricing.items),
         meta: sanitizeJson({
           pendingOrder: adjustedOrder,
           paymentSession: {
@@ -655,6 +608,18 @@ export async function POST(req: Request) {
   } catch (error: any) {
     console.error("[payments/prepare]", error);
 
+    if (error instanceof OrderPricingError) {
+      return json(
+        {
+          ok: false,
+          error: error.code,
+          message: error.message,
+          ...(error.details ? { details: error.details } : {}),
+        },
+        error.status,
+      );
+    }
+
     const message =
       error?.message === "SPLIT_PERSON_COUNT_INVALID"
         ? "Bitte zwischen 2 und der erlaubten Höchstzahl an Personen wählen."
@@ -662,11 +627,7 @@ export async function POST(req: Request) {
           ? "Die Teilbeträge stimmen nicht mit dem Bestellbetrag überein."
           : error?.message === "SPLIT_EMPTY_PERSON"
             ? "Jede Person muss mindestens einen Artikel übernehmen."
-            : error?.message === "ORDER_MERCHANDISE_MISMATCH"
-              ? "Der Warenwert hat sich geändert. Bitte den Warenkorb aktualisieren."
-              : error?.message === "ORDER_TOTAL_MISMATCH"
-                ? "Der Zahlbetrag hat sich geändert. Bitte den Checkout neu laden."
-                : error?.message === "STRIPE_SECRET_KEY_MISSING"
+            : error?.message === "STRIPE_SECRET_KEY_MISSING"
                   ? "Stripe ist auf dem Server noch nicht eingerichtet."
                   : error?.message || "Online-Zahlung konnte nicht gestartet werden.";
 
@@ -677,8 +638,6 @@ export async function POST(req: Request) {
               "SPLIT_PERSON_COUNT_INVALID",
               "SPLIT_TOTAL_MISMATCH",
               "SPLIT_EMPTY_PERSON",
-              "ORDER_MERCHANDISE_MISMATCH",
-              "ORDER_TOTAL_MISMATCH",
             ].includes(String(error?.message || ""))
           ? 400
           : 500;

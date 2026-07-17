@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { prisma, getTenantId } from "@/lib/db";
 import { readFallbackSnapshot, writeFallbackSnapshot } from "@/lib/server/fallback-snapshot";
 import { createDefaultThemeSettings } from "@/lib/themes";
+import { verifySessionToken } from "@/lib/server/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -197,7 +198,7 @@ function decodeCookieValue(value: string) {
   }
 }
 
-function hasAdminSession(req: Request) {
+async function hasAdminSession(req: Request) {
   const cookieHeader = req.headers.get("cookie") || "";
   const cookies = cookieHeader
     .split(";")
@@ -208,17 +209,17 @@ function hasAdminSession(req: Request) {
     const index = cookie.indexOf("=");
     const name = index >= 0 ? cookie.slice(0, index).trim() : cookie.trim();
     const rawValue = index >= 0 ? cookie.slice(index + 1).trim() : "";
-    const value = decodeCookieValue(rawValue);
 
-    if (name === ADMIN_COOKIE && value.startsWith("ok:")) {
-      return true;
-    }
+    if (name !== ADMIN_COOKIE) continue;
+
+    const value = decodeCookieValue(rawValue);
+    return verifySessionToken(value, "admin");
   }
 
   return false;
 }
 
-function hasTvSession(req: Request) {
+async function hasTvSession(req: Request) {
   const cookieHeader = req.headers.get("cookie") || "";
   const cookies = cookieHeader
     .split(";")
@@ -229,14 +230,11 @@ function hasTvSession(req: Request) {
     const index = cookie.indexOf("=");
     const name = index >= 0 ? cookie.slice(0, index).trim() : cookie.trim();
     const rawValue = index >= 0 ? cookie.slice(index + 1).trim() : "";
-    const value = decodeCookieValue(rawValue);
 
-    if (
-      TV_COOKIE_NAMES.includes(name) &&
-      (value.startsWith("ok:") || value === "1" || value === "true")
-    ) {
-      return true;
-    }
+    if (!TV_COOKIE_NAMES.includes(name)) continue;
+
+    const value = decodeCookieValue(rawValue);
+    return verifySessionToken(value, "tv");
   }
 
   return false;
@@ -302,6 +300,27 @@ function sanitizeJson(value: any): any {
   }
 
   return value;
+}
+
+
+function publicSettingsView(settings: PlainObject) {
+  const safe = sanitizeJson(settings) as PlainObject;
+  if (isPlainObject(safe.security)) {
+    safe.security = { ...safe.security };
+    delete safe.security.tvPin;
+    delete safe.security.pin;
+  }
+  if (isPlainObject(safe.telegram)) {
+    safe.telegram = { enabled: Boolean(safe.telegram.enabled) };
+  }
+  if (isPlainObject(safe.dashboard)) {
+    safe.dashboard = { ...safe.dashboard };
+    delete safe.dashboard.password;
+    delete safe.dashboard.token;
+  }
+  delete safe.admin;
+  delete safe.secrets;
+  return safe;
 }
 
 function jsonForDb(value: any): any {
@@ -692,14 +711,15 @@ async function readRequestBody(req: Request) {
   }
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
     const cached = readSettingsMemoryCache();
 
     if (cached) {
+      const visible = (await hasAdminSession(req)) ? cached : publicSettingsView(cached);
       return NextResponse.json(
         {
-          ...cached,
+          ...visible,
           ok: true,
           source: "db",
           memoryCached: true,
@@ -713,6 +733,7 @@ export async function GET() {
     const tenantId = await getTenantId();
     const settings = await readSettingsMap(tenantId);
     writeSettingsMemoryCache(settings);
+    const visibleSettings = (await hasAdminSession(req)) ? settings : publicSettingsView(settings);
 
     const fallbackSaved = shouldWriteRuntimeSnapshot()
       ? await writeSettingsFallback(settings)
@@ -720,7 +741,7 @@ export async function GET() {
 
     return NextResponse.json(
       {
-        ...settings,
+        ...visibleSettings,
         ok: true,
         source: "db",
         fallbackSaved,
@@ -736,9 +757,10 @@ export async function GET() {
     const fallback = await readSettingsFallback();
 
     if (fallback) {
+      const visibleFallback = (await hasAdminSession(req)) ? fallback : publicSettingsView(fallback);
       return NextResponse.json(
         {
-          ...fallback,
+          ...visibleFallback,
           source: "cache_fallback",
           dbError: error?.message || "SETTINGS_GET_FAILED",
         },
@@ -758,10 +780,10 @@ export async function POST(req: Request) {
     const body = await readRequestBody(req);
     const payload = normalizeIncomingSettings(body);
     const replace = body?.replace === true;
-    const isAdmin = hasAdminSession(req);
+    const isAdmin = await hasAdminSession(req);
     const isWholeAdminSave = isAdmin && isPlainObject(body?.settings);
 
-    if (!isAdmin && (!hasTvSession(req) || !isTvWritableSettingsPayload(payload, replace))) {
+    if (!isAdmin && (!(await hasTvSession(req)) || !isTvWritableSettingsPayload(payload, replace))) {
       return unauthorizedResponse();
     }
 
@@ -805,10 +827,10 @@ export async function PUT(req: Request) {
     const body = await readRequestBody(req);
     const payload = normalizeIncomingSettings(body);
     const replace = body?.replace === true;
-    const isAdmin = hasAdminSession(req);
+    const isAdmin = await hasAdminSession(req);
     const isWholeAdminSave = isAdmin && isPlainObject(body?.settings);
 
-    if (!isAdmin && (!hasTvSession(req) || !isTvWritableSettingsPayload(payload, replace))) {
+    if (!isAdmin && (!(await hasTvSession(req)) || !isTvWritableSettingsPayload(payload, replace))) {
       return unauthorizedResponse();
     }
 

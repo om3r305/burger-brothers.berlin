@@ -20,10 +20,6 @@ type SearchParams =
     }>;
 
 function getErrorMessage(err?: string, reason?: string) {
-  if (err === "1" || reason === "invalid_pin") {
-    return "Falsche PIN. Bitte erneut versuchen.";
-  }
-
   if (reason === "missing_pin") {
     return "Bitte PIN eingeben.";
   }
@@ -33,7 +29,11 @@ function getErrorMessage(err?: string, reason?: string) {
   }
 
   if (reason === "server_error") {
-    return "Anmeldung aktuell nicht möglich. Bitte später erneut versuchen.";
+    return "Die sichere TV-Sitzung konnte nicht erstellt werden. Bitte Serverkonfiguration prüfen.";
+  }
+
+  if (reason === "invalid_pin" || (err === "1" && !reason)) {
+    return "Falsche PIN. Bitte erneut versuchen.";
   }
 
   return "";

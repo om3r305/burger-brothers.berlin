@@ -59,41 +59,29 @@ function readDriversLocal(): Driver[] {
 
 async function readDriversFromDb(): Promise<Driver[]> {
   try {
+    const res = await fetch("/api/drivers", { cache: "no-store" });
+    if (!res.ok) return [];
+    const data = await res.json();
+    const raw = Array.isArray(data?.items) ? data.items : [];
+    return raw.map((d: any) => ({ id: String(d.id || ""), name: String(d.name || ""), password: "" })).filter((d: Driver) => d.id && d.name);
+  } catch { return []; }
+}
+
+async function authenticateDriver(
+  name: string,
+  password: string,
+  remember: boolean,
+): Promise<Driver | null> {
+  try {
     const res = await fetch("/api/drivers", {
-      cache: "no-store",
-      headers: {
-        accept: "application/json",
-      },
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "login", name, password, remember }),
     });
-
-    if (!res.ok) return readDriversLocal();
-
-    const data = await res.json().catch(() => ({}));
-    const raw = Array.isArray(data)
-      ? data
-      : Array.isArray(data?.drivers)
-        ? data.drivers
-        : Array.isArray(data?.items)
-          ? data.items
-          : [];
-
-    const list = raw
-      .map((driver: any) => ({
-        id: String(driver?.id || driver?.name || "").trim(),
-        name: String(driver?.name || driver?.title || "").trim(),
-        password: String(driver?.password || driver?.pin || driver?.code || "").trim(),
-      }))
-      .filter((driver: Driver) => driver.id && driver.name && driver.password);
-
-    if (list.length) {
-      localStorage.setItem(DRIVERS_KEY, JSON.stringify(list));
-      return list;
-    }
-
-    return readDriversLocal();
-  } catch {
-    return readDriversLocal();
-  }
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data?.driver || null;
+  } catch { return null; }
 }
 
 function getCurrentDriver(): Driver | null {
@@ -1804,12 +1792,10 @@ export default function DriverPage() {
 
   const liveTrackingActive = current && mine.length > 0;
 
-  function handleLogin(event?: React.FormEvent) {
+  async function handleLogin(event?: React.FormEvent) {
     event?.preventDefault();
 
-    const driver = drivers.find(
-      (item) => item.name === loginName && item.password === loginPass,
-    );
+    const driver = await authenticateDriver(loginName, loginPass, remember);
 
     if (!driver) {
       alert("Ungültiger Benutzer / Passwort. Bitte Admin kontaktieren.");
@@ -1822,7 +1808,7 @@ export default function DriverPage() {
     if (remember) {
       setCurrentDriver(driver);
       localStorage.setItem(REMEMBER_KEY, "1");
-      localStorage.setItem(LASTPASS_KEY, enc(loginPass));
+      localStorage.removeItem(LASTPASS_KEY);
     } else {
       setCurrentDriver(null);
       localStorage.setItem(REMEMBER_KEY, "0");
@@ -1833,7 +1819,7 @@ export default function DriverPage() {
     void refresh(true);
   }
 
-  function handleLogout() {
+  async function handleLogout() {
     try {
       const me = getCurrentDriver();
 
@@ -1845,6 +1831,10 @@ export default function DriverPage() {
       );
 
       for (const order of active) clearPosKey(order.id);
+    } catch {}
+
+    try {
+      await fetch("/api/drivers", { method: "DELETE" });
     } catch {}
 
     setCurrent(null);
@@ -2457,7 +2447,7 @@ export default function DriverPage() {
                     localStorage.setItem(REMEMBER_KEY, event.target.checked ? "1" : "0");
 
                     if (event.target.checked) {
-                      localStorage.setItem(LASTPASS_KEY, enc(loginPass));
+                      localStorage.removeItem(LASTPASS_KEY);
                     } else {
                       localStorage.removeItem(LASTPASS_KEY);
                     }

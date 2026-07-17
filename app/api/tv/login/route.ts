@@ -1,7 +1,8 @@
 // app/api/tv/login/route.ts
-import { NextResponse } from "next/server";
 import { timingSafeEqual } from "crypto";
+import { NextResponse } from "next/server";
 import { prisma, getTenantId } from "@/lib/db";
+import { createSessionToken } from "@/lib/server/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,6 +11,37 @@ export const revalidate = 0;
 const AUTH_COOKIE = "bb_tv_auth";
 const UI_COOKIE = "bb_tv_ui";
 const MAX_DAYS = 30;
+const LOCAL_DEV_FALLBACK_PIN = "19051905";
+
+function isLocalTvRequest(req: Request) {
+  // Local fallback is intentionally restricted to loopback hosts only.
+  // Vercel/real domains can never enable 19051905 through forwarded headers.
+  if (process.env.VERCEL === "1" || process.env.VERCEL_ENV) return false;
+
+  try {
+    const hostname = new URL(req.url).hostname.toLowerCase();
+    return hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname === "::1" ||
+      hostname === "[::1]";
+  } catch {
+    return false;
+  }
+}
+
+function shouldUseSecureCookie(req: Request) {
+  // HTTP localhost cannot store Secure cookies, even when NODE_ENV=production.
+  return process.env.NODE_ENV === "production" && !isLocalTvRequest(req);
+}
+
+const DB_SETTING_KEYS = [
+  "bb_settings_v6",
+  "security",
+  "tv",
+  "tvPin",
+  "settings",
+  "app:settings",
+] as const;
 
 type PinRead = {
   pin: string;
@@ -72,60 +104,96 @@ function maybeParseJson(value: any) {
   }
 }
 
-function pickPinFromValue(value: any) {
+/**
+ * Bir Setting satırından yalnızca TV'ye ait PIN alanlarını okur.
+ *
+ * Özellikle `password` veya tek-parça ayarlardaki genel `pin` alanlarını
+ * kabul etmiyoruz. Böylece admin/kurye gibi başka bir şifre yanlışlıkla
+ * TV PIN'i seçilemez.
+ */
+function pickTvPinForSettingKey(key: string, value: any) {
   const parsed = maybeParseJson(value);
 
-  if (typeof parsed === "string" || typeof parsed === "number") {
-    return cleanPin(parsed);
+  if (key === "tvPin") {
+    if (typeof parsed === "string" || typeof parsed === "number") {
+      return cleanPin(parsed);
+    }
+
+    if (!isPlainObject(parsed)) return "";
+    return cleanPin(parsed?.tvPin ?? parsed?.pin);
   }
 
   if (!isPlainObject(parsed)) return "";
 
-  const candidates = [
-    parsed?.tvPin,
-    parsed?.pin,
-    parsed?.password,
-    parsed?.tv?.pin,
-    parsed?.tv?.tvPin,
-    parsed?.security?.tvPin,
-    parsed?.security?.pin,
-    parsed?.security?.tv?.pin,
-  ];
+  if (key === "security") {
+    return cleanPin(
+      parsed?.tvPin ??
+        parsed?.tv?.pin ??
+        parsed?.tv?.tvPin,
+    );
+  }
 
-  const found = candidates.find((candidate) => cleanPin(candidate));
-  return cleanPin(found);
+  if (key === "tv") {
+    return cleanPin(parsed?.tvPin ?? parsed?.pin);
+  }
+
+  // Tam ayar kayıtlarında yalnızca açıkça TV'ye ait alanlar kabul edilir.
+  return cleanPin(
+    parsed?.security?.tvPin ??
+      parsed?.security?.tv?.pin ??
+      parsed?.security?.tv?.tvPin ??
+      parsed?.tv?.tvPin ??
+      parsed?.tv?.pin ??
+      parsed?.tvPin,
+  );
 }
 
-async function readSettingValue(tenantId: string, key: string) {
-  const row = await prisma.setting.findFirst({
-    where: {
-      tenantId,
-      key,
-    },
-    select: {
-      value: true,
-    },
-  });
-
-  return row?.value ?? null;
-}
-
-async function readPin(): Promise<PinRead> {
+/**
+ * DB'deki ana ayar kaydını deterministik biçimde seçer.
+ *
+ * - `bb_settings_v6` güncel ana kayıttır ve ilk önceliğe sahiptir.
+ * - Aynı key ile eski duplicate satırlar varsa en son güncellenen satır alınır.
+ * - Eski legacy key'ler yalnızca ana kayıtta TV PIN yoksa fallback olur.
+ */
+async function readDbPin(): Promise<PinRead | null> {
   try {
     const tenantId = await getTenantId();
 
-    const settingKeys = [
-      "security",
-      "tv",
-      "settings",
-      "bb_settings_v6",
-      "app:settings",
-      "tvPin",
-    ];
+    const rows = await prisma.setting.findMany({
+      where: {
+        tenantId,
+        key: {
+          in: [...DB_SETTING_KEYS],
+        },
+      },
+      select: {
+        key: true,
+        value: true,
+        updatedAt: true,
+      },
+      orderBy: [
+        {
+          updatedAt: "desc",
+        },
+        {
+          key: "asc",
+        },
+      ],
+    });
 
-    for (const key of settingKeys) {
-      const value = await readSettingValue(tenantId, key);
-      const pin = pickPinFromValue(value);
+    const latestByKey = new Map<string, (typeof rows)[number]>();
+
+    for (const row of rows) {
+      if (!latestByKey.has(row.key)) {
+        latestByKey.set(row.key, row);
+      }
+    }
+
+    for (const key of DB_SETTING_KEYS) {
+      const row = latestByKey.get(key);
+      if (!row) continue;
+
+      const pin = pickTvPinForSettingKey(key, row.value);
 
       if (pin) {
         return {
@@ -138,26 +206,58 @@ async function readPin(): Promise<PinRead> {
     console.error("[tv/login] DB PIN read failed:", error);
   }
 
+  return null;
+}
+
+function addUniquePin(target: PinRead[], candidate: PinRead | null) {
+  if (!candidate?.pin) return;
+  if (!isValidPinShape(candidate.pin)) return;
+  if (target.some((item) => item.pin === candidate.pin)) return;
+
+  target.push(candidate);
+}
+
+/**
+ * Production:
+ *   DB-first; DB'de PIN varsa yalnızca o kabul edilir. DB'de yoksa TV_PIN.
+ *
+ * Local development / local TV-PC:
+ *   Remote DB yanlış/stale olsa bile yerel TV-PC erişimi kilitlenmesin diye
+ *   DB PIN, TV_PIN ve 19051905 birlikte kabul edilir. Bu kural development
+ *   runtime'da veya production build doğrudan localhost/127.0.0.1 üzerinde
+ *   çalışırken geçerlidir.
+ *
+ * Real production domain:
+ *   Vercel veya gerçek domain üzerinde 19051905 fallback'i hiçbir zaman
+ *   kabul edilmez; yalnızca DB PIN'i, DB'de yoksa TV_PIN kabul edilir.
+ */
+async function readAcceptedPins(req: Request): Promise<PinRead[]> {
+  const accepted: PinRead[] = [];
+  const dbPin = await readDbPin();
   const envPin = cleanPin(process.env.TV_PIN);
+  const envCandidate = envPin
+    ? {
+        pin: envPin,
+        source: "env:TV_PIN",
+      }
+    : null;
 
-  if (envPin) {
-    return {
-      pin: envPin,
-      source: "env:TV_PIN",
-    };
+  if (!isLocalTvRequest(req)) {
+    addUniquePin(accepted, dbPin || envCandidate);
+    return accepted;
   }
 
-  if (process.env.NODE_ENV !== "production") {
-    return {
-      pin: "19051905",
-      source: "dev:fallback",
-    };
-  }
+  addUniquePin(accepted, dbPin);
+  addUniquePin(accepted, envCandidate);
+  addUniquePin(accepted, {
+    pin: LOCAL_DEV_FALLBACK_PIN,
+    source:
+      process.env.NODE_ENV === "production"
+        ? "local-production:fallback"
+        : "dev:fallback",
+  });
 
-  return {
-    pin: "",
-    source: "none",
-  };
+  return accepted;
 }
 
 async function readInput(req: Request): Promise<LoginInput> {
@@ -187,10 +287,10 @@ function wantsJson(req: Request) {
   return contentType.includes("application/json") || accept.includes("application/json");
 }
 
-function clearTvCookies(res: NextResponse) {
+function clearTvCookies(req: Request, res: NextResponse) {
   const base = {
     sameSite: "lax" as const,
-    secure: process.env.NODE_ENV === "production",
+    secure: shouldUseSecureCookie(req),
     expires: new Date(0),
     path: "/",
   };
@@ -208,17 +308,19 @@ function clearTvCookies(res: NextResponse) {
   return res;
 }
 
-function setTvCookies(res: NextResponse) {
+async function setTvCookies(req: Request, res: NextResponse) {
   const expires = new Date(Date.now() + MAX_DAYS * 24 * 60 * 60 * 1000);
 
   const base = {
     sameSite: "lax" as const,
-    secure: process.env.NODE_ENV === "production",
+    secure: shouldUseSecureCookie(req),
     expires,
     path: "/",
   };
 
-  res.cookies.set(AUTH_COOKIE, "1", {
+  const sessionToken = await createSessionToken("tv", MAX_DAYS * 24 * 60 * 60);
+
+  res.cookies.set(AUTH_COOKIE, sessionToken, {
     ...base,
     httpOnly: true,
   });
@@ -241,10 +343,10 @@ function redirectToLogin(req: Request, reason: string, next = "/tv") {
     status: 303,
   });
 
-  return clearTvCookies(res);
+  return clearTvCookies(req, res);
 }
 
-function jsonError(reason: string, status = 401) {
+function jsonError(req: Request, reason: string, status = 401) {
   const res = NextResponse.json(
     {
       ok: false,
@@ -259,10 +361,10 @@ function jsonError(reason: string, status = 401) {
     },
   );
 
-  return clearTvCookies(res);
+  return clearTvCookies(req, res);
 }
 
-function jsonOk(source: string, redirectTo: string) {
+async function jsonOk(req: Request, source: string, redirectTo: string) {
   const res = NextResponse.json(
     {
       ok: true,
@@ -277,7 +379,7 @@ function jsonOk(source: string, redirectTo: string) {
     },
   );
 
-  return setTvCookies(res);
+  return await setTvCookies(req, res);
 }
 
 export async function POST(req: Request) {
@@ -286,45 +388,52 @@ export async function POST(req: Request) {
     const enteredPin = input.pin;
     const next = input.next;
 
-    const expected = await readPin();
-
     const missingPin = !enteredPin;
     const invalidShape = enteredPin ? !isValidPinShape(enteredPin) : false;
-    const noExpectedPin = !expected.pin;
-
-    const invalidPin =
-      !missingPin &&
-      !invalidShape &&
-      (!expected.pin || !safeEqual(enteredPin, expected.pin));
 
     if (missingPin) {
       return wantsJson(req)
-        ? jsonError("missing_pin", 400)
+        ? jsonError(req, "missing_pin", 400)
         : redirectToLogin(req, "missing_pin", next);
     }
 
-    if (invalidShape || invalidPin || noExpectedPin) {
-      const reason = noExpectedPin ? "server_error" : "invalid_pin";
-
+    if (invalidShape) {
       return wantsJson(req)
-        ? jsonError(reason, noExpectedPin ? 500 : 401)
-        : redirectToLogin(req, reason, next);
+        ? jsonError(req, "invalid_pin", 401)
+        : redirectToLogin(req, "invalid_pin", next);
+    }
+
+    const acceptedPins = await readAcceptedPins(req);
+    const matched = acceptedPins.find((candidate) =>
+      safeEqual(enteredPin, candidate.pin),
+    );
+
+    if (!acceptedPins.length) {
+      return wantsJson(req)
+        ? jsonError(req, "server_error", 500)
+        : redirectToLogin(req, "server_error", next);
+    }
+
+    if (!matched) {
+      return wantsJson(req)
+        ? jsonError(req, "invalid_pin", 401)
+        : redirectToLogin(req, "invalid_pin", next);
     }
 
     if (wantsJson(req)) {
-      return jsonOk(expected.source, next);
+      return jsonOk(req, matched.source, next);
     }
 
     const res = NextResponse.redirect(new URL(next, req.url), {
       status: 303,
     });
 
-    return setTvCookies(res);
+    return await setTvCookies(req, res);
   } catch (error) {
     console.error("[tv/login] POST failed:", error);
 
     return wantsJson(req)
-      ? jsonError("server_error", 500)
+      ? jsonError(req, "server_error", 500)
       : redirectToLogin(req, "server_error");
   }
 }

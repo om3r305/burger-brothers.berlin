@@ -13,12 +13,12 @@ export const metadata = {
   },
 };
 
-export default function TVProtectedLayout({
+export default async function TVProtectedLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const cookieStore = cookies();
+  const cookieStore = await cookies();
 
   // 🔐 Server-side TV session cookie
   const tvSess = cookieStore.get("bb_tv_auth");

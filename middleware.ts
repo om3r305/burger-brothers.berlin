@@ -1,21 +1,17 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { verifySessionToken } from "@/lib/server/session";
 
-/** Cookie names */
 const ADMIN_COOKIE = process.env.ADMIN_COOKIE_NAME || "bb_admin_sess";
 const TV_COOKIE = "bb_tv_auth";
+const DRIVER_COOKIE = "bb_driver_sess";
 
-/** Protected areas */
-const ADMIN_PREFIXES = ["/admin", "/dashboard"];
-const TV_PREFIXES = ["/tv"];
-const PRINT_PREFIXES = ["/print"];
-
-/** Public paths */
-const PUBLIC_PATHS = new Set<string>([
+const PUBLIC_PATHS = new Set([
   "/admin/login",
   "/admin/manifest.webmanifest",
-
+  "/api/admin/login",
   "/tv/login",
-
+  "/api/tv/login",
+  "/api/stripe/webhook",
   "/favicon.ico",
   "/manifest.webmanifest",
   "/site.webmanifest",
@@ -24,7 +20,6 @@ const PUBLIC_PATHS = new Set<string>([
   "/sw.js",
 ]);
 
-/** Public prefixes for assets/static files */
 const PUBLIC_PREFIXES = [
   "/_next",
   "/static",
@@ -36,125 +31,116 @@ const PUBLIC_PREFIXES = [
   "/assets",
 ];
 
-function isSameOrChild(pathname: string, prefix: string) {
-  return pathname === prefix || pathname.startsWith(prefix + "/");
+function child(path: string, prefix: string) {
+  return path === prefix || path.startsWith(`${prefix}/`);
 }
 
-function isPublicPath(pathname: string) {
-  if (PUBLIC_PATHS.has(pathname)) return true;
+function publicPath(path: string) {
+  if (PUBLIC_PATHS.has(path)) return true;
+  if (PUBLIC_PREFIXES.some((prefix) => path.startsWith(prefix))) return true;
 
-  for (const prefix of PUBLIC_PREFIXES) {
-    if (isSameOrChild(pathname, prefix) || pathname.startsWith(prefix)) {
-      return true;
-    }
+  return /\.(png|jpg|jpeg|webp|gif|svg|ico|avif|css|js|map|woff2?|ttf|otf)$/i.test(
+    path,
+  );
+}
+
+function unauthorized(req: NextRequest, target: string) {
+  if (req.nextUrl.pathname.startsWith("/api/")) {
+    return NextResponse.json(
+      { ok: false, error: "unauthorized" },
+      {
+        status: 401,
+        headers: { "Cache-Control": "no-store" },
+      },
+    );
   }
 
-  if (
-    /\.(png|jpg|jpeg|webp|gif|svg|ico|avif|css|js|map|woff|woff2|ttf|otf)$/i.test(
-      pathname,
-    )
-  ) {
-    return true;
-  }
-
-  return false;
-}
-
-function isAdminRoute(pathname: string) {
-  return ADMIN_PREFIXES.some((prefix) => isSameOrChild(pathname, prefix));
-}
-
-function isTvRoute(pathname: string) {
-  return TV_PREFIXES.some((prefix) => isSameOrChild(pathname, prefix));
-}
-
-function isPrintRoute(pathname: string) {
-  return PRINT_PREFIXES.some((prefix) => isSameOrChild(pathname, prefix));
-}
-
-function hasAdminSession(req: NextRequest) {
-  const value = req.cookies.get(ADMIN_COOKIE)?.value || "";
-  return value.startsWith("ok:");
-}
-
-function hasTvSession(req: NextRequest) {
-  const value = req.cookies.get(TV_COOKIE)?.value || "";
-  return value === "1";
-}
-
-function redirectWithNext(req: NextRequest, pathname: string) {
   const url = req.nextUrl.clone();
-  const current = req.nextUrl.pathname + (req.nextUrl.search || "");
-
-  url.pathname = pathname;
+  url.pathname = target;
   url.search = "";
-
-  if (current && current !== pathname) {
-    url.searchParams.set("from", current);
-    url.searchParams.set("next", current);
-  }
-
+  url.searchParams.set(
+    "next",
+    req.nextUrl.pathname + req.nextUrl.search,
+  );
   return NextResponse.redirect(url);
 }
 
-export function middleware(req: NextRequest) {
-  const { pathname } = req.nextUrl;
+function orderApiAccess(path: string, method: string, req: NextRequest) {
+  if (path === "/api/orders/list") return "operational" as const;
+  if (path === "/api/orders/claim") return "driver" as const;
+  if (path === "/api/orders/status") return "operational" as const;
 
-  if (isPublicPath(pathname)) {
+  if (path === "/api/orders") {
+    if (method === "GET" && req.nextUrl.searchParams.get("id")) {
+      return "public" as const;
+    }
+    if (method === "POST") return "public" as const;
+    return "operational" as const;
+  }
+
+  return "public" as const;
+}
+
+export async function middleware(req: NextRequest) {
+  const path = req.nextUrl.pathname;
+  if (publicPath(path)) return NextResponse.next();
+
+  const adminRequired =
+    child(path, "/admin") ||
+    child(path, "/dashboard") ||
+    child(path, "/api/admin");
+  const tvRequired =
+    child(path, "/tv") ||
+    child(path, "/print") ||
+    child(path, "/api/tv");
+  const orderAccess = orderApiAccess(path, req.method, req);
+
+  if (!adminRequired && !tvRequired && orderAccess === "public") {
     return NextResponse.next();
   }
 
-  const adminOk = hasAdminSession(req);
-  const tvOk = hasTvSession(req);
+  const adminOk = await verifySessionToken(
+    req.cookies.get(ADMIN_COOKIE)?.value || "",
+    "admin",
+  );
 
-  /*
-    ADMIN:
-    - Sadece admin cookie kabul edilir.
-    - TV cookie admin tarafına yetki vermez.
-  */
-  if (isAdminRoute(pathname)) {
-    if (!adminOk) {
-      return redirectWithNext(req, "/admin/login");
-    }
-
-    return NextResponse.next();
+  if (adminRequired) {
+    return adminOk
+      ? NextResponse.next()
+      : unauthorized(req, "/admin/login");
   }
 
-  /*
-    TV:
-    - TV PIN cookie kabul edilir.
-    - Admin cookie de kabul edilir çünkü admin tam yetkili cihazda TV ekranını açabilir.
-    - Ama TV cookie admin tarafını açamaz.
-  */
-  if (isTvRoute(pathname)) {
-    if (!tvOk && !adminOk) {
-      return redirectWithNext(req, "/tv/login");
-    }
+  const tvOk = await verifySessionToken(
+    req.cookies.get(TV_COOKIE)?.value || "",
+    "tv",
+  );
 
-    return NextResponse.next();
+  if (tvRequired) {
+    return tvOk || adminOk
+      ? NextResponse.next()
+      : unauthorized(req, "/tv/login");
   }
 
-  /*
-    PRINT:
-    - Mutfak/TV ekranı print sayfalarını açabilir.
-    - Admin de açabilir.
-  */
-  if (isPrintRoute(pathname)) {
-    if (!tvOk && !adminOk) {
-      return redirectWithNext(req, "/admin/login");
-    }
+  const driverOk = await verifySessionToken(
+    req.cookies.get(DRIVER_COOKIE)?.value || "",
+    "driver",
+  );
 
-    return NextResponse.next();
+  if (orderAccess === "driver") {
+    return driverOk || adminOk
+      ? NextResponse.next()
+      : unauthorized(req, "/driver");
+  }
+
+  if (orderAccess === "operational") {
+    return driverOk || tvOk || adminOk
+      ? NextResponse.next()
+      : unauthorized(req, "/driver");
   }
 
   return NextResponse.next();
 }
 
 export const config = {
-  /*
-    API rotalarını burada bilinçli olarak dışarıda bırakıyoruz.
-    API güvenliği ilgili route içinde yapılmalı.
-    Sayfa koruması burada yapılır.
-  */
-  matcher: ["/((?!api|_next/static|_next/image|favicon.ico).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
 };

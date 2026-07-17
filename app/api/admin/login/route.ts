@@ -1,5 +1,6 @@
 import { timingSafeEqual } from "crypto";
 import { NextResponse } from "next/server";
+import { createSessionToken } from "@/lib/server/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -74,7 +75,9 @@ export async function POST(req: Request) {
 
     const res = json({ ok: true });
 
-    res.cookies.set(ADMIN_COOKIE, "ok:" + Date.now(), {
+    const sessionToken = await createSessionToken("admin", 60 * 60 * 12);
+
+    res.cookies.set(ADMIN_COOKIE, sessionToken, {
       httpOnly: true,
       sameSite: "lax",
       secure: isProd(),
