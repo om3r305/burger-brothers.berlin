@@ -699,7 +699,7 @@ async function validateFromRequest(req: Request) {
 }
 
 export async function GET(req: Request) {
-  const rateError = enforceRateLimit(req, "coupons:validate", 30, 60_000);
+  const rateError = await enforceRateLimit(req, "coupons:validate", 30, 60_000);
   if (rateError) return rateError;
 
   try {
@@ -713,7 +713,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   if (!hasTrustedMutationOrigin(req)) return forbiddenResponse("origin_not_allowed");
 
-  const rateError = enforceRateLimit(req, "coupons:validate", 30, 60_000);
+  const rateError = await enforceRateLimit(req, "coupons:validate", 30, 60_000);
   if (rateError) return rateError;
 
   try {

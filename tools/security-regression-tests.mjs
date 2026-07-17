@@ -115,8 +115,8 @@ requireText("app/track/[id]/page.tsx", "trackingToken=", "customer tracking page
 rejectPattern("app/track/[id]/page.tsx", /\/api\/orders(?:\?|\/list)/, "customer tracking page still calls legacy order APIs");
 
 const nextConfig = read("next.config.mjs");
+const middlewareSecurity = read("middleware.ts");
 for (const header of [
-  "Content-Security-Policy",
   "Strict-Transport-Security",
   "X-Frame-Options",
   "Referrer-Policy",
@@ -125,9 +125,52 @@ for (const header of [
   if (!nextConfig.includes(header)) failures.push(`security header missing: ${header}`);
 }
 
-if (!nextConfig.includes("https://www.openstreetmap.org")) {
-  failures.push("CSP blocks the customer tracking map");
+for (const marker of [
+  "Content-Security-Policy",
+  "contentSecurityPolicy",
+  "x-nonce",
+  "strict-dynamic",
+  "https://www.openstreetmap.org",
+]) {
+  if (!middlewareSecurity.includes(marker)) failures.push(`dynamic CSP marker missing: ${marker}`);
 }
+if (/script-src[^;\n]*unsafe-inline/.test(middlewareSecurity)) {
+  failures.push("production script CSP still allows unsafe-inline");
+}
+if (!middlewareSecurity.includes('const developmentEval = process.env.NODE_ENV === "production" ? ""')) {
+  failures.push("unsafe-eval is not restricted to development");
+}
+
+for (const marker of [
+  'path === "/api/payments/profile"',
+  'path === "/api/payments/share"',
+  'path === "/api/tv/logout"',
+]) {
+  if (!middleware.includes(marker)) failures.push(`middleware access rule missing: ${marker}`);
+}
+if (!middleware.includes('if (path.startsWith("/api/")) return false')) {
+  failures.push("API asset-suffix bypass is not blocked");
+}
+
+for (const route of [
+  "app/api/payments/profile/route.ts",
+  "app/api/payments/share/route.ts",
+]) {
+  requireText(route, "hasTrustedMutationOrigin", `${route} same-origin protection missing`);
+  requireText(route, "enforceRateLimit", `${route} rate limit missing`);
+}
+
+requireText("app/api/tv/logout/route.ts", "hasTrustedMutationOrigin", "TV logout origin protection missing");
+requireText("app/tv/page.tsx", "response.ok", "TV logout UI ignores failed logout response");
+rejectPattern("app/layout.tsx", /DriversSync/, "global driver synchronization is still mounted");
+requireText("app/api/drivers/route.ts", 'requireSessionRole(req, "admin")', "driver list is not admin protected");
+rejectPattern("app/driver/page.tsx", /bb_driver_lastpass|LASTPASS_KEY|function\s+enc\(/, "driver password is stored client-side");
+rejectPattern("app/scan/page.tsx", /const\s+PIN\s*=|1905|Falsche PIN/, "scan page uses a client PIN");
+rejectPattern("app/api/tv/login/route.ts", /LOCAL_DEV_FALLBACK_PIN|19051905/, "hard-coded TV fallback PIN remains");
+rejectPattern("app/api/coupons/route.ts", /Math\.random/, "server coupon generation uses Math.random");
+rejectPattern("lib/coupons.ts", /Math\.random/, "client coupon generation uses Math.random");
+requireText("lib/server/request-security.ts", "UPSTASH_REDIS_REST_URL", "persistent rate limiter support missing");
+requireText("lib/server/request-security.ts", "RATE_LIMIT_LOCAL_MAX_KEYS", "bounded local rate limiter missing");
 
 for (const route of [
   "app/api/admin/campaigns/route.ts",

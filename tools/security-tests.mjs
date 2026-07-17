@@ -79,40 +79,37 @@ const tvPinPolicy = fs.existsSync(tvPinPolicyPath)
   ? fs.readFileSync(tvPinPolicyPath, "utf8")
   : "";
 
-if (!tvLogin.includes('LOCAL_DEV_FALLBACK_PIN = "19051905"')) {
-  failures.push("local TV fallback PIN missing");
+if (/LOCAL_DEV_FALLBACK_PIN|19051905/.test(tvLogin)) {
+  failures.push("hard-coded TV fallback PIN is still present");
 }
-
-const usesSharedTvPinPolicy =
-  tvLogin.includes("mayUseLocalTvPinFallback(req)");
-
-const usesInlineTvPinPolicy =
-  tvLogin.includes("isLocalTvRequest(req)") &&
-  tvLogin.includes("process.env.VERCEL") &&
-  tvLogin.includes('hostname === "localhost"') &&
-  tvLogin.includes('hostname === "127.0.0.1"');
-
-if (!usesSharedTvPinPolicy && !usesInlineTvPinPolicy) {
-  failures.push("TV login does not apply request-aware local fallback policy");
+if (!tvLogin.includes("dbPin || envCandidate")) {
+  failures.push("TV PIN is not DB-first with environment fallback");
 }
-
-if (usesSharedTvPinPolicy) {
-  if (!tvPinPolicy.includes('nodeEnv !== "production"')) {
-    failures.push("TV PIN development policy missing");
-  }
-
-  if (!tvPinPolicy.includes("isLoopbackTvHost")) {
-    failures.push("TV PIN localhost production policy missing");
-  }
-
-  if (!tvPinPolicy.includes("process.env.VERCEL")) {
-    failures.push("TV PIN fallback is not blocked on Vercel");
-  }
+if (!tvPinPolicy.includes("return false")) {
+  failures.push("local TV PIN fallback policy is not permanently disabled");
 }
 if (!tvLogin.includes('"bb_settings_v6"')) failures.push("TV PIN does not prioritize the canonical DB settings record");
 if (!tvLogin.includes('updatedAt: "desc"')) failures.push("TV PIN duplicate settings are not resolved by latest update");
 if (/parsed\?\.password/.test(tvLogin)) failures.push("TV login still accepts a generic password field as TV PIN");
 if (/parsed\?\.pin\s*[,)]/.test(tvLogin) && !tvLogin.includes('key === "tv"') && !tvLogin.includes('key === "tvPin"')) failures.push("TV login still accepts a generic top-level PIN from whole settings");
+
+const rootLayout = fs.readFileSync(path.join(root, "app/layout.tsx"), "utf8");
+if (rootLayout.includes("DriversSync")) failures.push("global driver synchronization is still mounted");
+
+const driverPage = fs.readFileSync(path.join(root, "app/driver/page.tsx"), "utf8");
+if (/LASTPASS_KEY|bb_driver_lastpass|function\s+enc\(/.test(driverPage)) {
+  failures.push("driver password is still persisted in browser storage");
+}
+
+const scanPage = fs.readFileSync(path.join(root, "app/scan/page.tsx"), "utf8");
+if (/const\s+PIN\s*=|1905|Falsche PIN/.test(scanPage)) {
+  failures.push("scan page still contains client-side PIN authentication");
+}
+
+const requestSecurity = fs.readFileSync(path.join(root, "lib/server/request-security.ts"), "utf8");
+if (!requestSecurity.includes("UPSTASH_REDIS_REST_URL") || !requestSecurity.includes("sweepLocalRateStore")) {
+  failures.push("distributed/bounded rate limiter support missing");
+}
 
 const paymentPrepare = fs.readFileSync(path.join(root, "app/api/payments/prepare/route.ts"), "utf8");
 const orderPricing = fs.readFileSync(path.join(root, "lib/server/order-pricing.ts"), "utf8");

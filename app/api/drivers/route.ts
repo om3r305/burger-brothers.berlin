@@ -7,6 +7,7 @@ import {
   forbiddenResponse,
   hasTrustedMutationOrigin,
   requireMutationRole,
+  requireSessionRole,
 } from "@/lib/server/request-security";
 
 export const runtime = "nodejs";
@@ -23,6 +24,25 @@ type StoredDriver = {
   passwordHash: string;
   role: DriverRole;
 };
+
+
+function isLoopbackRequest(req: Request) {
+  try {
+    const hostname = new URL(req.url).hostname.toLowerCase();
+    return (
+      hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname === "::1" ||
+      hostname === "[::1]"
+    );
+  } catch {
+    return false;
+  }
+}
+
+function secureCookieForRequest(req: Request) {
+  return process.env.NODE_ENV === "production" && !isLoopbackRequest(req);
+}
 
 function clean(value: any) {
   return String(value ?? "").trim();
@@ -168,7 +188,10 @@ function publicItems(items: StoredDriver[]) {
   }));
 }
 
-export async function GET() {
+export async function GET(req: Request) {
+  const authError = await requireSessionRole(req, "admin");
+  if (authError) return authError;
+
   try {
     const items = publicItems(await load());
     return json({ ok: true, source: "db", items, drivers: items });
@@ -183,7 +206,7 @@ export async function GET() {
 export async function POST(req: Request) {
   if (!hasTrustedMutationOrigin(req)) return forbiddenResponse("origin_not_allowed");
 
-  const rateError = enforceRateLimit(req, "login:driver", 8, 15 * 60_000);
+  const rateError = await enforceRateLimit(req, "login:driver", 8, 15 * 60_000);
   if (rateError) return rateError;
 
   try {
@@ -217,7 +240,7 @@ export async function POST(req: Request) {
     response.cookies.set(DRIVER_COOKIE, token, {
       httpOnly: true,
       sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
+      secure: secureCookieForRequest(req),
       path: "/",
       ...(remember ? { maxAge } : {}),
     });
@@ -295,7 +318,7 @@ export async function DELETE(req: Request) {
   response.cookies.set(DRIVER_COOKIE, "", {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: secureCookieForRequest(req),
     path: "/",
     maxAge: 0,
   });

@@ -1,11 +1,11 @@
 // app/layout.tsx
 import "./globals.css";
 import { Inter } from "next/font/google";
+import { headers } from "next/headers";
 import Footer from "@/components/Footer";
 import SettingsSync from "./SettingsSync";
 import ThemeClient from "./theme-client";
 import ProductsSync from "./ProductsSync";
-import DriversSync from "./DriversSync";
 import { LS_SETTINGS } from "@/lib/settings";
 import AnalyticsPing from "@/components/AnalyticsPing";
 import AppRouteTransition from "@/components/AppRouteTransition";
@@ -53,7 +53,9 @@ export const metadata = {
   },
 } as const;
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const nonce = (await headers()).get("x-nonce") || undefined;
+
   return (
     <html lang="de" suppressHydrationWarning data-bb-theme="classic" data-bb-effects="0" data-bb-motion="1" data-bb-snow="0">
       <body
@@ -67,6 +69,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {/* 🔐 Bakım Modu – ADMIN hariç tüm sayfaları kapatır + LOGO */}
         <script
           id="bb-maintenance-gate"
+          nonce={nonce}
           dangerouslySetInnerHTML={{
             __html: `
 (function () {
@@ -237,7 +240,6 @@ body:has(#bb-landing-page) .bb-mobile-footer-gap {
 
         {/* Merkezi senkronlar */}
         <ProductsSync />
-        <DriversSync />
       </body>
     </html>
   );

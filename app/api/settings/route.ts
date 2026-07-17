@@ -884,7 +884,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   if (!hasTrustedMutationOrigin(req)) return forbiddenResponse("origin_not_allowed");
-  const rateError = enforceRateLimit(req, "settings:write", 60, 60_000);
+  const rateError = await enforceRateLimit(req, "settings:write", 60, 60_000);
   if (rateError) return rateError;
 
   try {
@@ -937,7 +937,7 @@ export async function POST(req: Request) {
 
 export async function PUT(req: Request) {
   if (!hasTrustedMutationOrigin(req)) return forbiddenResponse("origin_not_allowed");
-  const rateError = enforceRateLimit(req, "settings:write", 60, 60_000);
+  const rateError = await enforceRateLimit(req, "settings:write", 60, 60_000);
   if (rateError) return rateError;
 
   try {

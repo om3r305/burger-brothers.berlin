@@ -1,4 +1,5 @@
 // app/api/coupons/route.ts
+import { randomBytes, randomInt } from "node:crypto";
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma, getTenantId } from "@/lib/db";
@@ -92,7 +93,7 @@ const NO_STORE_HEADERS = {
 const ADMIN_COOKIE = process.env.ADMIN_COOKIE_NAME || "bb_admin_sess";
 const PUBLIC_POST_ACTIONS = new Set(["validateCoupon"]);
 
-const rid = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+const rid = () => `${Date.now()}-${randomBytes(9).toString("base64url")}`;
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
 function normalizeCode(input?: string | null) {
@@ -281,7 +282,7 @@ function generateCode(length = 8, prefix = "", snapshot: CouponSnapshot = DEFAUL
 
   const make = () =>
     Array.from({ length })
-      .map(() => chars[Math.floor(Math.random() * chars.length)])
+      .map(() => chars[randomInt(chars.length)])
       .join("");
 
   const existing = new Set<string>();
@@ -299,7 +300,7 @@ function generateCode(length = 8, prefix = "", snapshot: CouponSnapshot = DEFAUL
     (prefix ? `${displayCode(prefix)}-` : "") +
     make() +
     "-" +
-    Math.random().toString(36).slice(2, 4).toUpperCase()
+    Array.from({ length: 2 }).map(() => chars[randomInt(chars.length)]).join("")
   );
 }
 
@@ -1217,7 +1218,7 @@ export async function POST(req: Request) {
 
     if (isPublicPostAction(action)) {
       if (!hasTrustedMutationOrigin(req)) return forbiddenResponse("origin_not_allowed");
-      const rateError = enforceRateLimit(req, "coupon:validate", 30, 60_000);
+      const rateError = await enforceRateLimit(req, "coupon:validate", 30, 60_000);
       if (rateError) return rateError;
     }
 

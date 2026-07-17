@@ -58,7 +58,7 @@ export async function GET(req: Request, ctx: { params: { id: string } }) {
   const authError = await requireAnySessionRole(req, ["admin", "tv"]);
   if (authError) return authError;
 
-  const rateError = enforceRateLimit(req, "qr:image", 60, 60_000);
+  const rateError = await enforceRateLimit(req, "qr:image", 60, 60_000);
   if (rateError) return rateError;
 
   const id = cleanOrderId(ctx.params.id);

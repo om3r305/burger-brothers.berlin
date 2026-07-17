@@ -39,7 +39,7 @@ export async function POST(req: Request) {
   const authError = await requireMutationRole(req, ["admin"]);
   if (authError) return authError;
 
-  const rateError = enforceRateLimit(req, "telegram:test", 5, 10 * 60_000);
+  const rateError = await enforceRateLimit(req, "telegram:test", 5, 10 * 60_000);
   if (rateError) return rateError;
 
   try {

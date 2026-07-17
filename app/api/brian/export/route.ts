@@ -520,7 +520,7 @@ export async function GET(request: Request) {
   const authError = await requireAnySessionRole(request, ["admin", "tv"]);
   if (authError) return authError;
 
-  const rateError = enforceRateLimit(request, "brian:export", 10, 60_000);
+  const rateError = await enforceRateLimit(request, "brian:export", 10, 60_000);
   if (rateError) return rateError;
 
   return handle(request);
@@ -530,7 +530,7 @@ export async function POST(request: Request) {
   const authError = await requireMutationRole(request, ["admin", "tv"]);
   if (authError) return authError;
 
-  const rateError = enforceRateLimit(request, "brian:export", 10, 60_000);
+  const rateError = await enforceRateLimit(request, "brian:export", 10, 60_000);
   if (rateError) return rateError;
 
   return handle(request);

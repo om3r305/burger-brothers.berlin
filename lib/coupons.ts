@@ -85,7 +85,48 @@ export const LS_ISSUED = "bb_issued_coupons_v1";
 
 const API_PATH = "/api/admin/coupons";
 
-const rid = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+function secureCrypto() {
+  const cryptoObject = globalThis.crypto;
+
+  if (!cryptoObject?.getRandomValues) {
+    throw new Error("SECURE_RANDOM_UNAVAILABLE");
+  }
+
+  return cryptoObject;
+}
+
+function secureRandomInt(maxExclusive: number) {
+  const max = Math.floor(maxExclusive);
+  if (!Number.isFinite(max) || max <= 0) {
+    throw new Error("SECURE_RANDOM_RANGE_INVALID");
+  }
+
+  const cryptoObject = secureCrypto();
+  const ceiling = 0x1_0000_0000;
+  const cutoff = ceiling - (ceiling % max);
+  const values = new Uint32Array(1);
+
+  do {
+    cryptoObject.getRandomValues(values);
+  } while (values[0] >= cutoff);
+
+  return values[0] % max;
+}
+
+function secureRandomText(length: number, alphabet: string) {
+  return Array.from({ length: Math.max(1, Math.floor(length)) })
+    .map(() => alphabet[secureRandomInt(alphabet.length)])
+    .join("");
+}
+
+const rid = () => {
+  const cryptoObject = secureCrypto();
+  const id = typeof cryptoObject.randomUUID === "function"
+    ? cryptoObject.randomUUID()
+    : secureRandomText(24, "abcdefghijklmnopqrstuvwxyz0123456789");
+
+  return `${Date.now()}-${id}`;
+};
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
 function hasWindow() {
@@ -295,10 +336,7 @@ function normalizeIssuedCoupon(input: any): IssuedCoupon {
 export function generateCode(length = 8, prefix = "") {
   const chars = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 
-  const make = () =>
-    Array.from({ length })
-      .map(() => chars[Math.floor(Math.random() * chars.length)])
-      .join("");
+  const make = () => secureRandomText(length, chars);
 
   const existing = new Set<string>();
 
@@ -315,7 +353,7 @@ export function generateCode(length = 8, prefix = "") {
     (prefix ? `${displayCode(prefix)}-` : "") +
     make() +
     "-" +
-    Math.random().toString(36).slice(2, 4).toUpperCase()
+    secureRandomText(2, chars)
   );
 }
 
@@ -528,8 +566,8 @@ export function scheduleBulkDistribution(params: {
   const all = getAllIssued();
 
   for (let i = 0; i < params.count; i += 1) {
-    const day = Math.floor(Math.random() * Math.max(1, params.days));
-    const withinDayMs = Math.floor(Math.random() * 24 * 3600 * 1000);
+    const day = secureRandomInt(Math.max(1, params.days));
+    const withinDayMs = secureRandomInt(24 * 3600 * 1000);
     const ts = now + day * 24 * 3600 * 1000 + withinDayMs;
 
     const phone = params.phonePool?.length

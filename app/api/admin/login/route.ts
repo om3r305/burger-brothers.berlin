@@ -46,7 +46,7 @@ function json(payload: Record<string, any>, status = 200) {
 }
 
 export async function POST(req: Request) {
-  const rateError = enforceRateLimit(req, "login:admin", 5, 15 * 60_000);
+  const rateError = await enforceRateLimit(req, "login:admin", 5, 15 * 60_000);
   if (rateError) return rateError;
 
   try {

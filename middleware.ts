@@ -38,13 +38,12 @@ function child(path: string, prefix: string) {
   return path === prefix || path.startsWith(`${prefix}/`);
 }
 
-function publicAsset(path: string) {
+export function publicAsset(path: string) {
+  if (path.startsWith("/api/")) return false;
   if (PUBLIC_PATHS.has(path)) return true;
-  if (PUBLIC_PREFIXES.some((prefix) => path.startsWith(prefix))) return true;
+  if (PUBLIC_PREFIXES.some((prefix) => child(path, prefix))) return true;
 
-  return /\.(png|jpg|jpeg|webp|gif|svg|ico|avif|css|js|map|woff2?|ttf|otf)$/i.test(
-    path,
-  );
+  return false;
 }
 
 function unauthorized(req: NextRequest, target: string) {
@@ -65,9 +64,10 @@ function unauthorized(req: NextRequest, target: string) {
   return NextResponse.redirect(url);
 }
 
-type Access = "public" | "admin" | "operational" | "driver" | "token";
+export type Access = "public" | "admin" | "operational" | "driver" | "token";
 
-function apiAccess(path: string, method: string): Access {
+export function apiAccess(path: string, methodRaw: string): Access {
+  const method = methodRaw.toUpperCase();
   const readOnly = method === "GET" || method === "HEAD" || method === "OPTIONS";
 
   if (PUBLIC_PATHS.has(path)) return "public";
@@ -81,7 +81,37 @@ function apiAccess(path: string, method: string): Access {
   if (path === "/api/track/lookup" && (method === "GET" || method === "POST")) return "public";
   if (child(path, "/api/track/by-order") && readOnly) return "public";
   if (child(path, "/api/track") && readOnly) return "public";
-  if (path === "/api/drivers" && (method === "GET" || method === "POST" || method === "DELETE")) return "public";
+
+  // Customer payment routes perform strong checkout/share-token validation in-route.
+  if (
+    path === "/api/payments/profile" &&
+    (method === "GET" || method === "POST" || method === "DELETE")
+  ) {
+    return "public";
+  }
+  if (
+    path === "/api/payments/share" &&
+    (method === "GET" || method === "POST")
+  ) {
+    return "public";
+  }
+
+  // Logout endpoints only expire their own cookies.
+  if (
+    path === "/api/tv/logout" &&
+    (method === "GET" || method === "POST")
+  ) {
+    return "public";
+  }
+
+  // Driver login/logout stay reachable. Driver enumeration and management do not.
+  if (
+    path === "/api/drivers" &&
+    (method === "POST" || method === "DELETE")
+  ) {
+    return "public";
+  }
+  if (path === "/api/drivers") return "admin";
 
   // Server-to-server endpoints validate their own strong tokens in-route.
   if (path === "/api/print/jobs" || path === "/api/print/mark") return "token";
@@ -104,7 +134,7 @@ function apiAccess(path: string, method: string): Access {
   if (child(path, "/api/telegram")) return "admin";
   if (path === "/api/orders/list" || path === "/api/orders/status") return "operational";
 
-  // Legacy çok amaçlı endpoint artık hiçbir zaman public değildir.
+  // Legacy multi-purpose endpoint is never public.
   if (path === "/api/orders") return "operational";
 
   if (child(path, "/api/track") && !readOnly) return "driver";
@@ -119,8 +149,57 @@ function apiAccess(path: string, method: string): Access {
     return "operational";
   }
 
-  // Unknown read endpoints stay reachable; unknown mutations fail closed.
+  // Unknown reads stay reachable; unknown mutations fail closed.
   return readOnly ? "public" : "admin";
+}
+
+function createNonce() {
+  return crypto.randomUUID().replaceAll("-", "");
+}
+
+export function contentSecurityPolicy(nonce: string) {
+  const developmentEval = process.env.NODE_ENV === "production" ? "" : " 'unsafe-eval'";
+  const upgrade = process.env.NODE_ENV === "production" ? "; upgrade-insecure-requests" : "";
+
+  return [
+    "default-src 'self'",
+    "base-uri 'self'",
+    "form-action 'self' https://checkout.stripe.com",
+    "frame-ancestors 'none'",
+    "object-src 'none'",
+    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${developmentEval} https://js.stripe.com`,
+    "script-src-attr 'none'",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob: https:",
+    "font-src 'self' data:",
+    "media-src 'self' blob: https:",
+    "connect-src 'self' https://api.stripe.com https://*.stripe.com https://*.supabase.co wss://*.supabase.co",
+    "frame-src 'self' https://js.stripe.com https://hooks.stripe.com https://checkout.stripe.com https://www.openstreetmap.org",
+    "worker-src 'self' blob:",
+    "manifest-src 'self'",
+  ].join("; ") + upgrade;
+}
+
+function nextPageResponse(req: NextRequest) {
+  const nonce = createNonce();
+  const csp = contentSecurityPolicy(nonce);
+  const requestHeaders = new Headers(req.headers);
+  requestHeaders.set("x-nonce", nonce);
+  requestHeaders.set("Content-Security-Policy", csp);
+
+  const response = NextResponse.next({
+    request: {
+      headers: requestHeaders,
+    },
+  });
+  response.headers.set("Content-Security-Policy", csp);
+  return response;
+}
+
+function allowRequest(req: NextRequest) {
+  return req.nextUrl.pathname.startsWith("/api/")
+    ? NextResponse.next()
+    : nextPageResponse(req);
 }
 
 export async function middleware(req: NextRequest) {
@@ -132,7 +211,7 @@ export async function middleware(req: NextRequest) {
   const access = path.startsWith("/api/") ? apiAccess(path, req.method) : "public";
 
   if (!adminPage && !tvPage && (access === "public" || access === "token")) {
-    return NextResponse.next();
+    return allowRequest(req);
   }
 
   const adminOk = await verifySessionToken(
@@ -141,7 +220,7 @@ export async function middleware(req: NextRequest) {
   );
 
   if (adminPage || access === "admin") {
-    return adminOk ? NextResponse.next() : unauthorized(req, "/admin/login");
+    return adminOk ? allowRequest(req) : unauthorized(req, "/admin/login");
   }
 
   const tvOk = await verifySessionToken(
@@ -151,7 +230,7 @@ export async function middleware(req: NextRequest) {
 
   if (tvPage) {
     return tvOk || adminOk
-      ? NextResponse.next()
+      ? allowRequest(req)
       : unauthorized(req, "/tv/login");
   }
 
@@ -162,17 +241,17 @@ export async function middleware(req: NextRequest) {
 
   if (access === "driver") {
     return driverOk || adminOk
-      ? NextResponse.next()
+      ? allowRequest(req)
       : unauthorized(req, "/driver");
   }
 
   if (access === "operational") {
     return driverOk || tvOk || adminOk
-      ? NextResponse.next()
+      ? allowRequest(req)
       : unauthorized(req, "/driver");
   }
 
-  return NextResponse.next();
+  return allowRequest(req);
 }
 
 export const config = {

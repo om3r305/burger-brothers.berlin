@@ -212,7 +212,7 @@ function json(payload: any, status = 200) {
 export async function POST(req: Request) {
   if (!hasTrustedMutationOrigin(req)) return forbiddenResponse("origin_not_allowed");
 
-  const rateError = enforceRateLimit(req, "payments:prepare", 10, 5 * 60_000);
+  const rateError = await enforceRateLimit(req, "payments:prepare", 10, 5 * 60_000);
   if (rateError) return rateError;
 
   const body = await req.json().catch(() => ({} as any));

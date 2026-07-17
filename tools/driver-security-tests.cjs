@@ -124,7 +124,16 @@ async function responseJson(response) {
 async function main() {
   const route = require(path.join(root, "app/api/drivers/route.ts"));
 
-  const getResponse = await route.GET();
+  const unauthorizedGet = await route.GET(
+    new Request("https://example.test/api/drivers"),
+  );
+  assert.equal(unauthorizedGet.status, 401);
+
+  const getResponse = await route.GET(
+    new Request("https://example.test/api/drivers", {
+      headers: { cookie: "bb_admin_sess=valid-admin-token" },
+    }),
+  );
   assert.equal(getResponse.status, 200);
   const getPayload = await responseJson(getResponse);
   assert.equal(getPayload.items.length, 1);

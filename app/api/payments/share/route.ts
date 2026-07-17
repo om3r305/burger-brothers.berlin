@@ -12,6 +12,11 @@ import {
   verifyPaymentShareToken,
 } from "@/lib/server/payment-share-token";
 import { finalizePaymentSession } from "@/lib/server/payment-finalize";
+import {
+  enforceRateLimit,
+  forbiddenResponse,
+  hasTrustedMutationOrigin,
+} from "@/lib/server/request-security";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -193,6 +198,18 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  if (!hasTrustedMutationOrigin(req)) {
+    return forbiddenResponse("origin_not_allowed");
+  }
+
+  const rateError = await enforceRateLimit(
+    req,
+    "payments:share:start",
+    20,
+    10 * 60_000,
+  );
+  if (rateError) return rateError;
+
   const body = await req.json().catch(() => ({} as any));
   const token = String(body?.token || "").trim();
 

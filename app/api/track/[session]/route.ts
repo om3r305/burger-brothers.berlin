@@ -102,7 +102,7 @@ export async function GET(
   req: Request,
   { params }: { params: { session: string } },
 ) {
-  const rateError = enforceRateLimit(req, "tracking:session:read", 60, 60_000);
+  const rateError = await enforceRateLimit(req, "tracking:session:read", 60, 60_000);
   if (rateError) return rateError;
 
   try {
@@ -160,7 +160,7 @@ export async function POST(
   const authError = await requireMutationRole(req, ["admin", "driver"]);
   if (authError) return authError;
 
-  const rateError = enforceRateLimit(req, "tracking:session:write", 120, 60_000);
+  const rateError = await enforceRateLimit(req, "tracking:session:write", 120, 60_000);
   if (rateError) return rateError;
 
   try {

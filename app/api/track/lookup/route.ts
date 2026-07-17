@@ -593,7 +593,7 @@ function extractCodeFromRequestUrl(req: Request) {
 }
 
 export async function GET(req: Request) {
-  const rateError = enforceRateLimit(req, "tracking:lookup", 30, 60_000);
+  const rateError = await enforceRateLimit(req, "tracking:lookup", 30, 60_000);
   if (rateError) return rateError;
 
   try {
@@ -615,7 +615,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const rateError = enforceRateLimit(req, "tracking:lookup", 30, 60_000);
+  const rateError = await enforceRateLimit(req, "tracking:lookup", 30, 60_000);
   if (rateError) return rateError;
 
   try {

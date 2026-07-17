@@ -12,11 +12,9 @@ export const revalidate = 0;
 const AUTH_COOKIE = "bb_tv_auth";
 const UI_COOKIE = "bb_tv_ui";
 const MAX_DAYS = 30;
-const LOCAL_DEV_FALLBACK_PIN = "19051905";
 
 function isLocalTvRequest(req: Request) {
-  // Local fallback is intentionally restricted to loopback hosts only.
-  // Vercel/real domains can never enable 19051905 through forwarded headers.
+  // Loopback detection is used only for Secure-cookie compatibility.
   if (process.env.VERCEL === "1" || process.env.VERCEL_ENV) return false;
 
   try {
@@ -219,20 +217,12 @@ function addUniquePin(target: PinRead[], candidate: PinRead | null) {
 }
 
 /**
- * Production:
- *   DB-first; DB'de PIN varsa yalnızca o kabul edilir. DB'de yoksa TV_PIN.
- *
- * Local development / local TV-PC:
- *   Remote DB yanlış/stale olsa bile yerel TV-PC erişimi kilitlenmesin diye
- *   DB PIN, TV_PIN ve 19051905 birlikte kabul edilir. Bu kural development
- *   runtime'da veya production build doğrudan localhost/127.0.0.1 üzerinde
- *   çalışırken geçerlidir.
- *
- * Real production domain:
- *   Vercel veya gerçek domain üzerinde 19051905 fallback'i hiçbir zaman
- *   kabul edilmez; yalnızca DB PIN'i, DB'de yoksa TV_PIN kabul edilir.
+ * TV PIN policy:
+ * - Canonical DB settings are preferred.
+ * - TV_PIN is used only when the DB does not contain a valid TV PIN.
+ * - No hard-coded development or localhost PIN is accepted.
  */
-async function readAcceptedPins(req: Request): Promise<PinRead[]> {
+async function readAcceptedPins(_req: Request): Promise<PinRead[]> {
   const accepted: PinRead[] = [];
   const dbPin = await readDbPin();
   const envPin = cleanPin(process.env.TV_PIN);
@@ -243,21 +233,7 @@ async function readAcceptedPins(req: Request): Promise<PinRead[]> {
       }
     : null;
 
-  if (!isLocalTvRequest(req)) {
-    addUniquePin(accepted, dbPin || envCandidate);
-    return accepted;
-  }
-
-  addUniquePin(accepted, dbPin);
-  addUniquePin(accepted, envCandidate);
-  addUniquePin(accepted, {
-    pin: LOCAL_DEV_FALLBACK_PIN,
-    source:
-      process.env.NODE_ENV === "production"
-        ? "local-production:fallback"
-        : "dev:fallback",
-  });
-
+  addUniquePin(accepted, dbPin || envCandidate);
   return accepted;
 }
 
@@ -384,7 +360,7 @@ async function jsonOk(req: Request, source: string, redirectTo: string) {
 }
 
 export async function POST(req: Request) {
-  const rateError = enforceRateLimit(req, "login:tv", 8, 15 * 60_000);
+  const rateError = await enforceRateLimit(req, "login:tv", 8, 15 * 60_000);
   if (rateError) return rateError;
 
   try {

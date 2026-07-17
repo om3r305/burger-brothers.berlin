@@ -85,7 +85,7 @@ async function upsertSetting(tx: TxClient, tenantId: string, key: string, value:
 }
 
 export async function POST(req: Request) {
-  const rateError = enforceRateLimit(req, "bootstrap", 3, 15 * 60_000);
+  const rateError = await enforceRateLimit(req, "bootstrap", 3, 15 * 60_000);
   if (rateError) return rateError;
 
   const tokenConfigured = Boolean(String(process.env.BOOTSTRAP_MIGRATION_TOKEN || "").trim());

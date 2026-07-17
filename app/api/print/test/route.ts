@@ -244,7 +244,7 @@ async function handle(req: Request) {
   const authError = await requireMutationRole(req, ["admin", "tv"]);
   if (authError) return authError;
 
-  const rateError = enforceRateLimit(req, "print:test", 10, 60_000);
+  const rateError = await enforceRateLimit(req, "print:test", 10, 60_000);
   if (rateError) return rateError;
 
   const production = process.env.NODE_ENV === "production" || Boolean(process.env.VERCEL);

@@ -1,11 +1,6 @@
 /**
- * TV PIN fallback policy.
- *
- * Güvenlik kuralı:
- * - Development runtime'da yerel fallback kullanılabilir.
- * - Production build localhost/127.0.0.1 üzerinde çalıştırılıyorsa da yerel
- *   TV-PC kilitlenmesin diye fallback kullanılabilir.
- * - Vercel ortamında veya gerçek domain üzerinde production fallback kapalıdır.
+ * TV host helpers retained for cookie/local-network behavior.
+ * A hard-coded TV PIN fallback is intentionally never allowed.
  */
 
 function normalizedHostname(req: Request) {
@@ -34,14 +29,12 @@ export function isLoopbackTvHost(hostname: string) {
 }
 
 export function mayUseLocalTvPinFallback(
-  req: Request,
-  nodeEnv = process.env.NODE_ENV,
+  _req: Request,
+  _nodeEnv = process.env.NODE_ENV,
 ) {
-  if (nodeEnv !== "production") return true;
+  return false;
+}
 
-  // Vercel production/preview üzerinde Host başlığı değiştirilse bile
-  // development fallback asla açılmaz.
-  if (process.env.VERCEL || process.env.VERCEL_ENV) return false;
-
+export function isLoopbackTvRequest(req: Request) {
   return isLoopbackTvHost(normalizedHostname(req));
 }

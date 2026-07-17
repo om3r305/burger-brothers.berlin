@@ -1502,7 +1502,7 @@ export async function POST(req: Request) {
     );
   }
 
-  const rateError = enforceRateLimit(req, "orders:create", 20, 60_000);
+  const rateError = await enforceRateLimit(req, "orders:create", 20, 60_000);
   if (rateError) return rateError;
 
   const body = await req.json().catch(() => ({} as any));
@@ -1558,7 +1558,7 @@ export async function POST(req: Request) {
   }
 
   if (body?.emergencyMode === true || body?.notfallMode === true) {
-    const emergencyRateError = enforceRateLimit(
+    const emergencyRateError = await enforceRateLimit(
       req,
       "orders:emergency",
       2,

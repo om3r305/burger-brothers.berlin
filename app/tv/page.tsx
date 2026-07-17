@@ -3675,8 +3675,18 @@ export default function TVPage() {
           <button
             onClick={async () => {
               try {
-                await fetch("/api/tv/logout", { method: "POST" });
-              } catch {}
+                const response = await fetch("/api/tv/logout", {
+                  method: "POST",
+                  headers: { accept: "application/json" },
+                });
+
+                if (!response.ok) {
+                  throw new Error(`TV_LOGOUT_${response.status}`);
+                }
+              } catch {
+                window.location.assign("/api/tv/logout");
+                return;
+              }
 
               try {
                 sessionStorage.removeItem("bb_tv_tab");

@@ -133,7 +133,7 @@ export async function POST(req: Request) {
   const authError = await requireMutationRole(req, ["admin", "tv"]);
   if (authError) return authError;
 
-  const rateError = enforceRateLimit(req, "brian:learn", 30, 60_000);
+  const rateError = await enforceRateLimit(req, "brian:learn", 30, 60_000);
   if (rateError) return rateError;
 
   const reqHost = req.headers.get("host");

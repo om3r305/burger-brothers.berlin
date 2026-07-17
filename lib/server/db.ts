@@ -143,8 +143,12 @@ function writeJsonAtomic(targetPath: string, data: unknown) {
 
 function hasOrderField(fieldName: string) {
   try {
-    const model = Prisma.dmmf.datamodel.models.find((item) => item.name === "Order");
-    return Boolean(model?.fields?.some((field) => field.name === fieldName));
+    const model = (Prisma.dmmf.datamodel.models as any[]).find(
+      (item: any) => item.name === "Order",
+    );
+    return Boolean(
+      model?.fields?.some((field: any) => field.name === fieldName),
+    );
   } catch {
     return false;
   }
@@ -924,7 +928,7 @@ export async function writeAll(list: StoredOrder[]) {
     Postgres'te bu davranış stale client/cache yüzünden geçmiş siparişleri silebilir.
     Bu yüzden burada silme yok; gelen siparişler tenant + id ile upsert edilir.
   */
-  await prisma.$transaction(async (tx) => {
+  await prisma.$transaction(async (tx: any) => {
     const usedIds = new Set<string>();
 
     for (const raw of normalized) {

@@ -110,34 +110,17 @@ async function main() {
   assert.equal(isLoopbackTvHost("::1"), true);
   assert.equal(isLoopbackTvHost("www.burger-brothers.berlin"), false);
 
-  assert.equal(
-    mayUseLocalTvPinFallback(
-      new Request("http://localhost:3000/api/tv/login"),
-      "production",
-    ),
-    true,
-  );
-  assert.equal(
-    mayUseLocalTvPinFallback(
-      new Request("http://127.0.0.1:3000/api/tv/login"),
-      "production",
-    ),
-    true,
-  );
-  assert.equal(
-    mayUseLocalTvPinFallback(
-      new Request("https://www.burger-brothers.berlin/api/tv/login"),
-      "production",
-    ),
-    false,
-  );
-  assert.equal(
-    mayUseLocalTvPinFallback(
-      new Request("https://www.burger-brothers.berlin/api/tv/login"),
-      "development",
-    ),
-    true,
-  );
+  for (const [url, environment] of [
+    ["http://localhost:3000/api/tv/login", "production"],
+    ["http://127.0.0.1:3000/api/tv/login", "production"],
+    ["https://www.burger-brothers.berlin/api/tv/login", "production"],
+    ["https://www.burger-brothers.berlin/api/tv/login", "development"],
+  ]) {
+    assert.equal(
+      mayUseLocalTvPinFallback(new Request(url), environment),
+      false,
+    );
+  }
 
   process.env.VERCEL = "1";
   assert.equal(
@@ -253,6 +236,26 @@ async function main() {
     request("/api/track/lookup?trackingToken=test"),
   );
   await expectAllowed(middleware, request("/api/settings"));
+
+  for (const [path, method] of [
+    ["/api/payments/profile", "GET"],
+    ["/api/payments/profile", "POST"],
+    ["/api/payments/profile", "DELETE"],
+    ["/api/payments/share", "GET"],
+    ["/api/payments/share", "POST"],
+    ["/api/tv/logout", "GET"],
+    ["/api/tv/logout", "POST"],
+    ["/api/drivers", "POST"],
+    ["/api/drivers", "DELETE"],
+  ]) {
+    await expectAllowed(middleware, request(path, { method }));
+  }
+
+  await expectUnauthorized(middleware, request("/api/drivers"));
+  await expectUnauthorized(
+    middleware,
+    request("/api/private/file.js", { method: "POST" }),
+  );
 
   await expectUnauthorized(
     middleware,

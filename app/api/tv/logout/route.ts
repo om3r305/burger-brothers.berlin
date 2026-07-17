@@ -1,5 +1,9 @@
 // app/api/tv/logout/route.ts
 import { NextResponse } from "next/server";
+import {
+  forbiddenResponse,
+  hasTrustedMutationOrigin,
+} from "@/lib/server/request-security";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,26 +17,49 @@ const COOKIES_TO_CLEAR = [
   "bb_tv_sess",
 ];
 
-function clearCookie(res: NextResponse, name: string, httpOnly: boolean) {
+function isLoopbackRequest(req: Request) {
+  try {
+    const hostname = new URL(req.url).hostname.toLowerCase();
+    return (
+      hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname === "::1" ||
+      hostname === "[::1]"
+    );
+  } catch {
+    return false;
+  }
+}
+
+function clearCookie(
+  req: Request,
+  res: NextResponse,
+  name: string,
+  httpOnly: boolean,
+) {
   res.cookies.set(name, "", {
     httpOnly,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: process.env.NODE_ENV === "production" && !isLoopbackRequest(req),
     path: "/",
     maxAge: 0,
     expires: new Date(0),
   });
 }
 
-function clearTvCookies(res: NextResponse) {
+function clearTvCookies(req: Request, res: NextResponse) {
   for (const name of COOKIES_TO_CLEAR) {
-    clearCookie(res, name, name !== "bb_tv_ui");
+    clearCookie(req, res, name, name !== "bb_tv_ui");
   }
 
   return res;
 }
 
-export async function POST() {
+export async function POST(req: Request) {
+  if (!hasTrustedMutationOrigin(req)) {
+    return forbiddenResponse("origin_not_allowed");
+  }
+
   const res = NextResponse.json(
     {
       ok: true,
@@ -45,7 +72,7 @@ export async function POST() {
     },
   );
 
-  return clearTvCookies(res);
+  return clearTvCookies(req, res);
 }
 
 export async function GET(req: Request) {
@@ -53,5 +80,5 @@ export async function GET(req: Request) {
     status: 303,
   });
 
-  return clearTvCookies(res);
+  return clearTvCookies(req, res);
 }

@@ -7,6 +7,11 @@ import {
   setPaymentProfileCookie,
 } from "@/lib/server/payment-profile";
 import {
+  enforceRateLimit,
+  forbiddenResponse,
+  hasTrustedMutationOrigin,
+} from "@/lib/server/request-security";
+import {
   hashPaymentShareToken,
   verifyPaymentShareToken,
 } from "@/lib/server/payment-share-token";
@@ -116,6 +121,18 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  if (!hasTrustedMutationOrigin(req)) {
+    return forbiddenResponse("origin_not_allowed");
+  }
+
+  const rateError = await enforceRateLimit(
+    req,
+    "payments:profile:save",
+    20,
+    10 * 60_000,
+  );
+  if (rateError) return rateError;
+
   const body = await req.json().catch(() => ({} as any));
   const checkoutSessionId = String(body?.checkoutSessionId || "").trim();
   const paymentSessionId = String(body?.paymentSessionId || "").trim();
@@ -281,7 +298,19 @@ export async function POST(req: Request) {
   }
 }
 
-export async function DELETE() {
+export async function DELETE(req: Request) {
+  if (!hasTrustedMutationOrigin(req)) {
+    return forbiddenResponse("origin_not_allowed");
+  }
+
+  const rateError = await enforceRateLimit(
+    req,
+    "payments:profile:delete",
+    30,
+    10 * 60_000,
+  );
+  if (rateError) return rateError;
+
   const response = NextResponse.json(
     {
       ok: true,

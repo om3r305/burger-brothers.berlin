@@ -37,7 +37,7 @@ export async function GET(
   req: Request,
   { params }: { params: { orderId: string } },
 ) {
-  const rateError = enforceRateLimit(req, "tracking:order:read", 60, 60_000);
+  const rateError = await enforceRateLimit(req, "tracking:order:read", 60, 60_000);
   if (rateError) return rateError;
 
   try {

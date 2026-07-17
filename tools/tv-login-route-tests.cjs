@@ -62,13 +62,13 @@ Module._resolveFilename = function patchedResolve(request, parent, isMain, optio
   return originalResolveFilename.call(this, request, parent, isMain, options);
 };
 
-function formRequest(origin) {
+function formRequest(origin, pin = "736492") {
   return new Request(`${origin}/api/tv/login`, {
     method: "POST",
     headers: {
       "content-type": "application/x-www-form-urlencoded",
     },
-    body: new URLSearchParams({ pin: "19051905", next: "/tv" }),
+    body: new URLSearchParams({ pin, next: "/tv" }),
     redirect: "manual",
   });
 }
@@ -76,31 +76,40 @@ function formRequest(origin) {
 async function main() {
   process.env.NODE_ENV = "production";
   process.env.SESSION_SECRET = "route-test-session-secret-0123456789-ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-  delete process.env.TV_PIN;
+  process.env.TV_PIN = "736492";
   delete process.env.VERCEL;
   delete process.env.VERCEL_ENV;
 
   const route = require(path.join(root, "app/api/tv/login/route.ts"));
 
-  const local = await route.POST(formRequest("http://localhost:3000"));
-  assert.equal(local.status, 303);
-  assert.equal(new URL(local.headers.get("location")).pathname, "/tv");
-  assert.match(local.headers.get("set-cookie") || "", /bb_tv_auth=/);
+  for (const origin of [
+    "http://localhost:3000",
+    "https://www.burger-brothers.berlin",
+  ]) {
+    const response = await route.POST(formRequest(origin));
+    assert.equal(response.status, 303);
+    assert.equal(new URL(response.headers.get("location")).pathname, "/tv");
+    assert.match(response.headers.get("set-cookie") || "", /bb_tv_auth=/);
+  }
 
-  const live = await route.POST(formRequest("https://www.burger-brothers.berlin"));
-  assert.equal(live.status, 303);
-  const liveLocation = new URL(live.headers.get("location"));
-  assert.equal(liveLocation.pathname, "/tv/login");
-  assert.equal(liveLocation.searchParams.get("reason"), "server_error");
+  const fixedFallback = await route.POST(
+    formRequest("http://localhost:3000", "19051905"),
+  );
+  assert.equal(fixedFallback.status, 303);
+  const fixedLocation = new URL(fixedFallback.headers.get("location"));
+  assert.equal(fixedLocation.pathname, "/tv/login");
+  assert.equal(fixedLocation.searchParams.get("reason"), "invalid_pin");
 
-  process.env.VERCEL = "1";
-  const vercelSpoof = await route.POST(formRequest("http://localhost:3000"));
-  assert.equal(vercelSpoof.status, 303);
-  const vercelLocation = new URL(vercelSpoof.headers.get("location"));
-  assert.equal(vercelLocation.pathname, "/tv/login");
-  assert.equal(vercelLocation.searchParams.get("reason"), "server_error");
+  delete process.env.TV_PIN;
+  const missingConfiguration = await route.POST(
+    formRequest("http://localhost:3000", "736492"),
+  );
+  assert.equal(missingConfiguration.status, 303);
+  const missingLocation = new URL(missingConfiguration.headers.get("location"));
+  assert.equal(missingLocation.pathname, "/tv/login");
+  assert.equal(missingLocation.searchParams.get("reason"), "server_error");
 
-  console.log("TV login route localhost/production policy tests passed.");
+  console.log("TV login route configured-PIN policy tests passed.");
 }
 
 main()

@@ -209,7 +209,7 @@ function buildVisitorFromEvent(req: Request, body: any, event: string) {
 export async function POST(req: Request) {
   if (!hasTrustedMutationOrigin(req)) return forbiddenResponse("origin_not_allowed");
 
-  const rateError = enforceRateLimit(req, "analytics:collect", 60, 60_000);
+  const rateError = await enforceRateLimit(req, "analytics:collect", 60, 60_000);
   if (rateError) return rateError;
 
   const contentLength = Number(req.headers.get("content-length") || 0);

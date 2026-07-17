@@ -17,55 +17,17 @@ type DriverTab = "new" | "mine";
 
 type ApiOrderList = StoredOrder[];
 
-const DRIVERS_KEY = "bb_drivers_v1";
 const CURRENT_DRIVER_KEY = "bb_current_driver_v1";
 const REMEMBER_KEY = "bb_driver_remember";
 const LASTNAME_KEY = "bb_driver_lastname";
-const LASTPASS_KEY = "bb_driver_lastpass_v2";
 const DRIVER_LAST_REFRESH_KEY = "bb_driver_last_refresh_v1";
 
-const SALT = "bb$kurier!2025";
 const ACTIVE_UNKNOWN_GRACE_MS = 6 * 60 * 60 * 1000;
 const REFRESH_MS = 6500;
 const PULL_REFRESH_TRIGGER_PX = 72;
 const PULL_REFRESH_MAX_PX = 96;
 const COMPLETE_TOAST_MS = 4500;
 const NOTE_PREVIEW_MAX = 92;
-
-function enc(s: string) {
-  try {
-    return btoa(unescape(encodeURIComponent(SALT + s)));
-  } catch {
-    return "";
-  }
-}
-
-function dec(s: string) {
-  try {
-    const raw = decodeURIComponent(escape(atob(s || "")));
-    return raw.startsWith(SALT) ? raw.slice(SALT.length) : "";
-  } catch {
-    return "";
-  }
-}
-
-function readDriversLocal(): Driver[] {
-  try {
-    return JSON.parse(localStorage.getItem(DRIVERS_KEY) || "[]");
-  } catch {
-    return [];
-  }
-}
-
-async function readDriversFromDb(): Promise<Driver[]> {
-  try {
-    const res = await fetch("/api/drivers", { cache: "no-store" });
-    if (!res.ok) return [];
-    const data = await res.json();
-    const raw = Array.isArray(data?.items) ? data.items : [];
-    return raw.map((d: any) => ({ id: String(d.id || ""), name: String(d.name || ""), password: "" })).filter((d: Driver) => d.id && d.name);
-  } catch { return []; }
-}
 
 async function authenticateDriver(
   name: string,
@@ -1556,7 +1518,6 @@ export default function DriverPage() {
 
   const [tab, setTab] = useState<DriverTab>("new");
   const [loading, setLoading] = useState(false);
-  const [drivers, setDrivers] = useState<Driver[]>([]);
   const [current, setCurrent] = useState<Driver | null>(null);
   const [remember, setRemember] = useState(true);
   const [loginName, setLoginName] = useState("");
@@ -1654,18 +1615,11 @@ export default function DriverPage() {
   useEffect(() => {
     let alive = true;
 
-    readDriversFromDb().then((list) => {
-      if (alive) setDrivers(list);
-    });
-
     const remembered = localStorage.getItem(REMEMBER_KEY);
     if (remembered !== null) setRemember(remembered === "1");
 
     const lastName = localStorage.getItem(LASTNAME_KEY);
     if (lastName) setLoginName(lastName);
-
-    const lastPass = localStorage.getItem(LASTPASS_KEY);
-    if (lastPass && remembered === "1") setLoginPass(dec(lastPass));
 
     const currentDriver = getCurrentDriver();
     if (currentDriver) setCurrent(currentDriver);
@@ -1710,17 +1664,6 @@ export default function DriverPage() {
       document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [refresh]);
-
-  useEffect(() => {
-    if (!current) {
-      const remembered = localStorage.getItem(REMEMBER_KEY) === "1";
-      const lastName = localStorage.getItem(LASTNAME_KEY);
-      const lastPass = localStorage.getItem(LASTPASS_KEY);
-
-      if (lastName) setLoginName(lastName);
-      if (remembered && lastPass) setLoginPass(dec(lastPass));
-    }
-  }, [current]);
 
   const pending = useMemo(
     () =>
@@ -1807,11 +1750,9 @@ export default function DriverPage() {
     if (remember) {
       setCurrentDriver(driver);
       localStorage.setItem(REMEMBER_KEY, "1");
-      localStorage.removeItem(LASTPASS_KEY);
     } else {
       setCurrentDriver(null);
       localStorage.setItem(REMEMBER_KEY, "0");
-      localStorage.removeItem(LASTPASS_KEY);
     }
 
     setLoginPass("");
@@ -2432,7 +2373,6 @@ export default function DriverPage() {
                 value={loginPass}
                 onChange={(event) => {
                   setLoginPass(event.target.value);
-                  if (remember) localStorage.setItem(LASTPASS_KEY, enc(event.target.value));
                 }}
                 autoComplete="current-password"
               />
@@ -2443,13 +2383,10 @@ export default function DriverPage() {
                   checked={remember}
                   onChange={(event) => {
                     setRemember(event.target.checked);
-                    localStorage.setItem(REMEMBER_KEY, event.target.checked ? "1" : "0");
-
-                    if (event.target.checked) {
-                      localStorage.removeItem(LASTPASS_KEY);
-                    } else {
-                      localStorage.removeItem(LASTPASS_KEY);
-                    }
+                    localStorage.setItem(
+                      REMEMBER_KEY,
+                      event.target.checked ? "1" : "0",
+                    );
                   }}
                 />
                 Angemeldet bleiben
