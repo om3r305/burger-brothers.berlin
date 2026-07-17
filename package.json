@@ -17,7 +17,7 @@
     "vercel:dev": "vercel dev",
     "prepush": "npm run typecheck && npm run build",
     "bootstrap": "curl -X POST http://localhost:3000/api/bootstrap -H \"Content-Type: application/json\" -d @bootstrap.json",
-    "security:test": "node tools/security-tests.mjs && node tools/session-security-tests.cjs && node tools/tv-login-route-tests.cjs && node tools/driver-security-tests.cjs && node tools/order-pricing-tests.cjs",
+    "security:test": "node tools/security-tests.mjs && node tools/security-regression-tests.mjs && node tools/session-security-tests.cjs && node tools/tv-login-route-tests.cjs && node tools/driver-security-tests.cjs && node tools/order-pricing-tests.cjs",
     "security:audit": "npm audit --audit-level=high",
     "verify": "npm run typecheck && npm run security:test && npm run build",
     "pricing:test": "node tools/order-pricing-tests.cjs",

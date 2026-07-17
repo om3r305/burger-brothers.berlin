@@ -564,7 +564,7 @@ const defaultSettings: SettingsV6 = {
 
   security: {
     requirePinForQR: true,
-    driverPin: "123456",
+    driverPin: "",
     qrAccessTTLMinutes: 120,
     drivers: [
       { id: "ali", name: "Ali", active: true },

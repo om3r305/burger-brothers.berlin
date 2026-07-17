@@ -963,7 +963,7 @@ export function evaluateAutoAwardsForCustomer(params: {
       if (phone && !canIssueToPhone(coupon, phone)) continue;
 
       if (rule.kind === "nth_order") {
-        const count = orders.filter((order) => {
+        const count = orders.filter((order: any) => {
           const orderPhone = normalizePhone(order?.customer?.phone);
 
           if (phone && orderPhone) {
@@ -1377,7 +1377,7 @@ export async function redeemIssuedRemote(
   customerPhone?: string,
 ): Promise<RedeemResult> {
   const list = getAllIssued();
-  const before = list.find((item) => item.id === id) || null;
+  const before = list.find((item: any) => item.id === id) || null;
 
   if (!before) {
     return { ok: false, reason: "not_found" };

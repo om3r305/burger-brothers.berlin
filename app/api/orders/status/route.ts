@@ -3,6 +3,12 @@ import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma, getTenantId } from "@/lib/db";
 import { refundOrderPayments } from "@/lib/server/payment-refund";
+import {
+  getSessionSubject,
+  requireAnySessionRole,
+  requireMutationRole,
+  securityJson,
+} from "@/lib/server/request-security";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -40,8 +46,8 @@ const NO_STORE_HEADERS = {
 
 function hasOrderField(fieldName: string) {
   try {
-    const model = Prisma.dmmf.datamodel.models.find((item) => item.name === "Order");
-    return Boolean(model?.fields?.some((field) => field.name === fieldName));
+    const model = Prisma.dmmf.datamodel.models.find((item: any) => item.name === "Order");
+    return Boolean(model?.fields?.some((field: any) => field.name === fieldName));
   } catch {
     return false;
   }
@@ -943,6 +949,9 @@ async function findOrderByIdOrCode(
 }
 
 async function handleStatusUpdate(req: Request) {
+  const authError = await requireMutationRole(req, ["admin", "tv", "driver"]);
+  if (authError) return authError;
+
   try {
     const body = await req.json().catch(() => ({} as any));
 
@@ -1016,6 +1025,21 @@ async function handleStatusUpdate(req: Request) {
     }
 
     const metaObj = ensureObj((row as any)?.meta);
+    const driverSubject = await getSessionSubject(req, "driver");
+
+    if (driverSubject) {
+      const assignedDriver = ensureObj((row as any)?.driver ?? metaObj?.driver);
+      const assignedDriverId = String(
+        assignedDriver?.id ?? metaObj?.driverId ?? "",
+      ).trim();
+
+      if (!assignedDriverId || assignedDriverId !== driverSubject) {
+        return securityJson(
+          { ok: false, error: "order_not_assigned_to_driver" },
+          403,
+        );
+      }
+    }
     const currentStatus = normalizeStatus(metaObj?.statusManual ?? (row as any)?.status) || "new";
     const next = requestedStatus || currentStatus;
 
@@ -1112,6 +1136,9 @@ async function handleStatusUpdate(req: Request) {
 }
 
 export async function GET(req: Request) {
+  const authError = await requireAnySessionRole(req, ["admin", "tv", "driver"]);
+  if (authError) return authError;
+
   try {
     const url = new URL(req.url);
 

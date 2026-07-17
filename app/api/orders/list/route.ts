@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma, getTenantId } from "@/lib/db";
+import { requireAnySessionRole } from "@/lib/server/request-security";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -46,8 +47,8 @@ const NO_STORE_HEADERS = {
 
 function hasOrderField(fieldName: string) {
   try {
-    const model = Prisma.dmmf.datamodel.models.find((item) => item.name === "Order");
-    return Boolean(model?.fields?.some((field) => field.name === fieldName));
+    const model = Prisma.dmmf.datamodel.models.find((item: any) => item.name === "Order");
+    return Boolean(model?.fields?.some((field: any) => field.name === fieldName));
   } catch {
     return false;
   }
@@ -641,21 +642,21 @@ function serializeOrder(row: any) {
 
 function channelCounts(orders: any[]) {
   return {
-    lieferando: orders.filter((order) => order.channel === "lieferando").length,
-    apollo: orders.filter((order) => order.channel === "apollo").length,
-    web: orders.filter((order) => order.channel === "web").length,
+    lieferando: orders.filter((order: any) => order.channel === "lieferando").length,
+    apollo: orders.filter((order: any) => order.channel === "apollo").length,
+    web: orders.filter((order: any) => order.channel === "web").length,
   };
 }
 
 function statusCounts(orders: any[]) {
-  const done = orders.filter((order) => order.status === "done").length;
-  const cancelled = orders.filter((order) => order.status === "cancelled").length;
+  const done = orders.filter((order: any) => order.status === "done").length;
+  const cancelled = orders.filter((order: any) => order.status === "cancelled").length;
 
   return {
-    new: orders.filter((order) => order.status === "new").length,
-    preparing: orders.filter((order) => order.status === "preparing").length,
-    ready: orders.filter((order) => order.status === "ready").length,
-    out_for_delivery: orders.filter((order) => order.status === "out_for_delivery").length,
+    new: orders.filter((order: any) => order.status === "new").length,
+    preparing: orders.filter((order: any) => order.status === "preparing").length,
+    ready: orders.filter((order: any) => order.status === "ready").length,
+    out_for_delivery: orders.filter((order: any) => order.status === "out_for_delivery").length,
     done,
     cancelled,
     finished: done + cancelled,
@@ -724,6 +725,9 @@ function errorResponse(error: any, fallback: string, status = 500) {
 }
 
 export async function GET(req: Request) {
+  const authError = await requireAnySessionRole(req, ["admin", "tv", "driver"]);
+  if (authError) return authError;
+
   try {
     const tenantId = await getTenantId();
     const url = new URL(req.url);
@@ -806,27 +810,27 @@ export async function GET(req: Request) {
       DB where yetmeyebilir. Bu yüzden serialize sonrası da arşiv/anonymized temizliği yapıyoruz.
     */
     if (!includeArchived) {
-      allOrders = allOrders.filter((order) => !isArchivedOrder(order));
+      allOrders = allOrders.filter((order: any) => !isArchivedOrder(order));
     }
 
     if (statusFilter) {
-      allOrders = allOrders.filter((order) => order.status === statusFilter);
+      allOrders = allOrders.filter((order: any) => order.status === statusFilter);
     }
 
     if (modeFilter) {
-      allOrders = allOrders.filter((order) => order.mode === modeFilter);
+      allOrders = allOrders.filter((order: any) => order.mode === modeFilter);
     }
 
     if (channelFilter) {
-      allOrders = allOrders.filter((order) => order.channel === channelFilter);
+      allOrders = allOrders.filter((order: any) => order.channel === channelFilter);
     }
 
     const activeOrders = allOrders.filter(
-      (order) => order.status !== "done" && order.status !== "cancelled",
+      (order: any) => order.status !== "done" && order.status !== "cancelled",
     );
 
     const finishedOrders = allOrders.filter(
-      (order) => order.status === "done" || order.status === "cancelled",
+      (order: any) => order.status === "done" || order.status === "cancelled",
     );
 
     const items = onlyActive
@@ -844,10 +848,10 @@ export async function GET(req: Request) {
       driver view'da orders alanı delivery + includeDone mantığına göre döner.
       Varsayılan/TV görünümü bozulmasın diye normalde orders hâlâ sadece aktif siparişlerdir.
     */
-    const driverOrders = items.filter((order) => order.mode === "delivery");
+    const driverOrders = items.filter((order: any) => order.mode === "delivery");
     const driverDoneOrders = includeDone
       ? driverOrders.filter(
-          (order) => order.status === "done" || order.status === "cancelled",
+          (order: any) => order.status === "done" || order.status === "cancelled",
         )
       : [];
 

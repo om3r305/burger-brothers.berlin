@@ -3,6 +3,14 @@ import { NextResponse } from "next/server";
 import { prisma, getTenantId } from "@/lib/db";
 import { generateOrderId } from "@/lib/order-id";
 import { getServerSettings } from "@/lib/server/settings";
+import {
+  getSessionSubject,
+  hasSessionRole,
+  requireAnySessionRole,
+  requireMutationRole,
+  securityJson,
+} from "@/lib/server/request-security";
+import { createTrackingToken } from "@/lib/server/public-order";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -745,6 +753,7 @@ function buildCreateData(
     source: rawMeta?.source ?? channel,
     orderId: rawMeta?.orderId ?? raw?.orderId ?? id,
     trackingCode: rawMeta?.trackingCode ?? id,
+    trackingToken: rawMeta?.trackingToken ?? createTrackingToken(),
     code: rawMeta?.code ?? id,
     history: finalHistory,
     coupon,
@@ -1009,6 +1018,9 @@ async function upsertImportedOrder(tx: any, tenantId: string, raw: any) {
 }
 
 export async function GET(req: Request) {
+  const authError = await requireAnySessionRole(req, ["admin", "tv", "driver"]);
+  if (authError) return authError;
+
   try {
     const tenantId = await getTenantId();
     const url = new URL(req.url);
@@ -1072,503 +1084,26 @@ export async function GET(req: Request) {
   }
 }
 
-export async function POST(req: Request) {
-  try {
-    const tenantId = await getTenantId();
-    const body = await req.json().catch(() => ({} as any));
-    const action = String(body?.action || "").trim();
-
-    if (!action) {
-      const id = await generateUniqueOrderId(6);
-      const etaSettings = await readEtaSettings();
-
-      const incoming = {
-        ...body,
-        id,
-        meta: {
-          ...ensureObj(body?.meta),
-          source: ensureObj(body?.meta)?.source ?? "api",
-        },
-      };
-
-      const mode = normalizeMode(body?.mode ?? ensureObj(body?.order)?.mode);
-      const deliveryEta =
-        mode === "delivery" && !hasIncomingEtaMin(incoming)
-          ? await computeDeliveryEtaMin(tenantId, etaSettings.delivery)
-          : etaSettings.delivery;
-
-      const data = buildCreateData(tenantId, incoming, id, {
-        pickup: etaSettings.pickup,
-        delivery: deliveryEta,
-      });
-
-      const created = await prisma.order.create({
-        data: data as any,
-        select: buildOrderSelect() as any,
-      });
-
-      const order = serializeOrder(created);
-
-      return jsonResponse({
-        ok: true,
-        source: "db",
-        id: order.id,
-        orderId: order.orderId,
-        order,
-        item: order,
-        data: order,
-      });
-    }
-
-    if (action === "addDummy") {
-      const id = await generateUniqueOrderId(6);
-      const now = Date.now();
-      const delivery = Math.random() > 0.5;
-      const etaSettings = await readEtaSettings();
-      const etaMin = delivery
-        ? await computeDeliveryEtaMin(tenantId, etaSettings.delivery)
-        : etaSettings.pickup;
-
-      await prisma.order.create({
-        data: buildCreateData(
-          tenantId,
-          {
-            id,
-            ts: now,
-            mode: delivery ? "delivery" : "pickup",
-            channel: "web",
-            plz: delivery ? "13507" : null,
-            customer: {
-              name: "Max Mustermann",
-              phone: "49123456789",
-              address: delivery ? "Berliner Str. 1 | 13507 Berlin" : "",
-              addressLine: delivery ? "Berliner Str. 1" : "",
-              plz: delivery ? "13507" : null,
-              zip: delivery ? "13507" : null,
-              city: "Berlin",
-            },
-            items: [
-              { name: "Classic Burger", category: "burger", price: 9.9, qty: 1 },
-              { name: "Fries", category: "extras", price: 3.5, qty: 1 },
-              { name: "Ketchup", category: "sauces", price: 0.5, qty: 1 },
-            ],
-            merchandise: 13.9,
-            discount: 0,
-            surcharges: delivery ? 1.5 : 0,
-            total: 13.9 + (delivery ? 1.5 : 0),
-            status: "new",
-            etaMin,
-            meta: {
-              source: "api",
-              note: "Testbestellung",
-            },
-          },
-          id,
-        ) as any,
-      });
-
-      const orders = await listOrders(tenantId);
-
-      return jsonResponse({
-        ok: true,
-        source: "db",
-        orders,
-        items: orders,
-        count: orders.length,
-      });
-    }
-
-    if (action === "updateDriverPosition") {
-      const id = String(body?.id || body?.orderId || body?.code || "").trim();
-      const by = cleanText(body?.by || body?.driverName || "driver", "driver");
-
-      const lat = Number(body?.lat ?? body?.position?.lat ?? body?.position?.latitude);
-      const lng = Number(
-        body?.lng ??
-          body?.lon ??
-          body?.position?.lng ??
-          body?.position?.lon ??
-          body?.position?.longitude,
-      );
-
-      const ts = toNum(body?.ts ?? body?.position?.ts, Date.now());
-
-      if (!id) {
-        return jsonResponse(
-          {
-            ok: false,
-            source: "db",
-            error: "id missing",
-          },
-          400,
-        );
-      }
-
-      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-        return jsonResponse(
-          {
-            ok: false,
-            source: "db",
-            error: "lat/lng missing",
-          },
-          400,
-        );
-      }
-
-      const row = await findOrder(tenantId, id);
-
-      if (!row) {
-        return jsonResponse(
-          {
-            ok: false,
-            source: "db",
-            error: "not_found",
-          },
-          404,
-        );
-      }
-
-      const rawMeta = ensureObj((row as any)?.meta);
-
-      const livePos = sanitizeJson({
-        lat,
-        lng,
-        ts,
-      });
-
-      const nextMeta = sanitizeJson({
-        ...rawMeta,
-        lastPos: livePos,
-        lastDriverPos: livePos,
-        lastDriverPosAt: ts,
-        lastDriverPosBy: by,
-      });
-
-      const updated = await prisma.order.update({
-        where: {
-          id: String((row as any).id),
-        },
-        data: {
-          meta: nextMeta,
-        } as any,
-        select: buildOrderSelect() as any,
-      });
-
-      const order = serializeOrder(updated);
-
-      return jsonResponse({
-        ok: true,
-        source: "db",
-        id: order.id,
-        orderId: order.orderId,
-        position: livePos,
-        order,
-        item: order,
-        data: order,
-      });
-    }
-
-    if (action === "setStatus") {
-      const id = String(body?.id || body?.orderId || body?.code || "").trim();
-      const status = body?.status;
-
-      if (!id || !status) {
-        return jsonResponse(
-          {
-            ok: false,
-            source: "db",
-            error: "id/status missing",
-          },
-          400,
-        );
-      }
-
-      const row = await findOrder(tenantId, id);
-
-      if (!row) {
-        return jsonResponse(
-          {
-            ok: false,
-            source: "db",
-            error: "not_found",
-          },
-          404,
-        );
-      }
-
-      const updated = await prisma.order.update({
-        where: {
-          id: String((row as any).id),
-        },
-        data: buildStatusPatch(row, status, "api") as any,
-        select: buildOrderSelect() as any,
-      });
-
-      const order = serializeOrder(updated);
-      const orders = await listOrders(tenantId);
-
-      return jsonResponse({
-        ok: true,
-        source: "db",
-        id: order.id,
-        orderId: order.orderId,
-        status: order.status,
-        order,
-        item: order,
-        data: order,
-        orders,
-        items: orders,
-        count: orders.length,
-      });
-    }
-
-    if (action === "delete") {
-      const id = String(body?.id || body?.orderId || body?.code || "").trim();
-
-      if (!id) {
-        return jsonResponse(
-          {
-            ok: false,
-            source: "db",
-            error: "id missing",
-          },
-          400,
-        );
-      }
-
-      const row = await findOrder(tenantId, id);
-
-      if (row) {
-        await prisma.order.delete({
-          where: {
-            id: String((row as any).id),
-          },
-        });
-      }
-
-      const orders = await listOrders(tenantId);
-
-      return jsonResponse({
-        ok: true,
-        source: "db",
-        orders,
-        items: orders,
-        count: orders.length,
-      });
-    }
-
-    if (action === "duplicate") {
-      const id = String(body?.id || body?.orderId || body?.code || "").trim();
-
-      if (!id) {
-        return jsonResponse(
-          {
-            ok: false,
-            source: "db",
-            error: "id missing",
-          },
-          400,
-        );
-      }
-
-      const row = await findOrder(tenantId, id);
-
-      if (row) {
-        const copyId = await generateUniqueOrderId(6);
-        const serialized = serializeOrder(row);
-        const meta = ensureObj(serialized?.meta);
-        const history = normalizeHistory(serialized?.history ?? meta?.history);
-
-        history.push({
-          ts: Date.now(),
-          action: "duplicated",
-          by: "api",
-          note: `Quelle: ${id}`,
-        });
-
-        await prisma.order.create({
-          data: buildCreateData(
-            tenantId,
-            {
-              ...serialized,
-              id: copyId,
-              ts: Date.now(),
-              status: "new",
-              archivedAt: null,
-              anonymizedAt: null,
-              meta: {
-                ...meta,
-                source: "api",
-                duplicatedFrom: id,
-                statusManual: "new",
-                archivedAt: null,
-                anonymizedAt: null,
-                history,
-              },
-            },
-            copyId,
-          ) as any,
-        });
-      }
-
-      const orders = await listOrders(tenantId);
-
-      return jsonResponse({
-        ok: true,
-        source: "db",
-        orders,
-        items: orders,
-        count: orders.length,
-      });
-    }
-
-    if (action === "import") {
-      const incoming = Array.isArray(body?.orders)
-        ? body.orders
-        : Array.isArray(body?.items)
-          ? body.items
-          : Array.isArray(body?.data)
-            ? body.data
-            : [];
-
-      const replace = body?.replace === true;
-      const seenIds = new Set<string>();
-
-      await prisma.$transaction(async (tx: any) => {
-        for (const raw of incoming) {
-          const id = await upsertImportedOrder(tx, tenantId, raw);
-          seenIds.add(id);
-        }
-
-        /*
-          DB-first güvenlik:
-          replace=true boş/stale payload ile gelirse siparişleri silmiyoruz.
-          Ayrıca arşivlenmiş siparişleri import replace ile silmiyoruz.
-        */
-        if (replace && incoming.length > 0 && seenIds.size > 0) {
-          const where: Record<string, any> = {
-            tenantId,
-            id: {
-              notIn: Array.from(seenIds),
-            },
-          };
-
-          if (hasOrderField("archivedAt")) {
-            where.archivedAt = null;
-          }
-
-          await tx.order.deleteMany({
-            where,
-          });
-        }
-      });
-
-      const orders = await listOrders(tenantId);
-
-      return jsonResponse({
-        ok: true,
-        source: "db",
-        orders,
-        items: orders,
-        count: orders.length,
-      });
-    }
-
-    return jsonResponse(
-      {
-        ok: false,
-        source: "db",
-        error: "Unknown action",
-        allowedActions: [
-          "addDummy",
-          "setStatus",
-          "updateDriverPosition",
-          "delete",
-          "duplicate",
-          "import",
-        ],
-      },
-      400,
-    );
-  } catch (error: any) {
-    console.error("[orders] POST failed:", error);
-    return errorResponse(error, "ORDERS_POST_FAILED");
-  }
+function legacyMutationDisabled() {
+  return securityJson(
+    {
+      ok: false,
+      error: "legacy_orders_mutation_disabled",
+      message:
+        "Legacy /api/orders mutations are disabled. Use /api/orders/create, /list, /status and /claim.",
+    },
+    410,
+  );
 }
 
-export async function PUT(req: Request) {
-  try {
-    const body = await req.json().catch(() => ({} as any));
-
-    const orders = Array.isArray(body)
-      ? body
-      : Array.isArray(body?.orders)
-        ? body.orders
-        : Array.isArray(body?.items)
-          ? body.items
-          : Array.isArray(body?.data)
-            ? body.data
-            : [];
-
-    const request = new Request(req.url, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        action: "import",
-        orders,
-        replace: body?.replace === true,
-      }),
-    });
-
-    return POST(request);
-  } catch (error: any) {
-    console.error("[orders] PUT failed:", error);
-    return errorResponse(error, "ORDERS_PUT_FAILED");
-  }
+export async function POST(_req: Request) {
+  return legacyMutationDisabled();
 }
 
-export async function DELETE(req: Request) {
-  try {
-    const url = new URL(req.url);
-    const body = await req.json().catch(() => ({} as any));
+export async function PUT(_req: Request) {
+  return legacyMutationDisabled();
+}
 
-    const id = String(
-      url.searchParams.get("id") ||
-        url.searchParams.get("orderId") ||
-        url.searchParams.get("code") ||
-        body?.id ||
-        body?.orderId ||
-        body?.code ||
-        "",
-    ).trim();
-
-    if (!id) {
-      return jsonResponse(
-        {
-          ok: false,
-          source: "db",
-          error: "id missing",
-        },
-        400,
-      );
-    }
-
-    const request = new Request(req.url, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        action: "delete",
-        id,
-      }),
-    });
-
-    return POST(request);
-  } catch (error: any) {
-    console.error("[orders] DELETE failed:", error);
-    return errorResponse(error, "ORDERS_DELETE_FAILED");
-  }
+export async function DELETE(_req: Request) {
+  return legacyMutationDisabled();
 }

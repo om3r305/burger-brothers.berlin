@@ -5,6 +5,7 @@ export const revalidate = 0;
 
 import { NextResponse } from "next/server";
 import net from "net";
+import { enforceRateLimit, requireMutationRole, securityJson } from "@/lib/server/request-security";
 
 /* ───────── Defaults ───────── */
 const DEFAULT_PRINTER_IP = process.env.PRINT_PRINTER_IP?.trim() || "192.168.0.150";
@@ -29,6 +30,14 @@ const ALLOW_ANY_PRINTER_IP =
   process.env.PRINT_TEST_ALLOW_ANY_PRINTER_IP === "1" ||
   String(process.env.PRINT_TEST_ALLOW_ANY_PRINTER_IP || "").toLowerCase() === "true" ||
   process.env.NODE_ENV !== "production";
+
+const ALLOWED_PROXY_ORIGINS = new Set(
+  [DEFAULT_PROXY, ...String(process.env.PRINT_TEST_ALLOWED_PROXY_ORIGINS || "").split(",")]
+    .map((value) => {
+      try { return new URL(String(value || "").trim()).origin; } catch { return ""; }
+    })
+    .filter(Boolean),
+);
 
 const ALLOWED_CORS_ORIGINS = String(process.env.PRINT_CORS_ORIGINS || "")
   .split(",")
@@ -143,6 +152,10 @@ function normalizeProxyBase(value: any) {
       return DEFAULT_PROXY;
     }
 
+    if (process.env.NODE_ENV === "production" && !ALLOWED_PROXY_ORIGINS.has(url.origin)) {
+      return DEFAULT_PROXY;
+    }
+
     return url.toString().replace(/\/+$/, "");
   } catch {
     return DEFAULT_PROXY;
@@ -217,7 +230,9 @@ export async function OPTIONS(req: Request) {
 }
 
 export async function GET(req: Request) {
-  return handle(req);
+  const authError = await requireMutationRole(req, ["admin", "tv"]);
+  if (authError) return authError;
+  return json(req, { ok: false, error: "method_not_allowed", message: "Use POST for print tests." }, 405);
 }
 
 export async function POST(req: Request) {
@@ -226,6 +241,18 @@ export async function POST(req: Request) {
 
 /* ───────── Core ───────── */
 async function handle(req: Request) {
+  const authError = await requireMutationRole(req, ["admin", "tv"]);
+  if (authError) return authError;
+
+  const rateError = enforceRateLimit(req, "print:test", 10, 60_000);
+  if (rateError) return rateError;
+
+  const production = process.env.NODE_ENV === "production" || Boolean(process.env.VERCEL);
+  const enabled = String(process.env.PRINT_TEST_ENABLED || "").toLowerCase();
+  if (production && !["1", "true", "yes", "on"].includes(enabled)) {
+    return securityJson({ ok: false, error: "print_test_disabled" }, 404);
+  }
+
   try {
     const input = await readInput(req);
 
@@ -254,6 +281,10 @@ async function handle(req: Request) {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            "x-print-proxy-token":
+              process.env.PRINT_PROXY_TOKEN ||
+              process.env.PRINT_AGENT_TOKEN ||
+              "",
           },
           body: JSON.stringify(payload),
           signal: controller.signal,

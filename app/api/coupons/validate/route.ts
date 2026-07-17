@@ -3,6 +3,11 @@
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma, getTenantId } from "@/lib/db";
+import {
+  enforceRateLimit,
+  forbiddenResponse,
+  hasTrustedMutationOrigin,
+} from "@/lib/server/request-security";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -545,6 +550,41 @@ function canApply(params: {
   };
 }
 
+
+function publicCouponDefinition(def: CouponDef | null) {
+  if (!def) return null;
+
+  return {
+    id: def.id,
+    code: displayCode(def.code),
+    title: def.title || "",
+    type: def.type,
+    value: def.value,
+    minCartTotal: def.minCartTotal ?? 0,
+    validFrom: def.validFrom ?? null,
+    validUntil: def.validUntil ?? null,
+    meta: {
+      freeItemName: def.meta?.freeItemName || null,
+      aboutText: def.meta?.aboutText || null,
+      bogo: def.meta?.bogo || null,
+    },
+  };
+}
+
+function publicIssuedCoupon(issued: IssuedCoupon | null) {
+  if (!issued) return null;
+
+  return {
+    id: issued.id,
+    couponId: issued.couponId,
+    code: displayCode(issued.code),
+    issuedAt: issued.issuedAt,
+    expiresAt: issued.expiresAt ?? null,
+    used: issued.used === true,
+    note: issued.note || null,
+  };
+}
+
 function responseJson(payload: Record<string, any>, status = 200) {
   return NextResponse.json(
     {
@@ -650,8 +690,8 @@ async function validateFromRequest(req: Request) {
   return responseJson({
     valid: result.ok,
     result,
-    def: found.def,
-    issued: found.issued,
+    def: publicCouponDefinition(found.def),
+    issued: publicIssuedCoupon(found.issued),
     discountAmount: result.ok ? result.discountAmount : 0,
     message: result.message,
     reason: result.ok ? null : result.reason,
@@ -659,6 +699,9 @@ async function validateFromRequest(req: Request) {
 }
 
 export async function GET(req: Request) {
+  const rateError = enforceRateLimit(req, "coupons:validate", 30, 60_000);
+  if (rateError) return rateError;
+
   try {
     return await validateFromRequest(req);
   } catch (error: any) {
@@ -668,6 +711,11 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  if (!hasTrustedMutationOrigin(req)) return forbiddenResponse("origin_not_allowed");
+
+  const rateError = enforceRateLimit(req, "coupons:validate", 30, 60_000);
+  if (rateError) return rateError;
+
   try {
     return await validateFromRequest(req);
   } catch (error: any) {

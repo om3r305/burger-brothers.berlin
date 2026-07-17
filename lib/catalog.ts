@@ -48,6 +48,12 @@ export type Campaign = {
   endsAt?: string;
   priority?: number;
   badgeText?: string;
+
+  // Sepet toplamına bağlı şartlı kampanya
+  cartThresholdEnabled?: boolean;
+  minNetTotal?: number;
+  overrideStandardDiscount?: boolean;
+  customerNotice?: string;
 };
 
 /* ===================== yardımcılar ===================== */
@@ -455,11 +461,11 @@ function readOrdersSince(fromMs?: number): OrderLike[] {
 
     if (!Array.isArray(arr)) return [];
 
-    const withoutCancelled = arr.filter((order) => !isCancelledPopularityOrder(order));
+    const withoutCancelled = arr.filter((order: any) => !isCancelledPopularityOrder(order));
 
     if (!fromMs) return withoutCancelled;
 
-    return withoutCancelled.filter((order) => {
+    return withoutCancelled.filter((order: any) => {
       const t = toMs(order?.createdAt ?? order?.created_at ?? order?.ts);
       return t != null ? t >= fromMs : false;
     });

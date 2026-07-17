@@ -1,14 +1,19 @@
 import { randomBytes, scryptSync, timingSafeEqual } from "crypto";
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { prisma, getTenantId } from "@/lib/db";
-import { createSessionToken, verifySessionToken } from "@/lib/server/session";
+import { createSessionToken } from "@/lib/server/session";
+import {
+  enforceRateLimit,
+  forbiddenResponse,
+  hasTrustedMutationOrigin,
+  requireMutationRole,
+} from "@/lib/server/request-security";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 const KEY = "drivers";
-const ADMIN_COOKIE = process.env.ADMIN_COOKIE_NAME || "bb_admin_sess";
 const DRIVER_COOKIE = "bb_driver_sess";
 
 type DriverRole = "fahrer" | "admin";
@@ -103,7 +108,7 @@ function normalizeStoredDrivers(value: any) {
 async function save(items: StoredDriver[]) {
   const tenantId = await getTenantId();
 
-  await prisma.$transaction(async (tx) => {
+  await prisma.$transaction(async (tx: any) => {
     const existing = await tx.setting.findFirst({
       where: { tenantId, key: KEY },
       orderBy: { updatedAt: "desc" },
@@ -163,13 +168,6 @@ function publicItems(items: StoredDriver[]) {
   }));
 }
 
-async function hasAdminSession(req: NextRequest) {
-  return verifySessionToken(
-    req.cookies.get(ADMIN_COOKIE)?.value || "",
-    "admin",
-  );
-}
-
 export async function GET() {
   try {
     const items = publicItems(await load());
@@ -183,6 +181,11 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  if (!hasTrustedMutationOrigin(req)) return forbiddenResponse("origin_not_allowed");
+
+  const rateError = enforceRateLimit(req, "login:driver", 8, 15 * 60_000);
+  if (rateError) return rateError;
+
   try {
     const body = await req.json().catch(() => ({}));
 
@@ -192,7 +195,7 @@ export async function POST(req: Request) {
 
     const name = clean(body?.name);
     const password = String(body?.password ?? "");
-    const driver = (await load()).find((item) => item.name === name);
+    const driver = (await load()).find((item: any) => item.name === name);
 
     if (!driver || !verifyPassword(password, driver.passwordHash)) {
       return json({ ok: false, error: "invalid_credentials" }, 401);
@@ -209,7 +212,7 @@ export async function POST(req: Request) {
         password: "",
       },
     });
-    const token = await createSessionToken("driver", maxAge);
+    const token = await createSessionToken("driver", maxAge, driver.id);
 
     response.cookies.set(DRIVER_COOKIE, token, {
       httpOnly: true,
@@ -228,12 +231,11 @@ export async function POST(req: Request) {
   }
 }
 
-export async function PUT(req: NextRequest) {
-  try {
-    if (!(await hasAdminSession(req))) {
-      return json({ ok: false, error: "unauthorized" }, 401);
-    }
+export async function PUT(req: Request) {
+  const authError = await requireMutationRole(req, ["admin"]);
+  if (authError) return authError;
 
+  try {
     const body = await req.json().catch(() => ({}));
     const incoming = Array.isArray(body)
       ? body
@@ -286,7 +288,9 @@ export async function PUT(req: NextRequest) {
   }
 }
 
-export async function DELETE() {
+export async function DELETE(req: Request) {
+  if (!hasTrustedMutationOrigin(req)) return forbiddenResponse("origin_not_allowed");
+
   const response = json({ ok: true });
   response.cookies.set(DRIVER_COOKIE, "", {
     httpOnly: true,

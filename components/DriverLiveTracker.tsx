@@ -1,23 +1,29 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { fetchOrdersFromDb, upsertOrder } from "@/lib/orders";
+import { fetchOrdersFromDb } from "@/lib/orders";
 
 /**
  * Driver sayfasına mount edildiğinde:
- * - watchPosition + getCurrentPosition ile canlı konumu alır
- * - Sadece sürücüye atanmış ve aktif sipariş ID’lerine bb_driverpos_{ORDERID} yazar
- * - DB’de order.meta.lastPos alanını da günceller
- * - Aktiflikten çıkan siparişlerin konumunu temizler
+ * - watchPosition + periyodik heartbeat ile canlı konumu alır
+ * - yalnızca imzalı driver session ile /api/track/[session] endpoint'ine yazar
+ * - yalnızca sürücüye atanmış aktif teslimat siparişlerini gönderir
+ * - legacy /api/orders mutation endpoint'ini kullanmaz
  */
 
 type LivePos = { lat: number; lng: number; ts: number };
 
+type DriverIdentity = {
+  id?: string;
+  name?: string;
+};
+
 const CURRENT_DRIVER_KEY = "bb_current_driver_v1";
 
-function getCurrentDriver() {
+function getCurrentDriver(): DriverIdentity | null {
   try {
-    return JSON.parse(localStorage.getItem(CURRENT_DRIVER_KEY) || "null");
+    const value = JSON.parse(localStorage.getItem(CURRENT_DRIVER_KEY) || "null");
+    return value && typeof value === "object" ? value : null;
   } catch {
     return null;
   }
@@ -42,36 +48,29 @@ function getOrderDriver(order: any) {
   );
 }
 
-function isMine(order: any, driver: any) {
+function isMine(order: any, driver: DriverIdentity | null) {
   if (!order || !driver) return false;
 
   const orderDriver = getOrderDriver(order);
+  const driverId = String(driver?.id || "").trim();
+  const driverName = String(driver?.name || "").trim();
 
-  return (
-    String(orderDriver?.id || "") === String(driver?.id || "") ||
-    String(orderDriver?.name || "") === String(driver?.name || "")
+  return Boolean(
+    (driverId && String(orderDriver?.id || "") === driverId) ||
+      (driverName && String(orderDriver?.name || "") === driverName),
   );
 }
 
-function normalizeMode(value: any) {
-  return String(value || "").toLowerCase().trim();
-}
-
-function normalizeStatus(value: any) {
-  return String(value || "").toLowerCase().trim();
-}
-
-function isDeliveryOrder(order: any) {
-  const mode = normalizeMode(order?.mode || order?.meta?.mode || order?.type);
-
-  return mode === "delivery" || mode === "lieferung" || mode.includes("liefer");
-}
-
 function isActiveDeliveryOrder(order: any) {
-  const status = normalizeStatus(order?.status || order?.meta?.status);
+  const mode = String(order?.mode || order?.meta?.mode || order?.type || "")
+    .toLowerCase()
+    .trim();
+  const status = String(order?.status || order?.meta?.status || "")
+    .toLowerCase()
+    .trim();
 
   return (
-    isDeliveryOrder(order) &&
+    (mode === "delivery" || mode === "lieferung" || mode.includes("liefer")) &&
     status !== "done" &&
     status !== "cancelled" &&
     status !== "canceled"
@@ -115,7 +114,10 @@ function mergeOrders(...lists: any[][]) {
           ...(previous?.meta || {}),
           ...(order?.meta || {}),
         },
-        items: Array.isArray(order?.items) && order.items.length ? order.items : previous?.items || order?.items || [],
+        items:
+          Array.isArray(order?.items) && order.items.length
+            ? order.items
+            : previous?.items || order?.items || [],
       });
     }
   }
@@ -132,165 +134,149 @@ async function fetchDriverOrders(): Promise<any[]> {
     fromLib = [];
   }
 
-  const urls = [
-    "/api/orders/list?includeDone=1&includeArchived=1&take=500",
-    "/api/orders?includeDone=1&includeArchived=1&take=500",
-  ];
-
-  for (const url of urls) {
-    try {
-      const res = await fetch(url, {
+  try {
+    const response = await fetch(
+      "/api/orders/list?view=driver&includeDone=1&take=500",
+      {
         method: "GET",
         cache: "no-store",
-        headers: {
-          accept: "application/json",
-        },
-      });
+        headers: { accept: "application/json" },
+      },
+    );
 
-      if (!res.ok) continue;
+    if (!response.ok) return fromLib;
 
-      const data = await res.json().catch(() => ({}));
-      const fromApi = normalizeOrdersPayload(data);
-
-      if (fromApi.length) {
-        return mergeOrders(fromLib, fromApi);
-      }
-    } catch {}
+    const data = await response.json().catch(() => ({}));
+    return mergeOrders(fromLib, normalizeOrdersPayload(data));
+  } catch {
+    return fromLib;
   }
-
-  return fromLib;
 }
 
-async function persistOrderToDb(order: any) {
-  try {
-    upsertOrder(order);
-  } catch {}
+function safeSessionPart(value: any) {
+  return String(value || "driver")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]/g, "-")
+    .replace(/-+/g, "-")
+    .slice(0, 64) || "driver";
+}
 
-  try {
-    const res = await fetch("/api/orders", {
-      method: "PUT",
+function trackingSessionId(driver: DriverIdentity | null) {
+  const date = new Date();
+  const day = [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0"),
+  ].join("-");
+
+  return `driver_${day}_${safeSessionPart(driver?.id || driver?.name)}`;
+}
+
+async function postTracking(params: {
+  driver: DriverIdentity | null;
+  orderIds: string[];
+  active: boolean;
+  position?: LivePos | null;
+}) {
+  if (!params.driver?.id && !params.driver?.name) return false;
+
+  const response = await fetch(
+    `/api/track/${encodeURIComponent(trackingSessionId(params.driver))}`,
+    {
+      method: "POST",
       headers: {
         "content-type": "application/json",
         accept: "application/json",
       },
       body: JSON.stringify({
-        orders: [order],
-        replace: false,
+        active: params.active,
+        orderIds: params.orderIds,
+        driverId: params.driver.id || undefined,
+        ...(params.position
+          ? {
+              lat: params.position.lat,
+              lng: params.position.lng,
+            }
+          : {}),
       }),
-    });
-
-    const data = await res.json().catch(() => ({}));
-
-    if (!res.ok || data?.ok === false) {
-      throw new Error(data?.error || `HTTP ${res.status}`);
-    }
-
-    try {
-      window.dispatchEvent(new CustomEvent("bb:refresh-orders"));
-      window.dispatchEvent(new CustomEvent("bb_orders_changed"));
-    } catch {}
-
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function withLastPos(order: any, payload: LivePos | null) {
-  const meta = order?.meta && typeof order.meta === "object" ? order.meta : {};
-
-  return {
-    ...order,
-    meta: {
-      ...meta,
-      lastPos: payload
-        ? {
-            lat: payload.lat,
-            lng: payload.lng,
-            ts: payload.ts,
-          }
-        : null,
-      lastDriverPos: payload
-        ? {
-            lat: payload.lat,
-            lng: payload.lng,
-            ts: payload.ts,
-          }
-        : null,
+      keepalive: true,
     },
-  };
+  );
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || data?.ok === false) {
+    throw new Error(data?.error || `HTTP ${response.status}`);
+  }
+
+  return true;
 }
 
 export default function DriverLiveTracker() {
   const watchIdRef = useRef<number | null>(null);
   const heartbeatRef = useRef<number | null>(null);
-
+  const activeOrderIdsRef = useRef<string[]>([]);
+  const previousActiveIdsRef = useRef<string[]>([]);
+  const driverRef = useRef<DriverIdentity | null>(null);
+  const lastPublishRef = useRef<LivePos | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
-  const activeOrderIdsRef = useRef<string[]>([]);
-  const prevActiveIdsRef = useRef<string[]>([]);
-  const ordersRef = useRef<any[]>([]);
-  const lastWriteRef = useRef<Record<string, LivePos>>({});
+  const publish = async (position: GeolocationPosition) => {
+    const driver = driverRef.current || getCurrentDriver();
+    const orderIds = activeOrderIdsRef.current;
 
-  const publish = async (pos: GeolocationPosition) => {
-    setErr(null);
+    if (!driver || !orderIds.length) return;
 
     const payload: LivePos = {
-      lat: pos.coords.latitude,
-      lng: pos.coords.longitude,
+      lat: position.coords.latitude,
+      lng: position.coords.longitude,
       ts: Date.now(),
     };
 
-    const ids = activeOrderIdsRef.current;
+    const previous = lastPublishRef.current;
+    const tooSoon = previous && payload.ts - previous.ts < 5_000;
+    const sameSpot =
+      previous &&
+      Math.abs(previous.lat - payload.lat) < 0.00005 &&
+      Math.abs(previous.lng - payload.lng) < 0.00005;
 
-    if (!ids.length) return;
+    if (tooSoon && sameSpot) return;
 
-    const all = ordersRef.current;
-
-    for (const id of ids) {
-      const last = lastWriteRef.current[id];
-      const tooSoon = last && payload.ts - last.ts < 5000;
-      const sameSpot =
-        last &&
-        Math.abs(last.lat - payload.lat) < 0.00005 &&
-        Math.abs(last.lng - payload.lng) < 0.00005;
-
-      if (tooSoon && sameSpot) continue;
-
+    for (const id of orderIds) {
       try {
         localStorage.setItem(`bb_driverpos_${id}`, JSON.stringify(payload));
-        lastWriteRef.current[id] = payload;
       } catch {}
-
-      const order = all.find((x: any) => String(x?.id || x?.orderId) === String(id));
-
-      if (order) {
-        const updated = withLastPos(order, payload);
-
-        await persistOrderToDb(updated);
-
-        ordersRef.current = ordersRef.current.map((x: any) =>
-          String(x?.id || x?.orderId) === String(id) ? updated : x,
-        );
-      }
     }
 
     try {
-      localStorage.setItem("bb_driverpos_ping", String(Date.now()));
-      window.dispatchEvent(new CustomEvent("bb:driver-pos-ping"));
-    } catch {}
+      await postTracking({
+        driver,
+        orderIds,
+        active: true,
+        position: payload,
+      });
+      lastPublishRef.current = payload;
+      setErr(null);
+
+      try {
+        localStorage.setItem("bb_driverpos_ping", String(Date.now()));
+        window.dispatchEvent(new CustomEvent("bb:driver-pos-ping"));
+      } catch {}
+    } catch (error: any) {
+      setErr(`Trackingfehler: ${error?.message || "unbekannt"}`);
+    }
   };
 
   const pushOnce = () => {
-    if (!navigator.geolocation) return;
+    if (!navigator.geolocation || !activeOrderIdsRef.current.length) return;
 
     navigator.geolocation.getCurrentPosition(
       publish,
-      (e) => setErr(`Standortfehler: ${e.message}`),
+      (error) => setErr(`Standortfehler: ${error.message}`),
       {
         enableHighAccuracy: true,
-        maximumAge: 1500,
-        timeout: 10000,
+        maximumAge: 1_500,
+        timeout: 10_000,
       },
     );
   };
@@ -298,74 +284,64 @@ export default function DriverLiveTracker() {
   useEffect(() => {
     const tick = async () => {
       const driver = getCurrentDriver();
+      driverRef.current = driver;
 
-      let all: any[] = [];
-
+      let orders: any[] = [];
       try {
-        all = await fetchDriverOrders();
+        orders = await fetchDriverOrders();
       } catch {
-        all = [];
+        orders = [];
       }
 
-      ordersRef.current = all;
+      const ids = orders
+        .filter((order: any) => isMine(order, driver) && isActiveDeliveryOrder(order))
+        .map((order: any) => String(order?.id || order?.orderId || "").trim())
+        .filter(Boolean);
 
-      const mineActive = all.filter(
-        (order: any) => isMine(order, driver) && isActiveDeliveryOrder(order),
+      const uniqueIds = Array.from(new Set(ids));
+      activeOrderIdsRef.current = uniqueIds;
+
+      const removed = previousActiveIdsRef.current.filter(
+        (id) => !uniqueIds.includes(id),
       );
 
-      const ids = mineActive.map((order: any) => String(order.id || order.orderId));
-      activeOrderIdsRef.current = ids;
+      for (const id of removed) clearDriverPosFor(id);
 
-      const removed = prevActiveIdsRef.current.filter((id) => !ids.includes(id));
+      if (previousActiveIdsRef.current.length && !uniqueIds.length && driver) {
+        try {
+          await postTracking({
+            driver,
+            orderIds: [],
+            active: false,
+          });
+        } catch {}
 
-      if (removed.length) {
-        for (const id of removed) {
-          try {
-            clearDriverPosFor(id);
-
-            const order = all.find((x: any) => String(x?.id || x?.orderId) === String(id));
-
-            if (order) {
-              const updated = withLastPos(order, null);
-              await persistOrderToDb(updated);
-
-              ordersRef.current = ordersRef.current.map((x: any) =>
-                String(x?.id || x?.orderId) === String(id) ? updated : x,
-              );
-            }
-
-            if (lastWriteRef.current[id]) {
-              delete lastWriteRef.current[id];
-            }
-          } catch {}
-        }
+        lastPublishRef.current = null;
       }
 
-      const added = ids.filter((id) => !prevActiveIdsRef.current.includes(id));
+      const added = uniqueIds.some(
+        (id) => !previousActiveIdsRef.current.includes(id),
+      );
 
-      if (added.length > 0) {
-        pushOnce();
-      }
+      if (added) pushOnce();
 
-      if (ids.length > 0 && heartbeatRef.current == null) {
-        heartbeatRef.current = window.setInterval(() => pushOnce(), 12000);
-      } else if (ids.length === 0 && heartbeatRef.current != null) {
-        clearInterval(heartbeatRef.current);
+      if (uniqueIds.length && heartbeatRef.current == null) {
+        heartbeatRef.current = window.setInterval(pushOnce, 12_000);
+      } else if (!uniqueIds.length && heartbeatRef.current != null) {
+        window.clearInterval(heartbeatRef.current);
         heartbeatRef.current = null;
       }
 
-      prevActiveIdsRef.current = ids;
+      previousActiveIdsRef.current = uniqueIds;
     };
 
-    tick();
-
-    const id = window.setInterval(tick, 3000);
+    void tick();
+    const interval = window.setInterval(() => void tick(), 3_000);
 
     return () => {
-      clearInterval(id);
-
+      window.clearInterval(interval);
       if (heartbeatRef.current != null) {
-        clearInterval(heartbeatRef.current);
+        window.clearInterval(heartbeatRef.current);
         heartbeatRef.current = null;
       }
     };
@@ -377,24 +353,24 @@ export default function DriverLiveTracker() {
       return;
     }
 
-    const onErr = (e: GeolocationPositionError) => {
-      setErr(`Standortfehler: ${e.message}`);
-    };
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      publish,
+      (error) => setErr(`Standortfehler: ${error.message}`),
+      {
+        enableHighAccuracy: true,
+        maximumAge: 1_500,
+        timeout: 10_000,
+      },
+    );
 
-    watchIdRef.current = navigator.geolocation.watchPosition(publish, onErr, {
-      enableHighAccuracy: true,
-      maximumAge: 1500,
-      timeout: 10000,
-    });
-
-    const onVis = () => {
+    const onVisibility = () => {
       if (document.visibilityState === "visible") pushOnce();
     };
 
-    document.addEventListener("visibilitychange", onVis);
+    document.addEventListener("visibilitychange", onVisibility);
 
     return () => {
-      document.removeEventListener("visibilitychange", onVis);
+      document.removeEventListener("visibilitychange", onVisibility);
 
       if (watchIdRef.current != null) {
         navigator.geolocation.clearWatch(watchIdRef.current);

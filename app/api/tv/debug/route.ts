@@ -1,6 +1,7 @@
 // app/api/tv/debug/route.ts
 import { NextResponse } from "next/server";
 import { prisma, getTenantId } from "@/lib/db";
+import { requireSessionRole } from "@/lib/server/request-security";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -49,7 +50,7 @@ async function readDbPin() {
     },
   });
 
-  const tries = rows.map((row) => {
+  const tries = rows.map((row: any) => {
     const pin = readPinFromSettings(row.value);
 
     return {
@@ -60,11 +61,11 @@ async function readDbPin() {
   });
 
   const found = rows
-    .map((row) => ({
+    .map((row: any) => ({
       key: row.key,
       pin: readPinFromSettings(row.value),
     }))
-    .find((item) => item.pin);
+    .find((item: any) => item.pin);
 
   return {
     pin: found?.pin || "",
@@ -73,7 +74,10 @@ async function readDbPin() {
   };
 }
 
-export async function GET() {
+export async function GET(req: Request) {
+  const authError = await requireSessionRole(req, "admin");
+  if (authError) return authError;
+
   if (process.env.NODE_ENV === "production") {
     return NextResponse.json(
       {
@@ -115,9 +119,11 @@ export async function GET() {
   return NextResponse.json({
     ok: true,
     using: chosen.source,
-    pinMasked: maskPin(chosen.pin),
-    tries,
     dbPresent: !!dbPin,
     envPresent: !!envPin,
+  }, {
+    headers: {
+      "Cache-Control": "no-store, no-cache, must-revalidate",
+    },
   });
 }

@@ -12,6 +12,9 @@ const PUBLIC_PATHS = new Set([
   "/tv/login",
   "/api/tv/login",
   "/api/stripe/webhook",
+  "/api/orders/create",
+  "/api/payments/prepare",
+  "/api/coupons/validate",
   "/favicon.ico",
   "/manifest.webmanifest",
   "/site.webmanifest",
@@ -35,7 +38,7 @@ function child(path: string, prefix: string) {
   return path === prefix || path.startsWith(`${prefix}/`);
 }
 
-function publicPath(path: string) {
+function publicAsset(path: string) {
   if (PUBLIC_PATHS.has(path)) return true;
   if (PUBLIC_PREFIXES.some((prefix) => path.startsWith(prefix))) return true;
 
@@ -58,44 +61,77 @@ function unauthorized(req: NextRequest, target: string) {
   const url = req.nextUrl.clone();
   url.pathname = target;
   url.search = "";
-  url.searchParams.set(
-    "next",
-    req.nextUrl.pathname + req.nextUrl.search,
-  );
+  url.searchParams.set("next", req.nextUrl.pathname + req.nextUrl.search);
   return NextResponse.redirect(url);
 }
 
-function orderApiAccess(path: string, method: string, req: NextRequest) {
-  if (path === "/api/orders/list") return "operational" as const;
-  if (path === "/api/orders/claim") return "driver" as const;
-  if (path === "/api/orders/status") return "operational" as const;
+type Access = "public" | "admin" | "operational" | "driver" | "token";
 
-  if (path === "/api/orders") {
-    if (method === "GET" && req.nextUrl.searchParams.get("id")) {
-      return "public" as const;
-    }
-    if (method === "POST") return "public" as const;
-    return "operational" as const;
+function apiAccess(path: string, method: string): Access {
+  const readOnly = method === "GET" || method === "HEAD" || method === "OPTIONS";
+
+  if (PUBLIC_PATHS.has(path)) return "public";
+
+  if (path === "/api/settings" && readOnly) return "public";
+  if (path === "/api/products" && readOnly) return "public";
+  if (path === "/api/catalog" && readOnly) return "public";
+  if (path === "/api/groups" && readOnly) return "public";
+  if (path === "/api/pause" && readOnly) return "public";
+  if (path === "/api/analytics/collect" && method === "POST") return "public";
+  if (path === "/api/track/lookup" && (method === "GET" || method === "POST")) return "public";
+  if (child(path, "/api/track/by-order") && readOnly) return "public";
+  if (child(path, "/api/track") && readOnly) return "public";
+  if (path === "/api/drivers" && (method === "GET" || method === "POST" || method === "DELETE")) return "public";
+
+  // Server-to-server endpoints validate their own strong tokens in-route.
+  if (path === "/api/print/jobs" || path === "/api/print/mark") return "token";
+  if (child(path, "/api/admin/cron")) return "token";
+
+  if (child(path, "/api/admin")) return "admin";
+
+  if (
+    path === "/api/bootstrap" ||
+    path === "/api/products" ||
+    path === "/api/coupons" ||
+    path === "/api/catalog" ||
+    path === "/api/groups"
+  ) {
+    return "admin";
   }
 
-  return "public" as const;
+  if (path === "/api/orders/claim") return "driver";
+  if (child(path, "/api/qr-image")) return "operational";
+  if (child(path, "/api/telegram")) return "admin";
+  if (path === "/api/orders/list" || path === "/api/orders/status") return "operational";
+
+  // Legacy çok amaçlı endpoint artık hiçbir zaman public değildir.
+  if (path === "/api/orders") return "operational";
+
+  if (child(path, "/api/track") && !readOnly) return "driver";
+
+  if (
+    path === "/api/pause" ||
+    child(path, "/api/print/test") ||
+    child(path, "/api/brian") ||
+    child(path, "/api/diagnostics") ||
+    child(path, "/api/tv/debug")
+  ) {
+    return "operational";
+  }
+
+  // Unknown read endpoints stay reachable; unknown mutations fail closed.
+  return readOnly ? "public" : "admin";
 }
 
 export async function middleware(req: NextRequest) {
   const path = req.nextUrl.pathname;
-  if (publicPath(path)) return NextResponse.next();
+  if (publicAsset(path)) return NextResponse.next();
 
-  const adminRequired =
-    child(path, "/admin") ||
-    child(path, "/dashboard") ||
-    child(path, "/api/admin");
-  const tvRequired =
-    child(path, "/tv") ||
-    child(path, "/print") ||
-    child(path, "/api/tv");
-  const orderAccess = orderApiAccess(path, req.method, req);
+  const adminPage = child(path, "/admin") || child(path, "/dashboard");
+  const tvPage = child(path, "/tv") || child(path, "/print");
+  const access = path.startsWith("/api/") ? apiAccess(path, req.method) : "public";
 
-  if (!adminRequired && !tvRequired && orderAccess === "public") {
+  if (!adminPage && !tvPage && (access === "public" || access === "token")) {
     return NextResponse.next();
   }
 
@@ -104,10 +140,8 @@ export async function middleware(req: NextRequest) {
     "admin",
   );
 
-  if (adminRequired) {
-    return adminOk
-      ? NextResponse.next()
-      : unauthorized(req, "/admin/login");
+  if (adminPage || access === "admin") {
+    return adminOk ? NextResponse.next() : unauthorized(req, "/admin/login");
   }
 
   const tvOk = await verifySessionToken(
@@ -115,7 +149,7 @@ export async function middleware(req: NextRequest) {
     "tv",
   );
 
-  if (tvRequired) {
+  if (tvPage) {
     return tvOk || adminOk
       ? NextResponse.next()
       : unauthorized(req, "/tv/login");
@@ -126,13 +160,13 @@ export async function middleware(req: NextRequest) {
     "driver",
   );
 
-  if (orderAccess === "driver") {
+  if (access === "driver") {
     return driverOk || adminOk
       ? NextResponse.next()
       : unauthorized(req, "/driver");
   }
 
-  if (orderAccess === "operational") {
+  if (access === "operational") {
     return driverOk || tvOk || adminOk
       ? NextResponse.next()
       : unauthorized(req, "/driver");

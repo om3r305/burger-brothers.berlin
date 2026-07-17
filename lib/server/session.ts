@@ -1,10 +1,11 @@
 const encoder = new TextEncoder();
 
-type SessionRole = "admin" | "tv" | "driver";
-type SessionPayload = {
+export type SessionRole = "admin" | "tv" | "driver";
+export type SessionPayload = {
   role: SessionRole;
   exp: number;
   nonce: string;
+  sub?: string;
 };
 
 function b64url(bytes: Uint8Array) {
@@ -56,11 +57,13 @@ function tokenPrefix(role: SessionRole) {
 export async function createSessionToken(
   role: SessionRole,
   maxAgeSeconds: number,
+  subject?: string,
 ) {
   const payload: SessionPayload = {
     role,
     exp: Math.floor(Date.now() / 1000) + maxAgeSeconds,
     nonce: crypto.randomUUID(),
+    ...(subject ? { sub: String(subject).slice(0, 160) } : {}),
   };
   const encoded = b64url(encoder.encode(JSON.stringify(payload)));
   const signature = new Uint8Array(
@@ -74,26 +77,26 @@ export async function createSessionToken(
   return `${tokenPrefix(role)}${encoded}.${b64url(signature)}`;
 }
 
-export async function verifySessionToken(
+export async function readSessionToken(
   token: string,
   expectedRole: SessionRole,
-) {
+): Promise<SessionPayload | null> {
   try {
     const prefix = tokenPrefix(expectedRole);
-    if (!token.startsWith(prefix)) return false;
+    if (!token.startsWith(prefix)) return null;
 
     const [encoded, signature, ...rest] = token
       .slice(prefix.length)
       .split(".");
 
-    if (!encoded || !signature || rest.length) return false;
+    if (!encoded || !signature || rest.length) return null;
 
     const signatureBytes = fromB64url(signature);
     const payloadBytes = fromB64url(encoded);
 
     // Aynı byte dizisinin alternatif/non-canonical Base64URL yazımlarını reddet.
     if (b64url(signatureBytes) !== signature || b64url(payloadBytes) !== encoded) {
-      return false;
+      return null;
     }
 
     const valid = await crypto.subtle.verify(
@@ -103,18 +106,29 @@ export async function verifySessionToken(
       encoder.encode(encoded),
     );
 
-    if (!valid) return false;
+    if (!valid) return null;
 
     const payload = JSON.parse(
       new TextDecoder().decode(payloadBytes),
     ) as SessionPayload;
 
-    return (
-      payload.role === expectedRole &&
-      Number.isFinite(payload.exp) &&
-      payload.exp > Math.floor(Date.now() / 1000)
-    );
+    if (
+      payload.role !== expectedRole ||
+      !Number.isFinite(payload.exp) ||
+      payload.exp <= Math.floor(Date.now() / 1000)
+    ) {
+      return null;
+    }
+
+    return payload;
   } catch {
-    return false;
+    return null;
   }
+}
+
+export async function verifySessionToken(
+  token: string,
+  expectedRole: SessionRole,
+) {
+  return Boolean(await readSessionToken(token, expectedRole));
 }

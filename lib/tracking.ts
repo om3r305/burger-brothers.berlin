@@ -32,7 +32,6 @@ async function postPoint(lat: number, lng: number, orderIds: string[]) {
     speed: undefined,
     heading: undefined,
     orderIds,
-    driverId: getDeviceId(),
     active: true,
   };
   await fetch(`${BASE}/${encodeURIComponent(sid)}`, {

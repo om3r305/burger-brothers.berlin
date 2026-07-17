@@ -96,8 +96,8 @@ const rid = () => {
 
 function hasOrderField(fieldName: string) {
   try {
-    const model = Prisma.dmmf.datamodel.models.find((item) => item.name === "Order");
-    return Boolean(model?.fields?.some((field) => field.name === fieldName));
+    const model = Prisma.dmmf.datamodel.models.find((item: any) => item.name === "Order");
+    return Boolean(model?.fields?.some((field: any) => field.name === fieldName));
   } catch {
     return false;
   }
@@ -809,7 +809,7 @@ export async function writeOrders(list: OrderLog[]): Promise<void> {
     Postgres'te bu davranış stale local cache yüzünden geçmiş siparişleri silebilir.
     Bu yüzden artık silme yok; gelen siparişler tenant + id ile upsert edilir.
   */
-  await prisma.$transaction(async (tx) => {
+  await prisma.$transaction(async (tx: any) => {
     const usedIds = new Set<string>();
 
     for (const raw of normalized) {

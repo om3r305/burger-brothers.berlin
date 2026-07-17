@@ -2,6 +2,12 @@
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma, getTenantId } from "@/lib/db";
+import { enforceRateLimit, hasAnySessionRole } from "@/lib/server/request-security";
+import {
+  extractTrackingToken,
+  matchesTrackingToken,
+  publicOrderDto,
+} from "@/lib/server/public-order";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -508,8 +514,33 @@ async function findOrder(codeRaw: any): Promise<LookupResult> {
   };
 }
 
-function okResponse(order: any, code: string) {
-  const serialized = serializeOrder(order);
+async function findOrderByTrackingToken(tokenRaw: any): Promise<LookupResult> {
+  const token = String(tokenRaw || "").trim();
+
+  if (token.length < 32 || token.length > 160) {
+    return { code: "", order: null, error: "invalid_tracking_token", status: 401 };
+  }
+
+  const tenantId = await getTenantId();
+  const order = await prisma.order.findFirst({
+    where: {
+      tenantId,
+      meta: {
+        path: ["trackingToken"],
+        equals: token,
+      } as any,
+    },
+  });
+
+  if (!order || !matchesTrackingToken(order, token)) {
+    return { code: "", order: null, error: "invalid_tracking_token", status: 401 };
+  }
+
+  return { code: String(order.id || ""), order, error: null, status: 200 };
+}
+
+function okResponse(order: any, code: string, operational = false) {
+  const serialized = operational ? serializeOrder(order) : publicOrderDto(order);
 
   return NextResponse.json(
     {
@@ -519,7 +550,6 @@ function okResponse(order: any, code: string) {
       id: serialized.id,
       orderId: serialized.orderId,
       status: serialized.status,
-      legacyStatus: serialized.legacyStatus,
       order: serialized,
       item: serialized,
       data: serialized,
@@ -563,15 +593,21 @@ function extractCodeFromRequestUrl(req: Request) {
 }
 
 export async function GET(req: Request) {
+  const rateError = enforceRateLimit(req, "tracking:lookup", 30, 60_000);
+  if (rateError) return rateError;
+
   try {
-    const code = extractCodeFromRequestUrl(req);
-    const result = await findOrder(code);
+    const operational = await hasAnySessionRole(req, ["admin", "tv", "driver"]);
+    const token = extractTrackingToken(req);
+    const result = operational
+      ? await findOrder(extractCodeFromRequestUrl(req))
+      : await findOrderByTrackingToken(token || extractCodeFromRequestUrl(req));
 
     if (!result.order) {
       return errorResponse(result.error || "not_found", result.status, result.code);
     }
 
-    return okResponse(result.order, result.code);
+    return okResponse(result.order, result.code, operational);
   } catch (error: any) {
     console.error("[track/lookup] GET failed:", error);
     return errorResponse(error?.message || "lookup_failed", 500);
@@ -579,8 +615,12 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  const rateError = enforceRateLimit(req, "tracking:lookup", 30, 60_000);
+  if (rateError) return rateError;
+
   try {
     const body = await req.json().catch(() => ({} as any));
+    const operational = await hasAnySessionRole(req, ["admin", "tv", "driver"]);
 
     const code =
       body?.id ||
@@ -594,13 +634,16 @@ export async function POST(req: Request) {
       body?.q ||
       "";
 
-    const result = await findOrder(code);
+    const token = extractTrackingToken(req, body) || code;
+    const result = operational
+      ? await findOrder(code)
+      : await findOrderByTrackingToken(token);
 
     if (!result.order) {
       return errorResponse(result.error || "not_found", result.status, result.code);
     }
 
-    return okResponse(result.order, result.code);
+    return okResponse(result.order, result.code, operational);
   } catch (error: any) {
     console.error("[track/lookup] POST failed:", error);
     return errorResponse(error?.message || "lookup_failed", 500);

@@ -40,6 +40,14 @@ function loadConfig() {
     // Vercel ENV'deki PRINT_AGENT_TOKEN ile aynı olmalı
     token: process.env.PRINT_AGENT_TOKEN || fileCfg.token || "",
 
+    // Local print-proxy için ayrı token; yoksa agent tokeni kullanılır.
+    proxyToken:
+      process.env.PRINT_PROXY_TOKEN ||
+      fileCfg.proxyToken ||
+      process.env.PRINT_AGENT_TOKEN ||
+      fileCfg.token ||
+      "",
+
     // Agent adı DB print meta içinde görünür
     agentName: process.env.PRINT_AGENT_NAME || fileCfg.agentName || "shop-tv-1",
 
@@ -141,6 +149,7 @@ async function proxyJson(cfg, pathname, options = {}) {
   const url = `${cfg.printProxyUrl}${pathname}`;
   const headers = {
     "Content-Type": "application/json",
+    "x-print-proxy-token": cfg.proxyToken,
     ...(options.headers || {}),
   };
 

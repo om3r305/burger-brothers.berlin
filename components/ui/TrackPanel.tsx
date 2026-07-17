@@ -12,7 +12,7 @@ const LS_LAST_TRACK_ID = "bb_last_track_order_id";
 const LS_LAST_TRACK_ID_LEGACY = "bb_last_tracking_order_id";
 const TRACK_EVENT = "bb:last-track-order-updated";
 
-function cleanOrderId(value: string) {
+function cleanTrackingToken(value: string) {
   return String(value || "")
     .trim()
     .replace(/^#+/, "")
@@ -20,13 +20,18 @@ function cleanOrderId(value: string) {
     .replace(/[^a-zA-Z0-9_-]/g, "");
 }
 
+function isTrackingToken(value: string) {
+  const clean = cleanTrackingToken(value);
+  return clean.length >= 32 && clean.length <= 160;
+}
+
 function readLastTrackId() {
   try {
-    const current = cleanOrderId(localStorage.getItem(LS_LAST_TRACK_ID) || "");
-    if (current) return current;
+    const current = cleanTrackingToken(localStorage.getItem(LS_LAST_TRACK_ID) || "");
+    if (isTrackingToken(current)) return current;
 
-    const legacy = cleanOrderId(localStorage.getItem(LS_LAST_TRACK_ID_LEGACY) || "");
-    if (legacy) {
+    const legacy = cleanTrackingToken(localStorage.getItem(LS_LAST_TRACK_ID_LEGACY) || "");
+    if (isTrackingToken(legacy)) {
       localStorage.setItem(LS_LAST_TRACK_ID, legacy);
       return legacy;
     }
@@ -45,9 +50,9 @@ export default function TrackPanel({ variant = "default" }: TrackPanelProps) {
 
   useEffect(() => {
     const applyLastId = (nextId: string) => {
-      const clean = cleanOrderId(nextId);
+      const clean = cleanTrackingToken(nextId);
 
-      if (!clean) return;
+      if (!isTrackingToken(clean)) return;
 
       setVal(clean);
       setAutoFilled(true);
@@ -93,12 +98,12 @@ export default function TrackPanel({ variant = "default" }: TrackPanelProps) {
   }, []);
 
   const go = async () => {
-    const clean = cleanOrderId(val);
+    const clean = cleanTrackingToken(val);
 
     setError("");
 
-    if (!clean) {
-      setError("Bitte eine Bestellnummer eingeben.");
+    if (!isTrackingToken(clean)) {
+      setError("Bitte einen gültigen persönlichen Tracking-Code eingeben.");
       return;
     }
 
@@ -109,7 +114,7 @@ export default function TrackPanel({ variant = "default" }: TrackPanelProps) {
     setBusy(true);
 
     try {
-      const res = await fetch(`/api/track/lookup?id=${encodeURIComponent(clean)}`, {
+      const res = await fetch(`/api/track/lookup?trackingToken=${encodeURIComponent(clean)}`, {
         method: "GET",
         cache: "no-store",
         headers: {
@@ -125,15 +130,11 @@ export default function TrackPanel({ variant = "default" }: TrackPanelProps) {
           (json?.order || json?.item || json?.id || json?.orderId || json?.status);
 
         if (found) {
-          const id = cleanOrderId(
-            String(json?.orderId || json?.id || json?.order?.id || clean),
-          );
-
-          router.push(`/track/${encodeURIComponent(id || clean)}`);
+          router.push(`/track/${encodeURIComponent(clean)}`);
           return;
         }
 
-        setError("Bestellung wurde nicht gefunden.");
+        setError("Tracking-Code wurde nicht gefunden oder ist abgelaufen.");
         return;
       }
 
@@ -171,7 +172,7 @@ export default function TrackPanel({ variant = "default" }: TrackPanelProps) {
                 setError("");
               }
             }}
-            placeholder="Bestellnummer eingeben"
+            placeholder="Tracking-Code eingeben"
             autoComplete="off"
             inputMode="text"
             className="flex-1 rounded-md bg-stone-800/60 px-3 py-2 outline-none"
@@ -193,12 +194,12 @@ export default function TrackPanel({ variant = "default" }: TrackPanelProps) {
         {variant === "emphasized" && (
           <div className="space-y-1 text-xs text-stone-400">
             <div>
-              Hier können Sie den Status Ihrer Bestellung mit der Bestellnummer prüfen.
+              Hier können Sie den Status Ihrer Bestellung mit Ihrem persönlichen Tracking-Code prüfen.
             </div>
 
             {autoFilled && val && (
               <div className="text-emerald-300">
-                Hinweis: Der Code gehört zu Ihrer letzten Bestellung.
+                Hinweis: Dies ist der Tracking-Code Ihrer letzten Lieferung.
               </div>
             )}
           </div>

@@ -11,8 +11,13 @@ const net = require('net');
 const PORT          = Number(process.env.PORT || 7777);
 const PRINTER_IP    = process.env.PRINTER_IP || '192.168.0.150';
 const PRINTER_PORT  = Number(process.env.PRINTER_PORT || 9100);
-const ALLOW_ORIGINS = (process.env.ALLOW_ORIGINS || 'https://www.burger-brothers.berlin,https://www.burger-brothers.berlin')
+const LISTEN_HOST    = process.env.PRINT_PROXY_HOST || '127.0.0.1';
+const PROXY_TOKEN    = String(process.env.PRINT_PROXY_TOKEN || process.env.PRINT_AGENT_TOKEN || '').trim();
+const ALLOW_ORIGINS = (process.env.ALLOW_ORIGINS || 'https://www.burger-brothers.berlin,http://127.0.0.1,http://localhost')
   .split(',').map(s=>s.trim()).filter(Boolean);
+const ALLOW_ORDER_URL_RESOLUTION = String(process.env.ALLOW_ORDER_URL_RESOLUTION || '0') === '1';
+const ORDER_URL_ORIGINS = new Set((process.env.ORDER_URL_ORIGINS || 'https://www.burger-brothers.berlin')
+  .split(',').map(s=>s.trim()).filter(Boolean));
 
 // Varsayılan logo: Next.js public klasörü (public/logo-thermal.bmp)
 const DEFAULT_LOGO_URL = 'https://www.burger-brothers.berlin/logo-thermal.bmp';
@@ -47,11 +52,29 @@ const STORE_HEADER_LINES = [
 
 /* ====== CORS & yardımcılar ====== */
 function cors(res, reqOrigin='') {
-  const origin = (ALLOW_ORIGINS.includes(reqOrigin) ? reqOrigin : ALLOW_ORIGINS[0]) || '*';
-  res.setHeader('Access-Control-Allow-Origin', origin);
+  if (reqOrigin && ALLOW_ORIGINS.includes(reqOrigin)) {
+    res.setHeader('Access-Control-Allow-Origin', reqOrigin);
+    res.setHeader('Vary', 'Origin');
+  }
   res.setHeader('Access-Control-Allow-Methods', 'OPTIONS, POST, GET');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Print-Proxy-Token, Authorization');
 }
+
+function safeTokenEqual(a, b) {
+  const left = Buffer.from(String(a || ''));
+  const right = Buffer.from(String(b || ''));
+  if (!left.length || left.length !== right.length) return false;
+  try { return require('crypto').timingSafeEqual(left, right); } catch { return false; }
+}
+
+function proxyAuthorized(req) {
+  if (!PROXY_TOKEN) return false;
+  const auth = String(req.headers.authorization || '');
+  const bearer = auth.toLowerCase().startsWith('bearer ') ? auth.slice(7).trim() : '';
+  const token = String(req.headers['x-print-proxy-token'] || bearer || '').trim();
+  return safeTokenEqual(token, PROXY_TOKEN);
+}
+
 function readJson(req) {
   return new Promise((resolve, reject) => {
     let buf=''; req.on('data', c => buf+=c);
@@ -242,11 +265,22 @@ function detectCategory(it){
 
 /* ====== URL'den order çöz ====== */
 async function resolveOrderFromUrl(urlStr){
+  if (!ALLOW_ORDER_URL_RESOLUTION) {
+    throw new Error('ORDER_URL_RESOLUTION_DISABLED');
+  }
+
   const u = new URL(urlStr);
+  if (!ORDER_URL_ORIGINS.has(u.origin)) {
+    throw new Error('ORDER_URL_ORIGIN_NOT_ALLOWED');
+  }
+
   const m = u.pathname.match(/\/print\/barcode\/([^/]+)/i);
   const orderId = m ? decodeURIComponent(m[1]) : null;
   if (!orderId) return null;
-  const list = await httpGetJson(`${u.protocol}//${u.host}/api/orders`).catch(()=>null);
+
+  // Legacy compatibility only. The caller should normally send the complete
+  // order object. Remote resolution is opt-in and pinned to an allowlisted origin.
+  const list = await httpGetJson(`${u.origin}/api/orders`).catch(()=>null);
   if (!Array.isArray(list)) return null;
   return list.find(o=>String(o?.id)===String(orderId)) || null;
 }
@@ -743,6 +777,11 @@ const server = http.createServer(async (req,res)=>{
   const u = url.parse(req.url, true);
   if (req.method==='OPTIONS'){ res.statusCode=200; return res.end(); }
 
+  if (!proxyAuthorized(req)) {
+    res.writeHead(PROXY_TOKEN ? 401 : 503, {'Content-Type':'application/json'});
+    return res.end(JSON.stringify({ok:false,error:PROXY_TOKEN?'unauthorized':'PRINT_PROXY_TOKEN_MISSING'}));
+  }
+
   if (req.method==='GET' && u.pathname==='/health'){
     res.writeHead(200, {'Content-Type':'application/json'});
     return res.end(JSON.stringify({
@@ -857,8 +896,8 @@ const server = http.createServer(async (req,res)=>{
   res.end(JSON.stringify({ ok:false, error:'Not found' }));
 });
 
-server.listen(PORT, ()=>{
-  console.log(`✅ print-proxy up on http://127.0.0.1:${PORT}`);
+server.listen(PORT, LISTEN_HOST, ()=>{
+  console.log(`✅ print-proxy up on http://${LISTEN_HOST}:${PORT}`);
   console.log(`➡️  Printer: ${PRINTER_IP}:${PRINTER_PORT}`);
   if (LOGO_URL) console.log(`🖼  Logo URL: ${LOGO_URL}  (insecure:${ALLOW_INSECURE_LOGO?'yes':'no'}) thr:${LOGO_THRESHOLD} mw:${LOGO_MAX_WIDTH} bright:${LOGO_BRIGHTEN} gamma:${LOGO_GAMMA} dither:${LOGO_DITHER?'on':'off'} blackBoost:${LOGO_BLACK_BOOST} autocrop:${LOGO_AUTOCROP?'on':'off'} pad:${LOGO_CROP_PAD}`);
   console.log(`🏷  Barcode h=${BARCODE_HEIGHT} module=${BARCODE_MODULE}`);

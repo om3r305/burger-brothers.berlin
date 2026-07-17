@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
 import { prisma, getTenantId } from "@/lib/db";
+import { enforceRateLimit, requireAnySessionRole, requireMutationRole } from "@/lib/server/request-security";
 
 export const runtime = "nodejs";
 
@@ -516,9 +517,21 @@ async function handle(request: Request) {
 }
 
 export async function GET(request: Request) {
+  const authError = await requireAnySessionRole(request, ["admin", "tv"]);
+  if (authError) return authError;
+
+  const rateError = enforceRateLimit(request, "brian:export", 10, 60_000);
+  if (rateError) return rateError;
+
   return handle(request);
 }
 
 export async function POST(request: Request) {
+  const authError = await requireMutationRole(request, ["admin", "tv"]);
+  if (authError) return authError;
+
+  const rateError = enforceRateLimit(request, "brian:export", 10, 60_000);
+  if (rateError) return rateError;
+
   return handle(request);
 }

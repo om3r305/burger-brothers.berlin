@@ -93,6 +93,7 @@ async function main() {
 
   const {
     createSessionToken,
+    readSessionToken,
     verifySessionToken,
   } = require(path.join(root, "lib/server/session.ts"));
   const {
@@ -150,11 +151,12 @@ async function main() {
 
   const adminToken = await createSessionToken("admin", 3600);
   const tvToken = await createSessionToken("tv", 3600);
-  const driverToken = await createSessionToken("driver", 3600);
+  const driverToken = await createSessionToken("driver", 3600, "driver-1");
 
   assert.equal(await verifySessionToken(adminToken, "admin"), true);
   assert.equal(await verifySessionToken(adminToken, "tv"), false);
   assert.equal(await verifySessionToken(driverToken, "driver"), true);
+  assert.equal((await readSessionToken(driverToken, "driver"))?.sub, "driver-1");
   assert.equal(
     await verifySessionToken(`${adminToken.slice(0, -1)}x`, "admin"),
     false,
@@ -188,14 +190,73 @@ async function main() {
     }),
   );
 
-  await expectAllowed(middleware, request("/api/orders?id=ABC123"));
-  await expectAllowed(
+  await expectUnauthorized(middleware, request("/api/orders?id=ABC123"));
+  await expectUnauthorized(
     middleware,
     request("/api/orders", { method: "POST" }),
   );
   await expectUnauthorized(
     middleware,
     request("/api/orders", { method: "PUT" }),
+  );
+  await expectAllowed(
+    middleware,
+    request("/api/orders/create", { method: "POST" }),
+  );
+  await expectUnauthorized(
+    middleware,
+    request("/api/products", {
+      method: "PUT",
+      cookie: "bb_admin_sess=ok:forged",
+    }),
+  );
+  await expectAllowed(
+    middleware,
+    request("/api/products", {
+      method: "PUT",
+      cookie: `bb_admin_sess=${encodeURIComponent(adminToken)}`,
+    }),
+  );
+  for (const path of [
+    "/api/coupons",
+    "/api/catalog",
+    "/api/groups",
+    "/api/bootstrap",
+  ]) {
+    await expectUnauthorized(
+      middleware,
+      request(path, {
+        method: "POST",
+        cookie: "bb_admin_sess=ok:forged",
+      }),
+    );
+  }
+
+  await expectUnauthorized(
+    middleware,
+    request("/api/pause", { method: "POST" }),
+  );
+  await expectUnauthorized(
+    middleware,
+    request("/api/track/session-1", { method: "POST" }),
+  );
+  await expectUnauthorized(
+    middleware,
+    request("/api/print/test", { method: "POST" }),
+  );
+  await expectUnauthorized(
+    middleware,
+    request("/api/brian/learn", { method: "POST" }),
+  );
+  await expectAllowed(
+    middleware,
+    request("/api/track/lookup?trackingToken=test"),
+  );
+  await expectAllowed(middleware, request("/api/settings"));
+
+  await expectUnauthorized(
+    middleware,
+    request("/api/not-classified-mutation", { method: "POST" }),
   );
   await expectUnauthorized(
     middleware,

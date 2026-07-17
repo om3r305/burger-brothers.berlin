@@ -513,7 +513,7 @@ async function writeSettingsToDb(settings: ServerSettings) {
 
   if (!entries.length) return;
 
-  await prisma.$transaction(async (tx) => {
+  await prisma.$transaction(async (tx: any) => {
     for (const [key, value] of entries) {
       await saveSettingKey(tx, tenantId, key, value);
     }

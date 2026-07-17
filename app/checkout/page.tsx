@@ -1631,6 +1631,7 @@ export default function CheckoutPage() {
     emergencyMode?: boolean;
     mode?: Mode;
     plannedTime?: string | null;
+    trackingToken?: string;
   } | null>(null);
   const [showConfirm, setShowConfirm] = useState(false);
   const [orderRetryState, setOrderRetryState] = useState<{
@@ -3323,8 +3324,8 @@ export default function CheckoutPage() {
                   </div>
                   {orderMode === "delivery" ? (
                     <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-2 text-xs text-emerald-200">
-                      Hinweis: Der Code gehört zu Ihrer letzten Bestellung und wurde unten
-                      automatisch in die Sendungsverfolgung übernommen.
+                      Hinweis: Ihr persönlicher Tracking-Code wurde unten automatisch in die
+                      Sendungsverfolgung übernommen.
                     </div>
                   ) : (
                     <div className="text-stone-400">
@@ -3336,6 +3337,18 @@ export default function CheckoutPage() {
             </div>
 
             <div className="mt-4 flex flex-wrap items-center gap-2">
+              {confirm.mode === "delivery" && confirm.trackingToken && !confirm.emergencyMode && (
+                <button
+                  type="button"
+                  className="card-cta"
+                  onClick={() => {
+                    window.location.href = `/track/${encodeURIComponent(confirm.trackingToken || "")}`;
+                  }}
+                >
+                  Sendung verfolgen
+                </button>
+              )}
+
               <button
                 type="button"
                 className="card-cta"
@@ -3611,9 +3624,10 @@ export default function CheckoutPage() {
             ),
           );
       const id = result?.id || String(Date.now());
+      const trackingToken = String(result?.trackingToken || "").trim();
 
-      if (orderMode === "delivery" && !emergencyMode) {
-        rememberLastDeliveryTrackId(id);
+      if (orderMode === "delivery" && !emergencyMode && trackingToken) {
+        rememberLastDeliveryTrackId(trackingToken);
       }
 
       if (activeCode) {
@@ -3632,6 +3646,7 @@ export default function CheckoutPage() {
         emergencyMode,
         mode: orderMode,
         plannedTime: confirmedPlannedTime || null,
+        trackingToken: trackingToken || undefined,
       });
       setSubmitted(true);
       setShowConfirm(true);
@@ -3906,11 +3921,20 @@ export default function CheckoutPage() {
       const plannedFromResponse = normalizePlannedHHMM(
         created?.planned ?? created?.order?.planned ?? created?.data?.planned,
       );
+      const trackingToken = String(
+        created?.trackingToken ??
+          created?.order?.trackingToken ??
+          created?.data?.trackingToken ??
+          created?.order?.meta?.trackingToken ??
+          created?.data?.meta?.trackingToken ??
+          "",
+      ).trim();
 
       return {
         id,
         etaMin,
         planned: plannedFromResponse,
+        trackingToken,
         emergencyMode: Boolean(created?.emergencyMode),
       };
     };

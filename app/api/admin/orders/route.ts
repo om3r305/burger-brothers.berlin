@@ -1,6 +1,7 @@
 // app/api/admin/orders/route.ts
 import { NextResponse } from "next/server";
 import { prisma, getTenantId } from "@/lib/db";
+import { requireMutationRole, requireSessionRole } from "@/lib/server/request-security";
 import { generateOrderId } from "@/lib/order-id";
 
 export const runtime = "nodejs";
@@ -886,25 +887,6 @@ function readCookie(req: Request, name: string) {
   return "";
 }
 
-function hasApiSession(req: Request) {
-  const admin = readCookie(req, ADMIN_COOKIE);
-  const tv = readCookie(req, TV_COOKIE);
-
-  return admin.startsWith("ok:") || tv === "1";
-}
-
-function unauthorizedResponse() {
-  return jsonResponse(
-    {
-      ok: false,
-      source: "db",
-      error: "unauthorized",
-      message: "Nicht angemeldet.",
-    },
-    401,
-  );
-}
-
 function jsonResponse(payload: Record<string, any>, status = 200) {
   return NextResponse.json(payload, {
     status,
@@ -958,9 +940,16 @@ async function listOrders(tenantId: string, req?: Request) {
   return rows.map(serializeOrder);
 }
 
+
+async function requireAdminApi(req: Request) {
+  if (req.method === "GET") return requireSessionRole(req, "admin");
+  return requireMutationRole(req, ["admin"]);
+}
+
 export async function GET(req: Request) {
   try {
-    if (!hasApiSession(req)) return unauthorizedResponse();
+    const authError = await requireAdminApi(req);
+    if (authError) return authError;
 
     const tenantId = await getTenantId();
     const url = new URL(req.url);
@@ -1003,7 +992,8 @@ export async function GET(req: Request) {
 
 async function handlePost(req: Request, bodyOverride?: any) {
   try {
-    if (!hasApiSession(req)) return unauthorizedResponse();
+    const authError = await requireAdminApi(req);
+    if (authError) return authError;
 
     const tenantId = await getTenantId();
     const body = bodyOverride ?? (await req.json().catch(() => ({} as any)));

@@ -32,9 +32,7 @@ function safeEq(a: string, b: string) {
 function readToken(req: Request) {
   const auth = req.headers.get("authorization") || "";
   const bearer = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7).trim() : "";
-  const url = new URL(req.url);
-
-  return req.headers.get("x-print-agent-token") || bearer || url.searchParams.get("token") || "";
+  return req.headers.get("x-print-agent-token") || bearer || "";
 }
 
 function authorize(req: Request) {

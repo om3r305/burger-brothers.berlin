@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 import { prisma, getTenantId } from "@/lib/db";
+import { enforceRateLimit, forbiddenResponse, hasTrustedMutationOrigin } from "@/lib/server/request-security";
 import { getServerSettings } from "@/lib/server/settings";
 import {
   getStripeClient,
@@ -209,6 +210,11 @@ function json(payload: any, status = 200) {
 }
 
 export async function POST(req: Request) {
+  if (!hasTrustedMutationOrigin(req)) return forbiddenResponse("origin_not_allowed");
+
+  const rateError = enforceRateLimit(req, "payments:prepare", 10, 5 * 60_000);
+  if (rateError) return rateError;
+
   const body = await req.json().catch(() => ({} as any));
   const order = ensureObj(body?.order);
   const requestedKind =

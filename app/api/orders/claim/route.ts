@@ -1,6 +1,11 @@
 // app/api/orders/claim/route.ts
 import { NextResponse } from "next/server";
 import { prisma, getTenantId } from "@/lib/db";
+import {
+  getSessionSubject,
+  requireMutationRole,
+  securityJson,
+} from "@/lib/server/request-security";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -716,12 +721,27 @@ function claimError(error: string, message: string, status = 409, order: any = n
 }
 
 export async function POST(req: Request) {
+  const authError = await requireMutationRole(req, ["admin", "driver"]);
+  if (authError) return authError;
+
   try {
     const tenantId = await getTenantId();
     const body = await req.json().catch(() => ({} as any));
 
     const id = String(body?.id || body?.orderId || body?.code || "").trim();
-    const driver = extractDriver(body);
+    const requestedDriver = extractDriver(body);
+    const driverSubject = await getSessionSubject(req, "driver");
+
+    if (driverSubject && requestedDriver?.id && requestedDriver.id !== driverSubject) {
+      return securityJson({ ok: false, error: "driver_identity_mismatch" }, 403);
+    }
+
+    const driver = requestedDriver
+      ? {
+          ...requestedDriver,
+          id: driverSubject || requestedDriver.id,
+        }
+      : null;
     const by = cleanText(body?.by || driver?.name || "driver", "driver");
 
     if (!id) {

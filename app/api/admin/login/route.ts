@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "crypto";
 import { NextResponse } from "next/server";
 import { createSessionToken } from "@/lib/server/session";
+import { enforceRateLimit } from "@/lib/server/request-security";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -45,6 +46,9 @@ function json(payload: Record<string, any>, status = 200) {
 }
 
 export async function POST(req: Request) {
+  const rateError = enforceRateLimit(req, "login:admin", 5, 15 * 60_000);
+  if (rateError) return rateError;
+
   try {
     const adminUser = getAdminUser();
     const adminPass = getAdminPass();

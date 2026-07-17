@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma, getTenantId } from "@/lib/db";
+import { requireMutationRole, requireSessionRole } from "@/lib/server/request-security";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -531,6 +532,8 @@ async function buildBackup(params: {
 }
 
 export async function GET(req: Request) {
+  const authError = await requireSessionRole(req, "admin");
+  if (authError) return authError;
   let tenantId = "";
 
   try {
@@ -610,6 +613,8 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  const authError = await requireMutationRole(req, ["admin"]);
+  if (authError) return authError;
   let tenantId = "";
 
   try {

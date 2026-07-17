@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma, getTenantId } from "@/lib/db";
 import { readFallbackSnapshot, writeFallbackSnapshot } from "@/lib/server/fallback-snapshot";
+import { requireMutationRole } from "@/lib/server/request-security";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -61,8 +62,8 @@ function shouldWriteRuntimeSnapshot() {
 
 function hasModelField(modelName: string, fieldName: string) {
   try {
-    const model = Prisma.dmmf.datamodel.models.find((item) => item.name === modelName);
-    return Boolean(model?.fields?.some((field) => field.name === fieldName));
+    const model = Prisma.dmmf.datamodel.models.find((item: any) => item.name === modelName);
+    return Boolean(model?.fields?.some((field: any) => field.name === fieldName));
   } catch {
     return false;
   }
@@ -878,7 +879,7 @@ async function persistCatalog(
 
   try {
     await prisma.$transaction(
-      async (tx) => {
+      async (tx: any) => {
         await run(tx);
       },
       {
@@ -1078,6 +1079,9 @@ export async function GET() {
 }
 
 export async function PUT(req: Request) {
+  const authError = await requireMutationRole(req, ["admin"]);
+  if (authError) return authError;
+
   try {
     const tenantId = await getTenantId();
     const body = await readBody(req);

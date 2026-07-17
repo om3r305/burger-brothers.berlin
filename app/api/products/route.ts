@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma, getTenantId } from "@/lib/db";
 import { readFallbackSnapshot, writeFallbackSnapshot } from "@/lib/server/fallback-snapshot";
+import { requireMutationRole } from "@/lib/server/request-security";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -58,33 +59,14 @@ function shouldWriteRuntimeSnapshot() {
 }
 
 
-function hasAdminSession(req: Request) {
-  const cookie = req.headers.get("cookie") || "";
-  const parts = cookie.split(";").map((part) => part.trim());
-  const found = parts.find((part) => part.startsWith(`${ADMIN_COOKIE}=`));
-  const value = found ? decodeURIComponent(found.slice(ADMIN_COOKIE.length + 1)) : "";
-
-  return value.startsWith("ok:");
-}
-
-function requireAdminAuth(req: Request) {
-  if (hasAdminSession(req)) return null;
-
-  return jsonResponse(
-    {
-      ok: false,
-      source: "db",
-      error: "not_authenticated",
-      message: "Nicht angemeldet.",
-    },
-    401,
-  );
+async function requireAdminAuth(req: Request) {
+  return requireMutationRole(req, ["admin"]);
 }
 
 function hasModelField(modelName: string, fieldName: string) {
   try {
-    const model = Prisma.dmmf.datamodel.models.find((item) => item.name === modelName);
-    return Boolean(model?.fields?.some((field) => field.name === fieldName));
+    const model = Prisma.dmmf.datamodel.models.find((item: any) => item.name === modelName);
+    return Boolean(model?.fields?.some((field: any) => field.name === fieldName));
   } catch {
     return false;
   }
@@ -618,11 +600,13 @@ export async function GET(req: Request) {
 
     if (!allItems) {
       const tenantId = await getTenantId();
-      allItems = await listProducts(tenantId);
-      writeProductsMemoryCache(allItems);
+      const fetchedItems = await listProducts(tenantId);
+      allItems = fetchedItems;
+      writeProductsMemoryCache(fetchedItems);
     }
 
-    let items = allItems;
+    const baseItems: any[] = Array.isArray(allItems) ? allItems : [];
+    let items = baseItems;
 
     if (category && !isAllFilter(category)) {
       const normalizedCategory = normalizeCategory(category);
@@ -669,7 +653,7 @@ export async function GET(req: Request) {
 
 export async function PUT(req: Request) {
   try {
-    const authError = requireAdminAuth(req);
+    const authError = await requireAdminAuth(req);
     if (authError) return authError;
 
     const tenantId = await getTenantId();
@@ -681,7 +665,7 @@ export async function PUT(req: Request) {
 
     const seenSkus = new Set<string>();
 
-    await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx: any) => {
       for (const rawItem of items) {
         const item = normalizeProductInput(rawItem);
         if (!item.sku) continue;
@@ -733,7 +717,7 @@ export async function POST(req: Request) {
 
 export async function DELETE(req: Request) {
   try {
-    const authError = requireAdminAuth(req);
+    const authError = await requireAdminAuth(req);
     if (authError) return authError;
 
     const tenantId = await getTenantId();

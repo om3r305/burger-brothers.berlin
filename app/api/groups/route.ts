@@ -1,6 +1,7 @@
 // app/api/groups/route.ts
 import { NextResponse } from "next/server";
 import { prisma, getTenantId } from "@/lib/db";
+import { requireMutationRole } from "@/lib/server/request-security";
 import { readFallbackSnapshot, writeFallbackSnapshot } from "@/lib/server/fallback-snapshot";
 
 export const runtime = "nodejs";
@@ -537,6 +538,9 @@ export async function GET() {
 }
 
 export async function PUT(req: Request) {
+  const authError = await requireMutationRole(req, ["admin"]);
+  if (authError) return authError;
+
   try {
     const tenantId = await getTenantId();
     const body = await readRequestBody(req);
@@ -555,7 +559,7 @@ export async function PUT(req: Request) {
 
     clearGroupsMemoryCache();
 
-    await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx: any) => {
       if (drinkGroups !== undefined) {
         await saveSettingArrayWithTx(tx, tenantId, KEY_DRINK_GROUPS, drinkGroups);
       }

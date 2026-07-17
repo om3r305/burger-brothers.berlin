@@ -1,6 +1,13 @@
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma, getTenantId } from "@/lib/db";
+import {
+  enforceRateLimit,
+  hasSessionRole,
+  verifyRequestSecret,
+  unauthorizedResponse,
+  securityJson,
+} from "@/lib/server/request-security";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,7 +20,7 @@ const headers = {
   "Cache-Control": "no-store, no-cache, must-revalidate",
 };
 
-type TxClient = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
+type TxClient = any;
 
 function json(data: Record<string, any>, status = 200) {
   return NextResponse.json(data, {
@@ -78,6 +85,27 @@ async function upsertSetting(tx: TxClient, tenantId: string, key: string, value:
 }
 
 export async function POST(req: Request) {
+  const rateError = enforceRateLimit(req, "bootstrap", 3, 15 * 60_000);
+  if (rateError) return rateError;
+
+  const tokenConfigured = Boolean(String(process.env.BOOTSTRAP_MIGRATION_TOKEN || "").trim());
+  const tokenOk = verifyRequestSecret(
+    req,
+    process.env.BOOTSTRAP_MIGRATION_TOKEN,
+    "x-bootstrap-token",
+  );
+  const adminOk = await hasSessionRole(req, "admin");
+  const production = process.env.NODE_ENV === "production" || Boolean(process.env.VERCEL);
+
+  if (production && !tokenConfigured) {
+    return securityJson(
+      { ok: false, error: "bootstrap_disabled", message: "BOOTSTRAP_MIGRATION_TOKEN is not configured." },
+      503,
+    );
+  }
+
+  if (!tokenOk && !adminOk) return unauthorizedResponse();
+
   try {
     const body = await req.json().catch(() => ({}));
 
@@ -94,7 +122,7 @@ export async function POST(req: Request) {
     const seenSkus = new Set<string>();
     const seenCampaigns = new Set<string>();
 
-    await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx: any) => {
       for (const item of products) {
         const sku = cleanText(item?.sku ?? item?.id ?? item?.name);
         if (!sku) continue;

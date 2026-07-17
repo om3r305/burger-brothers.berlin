@@ -8,17 +8,20 @@ export default function TrackIndexRedirect() {
   const q = useSearchParams();
 
   useEffect(() => {
-    // ?order=... veya ?id=... → /track/ID
-    const raw = (q.get("order") || q.get("id") || "").trim();
+    const token = (q.get("token") || q.get("trackingToken") || "").trim();
+    const legacyOrderId = (q.get("order") || q.get("id") || "").trim();
+    const raw = token || legacyOrderId;
+
     if (!raw) return;
 
-    // temizle: boşlukları at, büyük harfe çevir
-    const clean = raw.replace(/\s+/g, "").toUpperCase();
+    // Tracking tokens are case-sensitive. Legacy order IDs may safely be
+    // normalized to uppercase for operational users.
+    const clean = token
+      ? raw.replace(/\s+/g, "")
+      : raw.replace(/\s+/g, "").toUpperCase();
 
-    // aynı sayfaya tekrar gelmeyi önlemek için replace
     router.replace(`/track/${encodeURIComponent(clean)}`);
   }, [q, router]);
 
-  // burada istersen bir loading gösterebilirsin
   return null;
 }

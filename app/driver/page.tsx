@@ -640,7 +640,6 @@ async function fetchDriverOrdersFromDb(signal?: AbortSignal): Promise<ApiOrderLi
   const endpoints = [
     `/api/orders/list?view=driver&includeDone=1&take=500&t=${Date.now()}`,
     `/api/orders/list?includeDone=1&take=500&t=${Date.now()}`,
-    `/api/orders?includeDone=1&take=500&t=${Date.now()}`,
   ];
 
   let lastError: unknown = null;
@@ -826,7 +825,7 @@ function buildMultiStopMapsUrl(ordersToRoute: StoredOrder[], settings: any) {
 }
 
 function openMultiStopMapsRoute(ordersToRoute: StoredOrder[], settings: any) {
-  const validOrders = ordersToRoute.filter((order) => getOrderRouteAddress(order));
+  const validOrders = ordersToRoute.filter((order: any) => getOrderRouteAddress(order));
 
   if (!validOrders.length) {
     alert("Keine Adresse für die Route gefunden.");
@@ -1138,7 +1137,7 @@ function confirmPlannedClaim(ordersToClaim: StoredOrder[]) {
 
   if (!plannedOrders.length) return true;
 
-  const lines = plannedOrders.slice(0, 6).map((order) => {
+  const lines = plannedOrders.slice(0, 6).map((order: any) => {
     const planned = plannedValue(order);
     const address = prettyDeliveryLine(order);
     return `#${(order as any).orderId || order.id}${planned ? ` · Geplant: ${planned}` : ""}${
@@ -1211,22 +1210,24 @@ async function persistDriverOrderSnapshot(
 ) {
   upsertOrder(order as any);
 
-  const res = await fetch("/api/orders", {
-    method: "PUT",
+  const res = await fetch("/api/orders/status", {
+    method: "POST",
     headers: {
       "content-type": "application/json",
       accept: "application/json",
     },
     body: JSON.stringify({
-      orders: [order],
-      replace: false,
+      id: order.id,
+      orderId: (order as any).orderId || order.id,
+      status: fallbackStatus,
+      by,
+      clearDriver: true,
     }),
   });
 
   const data = await res.json().catch(() => ({}));
 
   if (!res.ok || data?.ok === false) {
-    await setOrderStatus(order.id, fallbackStatus, by);
     throw new Error(data?.error || `HTTP ${res.status}`);
   }
 
@@ -1316,10 +1317,8 @@ async function updateOrderStatusOnServer(
     meta: nextMeta,
   };
 
-  const attempts: Array<{ url: string; method: "POST" | "PUT" | "PATCH" }> = [
+  const attempts: Array<{ url: string; method: "POST" }> = [
     { url: "/api/orders/status", method: "POST" },
-    { url: "/api/orders/status", method: "PUT" },
-    { url: "/api/orders/status", method: "PATCH" },
   ];
 
   let lastMessage = "";
@@ -1622,9 +1621,9 @@ export default function DriverPage() {
         const all = await fetchDriverOrdersFromDb(controller.signal);
 
         const visible = all
-          .filter((order) => normalizeMode(order.mode) === "delivery")
-          .filter((order) => !((order as any).archivedAt || (order as any).anonymizedAt))
-          .filter((order) => isOrderForTodayOrFresh(order, tz));
+          .filter((order: any) => normalizeMode(order.mode) === "delivery")
+          .filter((order: any) => !((order as any).archivedAt || (order as any).anonymizedAt))
+          .filter((order: any) => isOrderForTodayOrFresh(order, tz));
 
         latestOrdersRef.current = visible;
         setOrders(visible);
@@ -1726,7 +1725,7 @@ export default function DriverPage() {
   const pending = useMemo(
     () =>
       orders
-        .filter((order) => {
+        .filter((order: any) => {
           const status = normalizeStatus(order.status);
           return (
             normalizeMode(order.mode) === "delivery" &&
@@ -1748,7 +1747,7 @@ export default function DriverPage() {
     if (!current) return [];
 
     return orders
-      .filter((order) => {
+      .filter((order: any) => {
         const status = normalizeStatus(order.status);
         return (
           isDriverOrder(order, current) &&
@@ -1764,7 +1763,7 @@ export default function DriverPage() {
   }, [orders, current]);
 
   const selectedRouteOrders = useMemo(
-    () => mine.filter((order) => routeSelected[String(order.id)]),
+    () => mine.filter((order: any) => routeSelected[String(order.id)]),
     [mine, routeSelected],
   );
 
@@ -1773,7 +1772,7 @@ export default function DriverPage() {
 
     const today = todayKey(tz);
 
-    const list = orders.filter((order) => {
+    const list = orders.filter((order: any) => {
       if (!isDriverOrder(order, current)) return false;
       if (normalizeStatus(order.status) !== "done") return false;
 
@@ -1883,7 +1882,7 @@ export default function DriverPage() {
     }
 
     const selectedOrders = ids
-      .map((id) => orders.find((item) => String(item.id) === id))
+      .map((id) => orders.find((item: any) => String(item.id) === id))
       .filter(Boolean) as StoredOrder[];
 
     if (!confirmPlannedClaim(selectedOrders)) {
@@ -2619,7 +2618,7 @@ export default function DriverPage() {
                   </button>
                 </div>
 
-                {pending.map((order) => {
+                {pending.map((order: any) => {
                   return (
                     <div key={String(order.id)} className={`rounded-2xl p-3 sm:p-4 ${glass}`}>
                       <div className="flex flex-col gap-3">
@@ -2714,7 +2713,7 @@ export default function DriverPage() {
                 </div>
               </div>
 
-              {mine.map((order) => (
+              {mine.map((order: any) => (
                 <OrderWithDetails
                   key={String(order.id)}
                   order={order}

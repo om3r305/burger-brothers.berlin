@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma, getTenantId } from "@/lib/db";
+import { requireMutationRole } from "@/lib/server/request-security";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -100,6 +101,9 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  const authError = await requireMutationRole(req, ["admin", "tv"]);
+  if (authError) return authError;
+
   try {
     const body = await req.json().catch(() => ({}));
     const pause = await writePause(normalizePause(body));

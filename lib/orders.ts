@@ -691,7 +691,7 @@ export function upsertOrder(order: StoredOrder) {
 export function getOrder(id: string): StoredOrder | null {
   const target = idKey(id);
 
-  return readAllOrders().find((item) => idKey(item.id) === target) || null;
+  return readAllOrders().find((item: any) => idKey(item.id) === target) || null;
 }
 
 export function setOrderStatus(id: string, status: OrderStatus, by?: string) {
@@ -939,7 +939,7 @@ function extractSingleOrderFromPayload(data: any, id: string): StoredOrder | nul
 
   const list = extractOrdersFromPayload(data);
 
-  return list.find((item) => idKey(item.id) === target || idKey(item.orderId) === target) || null;
+  return list.find((item: any) => idKey(item.id) === target || idKey(item.orderId) === target) || null;
 }
 
 export async function fetchOrdersFromDb(): Promise<StoredOrder[]> {
@@ -948,7 +948,8 @@ export async function fetchOrdersFromDb(): Promise<StoredOrder[]> {
   }
 
   try {
-    const url = new URL("/api/admin/orders", window.location.origin);
+    const url = new URL("/api/orders/list", window.location.origin);
+    url.searchParams.set("includeDone", "1");
     url.searchParams.set("take", "1000");
     url.searchParams.set("t", String(Date.now()));
 
@@ -985,9 +986,7 @@ export async function fetchOrderFromDb(id: string): Promise<StoredOrder | null> 
   if (!target) return null;
 
   const endpoints = [
-    `/api/track/lookup?id=${encodeURIComponent(target)}`,
-    `/api/admin/orders?id=${encodeURIComponent(target)}`,
-    `/api/orders?id=${encodeURIComponent(target)}`,
+    `/api/orders/list?includeDone=1&take=1000&t=${Date.now()}`,
   ];
 
   for (const endpoint of endpoints) {

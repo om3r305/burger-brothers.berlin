@@ -1,7 +1,9 @@
 // app/api/analytics/collect/route.ts
+import { createHmac } from "node:crypto";
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma, getTenantId } from "@/lib/db";
+import { enforceRateLimit, forbiddenResponse, hasTrustedMutationOrigin, requireSessionRole } from "@/lib/server/request-security";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -82,7 +84,9 @@ function sanitizeJson(value: any): any {
 
     for (const [key, item] of Object.entries(value)) {
       if (!isSafeKey(key)) continue;
-      if (BLOCKED_PROP_KEYS.has(key)) continue;
+      const normalizedKey = key.replace(/[^a-z0-9]/gi, "").toLowerCase();
+      if (BLOCKED_PROP_KEYS.has(key) || BLOCKED_PROP_KEYS.has(normalizedKey)) continue;
+      if (/(phone|telefon|email|mail|name|address|adresse|street|strasse|house|note)/i.test(normalizedKey)) continue;
       if (item === undefined) continue;
 
       out[key] = sanitizeJson(item);
@@ -127,7 +131,19 @@ function cleanSessionId(value: any) {
 function getIpHashSource(req: Request) {
   const forwarded = req.headers.get("x-forwarded-for") || "";
   const realIp = req.headers.get("x-real-ip") || "";
-  return (forwarded.split(",")[0] || realIp || "").trim().slice(0, 80);
+  const ip = (forwarded.split(",")[0] || realIp || "").trim().slice(0, 80);
+  const secret = String(
+    process.env.ANALYTICS_IP_SECRET || process.env.SESSION_SECRET || "",
+  ).trim();
+
+  // Secret yoksa ham IP saklamak yerine alanı boş bırak.
+  if (!ip || secret.length < 32) return "";
+
+  const day = new Date().toISOString().slice(0, 10);
+  return createHmac("sha256", `${secret}:${day}`)
+    .update(ip)
+    .digest("base64url")
+    .slice(0, 32);
 }
 
 async function readSettingArray(tenantId: string, key: string) {
@@ -191,6 +207,16 @@ function buildVisitorFromEvent(req: Request, body: any, event: string) {
  * Nimmt nur unkritische Events an und speichert keine offensichtlichen PII-Felder.
  */
 export async function POST(req: Request) {
+  if (!hasTrustedMutationOrigin(req)) return forbiddenResponse("origin_not_allowed");
+
+  const rateError = enforceRateLimit(req, "analytics:collect", 60, 60_000);
+  if (rateError) return rateError;
+
+  const contentLength = Number(req.headers.get("content-length") || 0);
+  if (contentLength > 32_768) {
+    return NextResponse.json({ ok: false, error: "payload_too_large" }, { status: 413, headers });
+  }
+
   try {
     const tenantId = await getTenantId();
     const body = await req.json().catch(() => ({} as any));
@@ -253,7 +279,10 @@ export async function POST(req: Request) {
   }
 }
 
-export async function GET() {
+export async function GET(req: Request) {
+  const authError = await requireSessionRole(req, "admin");
+  if (authError) return authError;
+
   try {
     const tenantId = await getTenantId();
 

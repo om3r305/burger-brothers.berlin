@@ -1081,7 +1081,6 @@ async function fetchOrdersFromTvEndpoint(): Promise<StoredOrder[]> {
   const endpoints = [
     "/api/orders/list?view=tv&includeDone=1&take=1000",
     "/api/orders/list?includeDone=1&take=1000",
-    "/api/orders?includeDone=1&take=1000",
   ];
 
   let lastError: unknown = null;
@@ -1104,7 +1103,7 @@ async function fetchOrdersFromTvEndpoint(): Promise<StoredOrder[]> {
       /*
         TV / Driver uyumu:
         - Ana kaynak artık /api/orders/list?view=tv.
-        - all=1 ve /api/admin/orders ile bütün geçmişi çekmiyoruz.
+        - Eski admin fallback ile bütün geçmişi çekmiyoruz.
         - İlk çalışan endpoint yeterli görülür; böylece eski/arşiv siparişler TV'ye geri karışmaz.
       */
       return normalizeOrders(data);
@@ -1139,39 +1138,12 @@ async function persistStatusToDb(
 
   const primaryData = await primary.json().catch(() => ({}));
 
-  if (primary.ok && primaryData?.ok !== false) {
-    return primaryData;
+  if (!primary.ok || primaryData?.ok === false) {
+    throw new Error(primaryData?.error || `HTTP ${primary.status}`);
   }
 
-  const fallback = await fetch("/api/admin/orders", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      accept: "application/json",
-    },
-    body: JSON.stringify({
-      ...extra,
-      action: "setStatus",
-      id,
-      status,
-      by,
-      ...(status === "preparing" ? { clearDriver: true } : {}),
-    }),
-  });
-
-  const fallbackData = await fallback.json().catch(() => ({}));
-
-  if (!fallback.ok || fallbackData?.ok === false) {
-    throw new Error(
-      fallbackData?.error ||
-        primaryData?.error ||
-        `HTTP ${fallback.status}`,
-    );
-  }
-
-  return fallbackData;
+  return primaryData;
 }
-
 async function persistEtaAdjustToDb(id: string, deltaMin: number, by = "tv") {
   const res = await fetch("/api/orders/status", {
     method: "POST",
@@ -2858,7 +2830,7 @@ export default function TVPage() {
       }
 
       const previousKeys = soundKnownOrdersRef.current;
-      const newOrders = candidates.filter((order) => {
+      const newOrders = candidates.filter((order: any) => {
         const key = getOrderSoundKey(order);
         return key && !previousKeys.has(key);
       });
@@ -2867,8 +2839,8 @@ export default function TVPage() {
 
       if (!newOrders.length || !soundEnabledRef.current) return;
 
-      const hasDelivery = newOrders.some((order) => getTvSoundKind(order) === "delivery");
-      const hasPickup = newOrders.some((order) => getTvSoundKind(order) === "pickup");
+      const hasDelivery = newOrders.some((order: any) => getTvSoundKind(order) === "delivery");
+      const hasPickup = newOrders.some((order: any) => getTvSoundKind(order) === "pickup");
 
       if (hasDelivery) {
         void playTvSound("delivery");
@@ -3210,7 +3182,7 @@ export default function TVPage() {
 
       const all = Array.from(merged.values());
 
-      const advanced = all.map((order) => ({
+      const advanced = all.map((order: any) => ({
         ...order,
         status: autoDisplayStatus(order, avgPickup, avgDelivery, newGraceMin, tz),
       }));
@@ -3228,7 +3200,7 @@ export default function TVPage() {
       const nextClock: Record<string, TvOrderClockEntry> = {};
       const nextFirstSeen: Record<string, TvFirstSeenEntry> = {};
 
-      const today = advanced.filter((order) => {
+      const today = advanced.filter((order: any) => {
         const id = String(order.id || "");
         if (!id) return false;
 
@@ -3321,7 +3293,7 @@ export default function TVPage() {
 
       minuteCacheRef.current = Object.fromEntries(
         Object.entries(minuteCacheRef.current).filter(([id]) =>
-          today.some((order) => order.id === id),
+          today.some((order: any) => order.id === id),
         ),
       );
 
@@ -3368,7 +3340,7 @@ export default function TVPage() {
   }, [refresh]);
 
   const tabStats = useMemo(() => {
-    const incoming = orders.filter((order) => {
+    const incoming = orders.filter((order: any) => {
       const pickupReady = order.mode === "pickup" && order.status === "ready";
 
       return (
@@ -3398,7 +3370,7 @@ export default function TVPage() {
 
   const filtered = useMemo(() => {
     return orders
-      .filter((order) => {
+      .filter((order: any) => {
         const pickupReady = order.mode === "pickup" && order.status === "ready";
 
         if (view === "incoming") {
@@ -3437,7 +3409,7 @@ export default function TVPage() {
 
   const pendingAcceptOrder = useMemo(() => {
     return orders
-      .filter((order) => order.status === "new")
+      .filter((order: any) => order.status === "new")
       .sort((a, b) => {
         const aStart = getOrderStartMs(a, orderClockRef.current, a.ts) ?? a.ts ?? 0;
         const bStart = getOrderStartMs(b, orderClockRef.current, b.ts) ?? b.ts ?? 0;
@@ -3775,7 +3747,7 @@ export default function TVPage() {
         {filtered.length === 0 ? (
           <div className="text-sm text-stone-400">Keine Einträge.</div>
         ) : (
-          filtered.map((order) => {
+          filtered.map((order: any) => {
             const peers = filtered
               .filter((item) => item.id !== order.id && item.mode === "delivery")
               .map((item) => item.customer?.address || item.customer?.addressLine || "")
@@ -4281,10 +4253,10 @@ export default function TVPage() {
 function SummaryGrid({ orders }: { orders: StoredOrder[] }) {
   const stats = useMemo(() => {
     const total = orders.length;
-    const lifa = orders.filter((order) => order.mode === "delivery").length;
-    const apollon = orders.filter((order) => order.mode === "pickup").length;
-    const online = orders.filter((order) => getPaymentKind(order) === "online").length;
-    const cash = orders.filter((order) => getPaymentKind(order) === "cash").length;
+    const lifa = orders.filter((order: any) => order.mode === "delivery").length;
+    const apollon = orders.filter((order: any) => order.mode === "pickup").length;
+    const online = orders.filter((order: any) => getPaymentKind(order) === "online").length;
+    const cash = orders.filter((order: any) => getPaymentKind(order) === "cash").length;
     const active = orders.filter(
       (order) => order.status !== "done" && order.status !== "cancelled",
     ).length;

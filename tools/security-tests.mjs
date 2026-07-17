@@ -62,7 +62,7 @@ if (!middleware.includes('bb_driver_sess') || !middleware.includes('/api/orders/
 const drivers = fs.readFileSync(path.join(root, "app/api/drivers/route.ts"), "utf8");
 if (!drivers.includes('scryptSync')) failures.push("driver passwords are not scrypt hashed");
 if (/password:\s*clean\(/.test(drivers)) failures.push("driver plaintext password persistence detected");
-if (!drivers.includes('verifySessionToken') || !drivers.includes('export async function PUT(req: NextRequest)')) failures.push("driver management PUT is not admin-session protected");
+if (!drivers.includes('requireMutationRole') || !drivers.includes('export async function PUT(req: Request)')) failures.push("driver management PUT is not admin-session protected");
 if (!drivers.includes('migratedPlaintext') || !drivers.includes('legacyPassword')) failures.push("legacy driver plaintext password migration missing");
 if (!drivers.includes('createSessionToken("driver"') || !drivers.includes('DRIVER_COOKIE')) failures.push("signed driver session cookie missing");
 

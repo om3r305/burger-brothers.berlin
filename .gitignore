@@ -1,60 +1,53 @@
-# Build / cache
+# Dependencies and builds
+node_modules/
 .next/
 out/
 dist/
-.tmp/
-tmp/
-.cache/
-.vercel/
+coverage/
 *.tsbuildinfo
 
-# Dependencies
-node_modules/
-
-# Logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-
-# Secrets and environment files
+# Environment and secrets
 .env
 .env.*
 !.env.example
 *.pem
 *.key
+*.crt
+*.cer
 *.p12
 *.pfx
-*.crt
+*.jks
+*.keystore
+secrets.json
+**/secrets.json
 
-# Local print-system secrets
-print-agent/config.json
-print-proxy/config.json
-print-agent/.env
-print-proxy/.env
-
-# Local databases and dumps
-.data/
-prisma/data/
+# Local databases and data exports
 *.db
 *.sqlite
 *.sqlite3
-*.backup
-*.backup.gz
-*.dump
-*.sql.gz
-security-reports/
+prisma/data/
+prisma/prisma/data/
+data/
+bootstrap.json
+.burger-brothers-fallback-snapshots/
 
-# Archives
+# Local print/agent configuration
+print-agent/config.json
+print-proxy/config.json
+print-proxy/.env
+logs/
+
+# Release/debug artifacts
 *.zip
-*.7z
-*.rar
-*.tar
-*.tar.gz
+*.zipchunk
+*.log
+*.tmp
+*.bak
+package-lock.json.registry-backup-*
+npm-audit-*.json
+SECURITY_*_REPORT.txt
 
-# OS / editor
+# OS/editor
 .DS_Store
 Thumbs.db
-.vscode/
-.idea/
+.vscode/*.local.json

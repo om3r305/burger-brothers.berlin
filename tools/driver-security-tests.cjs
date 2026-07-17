@@ -194,7 +194,9 @@ async function main() {
   assert.equal(authorizedPut.status, 200);
   assert.equal(state.value[0].passwordHash, oldHash);
 
-  const logoutResponse = await route.DELETE();
+  const logoutResponse = await route.DELETE(
+    new Request("https://example.test/api/drivers", { method: "DELETE" }),
+  );
   assert.equal(logoutResponse.status, 200);
   assert.match(
     logoutResponse.headers.get("set-cookie") || "",

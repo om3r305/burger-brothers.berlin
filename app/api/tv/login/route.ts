@@ -3,6 +3,7 @@ import { timingSafeEqual } from "crypto";
 import { NextResponse } from "next/server";
 import { prisma, getTenantId } from "@/lib/db";
 import { createSessionToken } from "@/lib/server/session";
+import { enforceRateLimit } from "@/lib/server/request-security";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -383,6 +384,9 @@ async function jsonOk(req: Request, source: string, redirectTo: string) {
 }
 
 export async function POST(req: Request) {
+  const rateError = enforceRateLimit(req, "login:tv", 8, 15 * 60_000);
+  if (rateError) return rateError;
+
   try {
     const input = await readInput(req);
     const enteredPin = input.pin;

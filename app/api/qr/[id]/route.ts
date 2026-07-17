@@ -1,27 +1,34 @@
-// app/api/qr/[id]/route.ts
 import { NextResponse } from "next/server";
+import {
+  requireAnySessionRole,
+  securityJson,
+} from "@/lib/server/request-security";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 /**
- * Bu endpoint şu an için “sağlık/uyumluluk” amaçlıdır.
- * Proje localStorage temelli olduğu için sunucu tarafında gerçek yazma yok.
- * İlerde veritabanına geçildiğinde burada
- * - PIN doğrulama
- * - sipariş durum güncelleme
- * - driver atama / loglama
- * yapılabilir.
+ * Eski QR mutation endpoint'i artık kullanılmıyor. QR görüntüsü
+ * /api/qr-image/[id], kurye akışı ise güvenli driver session üzerinden çalışır.
  */
+async function gone(req: Request) {
+  const authError = await requireAnySessionRole(req, ["admin", "tv", "driver"]);
+  if (authError) return authError;
 
-export async function GET(
-  _req: Request,
-  { params }: { params: { id: string } }
-) {
-  return NextResponse.json({ ok: true, id: params.id, mode: "qr-api" });
+  return securityJson(
+    {
+      ok: false,
+      error: "legacy_qr_endpoint_disabled",
+    },
+    410,
+  );
 }
 
-export async function POST(
-  _req: Request,
-  { params }: { params: { id: string } }
-) {
-  // Şimdilik sadece 200 dön.
-  return NextResponse.json({ ok: true, id: params.id });
+export async function GET(req: Request) {
+  return gone(req);
+}
+
+export async function POST(req: Request) {
+  return gone(req);
 }

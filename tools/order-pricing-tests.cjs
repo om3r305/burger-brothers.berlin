@@ -45,6 +45,7 @@ const prisma = {
 };
 
 function resolveAlias(request) {
+  if (request === "@/lib/freebies") return "virtual:freebies";
   if (!request.startsWith("@/")) return null;
 
   const base = path.join(root, request.slice(2));
@@ -95,6 +96,12 @@ Module._resolveFilename = function patchedResolve(request, parent, isMain, optio
 };
 
 Module._load = function patchedLoad(request, parent, isMain) {
+  if (request === "virtual:freebies" || request === "@/lib/freebies") {
+    return {
+      evaluateFreebieRules: () => ({ totalFreeUnits: 0, grants: [] }),
+      parseFreebieCategory: (value) => String(value || "sauces"),
+    };
+  }
   if (request === "@/lib/db") return { prisma };
   return originalLoad.call(this, request, parent, isMain);
 };

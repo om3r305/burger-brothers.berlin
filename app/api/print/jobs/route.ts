@@ -32,9 +32,7 @@ function safeEq(a: string, b: string) {
 function readToken(req: Request) {
   const auth = req.headers.get("authorization") || "";
   const bearer = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7).trim() : "";
-  const url = new URL(req.url);
-
-  return req.headers.get("x-print-agent-token") || bearer || url.searchParams.get("token") || "";
+  return req.headers.get("x-print-agent-token") || bearer || "";
 }
 
 function authorize(req: Request) {
@@ -155,6 +153,7 @@ function normalizeItems(value: any) {
       id: item?.id != null ? String(item.id) : undefined,
       sku: item?.sku != null ? String(item.sku) : item?.code != null ? String(item.code) : undefined,
       name: text(item?.name || item?.title, "Artikel"),
+      description: text(item?.description ?? item?.desc ?? item?.itemDescription) || undefined,
       category: item?.category != null ? String(item.category) : undefined,
       price: num(item?.price ?? item?.unitPrice, 0),
       qty: Math.max(1, num(item?.qty ?? item?.quantity ?? 1, 1)),

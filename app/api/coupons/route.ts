@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma, getTenantId } from "@/lib/db";
+import { enforceRateLimit, forbiddenResponse, hasTrustedMutationOrigin, requireMutationRole, requireSessionRole } from "@/lib/server/request-security";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -246,10 +247,10 @@ function hasModelField(modelName: string, fieldName: string) {
       fields: Array<{ name: string }>;
     }>;
 
-    const model = models.find((item) => item.name === modelName);
+    const model = models.find((item: any) => item.name === modelName);
     if (!model) return true;
 
-    return model.fields.some((field) => field.name === fieldName);
+    return model.fields.some((field: any) => field.name === fieldName);
   } catch {
     return true;
   }
@@ -406,27 +407,9 @@ function errorJson(error: string, status = 500, extra?: Record<string, any>) {
   );
 }
 
-function readCookie(req: Request, name: string) {
-  const header = req.headers.get("cookie") || "";
-  const wanted = `${name}=`;
-
-  return header
-    .split(";")
-    .map((part) => part.trim())
-    .find((part) => part.startsWith(wanted))
-    ?.slice(wanted.length) || "";
-}
-
-function hasAdminSession(req: Request) {
-  const value = readCookie(req, ADMIN_COOKIE);
-  return value.startsWith("ok:");
-}
-
-function requireAdmin(req: Request) {
-  if (hasAdminSession(req)) return null;
-  return errorJson("not_authenticated", 401, {
-    message: "Nicht angemeldet.",
-  });
+async function requireAdmin(req: Request) {
+  if (req.method === "GET") return requireSessionRole(req, "admin");
+  return requireMutationRole(req, ["admin"]);
 }
 
 function isPublicPostAction(action: string) {
@@ -646,7 +629,7 @@ async function replaceSnapshotInDb(snapshot: CouponSnapshot): Promise<CouponSnap
       : [],
   };
 
-  await prisma.$transaction(async (tx) => {
+  await prisma.$transaction(async (tx: any) => {
     const seenCouponCodes: string[] = [];
 
     for (const coupon of normalized.coupons) {
@@ -1201,7 +1184,7 @@ function buildDeleteWhere(tenantId: string, code: string, id: string) {
 
 export async function GET(req: Request) {
   try {
-    const unauthorized = requireAdmin(req);
+    const unauthorized = await requireAdmin(req);
     if (unauthorized) return unauthorized;
 
     const url = new URL(req.url);
@@ -1232,8 +1215,14 @@ export async function POST(req: Request) {
     const body = await req.json().catch(() => ({} as any));
     const action = String(body?.action || "");
 
+    if (isPublicPostAction(action)) {
+      if (!hasTrustedMutationOrigin(req)) return forbiddenResponse("origin_not_allowed");
+      const rateError = enforceRateLimit(req, "coupon:validate", 30, 60_000);
+      if (rateError) return rateError;
+    }
+
     if (!isPublicPostAction(action)) {
-      const unauthorized = requireAdmin(req);
+      const unauthorized = await requireAdmin(req);
       if (unauthorized) return unauthorized;
     }
 
@@ -1244,7 +1233,7 @@ export async function POST(req: Request) {
       const items = readItems(body);
       const savedCodes: string[] = [];
 
-      await prisma.$transaction(async (tx) => {
+      await prisma.$transaction(async (tx: any) => {
         for (const raw of items) {
           const saved = await saveCouponToDb(tx, tenantId, raw, current);
           if (saved?.code) savedCodes.push(saved.code);
@@ -1277,7 +1266,7 @@ export async function POST(req: Request) {
       const items = readItems(body);
       const savedCodes: string[] = [];
 
-      await prisma.$transaction(async (tx) => {
+      await prisma.$transaction(async (tx: any) => {
         for (const raw of items) {
           const saved = await saveIssuedToDb(tx, tenantId, raw, current);
           if (saved?.code) savedCodes.push(saved.code);
@@ -1311,7 +1300,7 @@ export async function POST(req: Request) {
       const rawCoupon = body?.coupon ?? body;
       let savedCoupon: CouponDef | null = null;
 
-      await prisma.$transaction(async (tx) => {
+      await prisma.$transaction(async (tx: any) => {
         savedCoupon = await saveCouponToDb(tx, tenantId, rawCoupon, current);
       });
 
@@ -1371,7 +1360,7 @@ export async function POST(req: Request) {
 
       let savedIssued: IssuedCoupon | null = null;
 
-      await prisma.$transaction(async (tx) => {
+      await prisma.$transaction(async (tx: any) => {
         savedIssued = await saveIssuedToDb(tx, tenantId, result.issued, current);
       });
 
@@ -1398,7 +1387,7 @@ export async function POST(req: Request) {
 
       const def = current.coupons.find((coupon) => coupon.id === result.issued?.couponId);
 
-      await prisma.$transaction(async (tx) => {
+      await prisma.$transaction(async (tx: any) => {
         await saveIssuedToDb(
           tx,
           tenantId,
@@ -1433,7 +1422,7 @@ export async function POST(req: Request) {
 
       const def = current.coupons.find((coupon) => coupon.id === result.issued?.couponId);
 
-      await prisma.$transaction(async (tx) => {
+      await prisma.$transaction(async (tx: any) => {
         await saveIssuedToDb(
           tx,
           tenantId,
@@ -1467,9 +1456,6 @@ export async function POST(req: Request) {
           },
           def: null,
           issued: null,
-          coupons: current.coupons,
-          issuedList: current.issued,
-          snapshot: current,
         });
       }
 
@@ -1484,11 +1470,22 @@ export async function POST(req: Request) {
 
       return responseJson({
         result,
-        def: found.def,
-        issued: found.issued,
-        coupons: current.coupons,
-        issuedList: current.issued,
-        snapshot: current,
+        def: found.def
+          ? {
+              code: found.def.code,
+              title: found.def.title || null,
+              type: found.def.type,
+              value: found.def.value,
+              minCartTotal: found.def.minCartTotal || 0,
+            }
+          : null,
+        issued: found.issued
+          ? {
+              code: found.issued.code,
+              used: found.issued.used === true,
+              expiresAt: found.issued.expiresAt || null,
+            }
+          : null,
       });
     }
 
@@ -1524,7 +1521,7 @@ export async function PUT(req: Request) {
 
 export async function DELETE(req: Request) {
   try {
-    const unauthorized = requireAdmin(req);
+    const unauthorized = await requireAdmin(req);
     if (unauthorized) return unauthorized;
 
     const tenantId = await getTenantId();

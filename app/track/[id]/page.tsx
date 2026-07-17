@@ -82,12 +82,18 @@ function chipColor(status: OrderStatus) {
 
 const pad2 = (n: number) => (n < 10 ? `0${n}` : String(n));
 
-function cleanOrderId(value: any) {
+function cleanTrackingToken(value: any) {
   return String(value || "")
     .trim()
     .replace(/^#+/, "")
     .replace(/\s+/g, "")
     .replace(/[^a-zA-Z0-9_-]/g, "");
+}
+
+const cleanOrderId = cleanTrackingToken;
+
+function sameOrderId(a: any, b: any) {
+  return cleanOrderId(a).toLowerCase() === cleanOrderId(b).toLowerCase();
 }
 
 function toNum(value: any, fallback = 0) {
@@ -103,11 +109,11 @@ function toMs(value: any, fallback = Date.now()) {
   }
 
   if (typeof value === "string" && value.trim()) {
+    const n = Number(value);
+    if (Number.isFinite(n) && n > 0) return n;
+
     const d = new Date(value);
     if (Number.isFinite(d.valueOf())) return d.getTime();
-
-    const n = Number(value);
-    if (Number.isFinite(n)) return n;
   }
 
   return fallback;
@@ -241,17 +247,23 @@ function normalizeLivePos(value: any): LivePos | null {
 }
 
 function readDriverPos(orderId: string, order?: any): LivePos | null {
+  const meta = order?.meta || {};
+  const driver = order?.driver || meta?.driver || {};
+
   const fromOrder =
-    normalizeLivePos(order?.meta?.lastPos) ||
-    normalizeLivePos(order?.meta?.driverPos) ||
-    normalizeLivePos(order?.meta?.position) ||
-    normalizeLivePos(order?.driver?.lastPos) ||
-    normalizeLivePos(order?.driver?.position);
+    normalizeLivePos(meta?.lastPos) ||
+    normalizeLivePos(meta?.lastDriverPos) ||
+    normalizeLivePos(meta?.driverPos) ||
+    normalizeLivePos(meta?.position) ||
+    normalizeLivePos(driver?.lastPos) ||
+    normalizeLivePos(driver?.lastDriverPos) ||
+    normalizeLivePos(driver?.driverPos) ||
+    normalizeLivePos(driver?.position);
 
   if (fromOrder) return fromOrder;
 
   try {
-    const raw = localStorage.getItem(`bb_driverpos_${orderId}`);
+    const raw = localStorage.getItem(`bb_driverpos_${cleanOrderId(orderId)}`);
     const parsed = raw ? JSON.parse(raw) : null;
     return normalizeLivePos(parsed);
   } catch {
@@ -280,75 +292,124 @@ function msAgoText(ms: number) {
 }
 
 function normalizeOrder(raw: any, fallbackId = ""): TrackedOrder | null {
-  if (!raw || typeof raw !== "object") return null;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
 
   const nested = raw.order && typeof raw.order === "object" ? raw.order : {};
+  const item = raw.item && typeof raw.item === "object" ? raw.item : {};
+  const source = Object.keys(nested).length ? nested : Object.keys(item).length ? item : raw;
+
   const customer =
-    raw.customer && typeof raw.customer === "object"
-      ? raw.customer
-      : nested.customer && typeof nested.customer === "object"
-        ? nested.customer
+    source.customer && typeof source.customer === "object"
+      ? source.customer
+      : raw.customer && typeof raw.customer === "object"
+        ? raw.customer
         : {};
 
-  const id = cleanOrderId(raw.orderId || raw.id || nested.orderId || nested.id || fallbackId);
+  const id = cleanOrderId(
+    source.orderId ||
+      source.id ||
+      raw.orderId ||
+      raw.id ||
+      nested.orderId ||
+      nested.id ||
+      item.orderId ||
+      item.id ||
+      fallbackId,
+  );
+
   if (!id) return null;
 
+  const sourceMeta =
+    source.meta && typeof source.meta === "object"
+      ? source.meta
+      : raw.meta && typeof raw.meta === "object"
+        ? raw.meta
+        : {};
+
   return {
-    ...raw,
+    ...source,
     id,
-    orderId: id,
-    ts: toMs(raw.ts ?? nested.ts ?? raw.createdAt ?? nested.createdAt, Date.now()),
-    createdAt: raw.createdAt ?? nested.createdAt ?? null,
-    updatedAt: raw.updatedAt ?? nested.updatedAt ?? null,
-    mode: normalizeMode(raw.mode ?? nested.mode),
+    orderId: cleanOrderId(source.orderId || raw.orderId || id),
+    ts: toMs(
+      source.ts ??
+        raw.ts ??
+        source.createdAt ??
+        raw.createdAt ??
+        sourceMeta.createdAt ??
+        sourceMeta.orderCreatedAt,
+      Date.now(),
+    ),
+    createdAt: source.createdAt ?? raw.createdAt ?? sourceMeta.createdAt ?? null,
+    updatedAt: source.updatedAt ?? raw.updatedAt ?? null,
+    mode: normalizeMode(source.mode ?? raw.mode ?? sourceMeta.mode),
     status: normalizeStatus(
-      raw.status ??
-        nested.status ??
-        raw.meta?.statusManual ??
-        nested.meta?.statusManual ??
+      source.status ??
+        raw.status ??
+        sourceMeta.statusManual ??
+        sourceMeta.status ??
+        source.legacyStatus ??
+        source.statusLegacy ??
         raw.legacyStatus ??
         raw.statusLegacy,
     ),
-    legacyStatus: raw.legacyStatus ?? raw.statusLegacy ?? undefined,
+    legacyStatus: source.legacyStatus ?? source.statusLegacy ?? raw.legacyStatus ?? undefined,
     etaMin:
-      raw.etaMin != null
-        ? toNum(raw.etaMin, 0)
-        : nested.etaMin != null
-          ? toNum(nested.etaMin, 0)
+      source.etaMin != null
+        ? toNum(source.etaMin, 0)
+        : raw.etaMin != null
+          ? toNum(raw.etaMin, 0)
           : null,
     etaAdjustMin:
-      raw.etaAdjustMin != null
-        ? toNum(raw.etaAdjustMin, 0)
-        : nested.etaAdjustMin != null
-          ? toNum(nested.etaAdjustMin, 0)
-          : 0,
-    planned: raw.planned ?? nested.planned ?? null,
+      source.etaAdjustMin != null
+        ? toNum(source.etaAdjustMin, 0)
+        : raw.etaAdjustMin != null
+          ? toNum(raw.etaAdjustMin, 0)
+          : sourceMeta.etaAdjustMin != null
+            ? toNum(sourceMeta.etaAdjustMin, 0)
+            : 0,
+    planned: source.planned ?? raw.planned ?? null,
     customer,
-    customerName: raw.customerName ?? customer.name ?? "",
-    phone: raw.phone ?? customer.phone ?? "",
+    customerName: source.customerName ?? raw.customerName ?? customer.name ?? "",
+    phone: source.phone ?? raw.phone ?? customer.phone ?? "",
     addressLine:
+      source.addressLine ??
       raw.addressLine ??
       customer.addressLine ??
       customer.address ??
-      nested.addressLine ??
       "",
-    note: raw.note ?? customer.note ?? customer.deliveryHint ?? nested.note ?? "",
-    items: Array.isArray(raw.items)
-      ? raw.items
-      : Array.isArray(nested.items)
-        ? nested.items
+    note: source.note ?? raw.note ?? customer.note ?? customer.deliveryHint ?? "",
+    items: Array.isArray(source.items)
+      ? source.items
+      : Array.isArray(raw.items)
+        ? raw.items
         : [],
-    total: raw.total ?? nested.total,
-    meta:
-      raw.meta && typeof raw.meta === "object"
-        ? raw.meta
-        : nested.meta && typeof nested.meta === "object"
-          ? nested.meta
-          : {},
-    driver: raw.driver ?? nested.driver ?? null,
-    doneAt: raw.doneAt ?? nested.doneAt ?? null,
-    cancelledAt: raw.cancelledAt ?? nested.cancelledAt ?? null,
+    total: source.total ?? raw.total,
+    meta: sourceMeta,
+    driver: source.driver ?? raw.driver ?? sourceMeta.driver ?? null,
+    doneAt: source.doneAt ?? raw.doneAt ?? sourceMeta.doneAt ?? null,
+    cancelledAt: source.cancelledAt ?? raw.cancelledAt ?? sourceMeta.cancelledAt ?? null,
   };
+}
+
+function findOrderInArray(arr: any[], id: string): TrackedOrder | null {
+  const target = cleanOrderId(id);
+
+  for (const item of arr) {
+    const rawId =
+      item?.orderId ||
+      item?.id ||
+      item?.order?.orderId ||
+      item?.order?.id ||
+      item?.item?.orderId ||
+      item?.item?.id;
+
+    if (!sameOrderId(rawId, target)) continue;
+
+    const normalized = normalizeOrder(item, target);
+    if (normalized) return normalized;
+  }
+
+  return null;
 }
 
 function findOrderInPayload(payload: any, id: string): TrackedOrder | null {
@@ -357,73 +418,100 @@ function findOrderInPayload(payload: any, id: string): TrackedOrder | null {
   const directCandidates = [
     payload?.order,
     payload?.item,
-    payload?.data,
     payload?.result,
+    payload?.data && !Array.isArray(payload.data) ? payload.data : null,
     payload,
   ];
 
   for (const candidate of directCandidates) {
     const normalized = normalizeOrder(candidate, target);
-    if (normalized && cleanOrderId(normalized.id) === target) {
+
+    if (
+      normalized &&
+      (sameOrderId(normalized.id, target) || sameOrderId(normalized.orderId, target))
+    ) {
       return normalized;
     }
   }
 
   const arrays = [
-    payload?.allOrders,
-    payload?.orders,
-    payload?.doneOrders,
-    payload?.items,
+    Array.isArray(payload?.data) ? payload.data : null,
+    Array.isArray(payload?.orders) ? payload.orders : null,
+    Array.isArray(payload?.items) ? payload.items : null,
+    Array.isArray(payload?.list) ? payload.list : null,
+    Array.isArray(payload?.allOrders) ? payload.allOrders : null,
+    Array.isArray(payload?.doneOrders) ? payload.doneOrders : null,
     Array.isArray(payload) ? payload : null,
   ];
 
   for (const arr of arrays) {
     if (!Array.isArray(arr)) continue;
 
-    const found = arr.find((item) => {
-      const itemId = cleanOrderId(item?.orderId || item?.id || item?.order?.id);
-      return itemId === target;
-    });
-
-    const normalized = normalizeOrder(found, target);
-    if (normalized) return normalized;
+    const found = findOrderInArray(arr, target);
+    if (found) return found;
   }
 
   return null;
 }
 
-async function fetchOrderFromDb(id: string): Promise<TrackedOrder | null> {
-  const target = cleanOrderId(id);
-  if (!target) return null;
+async function fetchOrderFromDb(trackingToken: string): Promise<TrackedOrder | null> {
+  const token = cleanTrackingToken(trackingToken);
+  if (!token) return null;
 
-  const endpoints = [
-    `/api/track/lookup?id=${encodeURIComponent(target)}`,
-    `/api/orders?id=${encodeURIComponent(target)}`,
-    `/api/orders/list?all=1&take=1000&t=${Date.now()}`,
-  ];
-
-  for (const endpoint of endpoints) {
-    try {
-      const res = await fetch(endpoint, {
+  try {
+    const res = await fetch(
+      `/api/track/lookup?trackingToken=${encodeURIComponent(token)}&t=${Date.now()}`,
+      {
         method: "GET",
         cache: "no-store",
-        headers: {
-          accept: "application/json",
-        },
-      });
+        headers: { accept: "application/json" },
+      },
+    );
 
-      if (!res.ok) continue;
+    if (!res.ok) return null;
 
-      const json = await res.json().catch(() => ({}));
-      if (json?.ok === false) continue;
+    const json = await res.json().catch(() => ({} as any));
+    if (json?.ok === false) return null;
 
-      const found = findOrderInPayload(json, target);
-
-      if (found) return found;
-    } catch {}
+    return normalizeOrder(json?.order || json?.data || json?.item || json);
+  } catch {
+    return null;
   }
+}
 
-  return null;
+async function fetchTrackingPosition(trackingToken: string): Promise<LivePos | null> {
+  const token = cleanTrackingToken(trackingToken);
+  if (!token) return null;
+
+  try {
+    const res = await fetch(
+      `/api/track/by-order/${encodeURIComponent(token)}?trackingToken=${encodeURIComponent(token)}&t=${Date.now()}`,
+      {
+        method: "GET",
+        cache: "no-store",
+        headers: { accept: "application/json" },
+      },
+    );
+
+    if (!res.ok) return null;
+
+    const json = await res.json().catch(() => ({} as any));
+    const last = json?.session?.last;
+    const lat = Number(last?.lat);
+    const lng = Number(last?.lng);
+
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+
+    return {
+      lat,
+      lng,
+      ts: Number.isFinite(Number(last?.ts))
+        ? Number(last.ts)
+        : Date.parse(String(json?.session?.updatedAt || "")) || Date.now(),
+    };
+  } catch {
+    return null;
+  }
 }
 
 /* ---- PAGE ---- */
@@ -432,7 +520,7 @@ export default function TrackDetailPage() {
   const router = useRouter();
   const params = useParams<{ id?: string }>();
 
-  const idStr = cleanOrderId(decodeURIComponent(String(params?.id || "")));
+  const idStr = cleanTrackingToken(decodeURIComponent(String(params?.id || "")));
 
   const [settingsTick, setSettingsTick] = useState(0);
   const settings = useMemo(() => readSettings() as any, [settingsTick]);
@@ -445,6 +533,7 @@ export default function TrackDetailPage() {
   const [pos, setPos] = useState<LivePos | null>(null);
   const [now, setNow] = useState<number>(Date.now());
   const [loading, setLoading] = useState(true);
+  const [notFoundOnce, setNotFoundOnce] = useState(false);
 
   useEffect(() => {
     const footer = document.querySelector("footer") as HTMLElement | null;
@@ -473,21 +562,48 @@ export default function TrackDetailPage() {
     };
   }, []);
 
+  const applyOrderResult = useCallback(
+    (fromDb: TrackedOrder | null, livePosition: LivePos | null, forceClear = false) => {
+      setNow(Date.now());
+
+      if (fromDb) {
+        setOrder(fromDb);
+        setPos(livePosition);
+        setNotFoundOnce(false);
+        return;
+      }
+
+      setOrder((prev) => {
+        if (prev && !forceClear) {
+          if (livePosition) setPos(livePosition);
+          return prev;
+        }
+
+        setPos(null);
+        return null;
+      });
+
+      setNotFoundOnce(true);
+    },
+    [],
+  );
+
   const loadOrder = useCallback(
     async (showLoading = false) => {
       if (!idStr) return;
 
       if (showLoading) setLoading(true);
 
-      const fromDb = await fetchOrderFromDb(idStr);
+      const [fromDb, livePosition] = await Promise.all([
+        fetchOrderFromDb(idStr),
+        fetchTrackingPosition(idStr),
+      ]);
 
-      setOrder(fromDb);
-      setPos(fromDb ? readDriverPos(String(fromDb.id || idStr), fromDb) : null);
-      setNow(Date.now());
+      applyOrderResult(fromDb, livePosition, showLoading && !order);
 
       if (showLoading) setLoading(false);
     },
-    [idStr],
+    [idStr, applyOrderResult, order],
   );
 
   useEffect(() => {
@@ -496,19 +612,21 @@ export default function TrackDetailPage() {
     (async () => {
       setLoading(true);
 
-      const fromDb = await fetchOrderFromDb(idStr);
+      const [fromDb, livePosition] = await Promise.all([
+        fetchOrderFromDb(idStr),
+        fetchTrackingPosition(idStr),
+      ]);
+
       if (stopped) return;
 
-      setOrder(fromDb);
-      setPos(fromDb ? readDriverPos(String(fromDb.id || idStr), fromDb) : null);
-      setNow(Date.now());
+      applyOrderResult(fromDb, livePosition, true);
       setLoading(false);
     })();
 
     return () => {
       stopped = true;
     };
-  }, [idStr]);
+  }, [idStr, applyOrderResult]);
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {
@@ -519,12 +637,23 @@ export default function TrackDetailPage() {
   }, [loadOrder]);
 
   useEffect(() => {
+    const refreshFromLocalOrDb = () => {
+      loadOrder(false);
+    };
+
     const onStorage = (event: StorageEvent) => {
       if (!event.key) return;
 
-      if (event.key === `bb_driverpos_${idStr}` || event.key === "bb_driverpos_ping") {
-        loadOrder(false);
+      if (
+        event.key === `bb_driverpos_${idStr}` ||
+        event.key === "bb_driverpos_ping"
+      ) {
+        refreshFromLocalOrDb();
       }
+    };
+
+    const onCustomDriverPos = () => {
+      refreshFromLocalOrDb();
     };
 
     const onFocus = () => {
@@ -532,10 +661,12 @@ export default function TrackDetailPage() {
     };
 
     window.addEventListener("storage", onStorage);
+    window.addEventListener("bb:driver-pos-ping", onCustomDriverPos as EventListener);
     window.addEventListener("focus", onFocus);
 
     return () => {
       window.removeEventListener("storage", onStorage);
+      window.removeEventListener("bb:driver-pos-ping", onCustomDriverPos as EventListener);
       window.removeEventListener("focus", onFocus);
     };
   }, [idStr, loadOrder]);
@@ -601,8 +732,13 @@ export default function TrackDetailPage() {
           <div className="rounded-2xl border border-rose-400/40 bg-rose-500/10 p-4 text-rose-200">
             <div className="mb-1 font-semibold">Bestellung nicht gefunden</div>
             <div>
-              Die Nummer <b>#{idStr}</b> konnte nicht gefunden werden.
+              Der Tracking-Code konnte nicht gefunden werden oder ist abgelaufen.
             </div>
+            {notFoundOnce && (
+              <div className="mt-2 text-xs text-rose-100/80">
+                Bitte prüfen Sie den persönlichen Tracking-Code oder versuchen Sie es später erneut.
+              </div>
+            )}
           </div>
         </section>
       ) : (
@@ -644,14 +780,8 @@ export default function TrackDetailPage() {
               </div>
 
               <div className="mt-3 space-y-1 text-sm text-stone-200/90">
-                {order.mode === "delivery" && (
-                  <div>
-                    <b>Adresse:</b> {prettyDeliveryLine(order) || "-"}
-                  </div>
-                )}
-
                 <div>
-                  <b>Kunde:</b> {order.customer?.name || order.customerName || "-"}
+                  <b>Art:</b> {order.mode === "pickup" ? "Abholung" : "Lieferung"}
                 </div>
 
                 {order.planned && (

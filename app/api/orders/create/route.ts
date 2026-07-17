@@ -1,6 +1,9 @@
 // app/api/orders/create/route.ts
 import { NextResponse } from "next/server";
 import { prisma, getTenantId } from "@/lib/db";
+import { enforceRateLimit, forbiddenResponse, hasTrustedMutationOrigin } from "@/lib/server/request-security";
+import { createTrackingToken, readOrderTrackingToken } from "@/lib/server/public-order";
+import { OrderPricingError, rebuildOrderPricingFromDatabase } from "@/lib/server/order-pricing";
 import { generateOrderId } from "@/lib/order-id";
 import { getServerSettings, saveServerSettings } from "@/lib/server/settings";
 import { sendTelegramNewOrder } from "@/lib/telegram";
@@ -809,6 +812,7 @@ function buildOrderMeta(params: {
     source,
     orderId,
     trackingCode: incomingMeta?.trackingCode ?? orderId,
+    trackingToken: incomingMeta?.trackingToken ?? createTrackingToken(),
     code: incomingMeta?.code ?? orderId,
     note: note || null,
     orderNote: note || null,
@@ -1409,6 +1413,23 @@ async function sendEmergencyTelegramOrder(params: {
   return "helper";
 }
 
+async function databaseUnavailableForEmergency() {
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+
+  try {
+    const reachable = await Promise.race([
+      getTenantId().then(() => true).catch(() => false),
+      new Promise<boolean>((resolve) => {
+        timeout = setTimeout(() => resolve(false), 2_500);
+      }),
+    ]);
+
+    return !reachable;
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
 async function handleEmergencyOrder(body: any, order: any) {
   const nowMs = Date.now();
   const id =
@@ -1431,7 +1452,7 @@ async function handleEmergencyOrder(body: any, order: any) {
       Math.max(0, merchandise + surcharges - discount - couponDiscount),
     ),
   );
-  const reason = cleanText(body?.emergencyReason) || "DB bağlantısı kurulamadı.";
+  const reason = "DB bağlantısı sunucu tarafından doğrulanamadı; fiyatlar acil modda manuel kontrol edilmelidir.";
   const waitMs = Math.max(0, toNum(body?.emergencyWaitMs, 5 * 60 * 1000));
 
   const telegramVia = await sendEmergencyTelegramOrder({
@@ -1471,6 +1492,19 @@ async function handleEmergencyOrder(body: any, order: any) {
 }
 
 export async function POST(req: Request) {
+  if (!hasTrustedMutationOrigin(req)) return forbiddenResponse("origin_not_allowed");
+
+  const contentLength = Number(req.headers.get("content-length") || 0);
+  if (contentLength > 512_000) {
+    return NextResponse.json(
+      { ok: false, error: "payload_too_large" },
+      { status: 413, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+
+  const rateError = enforceRateLimit(req, "orders:create", 20, 60_000);
+  if (rateError) return rateError;
+
   const body = await req.json().catch(() => ({} as any));
   const order = body?.order && typeof body.order === "object" ? body.order : body;
 
@@ -1524,6 +1558,30 @@ export async function POST(req: Request) {
   }
 
   if (body?.emergencyMode === true || body?.notfallMode === true) {
+    const emergencyRateError = enforceRateLimit(
+      req,
+      "orders:emergency",
+      2,
+      10 * 60_000,
+    );
+    if (emergencyRateError) return emergencyRateError;
+
+    if (!(await databaseUnavailableForEmergency())) {
+      return NextResponse.json(
+        {
+          ok: false,
+          source: "db",
+          emergencyMode: false,
+          error: "EMERGENCY_MODE_NOT_AVAILABLE",
+          message: "Die Datenbank ist erreichbar. Bitte Bestellung normal senden.",
+        },
+        {
+          status: 409,
+          headers: { "Cache-Control": "no-store, no-cache, must-revalidate" },
+        },
+      );
+    }
+
     try {
       return await handleEmergencyOrder(body, order);
     } catch (error: any) {
@@ -1579,6 +1637,7 @@ export async function POST(req: Request) {
             orderId: id,
             etaMin: existing?.etaMin ?? null,
             planned: existing?.planned ?? null,
+            trackingToken: readOrderTrackingToken(existing),
             notifySent: false,
             order: serializedExisting,
             item: serializedExisting,
@@ -1606,8 +1665,15 @@ export async function POST(req: Request) {
     const source = normalizeSource(order?.source ?? order?.channel, mode);
     const nowMs = Date.now();
 
-    const items = normalizeItems(order);
     const customer = normalizeCustomer(order);
+    const rebuiltPricing = await rebuildOrderPricingFromDatabase({
+      tenantId,
+      order,
+      settings,
+      now: new Date(nowMs),
+    });
+
+    const items = normalizeItems({ items: rebuiltPricing.items });
 
     const unavailableItems = findUnavailableOrderItems(items, settings, nowMs);
     if (unavailableItems.length) {
@@ -1628,20 +1694,14 @@ export async function POST(req: Request) {
       );
     }
 
-    const computedMerchandise = computeMerchandise(items);
-    const merchandise = toNum(order?.merchandise, computedMerchandise);
-    const discount = toNum(order?.discount, 0);
-    const surcharges = toNum(order?.surcharges, 0);
-
-    const coupon = order?.coupon ? normCouponCode(order.coupon) : null;
-    const couponDiscount = toNum(order?.couponDiscount, 0);
-
-    const total = roundToNearest10Cents(
-      toNum(
-        order?.total,
-        Math.max(0, merchandise + surcharges - discount - couponDiscount),
-      ),
-    );
+    const merchandise = +(rebuiltPricing.merchandiseCents / 100).toFixed(2);
+    const discount = +(rebuiltPricing.discountCents / 100).toFixed(2);
+    const surcharges = +(rebuiltPricing.surchargesCents / 100).toFixed(2);
+    const coupon = rebuiltPricing.couponCode
+      ? normCouponCode(rebuiltPricing.couponCode)
+      : null;
+    const couponDiscount = +(rebuiltPricing.couponDiscountCents / 100).toFixed(2);
+    const total = +(rebuiltPricing.payableCents / 100).toFixed(2);
 
     const baseMeta = sanitizeJson({
       ...buildOrderMeta({
@@ -1660,6 +1720,7 @@ export async function POST(req: Request) {
       acceptedEtaMin: null,
       acceptStatus: "waiting_accept",
       printStatus: "waiting_accept",
+      pricing: rebuiltPricing.pricingMeta,
     });
 
     const data: Record<string, any> = {
@@ -1698,7 +1759,7 @@ export async function POST(req: Request) {
       data.print = sanitizeJson(order?.print ?? baseMeta?.print ?? null);
     }
 
-    const created = await prisma.$transaction(async (tx) => {
+    const created = await prisma.$transaction(async (tx: any) => {
       const redeemedIssued = await redeemIssuedCouponIfNeeded({
         tx,
         tenantId,
@@ -1801,6 +1862,7 @@ export async function POST(req: Request) {
         orderId: id,
         etaMin,
         planned,
+        trackingToken: readOrderTrackingToken(created),
         notifySent,
         routeDealActivated,
         order: serialized,
@@ -1818,7 +1880,11 @@ export async function POST(req: Request) {
 
     const errorCode = error?.code || error?.message || "bad_request";
     const isCouponError = Boolean(error?.couponError);
-    const status = Number(error?.status || (isCouponError ? 409 : 503));
+    const isPricingError = error instanceof OrderPricingError;
+    const status = Number(
+      error?.status ||
+        (isPricingError ? error.status : isCouponError ? 409 : 503),
+    );
 
     return NextResponse.json(
       {

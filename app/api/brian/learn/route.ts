@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
 import { prisma, getTenantId } from "@/lib/db";
+import { enforceRateLimit, requireMutationRole } from "@/lib/server/request-security";
 
 export const runtime = "nodejs";
 
@@ -129,6 +130,12 @@ function pickDriver(body: any) {
 }
 
 export async function POST(req: Request) {
+  const authError = await requireMutationRole(req, ["admin", "tv"]);
+  if (authError) return authError;
+
+  const rateError = enforceRateLimit(req, "brian:learn", 30, 60_000);
+  if (rateError) return rateError;
+
   const reqHost = req.headers.get("host");
 
   try {
@@ -140,7 +147,6 @@ export async function POST(req: Request) {
           ok: false,
           error: "host_not_allowed",
           host: reqHost,
-          allowed: ALLOWED_HOSTS,
         },
         { status: 403 }
       );
@@ -166,14 +172,6 @@ export async function POST(req: Request) {
     const occurredAtDate = parseOccurredAt(body?.occurredAt);
     const occurredAt = occurredAtDate.toISOString();
 
-    const ua = req.headers.get("user-agent") || "";
-    const ip =
-      (req.headers.get("x-forwarded-for") || "")
-        .split(",")[0]
-        ?.trim() ||
-      req.headers.get("x-real-ip") ||
-      "";
-
     const orderId = safeString(
       body?.orderId || body?.id || body?.order?.id || "",
       160
@@ -198,8 +196,6 @@ export async function POST(req: Request) {
       occurredAt,
       mode,
       host: reqHost || "",
-      ip,
-      ua,
       orderId,
       driverId,
       driverName,

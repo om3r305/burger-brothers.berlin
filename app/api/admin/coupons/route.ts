@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma, getTenantId } from "@/lib/db";
+import { requireMutationRole, requireSessionRole } from "@/lib/server/request-security";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,33 +12,9 @@ type CouponKind = "coupons" | "issued";
 
 const ADMIN_COOKIE = process.env.ADMIN_COOKIE_NAME || "bb_admin_sess";
 
-function getCookie(req: Request, name: string) {
-  const cookie = req.headers.get("cookie") || "";
-
-  for (const part of cookie.split(";")) {
-    const [rawKey, ...rest] = part.trim().split("=");
-    if (rawKey === name) return decodeURIComponent(rest.join("=") || "");
-  }
-
-  return "";
-}
-
-function hasAdminSession(req: Request) {
-  return getCookie(req, ADMIN_COOKIE).startsWith("ok:");
-}
-
-function requireAdmin(req: Request) {
-  if (hasAdminSession(req)) return null;
-
-  return jsonResponse(
-    {
-      ok: false,
-      source: "db",
-      error: "not_authenticated",
-      message: "Nicht angemeldet.",
-    },
-    401,
-  );
+async function requireAdmin(req: Request) {
+  if (req.method === "GET") return requireSessionRole(req, "admin");
+  return requireMutationRole(req, ["admin"]);
 }
 
 function cleanText(value: any, fallback = "") {
@@ -321,7 +298,7 @@ function errorResponse(error: any, fallback: string, status = 500) {
 }
 
 export async function GET(req: Request) {
-  const auth = requireAdmin(req);
+  const auth = await requireAdmin(req);
   if (auth) return auth;
 
   try {
@@ -384,7 +361,7 @@ export async function GET(req: Request) {
  * - { replace: true, kind, items }     -> replace list, delete missing only if list is not empty
  */
 export async function POST(req: Request) {
-  const auth = requireAdmin(req);
+  const auth = await requireAdmin(req);
   if (auth) return auth;
 
   try {
@@ -397,7 +374,7 @@ export async function POST(req: Request) {
     if (kind === "coupons") {
       const codes: string[] = [];
 
-      await prisma.$transaction(async (tx) => {
+      await prisma.$transaction(async (tx: any) => {
         for (const raw of items) {
           const code = await saveCoupon(tx, tenantId, raw);
           if (code) codes.push(code);
@@ -426,7 +403,7 @@ export async function POST(req: Request) {
 
     const issuedCodes: string[] = [];
 
-    await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx: any) => {
       for (const raw of items) {
         const code = await saveIssuedCoupon(tx, tenantId, raw);
         if (code) issuedCodes.push(code);
@@ -461,7 +438,7 @@ export async function PUT(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  const auth = requireAdmin(req);
+  const auth = await requireAdmin(req);
   if (auth) return auth;
 
   try {

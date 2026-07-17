@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma, getTenantId } from "@/lib/db";
+import { requireMutationRole, requireSessionRole } from "@/lib/server/request-security";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,20 +17,11 @@ type VisitorPing = {
 };
 
 const KEY = "visitors";
-const ADMIN_COOKIE_NAME = process.env.ADMIN_COOKIE_NAME || "bb_admin_sess";
 
 const NO_STORE_HEADERS = {
   "Cache-Control": "no-store, no-cache, must-revalidate",
 };
 
-function hasAdminSession(req: Request) {
-  const rawCookie = req.headers.get("cookie") || "";
-
-  return rawCookie
-    .split(";")
-    .map((part) => part.trim())
-    .some((part) => part.startsWith(`${ADMIN_COOKIE_NAME}=`));
-}
 
 function unauthorized() {
   return NextResponse.json(
@@ -279,7 +271,10 @@ function filterVisitorsByQuery(visitors: VisitorPing[], searchParams: URLSearchP
 }
 
 export async function GET(req: Request) {
-  if (!hasAdminSession(req)) return unauthorized();
+  const authError = req.method === "GET"
+    ? await requireSessionRole(req, "admin")
+    : await requireMutationRole(req, ["admin"]);
+  if (authError) return authError;
 
   try {
     const url = new URL(req.url);
@@ -298,7 +293,10 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  if (!hasAdminSession(req)) return unauthorized();
+  const authError = req.method === "GET"
+    ? await requireSessionRole(req, "admin")
+    : await requireMutationRole(req, ["admin"]);
+  if (authError) return authError;
 
   try {
     const body = await req.json().catch(() => ({} as any));
@@ -360,7 +358,10 @@ export async function PUT(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  if (!hasAdminSession(req)) return unauthorized();
+  const authError = req.method === "GET"
+    ? await requireSessionRole(req, "admin")
+    : await requireMutationRole(req, ["admin"]);
+  if (authError) return authError;
 
   try {
     const saved = await writeVisitors([]);

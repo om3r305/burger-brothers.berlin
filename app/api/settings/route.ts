@@ -4,6 +4,7 @@ import { prisma, getTenantId } from "@/lib/db";
 import { readFallbackSnapshot, writeFallbackSnapshot } from "@/lib/server/fallback-snapshot";
 import { createDefaultThemeSettings } from "@/lib/themes";
 import { verifySessionToken } from "@/lib/server/session";
+import { enforceRateLimit, forbiddenResponse, hasTrustedMutationOrigin } from "@/lib/server/request-security";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -303,24 +304,131 @@ function sanitizeJson(value: any): any {
 }
 
 
+const PUBLIC_SETTING_KEYS = new Set([
+  "version",
+  "shop",
+  "store",
+  "business",
+  "branding",
+  "contact",
+  "social",
+  "legal",
+  "seo",
+  "location",
+  "hours",
+  "delivery",
+  "pickup",
+  "checkout",
+  "orders",
+  "pricing",
+  "fees",
+  "payments",
+  "payment",
+  "campaigns",
+  "coupons",
+  "freeSauces",
+  "freeSauce",
+  "routeDeals",
+  "deliveryZones",
+  "postalCodes",
+  "plz",
+  "minimumOrder",
+  "eta",
+  "time",
+  "tips",
+  "pfand",
+  "theme",
+  "themes",
+  "features",
+  "menu",
+  "catalog",
+  "productAvailability",
+  "pause",
+  "availability",
+  "phoneDigits",
+]);
+
+const PRIVATE_TOP_LEVEL_KEYS = new Set([
+  "security",
+  "drivers",
+  "driver",
+  "admin",
+  "auth",
+  "secrets",
+  "telegram",
+  "dashboard",
+  "print",
+  "printer",
+  "database",
+  "db",
+  "internal",
+]);
+
+function isSensitiveSettingField(key: string) {
+  const normalized = String(key || "").replace(/[^a-z0-9]/gi, "").toLowerCase();
+  if (!normalized) return true;
+
+  return (
+    normalized === "pin" ||
+    normalized.endsWith("pin") ||
+    normalized === "password" ||
+    normalized.includes("password") ||
+    normalized === "passphrase" ||
+    normalized === "secret" ||
+    normalized.endsWith("secret") ||
+    normalized === "token" ||
+    normalized.endsWith("token") ||
+    normalized === "apikey" ||
+    normalized.endsWith("apikey") ||
+    normalized.includes("privatekey") ||
+    normalized === "credential" ||
+    normalized.endsWith("credentials") ||
+    normalized === "chatid" ||
+    normalized === "databaseurl" ||
+    normalized === "connectionstring"
+  );
+}
+
+function redactSensitiveSettings(value: any): any {
+  if (Array.isArray(value)) {
+    return value.map(redactSensitiveSettings);
+  }
+
+  if (!isPlainObject(value)) return sanitizeJson(value);
+
+  const out: PlainObject = {};
+
+  for (const [key, item] of Object.entries(value)) {
+    if (!isSafeKey(key) || isSensitiveSettingField(key)) continue;
+    out[key] = redactSensitiveSettings(item);
+  }
+
+  return out;
+}
+
+function snapshotSafeSettingsView(settings: PlainObject) {
+  const out: PlainObject = {};
+
+  for (const [key, value] of Object.entries(settings || {})) {
+    if (!isSafeKey(key) || PRIVATE_TOP_LEVEL_KEYS.has(key) || isSensitiveSettingField(key)) {
+      continue;
+    }
+
+    out[key] = redactSensitiveSettings(value);
+  }
+
+  return out;
+}
+
 function publicSettingsView(settings: PlainObject) {
-  const safe = sanitizeJson(settings) as PlainObject;
-  if (isPlainObject(safe.security)) {
-    safe.security = { ...safe.security };
-    delete safe.security.tvPin;
-    delete safe.security.pin;
+  const out: PlainObject = {};
+
+  for (const key of PUBLIC_SETTING_KEYS) {
+    if (!(key in settings)) continue;
+    out[key] = redactSensitiveSettings(settings[key]);
   }
-  if (isPlainObject(safe.telegram)) {
-    safe.telegram = { enabled: Boolean(safe.telegram.enabled) };
-  }
-  if (isPlainObject(safe.dashboard)) {
-    safe.dashboard = { ...safe.dashboard };
-    delete safe.dashboard.password;
-    delete safe.dashboard.token;
-  }
-  delete safe.admin;
-  delete safe.secrets;
-  return safe;
+
+  return out;
 }
 
 function jsonForDb(value: any): any {
@@ -736,7 +844,7 @@ export async function GET(req: Request) {
     const visibleSettings = (await hasAdminSession(req)) ? settings : publicSettingsView(settings);
 
     const fallbackSaved = shouldWriteRuntimeSnapshot()
-      ? await writeSettingsFallback(settings)
+      ? await writeSettingsFallback(snapshotSafeSettingsView(settings))
       : null;
 
     return NextResponse.json(
@@ -775,6 +883,10 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  if (!hasTrustedMutationOrigin(req)) return forbiddenResponse("origin_not_allowed");
+  const rateError = enforceRateLimit(req, "settings:write", 60, 60_000);
+  if (rateError) return rateError;
+
   try {
     const tenantId = await getTenantId();
     const body = await readRequestBody(req);
@@ -804,11 +916,13 @@ export async function POST(req: Request) {
     writeSettingsMemoryCache(settings);
 
     const fallbackSaved = shouldWriteRuntimeSnapshot()
-      ? await writeSettingsFallback(settings)
+      ? await writeSettingsFallback(snapshotSafeSettingsView(settings))
       : null;
 
+    const responseSettings = isAdmin ? settings : publicSettingsView(settings);
+
     return jsonResponse({
-      ...settings,
+      ...responseSettings,
       ok: true,
       source: "db",
       fallbackSaved,
@@ -822,6 +936,10 @@ export async function POST(req: Request) {
 }
 
 export async function PUT(req: Request) {
+  if (!hasTrustedMutationOrigin(req)) return forbiddenResponse("origin_not_allowed");
+  const rateError = enforceRateLimit(req, "settings:write", 60, 60_000);
+  if (rateError) return rateError;
+
   try {
     const tenantId = await getTenantId();
     const body = await readRequestBody(req);
@@ -847,11 +965,13 @@ export async function PUT(req: Request) {
     writeSettingsMemoryCache(settings);
 
     const fallbackSaved = shouldWriteRuntimeSnapshot()
-      ? await writeSettingsFallback(settings)
+      ? await writeSettingsFallback(snapshotSafeSettingsView(settings))
       : null;
 
+    const responseSettings = isAdmin ? settings : publicSettingsView(settings);
+
     return jsonResponse({
-      ...settings,
+      ...responseSettings,
       ok: true,
       source: "db",
       fallbackSaved,
