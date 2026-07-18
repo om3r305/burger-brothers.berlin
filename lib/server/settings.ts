@@ -1,7 +1,11 @@
 // lib/server/settings.ts
 import { Prisma } from "@prisma/client";
 import { prisma, getTenantId } from "@/lib/db";
-import { readFallbackSnapshot, writeFallbackSnapshot } from "@/lib/server/fallback-snapshot";
+import {
+  hasPersistentFallbackStore,
+  readFallbackSnapshot,
+  writeFallbackSnapshot,
+} from "@/lib/server/fallback-snapshot";
 
 export type ServerSettings = {
   security?: {
@@ -603,7 +607,7 @@ export async function saveServerSettings(settings: ServerSettings): Promise<void
     const latest = applyEnvFallback(await readSettingsFromDb());
     writeServerSettingsMemoryCache(latest);
 
-    if (!process.env.VERCEL) {
+    if (!process.env.VERCEL || hasPersistentFallbackStore()) {
       try {
         await writeFallbackSnapshot("settings", latest);
       } catch (fallbackError) {

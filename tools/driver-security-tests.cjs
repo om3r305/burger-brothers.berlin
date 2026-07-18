@@ -203,6 +203,45 @@ async function main() {
   assert.equal(authorizedPut.status, 200);
   assert.equal(state.value[0].passwordHash, oldHash);
 
+  const weakPasswordPut = await route.PUT(
+    new NextRequest("https://example.test/api/drivers", {
+      method: "PUT",
+      headers: {
+        "content-type": "application/json",
+        cookie: "bb_admin_sess=valid-admin-token",
+      },
+      body: JSON.stringify({
+        items: [
+          { id: "driver-1", name: "Ali", password: "", role: "fahrer" },
+          { id: "driver-2", name: "Veli", password: "1", role: "fahrer" },
+        ],
+      }),
+    }),
+  );
+  assert.equal(weakPasswordPut.status, 400);
+  assert.equal((await responseJson(weakPasswordPut)).error, "driver_password_weak");
+  assert.equal(state.value.length, 1);
+
+  const strongPasswordPut = await route.PUT(
+    new NextRequest("https://example.test/api/drivers", {
+      method: "PUT",
+      headers: {
+        "content-type": "application/json",
+        cookie: "bb_admin_sess=valid-admin-token",
+      },
+      body: JSON.stringify({
+        items: [
+          { id: "driver-1", name: "Ali", password: "", role: "fahrer" },
+          { id: "driver-2", name: "Veli", password: "Strong123", role: "fahrer" },
+        ],
+      }),
+    }),
+  );
+  assert.equal(strongPasswordPut.status, 200);
+  assert.equal(state.value.length, 2);
+  assert.match(state.value[1].passwordHash, /^scrypt\$/);
+  assert.equal("password" in state.value[1], false);
+
   const logoutResponse = await route.DELETE(
     new Request("https://example.test/api/drivers", { method: "DELETE" }),
   );

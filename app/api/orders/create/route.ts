@@ -4,6 +4,10 @@ import { prisma, getTenantId } from "@/lib/db";
 import { enforceRateLimit, forbiddenResponse, hasTrustedMutationOrigin } from "@/lib/server/request-security";
 import { createTrackingToken, readOrderTrackingToken } from "@/lib/server/public-order";
 import { OrderPricingError, rebuildOrderPricingFromDatabase } from "@/lib/server/order-pricing";
+import {
+  OrderValidationError,
+  validateOrderForCheckout,
+} from "@/lib/server/order-validation";
 import { generateOrderId } from "@/lib/order-id";
 import { getServerSettings, saveServerSettings } from "@/lib/server/settings";
 import { sendTelegramNewOrder } from "@/lib/telegram";
@@ -271,6 +275,18 @@ function normalizePaymentStatus(order: any) {
   return text || "pending";
 }
 
+function readCashPaymentEnabled(settings: any) {
+  const direct = settings?.payments?.cash?.enabled;
+  if (typeof direct === "boolean") return direct;
+
+  const features = settings?.features?.payments;
+  for (const key of ["cashPayment", "cash"]) {
+    if (typeof features?.[key] === "boolean") return features[key];
+  }
+
+  return true;
+}
+
 function normalizeCustomer(order: any) {
   const customer = ensureObj(order?.customer);
   const phone = normPhone(customer?.phone ?? order?.phone);
@@ -302,7 +318,6 @@ function normalizeCustomer(order: any) {
     "";
 
   return sanitizeJson({
-    ...customer,
     name: cleanText(customer?.name ?? order?.customerName),
     phone: phone || cleanText(customer?.phone ?? order?.phone) || null,
     email: cleanText(customer?.email ?? order?.email) || null,
@@ -983,7 +998,89 @@ async function redeemIssuedCouponIfNeeded(params: {
     .catch(() => null);
 
   if (!issued) {
-    return null;
+    /*
+      Genel kupon kodları için de gerçek bir kullanım satırı yazılır. Mevcut
+      IssuedCoupon tablosunun kullanılması yeni bir production migration
+      gerektirmez ve order-pricing tarafındaki sayaçlarla geriye uyumludur.
+    */
+    const couponRows = await tx.coupon.findMany({
+      where: { tenantId },
+      select: { id: true, code: true, definition: true },
+    });
+    const selected = couponRows
+      .map((row: any) => {
+        const definition = ensureObj(row?.definition);
+        return {
+          row,
+          id: cleanText(definition?.id || row?.id),
+          code: normCouponCode(definition?.code || row?.code),
+          maxUses:
+            definition?.maxUses == null
+              ? null
+              : Math.max(0, Math.trunc(toNum(definition.maxUses, 0))),
+          perCustomerLimit:
+            definition?.perCustomerLimit == null
+              ? null
+              : Math.max(0, Math.trunc(toNum(definition.perCustomerLimit, 0))),
+        };
+      })
+      .find((entry: any) => entry.code === code);
+
+    if (!selected) return null;
+
+    if (typeof tx.$executeRawUnsafe === "function") {
+      await tx.$executeRawUnsafe(
+        "SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))",
+        tenantId,
+        selected.id,
+      );
+    }
+
+    const usedRows = await tx.issuedCoupon.findMany({
+      where: {
+        tenantId,
+        couponId: selected.id,
+        used: true,
+      },
+      select: { assignedToPhone: true },
+      take: 5000,
+    });
+    const phone = normPhone(customerPhone);
+    const customerUses = phone
+      ? usedRows.filter((row: any) => samePhone(row?.assignedToPhone, phone)).length
+      : 0;
+
+    if (selected.maxUses && usedRows.length >= selected.maxUses) {
+      throw createCouponError("coupon_max_uses");
+    }
+    if (
+      selected.perCustomerLimit &&
+      phone &&
+      customerUses >= selected.perCustomerLimit
+    ) {
+      throw createCouponError("coupon_customer_limit");
+    }
+
+    const redemptionCode = normCouponCode(`USED-${orderId}`);
+    const created = await tx.issuedCoupon.create({
+      data: {
+        tenantId,
+        couponId: selected.id,
+        couponCode: code,
+        code: redemptionCode,
+        assignedToPhone: phone,
+        used: true,
+        usedAt: new Date(nowMs),
+        source: "general_redemption",
+        note: `order:${orderId}`,
+      },
+    });
+
+    return {
+      ...created,
+      redeemedOrderId: orderId,
+      couponDiscount,
+    };
   }
 
   validateIssuedCouponForOrder({
@@ -1031,6 +1128,10 @@ function mapCouponErrorMessage(code: string) {
       return "Für diesen Gutschein ist eine Telefonnummer erforderlich.";
     case "coupon_assigned_to_other_phone":
       return "Dieser Gutschein gehört zu einer anderen Telefonnummer.";
+    case "coupon_max_uses":
+      return "Dieser Gutschein wurde bereits zu oft verwendet.";
+    case "coupon_customer_limit":
+      return "Dieser Gutschein wurde für diese Telefonnummer bereits verwendet.";
     default:
       return "Gutschein kann nicht verwendet werden.";
   }
@@ -1672,6 +1773,39 @@ export async function POST(req: Request) {
       settings,
       now: new Date(nowMs),
     });
+    await validateOrderForCheckout({
+      tenantId,
+      order,
+      settings,
+      pricing: rebuiltPricing,
+    });
+
+    if ((!incomingPaymentMethod || incomingPaymentMethod === "cash") && !readCashPaymentEnabled(settings)) {
+      throw new OrderValidationError(
+        "CASH_PAYMENT_DISABLED",
+        "Barzahlung ist im Adminbereich deaktiviert.",
+        403,
+      );
+    }
+
+    if (!protectedOnlinePayment && incomingPaymentMethod && incomingPaymentMethod !== "cash") {
+      throw new OrderValidationError(
+        "PAYMENT_METHOD_NOT_AVAILABLE",
+        "Diese Zahlungsart ist für Online-Bestellungen nicht verfügbar.",
+        403,
+      );
+    }
+
+    if (!protectedOnlinePayment) {
+      const customerRateError = await enforceRateLimit(
+        req,
+        "orders:create:customer",
+        8,
+        15 * 60_000,
+        `phone:${normPhone(customer?.phone) || "missing"}`,
+      );
+      if (customerRateError) return customerRateError;
+    }
 
     const items = normalizeItems({ items: rebuiltPricing.items });
 
@@ -1703,15 +1837,54 @@ export async function POST(req: Request) {
     const couponDiscount = +(rebuiltPricing.couponDiscountCents / 100).toFixed(2);
     const total = +(rebuiltPricing.payableCents / 100).toFixed(2);
 
-    const baseMeta = sanitizeJson({
-      ...buildOrderMeta({
+    const builtMeta = buildOrderMeta({
         order,
         source,
         nowMs,
         coupon,
         couponDiscount,
         orderId: id,
-      }),
+      });
+    const trustedPayment = verifiedPaymentFinalize
+      ? ensureObj(builtMeta?.payment)
+      : {
+          method: "cash",
+          status: "pending",
+          provider: "manual",
+          tip: +(rebuiltPricing.tipCents / 100).toFixed(2),
+          baseTotal: +(rebuiltPricing.orderBeforeTipCents / 100).toFixed(2),
+          payableTotal: +(rebuiltPricing.payableCents / 100).toFixed(2),
+        };
+    const baseMeta = sanitizeJson({
+      ...builtMeta,
+      // Operasyon alanları public sipariş gövdesinden devralınmaz.
+      trackingToken: createTrackingToken(),
+      statusManual: null,
+      history: [
+        {
+          ts: nowMs,
+          action: "status:new",
+          by: source,
+        },
+      ],
+      driver: null,
+      driverId: null,
+      driverName: null,
+      claimedAt: null,
+      claimedBy: null,
+      lastPos: null,
+      archivedAt: null,
+      anonymizedAt: null,
+      doneAt: null,
+      cancelledAt: null,
+      print: null,
+      paymentMethod: verifiedPaymentFinalize ? incomingPaymentMethod : "cash",
+      paymentStatus: verifiedPaymentFinalize ? "paid" : "pending",
+      paymentProvider: verifiedPaymentFinalize
+        ? builtMeta?.paymentProvider
+        : "manual",
+      paymentId: verifiedPaymentFinalize ? builtMeta?.paymentId : null,
+      payment: trustedPayment,
       suggestedEtaMin: etaMin,
       etaMin,
       planned,
@@ -1752,11 +1925,11 @@ export async function POST(req: Request) {
     }
 
     if (hasOrderField("driver")) {
-      data.driver = sanitizeJson(order?.driver ?? baseMeta?.driver ?? null);
+      data.driver = null;
     }
 
     if (hasOrderField("print")) {
-      data.print = sanitizeJson(order?.print ?? baseMeta?.print ?? null);
+      data.print = null;
     }
 
     const created = await prisma.$transaction(async (tx: any) => {
@@ -1881,9 +2054,14 @@ export async function POST(req: Request) {
     const errorCode = error?.code || error?.message || "bad_request";
     const isCouponError = Boolean(error?.couponError);
     const isPricingError = error instanceof OrderPricingError;
+    const isValidationError = error instanceof OrderValidationError;
     const status = Number(
       error?.status ||
-        (isPricingError ? error.status : isCouponError ? 409 : 503),
+        (isPricingError || isValidationError
+          ? error.status
+          : isCouponError
+            ? 409
+            : 503),
     );
 
     return NextResponse.json(
@@ -1891,7 +2069,12 @@ export async function POST(req: Request) {
         ok: false,
         source: "db",
         error: errorCode,
-        message: isCouponError ? mapCouponErrorMessage(errorCode) : errorCode,
+        message: isCouponError
+          ? mapCouponErrorMessage(errorCode)
+          : isPricingError || isValidationError
+            ? error.message
+            : errorCode,
+        ...(error?.details ? { details: error.details } : {}),
         couponError: isCouponError,
       },
       {

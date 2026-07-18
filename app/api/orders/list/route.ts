@@ -2,7 +2,16 @@
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma, getTenantId } from "@/lib/db";
-import { requireAnySessionRole } from "@/lib/server/request-security";
+import {
+  getSessionSubject,
+  hasSessionRole,
+  requireAnySessionRole,
+  securityJson,
+} from "@/lib/server/request-security";
+import {
+  driverCanSeeOrder,
+  sanitizeOrderForDriver,
+} from "@/lib/server/driver-order";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -728,33 +737,51 @@ export async function GET(req: Request) {
   const authError = await requireAnySessionRole(req, ["admin", "tv", "driver"]);
   if (authError) return authError;
 
+  // Rol önceliği önemlidir: tarayıcıda eski bir driver cookie'si kalsa bile
+  // geçerli admin/TV oturumu daraltılmış driver görünümüne düşmez.
+  const isAdmin = await hasSessionRole(req, "admin");
+  const isTv = !isAdmin && (await hasSessionRole(req, "tv"));
+  const driverSubject = !isAdmin && !isTv
+    ? await getSessionSubject(req, "driver")
+    : "";
+  const isDriver = Boolean(driverSubject);
+
+  if (!isAdmin && !isTv && !isDriver) {
+    return securityJson({ ok: false, error: "driver_session_subject_missing" }, 401);
+  }
+
   try {
     const tenantId = await getTenantId();
     const url = new URL(req.url);
 
-    const tz = url.searchParams.get("tz") || DEFAULT_TZ;
-    const view = readView(url);
+    const tz = isDriver ? DEFAULT_TZ : url.searchParams.get("tz") || DEFAULT_TZ;
+    const view = isDriver ? "driver" : readView(url);
     const driverView = view === "driver";
 
-    const all =
-      parseBool(url.searchParams.get("all")) ||
-      url.searchParams.get("scope") === "all";
+    const all = isDriver
+      ? false
+      : parseBool(url.searchParams.get("all")) ||
+        url.searchParams.get("scope") === "all";
 
     const includeDone = url.searchParams.get("includeDone") !== "0";
     const onlyActive = parseBool(url.searchParams.get("active"));
 
-    const includeArchived =
+    const includeArchived = !isDriver && (
       parseBool(url.searchParams.get("includeArchived")) ||
-      parseBool(url.searchParams.get("archived"));
+      parseBool(url.searchParams.get("archived"))
+    );
 
     const statusFilter = tryStatus(url.searchParams.get("status"));
-    const modeFilter = tryMode(url.searchParams.get("mode"));
-    const channelFilter = tryChannel(url.searchParams.get("channel"));
+    const modeFilter = isDriver ? "delivery" : tryMode(url.searchParams.get("mode"));
+    const channelFilter = isDriver ? null : tryChannel(url.searchParams.get("channel"));
 
-    const take = Math.min(Math.max(toNum(url.searchParams.get("take"), 300), 1), 1000);
+    const take = Math.min(
+      Math.max(toNum(url.searchParams.get("take"), 300), 1),
+      isDriver ? 500 : 1000,
+    );
 
-    const fromParam = url.searchParams.get("from");
-    const toParam = url.searchParams.get("to");
+    const fromParam = isDriver ? null : url.searchParams.get("from");
+    const toParam = isDriver ? null : url.searchParams.get("to");
 
     const day = berlinDayBounds(tz);
 
@@ -763,6 +790,11 @@ export async function GET(req: Request) {
 
     const where: any = {
       tenantId,
+      // Ödeme henüz tamamlanmamış Stripe taslakları operasyon ekranına sipariş
+      // gibi düşmemelidir.
+      status: {
+        not: "payment_pending",
+      },
     };
 
     if (hasOrderField("archivedAt") && !includeArchived) {
@@ -823,6 +855,12 @@ export async function GET(req: Request) {
 
     if (channelFilter) {
       allOrders = allOrders.filter((order: any) => order.channel === channelFilter);
+    }
+
+    if (isDriver) {
+      allOrders = allOrders
+        .filter((order: any) => driverCanSeeOrder(order, driverSubject))
+        .map((order: any) => sanitizeOrderForDriver(order));
     }
 
     const activeOrders = allOrders.filter(

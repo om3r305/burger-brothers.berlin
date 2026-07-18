@@ -15,6 +15,10 @@ import {
   rebuildOrderPricingFromDatabase,
 } from "@/lib/server/order-pricing";
 import {
+  OrderValidationError,
+  validateOrderForCheckout,
+} from "@/lib/server/order-validation";
+import {
   buildPaymentShareUrl,
   createPaymentShareToken,
   hashPaymentShareToken,
@@ -266,6 +270,12 @@ export async function POST(req: Request) {
       tenantId,
       order,
       settings,
+    });
+    await validateOrderForCheckout({
+      tenantId,
+      order,
+      settings,
+      pricing: rebuiltPricing,
     });
     const payableCents = rebuiltPricing.payableCents;
 
@@ -615,6 +625,18 @@ export async function POST(req: Request) {
     console.error("[payments/prepare]", error);
 
     if (error instanceof OrderPricingError) {
+      return json(
+        {
+          ok: false,
+          error: error.code,
+          message: error.message,
+          ...(error.details ? { details: error.details } : {}),
+        },
+        error.status,
+      );
+    }
+
+    if (error instanceof OrderValidationError) {
       return json(
         {
           ok: false,

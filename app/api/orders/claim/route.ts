@@ -3,9 +3,11 @@ import { NextResponse } from "next/server";
 import { prisma, getTenantId } from "@/lib/db";
 import {
   getSessionSubject,
+  hasSessionRole,
   requireMutationRole,
   securityJson,
 } from "@/lib/server/request-security";
+import { sanitizeOrderForDriver } from "@/lib/server/driver-order";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -154,6 +156,17 @@ function toMs(value: any, fallback = Date.now()) {
 function toIso(value: any): string | null {
   const date = toDate(value);
   return date ? date.toISOString() : null;
+}
+
+function berlinDateKey(value: any) {
+  const date = toDate(value);
+  if (!date) return "";
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Berlin",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
 }
 
 function sanitizeJson(value: any): any {
@@ -604,14 +617,47 @@ function extractDriver(body: any) {
       "",
   );
 
-  const password = cleanText(body?.driverPassword ?? raw?.password ?? "");
-
   if (!id && !name) return null;
 
   return sanitizeJson({
     id: id || name,
     name: name || id,
-    password: password || undefined,
+  });
+}
+
+async function configuredDriver(
+  tenantId: string,
+  requested: any,
+  forcedId = "",
+) {
+  const row = await prisma.setting.findFirst({
+    where: { tenantId, key: "drivers" },
+    orderBy: { updatedAt: "desc" },
+    select: { value: true },
+  });
+  const value = row?.value as any;
+  const items = Array.isArray(value)
+    ? value
+    : Array.isArray(value?.items)
+      ? value.items
+      : Array.isArray(value?.drivers)
+        ? value.drivers
+        : [];
+  const requestedId = cleanText(forcedId || requested?.id);
+  const requestedName = cleanText(requested?.name);
+  const match = items.find((item: any) => {
+    const id = cleanText(item?.id || item?.name);
+    const name = cleanText(item?.name);
+    return requestedId
+      ? id === requestedId
+      : Boolean(requestedName && name === requestedName);
+  });
+
+  if (!match) return null;
+
+  return sanitizeJson({
+    id: cleanText(match?.id || match?.name),
+    name: cleanText(match?.name || match?.id),
   });
 }
 
@@ -730,26 +776,28 @@ export async function POST(req: Request) {
 
     const id = String(body?.id || body?.orderId || body?.code || "").trim();
     const requestedDriver = extractDriver(body);
-    const driverSubject = await getSessionSubject(req, "driver");
-
-    if (driverSubject && requestedDriver?.id && requestedDriver.id !== driverSubject) {
-      return securityJson({ ok: false, error: "driver_identity_mismatch" }, 403);
+    const isAdmin = await hasSessionRole(req, "admin");
+    const driverSubject = isAdmin ? "" : await getSessionSubject(req, "driver");
+    if (!isAdmin && !driverSubject) {
+      return securityJson({ ok: false, error: "driver_session_subject_missing" }, 401);
     }
-
-    const driver = requestedDriver
-      ? {
-          ...requestedDriver,
-          id: driverSubject || requestedDriver.id,
-        }
-      : null;
-    const by = cleanText(body?.by || driver?.name || "driver", "driver");
+    const driver = await configuredDriver(
+      tenantId,
+      requestedDriver,
+      driverSubject,
+    );
+    const by = cleanText(driver?.name || driver?.id || "driver", "driver");
 
     if (!id) {
       return claimError("id_missing", "Bestellung fehlt.", 400);
     }
 
     if (!driver) {
-      return claimError("driver_missing", "Fahrer fehlt.", 400);
+      return claimError(
+        "driver_identity_unknown",
+        "Fahrer ist nicht mehr in der aktuellen Fahrerliste vorhanden.",
+        403,
+      );
     }
 
     const result = await prisma.$transaction(async (tx: any) => {
@@ -767,6 +815,7 @@ export async function POST(req: Request) {
 
       const order = serializeOrder(row);
       const status = normalizeStatus((row as any).status);
+      const rawStatus = cleanText((row as any).status).toLowerCase();
       const mode = normalizeMode((row as any).mode);
       const assigned = getOrderDriver(row);
 
@@ -776,32 +825,25 @@ export async function POST(req: Request) {
           status: 409,
           error: "not_delivery",
           message: "Diese Bestellung ist keine Lieferung.",
-          order,
-        };
-      }
-
-      if (status === "done") {
-        return {
-          type: "error",
-          status: 409,
-          error: "already_done",
-          message: "Diese Bestellung ist bereits abgeschlossen.",
-          order,
-        };
-      }
-
-      if (status === "cancelled") {
-        return {
-          type: "error",
-          status: 409,
-          error: "cancelled",
-          message: "Diese Bestellung wurde storniert.",
-          order,
+          order: driverSubject ? null : order,
         };
       }
 
       if (assigned && (assigned?.id || assigned?.name)) {
         if (isSameDriver(assigned, driver)) {
+          if (status === "done" || status === "cancelled") {
+            return {
+              type: "error",
+              status: 409,
+              error: status === "done" ? "already_done" : "cancelled",
+              message:
+                status === "done"
+                  ? "Diese Bestellung ist bereits abgeschlossen."
+                  : "Diese Bestellung wurde storniert.",
+              order,
+            };
+          }
+
           return {
             type: "ok",
             alreadyMine: true,
@@ -814,7 +856,33 @@ export async function POST(req: Request) {
           status: 409,
           error: "already_claimed",
           message: `Dieser Auftrag wurde bereits von ${driverLabel(assigned)} übernommen.`,
-          order,
+          order: driverSubject ? null : order,
+        };
+      }
+
+      if (
+        rawStatus === "payment_pending" ||
+        !["new", "preparing", "ready"].includes(status)
+      ) {
+        return {
+          type: "error",
+          status: 409,
+          error: "not_claimable",
+          message: "Diese Bestellung kann nicht übernommen werden.",
+          order: null,
+        };
+      }
+
+      if (
+        driverSubject &&
+        berlinDateKey((row as any).ts ?? (row as any).createdAt) !== berlinDateKey(new Date())
+      ) {
+        return {
+          type: "error",
+          status: 403,
+          error: "order_not_eligible_for_driver",
+          message: "Diese Bestellung ist nicht für die heutige Fahrerliste freigegeben.",
+          order: null,
         };
       }
 
@@ -830,7 +898,7 @@ export async function POST(req: Request) {
           id: String((row as any).id),
           mode: "delivery",
           status: {
-            notIn: ["out_for_delivery", "done", "cancelled"],
+            in: ["new", "preparing", "ready"],
           },
         },
         data: buildClaimPatch(row, driver, by) as any,
@@ -863,25 +931,32 @@ export async function POST(req: Request) {
     });
 
     if (result.type !== "ok") {
+      const visibleOrder = driverSubject && result.order
+        ? sanitizeOrderForDriver(result.order)
+        : result.order;
       return claimError(
         String(result.error || "claim_failed"),
         String(result.message || "Auftrag konnte nicht übernommen werden."),
         Number(result.status || 409),
-        result.order ?? null,
+        visibleOrder ?? null,
       );
     }
+
+    const visibleOrder = driverSubject
+      ? sanitizeOrderForDriver(result.order)
+      : result.order;
 
     return jsonResponse({
       ok: true,
       source: "db",
       claimed: true,
       alreadyMine: result.alreadyMine === true,
-      id: result.order?.id,
-      orderId: result.order?.orderId || result.order?.id,
-      status: result.order?.status || "out_for_delivery",
-      order: result.order,
-      item: result.order,
-      data: result.order,
+      id: visibleOrder?.id,
+      orderId: visibleOrder?.orderId || visibleOrder?.id,
+      status: visibleOrder?.status || "out_for_delivery",
+      order: visibleOrder,
+      item: visibleOrder,
+      data: visibleOrder,
     });
   } catch (error: any) {
     console.error("[orders/claim] POST failed:", error);

@@ -15,6 +15,16 @@ const API_URL = "/api/drivers";
 
 type Source = "server" | "cache";
 
+function passwordPolicyError(password: string) {
+  if (password.length < 8 || password.length > 128) {
+    return "Das Passwort muss zwischen 8 und 128 Zeichen lang sein.";
+  }
+  if (!/[A-Za-zÄÖÜäöüß]/.test(password) || !/\d/.test(password)) {
+    return "Das Passwort muss mindestens einen Buchstaben und eine Zahl enthalten.";
+  }
+  return "";
+}
+
 export default function DriversPage() {
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [form, setForm] = useState({ name: "", password: "", role: "fahrer" });
@@ -110,12 +120,14 @@ export default function DriversPage() {
         body: JSON.stringify({ items: list }),
       });
 
+      const data = await res.json().catch(() => ({}));
+
       if (!res.ok) {
         console.warn("API /api/drivers PUT failed:", res.status);
+        alert(data?.message || "Fahrer konnten nicht gespeichert werden.");
         return null;
       }
 
-      const data = await res.json().catch(() => ({}));
       return extractDrivers(data);
     } catch (error) {
       console.error("API /api/drivers PUT error:", error);
@@ -167,8 +179,21 @@ export default function DriversPage() {
     const name = form.name.trim();
     const password = form.password.trim();
 
-    if (!name || !password) {
+    if (!name || (!editId && !password)) {
       alert("Bitte Name & Passwort eingeben.");
+      return;
+    }
+
+    if (password) {
+      const policyError = passwordPolicyError(password);
+      if (policyError) {
+        alert(policyError);
+        return;
+      }
+    }
+
+    if (name.length > 120) {
+      alert("Der Fahrername darf höchstens 120 Zeichen lang sein.");
       return;
     }
 
@@ -328,13 +353,19 @@ export default function DriversPage() {
             <label className="text-sm text-stone-300">Passwort</label>
             <input
               type="password"
+              minLength={8}
+              maxLength={128}
               className="w-full mt-1 rounded-md bg-black/20 border border-white/10 p-2"
               value={form.password}
               onChange={(event) =>
                 setForm((current) => ({ ...current, password: event.target.value }))
               }
-              placeholder="••••••"
+              placeholder={editId ? "Leer lassen = unverändert" : "Mind. 8 Zeichen + Zahl"}
             />
+            <div className="mt-1 text-xs text-stone-500">
+              Mindestens 8 Zeichen sowie ein Buchstabe und eine Zahl. Beim Bearbeiten leer
+              lassen, um das aktuelle Passwort beizubehalten.
+            </div>
           </div>
         </div>
 

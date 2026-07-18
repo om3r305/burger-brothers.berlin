@@ -225,6 +225,25 @@ for (const route of [
   rejectPattern(route, /\/api\/admin\/orders/, `${route} still uses admin order fallback`);
 }
 
+requireText("app/api/orders/list/route.ts", "driverCanSeeOrder", "driver order visibility filter missing");
+requireText("app/api/orders/list/route.ts", "sanitizeOrderForDriver", "driver order DTO redaction missing");
+requireText("app/api/orders/list/route.ts", 'not: "payment_pending"', "pending payment sessions leak into order list");
+requireText("app/api/orders/status/route.ts", "driver_status_transition_not_allowed", "driver status transition policy missing");
+requireText("app/api/orders/status/route.ts", "order_cancellation_requires_admin", "order cancellation is not admin-only");
+requireText("app/api/orders/status/route.ts", "effectiveBody", "status audit actor is still client-controlled");
+requireText("app/api/orders/claim/route.ts", "configuredDriver", "claim identity is not loaded from server driver settings");
+rejectPattern("app/api/orders/claim/route.ts", /driverPassword|raw\?\.password|password:/, "claim route still accepts or persists a driver password");
+requireText("app/api/orders/create/route.ts", "general_redemption", "general coupon redemption records are missing");
+requireText("app/api/orders/create/route.ts", "pg_advisory_xact_lock", "general coupon redemption is not transaction-serialized");
+for (const route of [
+  "app/api/orders/create/route.ts",
+  "app/api/payments/prepare/route.ts",
+]) {
+  requireText(route, "validateOrderForCheckout", `${route} does not enforce shared checkout rules`);
+}
+requireText("app/api/drivers/route.ts", "driver_password_weak", "driver password policy missing");
+requireText("lib/server/fallback-snapshot.ts", "hasPersistentFallbackStore", "persistent fallback store detection missing");
+
 if (failures.length) {
   console.error("SECURITY REGRESSION TESTS FAILED\n- " + failures.join("\n- "));
   process.exit(1);

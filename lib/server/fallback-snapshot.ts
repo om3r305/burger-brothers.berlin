@@ -162,6 +162,10 @@ function kvConfig() {
   };
 }
 
+export function hasPersistentFallbackStore() {
+  return Boolean(kvConfig());
+}
+
 async function kvCommand(args: any[]) {
   const cfg = kvConfig();
   if (!cfg) throw new Error("KV_NOT_CONFIGURED");

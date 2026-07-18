@@ -1,7 +1,11 @@
 // app/api/settings/route.ts
 import { NextResponse } from "next/server";
 import { prisma, getTenantId } from "@/lib/db";
-import { readFallbackSnapshot, writeFallbackSnapshot } from "@/lib/server/fallback-snapshot";
+import {
+  hasPersistentFallbackStore,
+  readFallbackSnapshot,
+  writeFallbackSnapshot,
+} from "@/lib/server/fallback-snapshot";
 import { createDefaultThemeSettings } from "@/lib/themes";
 import { verifySessionToken } from "@/lib/server/session";
 import { enforceRateLimit, forbiddenResponse, hasTrustedMutationOrigin } from "@/lib/server/request-security";
@@ -61,7 +65,7 @@ function clearSettingsMemoryCache() {
 }
 
 function shouldWriteRuntimeSnapshot() {
-  return !process.env.VERCEL;
+  return !process.env.VERCEL || hasPersistentFallbackStore();
 }
 
 

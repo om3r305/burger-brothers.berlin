@@ -48,6 +48,16 @@ function clean(value: any) {
   return String(value ?? "").trim();
 }
 
+function driverPasswordError(password: string) {
+  if (password.length < 8 || password.length > 128) {
+    return "Das Fahrer-Passwort muss zwischen 8 und 128 Zeichen lang sein.";
+  }
+  if (!/[A-Za-zÄÖÜäöüß]/.test(password) || !/\d/.test(password)) {
+    return "Das Fahrer-Passwort muss mindestens einen Buchstaben und eine Zahl enthalten.";
+  }
+  return "";
+}
+
 function json(data: any, status = 200) {
   return NextResponse.json(data, {
     status,
@@ -276,13 +286,45 @@ export async function PUT(req: Request) {
       const password = String(raw?.password ?? raw?.pin ?? raw?.code ?? "").trim();
       const old = current.get(id);
 
-      if (!id || !name) continue;
+      if (!id || !name || id.length > 120 || name.length > 120) {
+        return json(
+          {
+            ok: false,
+            error: "driver_identity_invalid",
+            message: "Fahrer-ID und Name sind erforderlich.",
+          },
+          400,
+        );
+      }
+
+      if (password) {
+        const policyError = driverPasswordError(password);
+        if (policyError) {
+          return json(
+            {
+              ok: false,
+              error: "driver_password_weak",
+              message: policyError,
+              driverId: id,
+            },
+            400,
+          );
+        }
+      } else if (!old?.passwordHash) {
+        return json(
+          {
+            ok: false,
+            error: "driver_password_required",
+            message: "Für einen neuen Fahrer ist ein Passwort erforderlich.",
+            driverId: id,
+          },
+          400,
+        );
+      }
 
       const passwordHash = password
         ? hashPassword(password)
         : old?.passwordHash || "";
-
-      if (!passwordHash) continue;
 
       next.set(id, {
         id,

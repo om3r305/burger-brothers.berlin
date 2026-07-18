@@ -5,10 +5,15 @@ import { prisma, getTenantId } from "@/lib/db";
 import { refundOrderPayments } from "@/lib/server/payment-refund";
 import {
   getSessionSubject,
+  hasSessionRole,
   requireAnySessionRole,
   requireMutationRole,
   securityJson,
 } from "@/lib/server/request-security";
+import {
+  orderAssignedToDriver,
+  sanitizeOrderForDriver,
+} from "@/lib/server/driver-order";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -954,6 +959,15 @@ async function handleStatusUpdate(req: Request) {
 
   try {
     const body = await req.json().catch(() => ({} as any));
+    const isAdmin = await hasSessionRole(req, "admin");
+    const isTv = !isAdmin && (await hasSessionRole(req, "tv"));
+    const driverSubject = !isAdmin && !isTv
+      ? await getSessionSubject(req, "driver")
+      : "";
+
+    if (!isAdmin && !isTv && !driverSubject) {
+      return securityJson({ ok: false, error: "driver_session_subject_missing" }, 401);
+    }
 
     const id = String(body?.id ?? body?.orderId ?? body?.code ?? "").trim();
 
@@ -1025,7 +1039,22 @@ async function handleStatusUpdate(req: Request) {
     }
 
     const metaObj = ensureObj((row as any)?.meta);
-    const driverSubject = await getSessionSubject(req, "driver");
+    const currentStatus = normalizeStatus(metaObj?.statusManual ?? (row as any)?.status) || "new";
+    let effectiveBody: any = {
+      ...body,
+      by: isAdmin ? cleanText(body?.by, "admin") : isTv ? "tv" : "driver",
+    };
+
+    if (String((row as any)?.status || "").toLowerCase() === "payment_pending" && !isAdmin) {
+      return securityJson({ ok: false, error: "payment_session_not_operational_order" }, 403);
+    }
+
+    if (requestedStatus === "cancelled" && !isAdmin) {
+      return securityJson(
+        { ok: false, error: "order_cancellation_requires_admin" },
+        403,
+      );
+    }
 
     if (driverSubject) {
       const assignedDriver = ensureObj((row as any)?.driver ?? metaObj?.driver);
@@ -1039,13 +1068,50 @@ async function handleStatusUpdate(req: Request) {
           403,
         );
       }
+
+      const driverName = cleanText(
+        assignedDriver?.name ?? metaObj?.driverName ?? assignedDriverId,
+        assignedDriverId,
+      );
+      const mayFinish =
+        currentStatus === "out_for_delivery" && requestedStatus === "done";
+      const mayRelease =
+        currentStatus === "out_for_delivery" &&
+        requestedStatus === "preparing" &&
+        body?.clearDriver === true;
+
+      if (
+        !statusProvided ||
+        etaPatch ||
+        etaMinPatch ||
+        plannedPatch ||
+        (!mayFinish && !mayRelease)
+      ) {
+        return securityJson(
+          { ok: false, error: "driver_status_transition_not_allowed" },
+          403,
+        );
+      }
+
+      // İstemciden gelen Fahrer/by/meta alanları yok sayılır. Kimlik imzalı
+      // oturum ve siparişteki mevcut atamadan türetilir.
+      effectiveBody = mayRelease
+        ? {
+            status: "preparing",
+            by: driverName,
+            clearDriver: true,
+            driver: null,
+          }
+        : {
+            status: "done",
+            by: driverName,
+          };
     }
-    const currentStatus = normalizeStatus(metaObj?.statusManual ?? (row as any)?.status) || "new";
     const next = requestedStatus || currentStatus;
 
     const refundResult =
       requestedStatus === "cancelled"
-        ? await refundOrderPayments(row, String(body?.by || "tv")).catch(
+        ? await refundOrderPayments(row, String(effectiveBody?.by || "admin")).catch(
             (error: any) => ({
               attempted: true,
               ok: false,
@@ -1064,7 +1130,7 @@ async function handleStatusUpdate(req: Request) {
           )
         : null;
 
-    const data = buildStatusUpdateData(row, next, body, {
+    const data = buildStatusUpdateData(row, next, effectiveBody, {
       statusChanged: Boolean(requestedStatus),
     });
 
@@ -1097,7 +1163,7 @@ async function handleStatusUpdate(req: Request) {
             paymentIntentIds: refundResult.paymentIntentIds,
             refunds: refundResult.refunds,
             at: refundResult.at,
-            by: String(body?.by || "tv"),
+            by: String(effectiveBody?.by || "admin"),
           },
         },
       });
@@ -1111,7 +1177,10 @@ async function handleStatusUpdate(req: Request) {
       select: select as any,
     });
 
-    const order = serializeOrder(updated);
+    const serializedOrder = serializeOrder(updated);
+    const order = driverSubject
+      ? sanitizeOrderForDriver(serializedOrder)
+      : serializedOrder;
 
     return jsonResponse({
       ok: true,
@@ -1140,6 +1209,14 @@ export async function GET(req: Request) {
   if (authError) return authError;
 
   try {
+    const isAdmin = await hasSessionRole(req, "admin");
+    const isTv = !isAdmin && (await hasSessionRole(req, "tv"));
+    const driverSubject = !isAdmin && !isTv
+      ? await getSessionSubject(req, "driver")
+      : "";
+    if (!isAdmin && !isTv && !driverSubject) {
+      return securityJson({ ok: false, error: "driver_session_subject_missing" }, 401);
+    }
     const url = new URL(req.url);
 
     const id =
@@ -1174,7 +1251,22 @@ export async function GET(req: Request) {
       );
     }
 
-    const order = serializeOrder(row);
+    const serializedOrder = serializeOrder(row);
+
+    if (driverSubject && !orderAssignedToDriver(serializedOrder, driverSubject)) {
+      return securityJson({ ok: false, error: "order_not_assigned_to_driver" }, 403);
+    }
+
+    if (
+      !isAdmin &&
+      String((row as any)?.status || "").toLowerCase() === "payment_pending"
+    ) {
+      return securityJson({ ok: false, error: "payment_session_not_operational_order" }, 403);
+    }
+
+    const order = driverSubject
+      ? sanitizeOrderForDriver(serializedOrder)
+      : serializedOrder;
 
     return jsonResponse({
       ok: true,
