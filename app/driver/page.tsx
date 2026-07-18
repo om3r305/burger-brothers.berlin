@@ -1599,7 +1599,7 @@ export default function DriverPage() {
       } catch (error: any) {
         if (error?.name !== "AbortError") {
           console.error("Driver refresh failed", error);
-          setRefreshError("Siparişler yenilenemedi. Bağlantıyı kontrol et.");
+          setRefreshError("Bestellungen konnten nicht aktualisiert werden. Bitte Verbindung prüfen.");
         }
       } finally {
         if (refreshAbortRef.current === controller) {
@@ -2344,7 +2344,10 @@ export default function DriverPage() {
           <div className="absolute inset-0 bg-[radial-gradient(80%_80%_at_50%_20%,transparent,rgba(0,0,0,.45))]" />
         </div>
 
-        <div className="mx-auto max-w-md px-4 py-16">
+        <div
+          className="mx-auto max-w-md px-4 pb-16"
+          style={{ paddingTop: "max(4rem, calc(env(safe-area-inset-top) + 2rem))" }}
+        >
           <div className={`rounded-2xl p-6 ${glass}`}>
             <div className="mb-6 text-center">
               <img src="/logo-burger-brothers.png" className="mx-auto h-16 w-16" alt="" />
@@ -2419,7 +2422,7 @@ export default function DriverPage() {
       {liveTrackingActive ? <DriverLiveTracker /> : null}
 
       <div
-        className={`fixed left-1/2 top-3 z-50 -translate-x-1/2 rounded-full border px-4 py-2 text-xs font-semibold shadow-xl transition-all ${
+        className={`fixed left-1/2 top-[max(.75rem,env(safe-area-inset-top))] z-50 -translate-x-1/2 rounded-full border px-4 py-2 text-xs font-semibold shadow-xl transition-all ${
           pullVisible ? "translate-y-0 opacity-100" : "-translate-y-6 opacity-0"
         } ${
           pullRefreshing || pullReady
@@ -2457,7 +2460,13 @@ export default function DriverPage() {
         <div className="absolute inset-0 bg-[radial-gradient(80%_80%_at_50%_20%,transparent,rgba(0,0,0,.45))]" />
       </div>
 
-      <div className="mx-auto max-w-3xl space-y-3 px-3 py-3 sm:p-5">
+      <div
+        className="mx-auto max-w-3xl space-y-3 px-3 pb-3 sm:px-5 sm:pb-5"
+        style={{
+          paddingTop: "max(1rem, calc(env(safe-area-inset-top) + 1rem))",
+          paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))",
+        }}
+      >
         <div className={`rounded-2xl p-3 sm:p-4 ${glass}`}>
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">

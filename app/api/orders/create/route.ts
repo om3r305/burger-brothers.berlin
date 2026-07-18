@@ -1452,7 +1452,7 @@ async function handleEmergencyOrder(body: any, order: any) {
       Math.max(0, merchandise + surcharges - discount - couponDiscount),
     ),
   );
-  const reason = "DB bağlantısı sunucu tarafından doğrulanamadı; fiyatlar acil modda manuel kontrol edilmelidir.";
+  const reason = "Die Datenbankverbindung konnte serverseitig nicht bestätigt werden. Die Preise müssen im Notfallmodus manuell überprüft werden.";
   const waitMs = Math.max(0, toNum(body?.emergencyWaitMs, 5 * 60 * 1000));
 
   const telegramVia = await sendEmergencyTelegramOrder({
