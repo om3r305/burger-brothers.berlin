@@ -1,10 +1,10 @@
 "use client";
 
-import { type ChangeEvent, useEffect, useMemo, useState } from "react";
+import { type ChangeEvent, type ReactNode, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import * as Coupons from "@/lib/coupons";
 
-const API_COUPONS = "/api/admin/coupons";
+const API_COUPONS = "/api/coupons";
 const LS_COUPONS = "bb_coupons_v1";
 const LS_ISSUED = "bb_issued_coupons_v1";
 
@@ -24,10 +24,19 @@ const fmtDT = (ts?: number | string | null) => {
   return Number.isFinite(date.valueOf()) ? date.toLocaleString("tr-TR") : "—";
 };
 
-const uuid = () =>
-  typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-    ? crypto.randomUUID()
-    : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+const uuid = () => {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+
+  if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    return Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
+  }
+
+  throw new Error("SECURE_RANDOM_UNAVAILABLE");
+};
 
 function safeJson(value: any) {
   try {
@@ -175,31 +184,6 @@ function normalizeCouponType(value: any): Coupons.CouponType {
   return "fixed";
 }
 
-function makeCouponCode(prefix: string) {
-  const chars = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
-  const cleanPrefix = normalizeCode(prefix || "BB").slice(0, 8) || "BB";
-
-  const body = Array.from({ length: 8 })
-    .map(() => chars[Math.floor(Math.random() * chars.length)])
-    .join("");
-
-  return `${cleanPrefix}-${body}`;
-}
-
-function makeIssuedCode(def: Coupons.CouponDef, existing: Coupons.IssuedCoupon[]) {
-  if (!def.meta?.uniquePerIssue) return normalizeCode(def.code);
-
-  const prefix = (normalizeCode(def.code).split("-")[0] || "BB").slice(0, 8);
-  const used = new Set(existing.map((item) => normalizeCode(item.code)));
-
-  for (let i = 0; i < 250; i += 1) {
-    const code = makeCouponCode(prefix);
-    if (!used.has(code)) return code;
-  }
-
-  return `${prefix}-${Date.now().toString(36).toUpperCase()}`;
-}
-
 function mapDbCoupon(row: any): Coupons.CouponDef | null {
   const raw = isPlainObject(row?.definition) ? row.definition : row;
   if (!isPlainObject(raw)) return null;
@@ -334,16 +318,32 @@ async function postJson(url: string, body: any) {
   return json;
 }
 
-async function saveCouponsToDb(defs: Coupons.CouponDef[], replace = false) {
+async function saveCouponsToDb(
+  defs: Coupons.CouponDef[],
+  replace = false,
+  options?: {
+    serverGenerateCodes?: boolean;
+    codePrefix?: string;
+    manualCode?: boolean;
+  },
+) {
+  const serverGenerateCodes = options?.serverGenerateCodes === true;
+  const prefix = normalizeCode(options?.codePrefix || "BB").slice(0, 8) || "BB";
+
   return postJson(API_COUPONS, {
     kind: "coupons",
     replace,
     items: defs.map((def) => ({
       id: def.id,
-      code: normalizeCode(def.code),
+      manualCode: options?.manualCode === true,
+      serverGeneratedCode: serverGenerateCodes,
+      codePrefix: prefix,
+      ...(serverGenerateCodes ? {} : { code: normalizeCode(def.code) }),
       definition: {
         ...def,
-        code: normalizeCode(def.code),
+        code: serverGenerateCodes ? undefined : normalizeCode(def.code),
+        serverGeneratedCode: serverGenerateCodes,
+        codePrefix: prefix,
       },
     })),
   });
@@ -362,6 +362,7 @@ async function saveIssuedToDb(
       couponId: item.couponId,
       couponCode: defs.find((def) => def.id === item.couponId)?.code || "",
       code: normalizeCode(item.code),
+      manualCode: true,
       assignedToPhone: item.assignedToPhone || null,
       assignedToEmail: item.assignedToEmail || null,
       issuedAt: item.issuedAt,
@@ -372,6 +373,22 @@ async function saveIssuedToDb(
       note: item.note || null,
       meta: item.meta || {},
     })),
+  });
+}
+
+async function issueCouponOnServer(input: {
+  couponId: string;
+  phone?: string;
+  email?: string;
+  issuedAt?: number;
+  expiresAt?: number;
+  expiresAfterDays?: number;
+  source?: string;
+  note?: string;
+}) {
+  return postJson(API_COUPONS, {
+    action: "issueCoupon",
+    ...input,
   });
 }
 
@@ -416,6 +433,140 @@ async function deleteIssuedFromDb(item: Coupons.IssuedCoupon) {
   if (!res.ok || json?.ok === false) {
     throw new Error(json?.error || `HTTP_${res.status}`);
   }
+}
+
+function isIssuedExpired(item: Coupons.IssuedCoupon, now = Date.now()) {
+  return Boolean(item.expiresAt && item.expiresAt < now);
+}
+
+function isIssuedScheduled(item: Coupons.IssuedCoupon, now = Date.now()) {
+  return item.note === "scheduled" && Boolean(item.issuedAt && item.issuedAt > now);
+}
+
+function getIssuedStatus(item: Coupons.IssuedCoupon) {
+  const now = Date.now();
+
+  if (item.used) {
+    return {
+      label: "Kullanıldı",
+      helper: item.usedAt ? `Kullanım: ${fmtDT(item.usedAt)}` : "Bu kupon siparişte kullanıldı.",
+      className: "border-emerald-400/50 bg-emerald-500/15 text-emerald-100",
+    };
+  }
+
+  if (item.note === "cancelled") {
+    return {
+      label: "İptal edildi",
+      helper: "Bu atanmış kupon iptal edilmiş.",
+      className: "border-rose-400/50 bg-rose-500/15 text-rose-100",
+    };
+  }
+
+  if (isIssuedExpired(item, now)) {
+    return {
+      label: "Süresi doldu",
+      helper: `Son tarih: ${fmtDT(item.expiresAt)}`,
+      className: "border-stone-400/40 bg-stone-500/10 text-stone-200",
+    };
+  }
+
+  if (isIssuedScheduled(item, now)) {
+    return {
+      label: "Planlandı",
+      helper: `Açılacağı zaman: ${fmtDT(item.issuedAt)}`,
+      className: "border-sky-400/50 bg-sky-500/15 text-sky-100",
+    };
+  }
+
+  return {
+    label: "Hazır",
+    helper: "Müşteri bu kuponu kullanabilir.",
+    className: "border-amber-400/50 bg-amber-500/15 text-amber-100",
+  };
+}
+
+function getCouponUsageStats(coupon: Coupons.CouponDef, issuedList: Coupons.IssuedCoupon[]) {
+  const now = Date.now();
+  const related = issuedList.filter((item) => item.couponId === coupon.id);
+
+  const totalAssigned = related.length;
+  const used = related.filter((item) => item.used).length;
+  const cancelled = related.filter((item) => item.note === "cancelled").length;
+  const expired = related.filter(
+    (item) => !item.used && item.note !== "cancelled" && isIssuedExpired(item, now),
+  ).length;
+  const scheduled = related.filter(
+    (item) => !item.used && item.note !== "cancelled" && isIssuedScheduled(item, now),
+  ).length;
+  const ready = related.filter((item) => {
+    if (item.used) return false;
+    if (item.note === "cancelled") return false;
+    if (isIssuedExpired(item, now)) return false;
+    if (isIssuedScheduled(item, now)) return false;
+    return true;
+  }).length;
+
+  const maxUses =
+    typeof coupon.maxUses === "number" && Number.isFinite(coupon.maxUses)
+      ? Math.max(0, Math.floor(coupon.maxUses))
+      : null;
+
+  const remainingByMax = maxUses != null ? Math.max(0, maxUses - used) : null;
+
+  return {
+    totalAssigned,
+    used,
+    ready,
+    scheduled,
+    expired,
+    cancelled,
+    maxUses,
+    remainingByMax,
+  };
+}
+
+function sourceLabel(value?: string | null) {
+  switch (value) {
+    case "manual":
+      return "Manuel atama";
+    case "bulk_campaign":
+      return "Toplu kampanya";
+    case "auto":
+      return "Otomatik";
+    default:
+      return value || "—";
+  }
+}
+
+function smallLabel(text: string) {
+  return <span className="text-[11px] font-semibold uppercase tracking-wide text-stone-400">{text}</span>;
+}
+
+function InfoLine({ label, value }: { label: string; value: any }) {
+  return (
+    <div className="rounded-xl border border-stone-700/60 bg-stone-950/35 p-2">
+      {smallLabel(label)}
+      <div className="mt-0.5 text-sm font-semibold text-stone-100">{value}</div>
+    </div>
+  );
+}
+
+function FieldBlock({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  children: ReactNode;
+}) {
+  return (
+    <label className="block space-y-1">
+      <span className="text-xs font-semibold text-stone-300">{label}</span>
+      {children}
+      {hint && <span className="block text-[11px] leading-relaxed text-stone-500">{hint}</span>}
+    </label>
+  );
 }
 
 export default function AdminCouponsPage() {
@@ -562,7 +713,7 @@ export default function AdminCouponsPage() {
 
     const def: Coupons.CouponDef = {
       id: uuid(),
-      code: makeCouponCode(codePrefix),
+      code: "",
       title: customTitle ?? title,
       type,
       value: toNumber(value, 0),
@@ -593,11 +744,15 @@ export default function AdminCouponsPage() {
     try {
       const def = createDefinition();
 
-      await saveCouponsToDb([def], false);
+      const saved = await saveCouponsToDb([def], false, {
+        serverGenerateCodes: true,
+        codePrefix,
+      });
       resetCreateForm();
       await loadFromDb();
 
-      alert(`Kupon oluşturuldu: ${def.code}`);
+      const createdCode = Array.isArray(saved?.codes) ? saved.codes[0] : "";
+      alert(`Kupon oluşturuldu${createdCode ? `: ${createdCode}` : "."}`);
     } catch (error: any) {
       alert(`Kupon kaydedilemedi: ${error?.message || "DB hatası"}`);
     } finally {
@@ -614,7 +769,10 @@ export default function AdminCouponsPage() {
     try {
       const defs = Array.from({ length: count }).map(() => createDefinition(title || "Kampanya"));
 
-      await saveCouponsToDb(defs, false);
+      await saveCouponsToDb(defs, false, {
+        serverGenerateCodes: true,
+        codePrefix,
+      });
       await loadFromDb();
 
       alert("Kuponlar oluşturuldu.");
@@ -644,30 +802,19 @@ export default function AdminCouponsPage() {
     const now = Date.now();
     const step = Math.max(1, Math.floor((days * 24 * 3600 * 1000) / count));
 
-    const nextIssued: Coupons.IssuedCoupon[] = [];
-
-    for (let i = 0; i < count; i += 1) {
-      const issuedAt = now + i * step;
-
-      nextIssued.push({
-        id: uuid(),
-        couponId: def.id,
-        code: makeIssuedCode(def, [...issued, ...nextIssued]),
-        assignedToPhone: undefined,
-        assignedToEmail: undefined,
-        issuedAt,
-        expiresAt: issuedAt + expires * 24 * 3600 * 1000,
-        used: false,
-        usedAt: undefined,
-        source: "bulk_campaign",
-        note: "scheduled",
-      });
-    }
-
     setLoading(true);
 
     try {
-      await saveIssuedToDb(nextIssued, coupons, false);
+      for (let i = 0; i < count; i += 1) {
+        const issuedAt = now + i * step;
+        await issueCouponOnServer({
+          couponId: def.id,
+          issuedAt,
+          expiresAt: issuedAt + expires * 24 * 3600 * 1000,
+          source: "bulk_campaign",
+          note: "scheduled",
+        });
+      }
       await loadFromDb();
 
       alert("Dağıtım planlandı.");
@@ -693,24 +840,16 @@ export default function AdminCouponsPage() {
     const days = Number(prompt("Kaç gün geçerli olsun? Örn. 14") || "14");
     const now = Date.now();
 
-    const item: Coupons.IssuedCoupon = {
-      id: uuid(),
-      couponId: def.id,
-      code: makeIssuedCode(def, issued),
-      assignedToPhone: normalizePhone(phone),
-      assignedToEmail: undefined,
-      issuedAt: now,
-      expiresAt: now + days * 24 * 3600 * 1000,
-      used: false,
-      usedAt: undefined,
-      source: "manual",
-      note: undefined,
-    };
-
     setLoading(true);
 
     try {
-      await saveIssuedToDb([item], coupons, false);
+      await issueCouponOnServer({
+        couponId: def.id,
+        phone: normalizePhone(phone),
+        issuedAt: now,
+        expiresAt: now + days * 24 * 3600 * 1000,
+        source: "manual",
+      });
       await loadFromDb();
 
       alert("Kupon telefona atandı.");
@@ -800,7 +939,7 @@ export default function AdminCouponsPage() {
       setLoading(true);
 
       if (defs.length) {
-        await saveCouponsToDb(defs, true);
+        await saveCouponsToDb(defs, true, { manualCode: true });
       }
 
       if (iss.length) {
@@ -826,6 +965,47 @@ export default function AdminCouponsPage() {
       `${coupon.code} ${coupon.title || ""}`.toLowerCase().includes(text),
     );
   }, [coupons, filter]);
+
+  const filteredIssued = useMemo(() => {
+    const text = filter.trim().toLowerCase();
+    if (!text) return issued;
+
+    return issued.filter((item) => {
+      const def = coupons.find((coupon) => coupon.id === item.couponId);
+      const haystack = [
+        item.code,
+        item.assignedToPhone,
+        item.assignedToEmail,
+        item.source,
+        item.note,
+        def?.code,
+        def?.title,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+
+      return haystack.includes(text);
+    });
+  }, [issued, coupons, filter]);
+
+  const overallStats = useMemo(() => {
+    const used = issued.filter((item) => item.used).length;
+    const ready = issued.filter((item) => getIssuedStatus(item).label === "Hazır").length;
+    const scheduled = issued.filter((item) => getIssuedStatus(item).label === "Planlandı").length;
+    const expired = issued.filter((item) => getIssuedStatus(item).label === "Süresi doldu").length;
+    const cancelled = issued.filter((item) => getIssuedStatus(item).label === "İptal edildi").length;
+
+    return {
+      definitions: coupons.length,
+      assigned: issued.length,
+      used,
+      ready,
+      scheduled,
+      expired,
+      cancelled,
+    };
+  }, [coupons.length, issued]);
 
   const addRule = (kind: GUIRule["kind"]) =>
     setRules((current) => [
@@ -873,251 +1053,320 @@ export default function AdminCouponsPage() {
         </div>
       )}
 
-      <div className="card grid gap-4 p-3 sm:p-4 lg:grid-cols-3">
-        <div>
-          <div className="mb-2 font-medium">Yeni kupon oluştur</div>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+        <InfoLine label="Kupon tanımı" value={overallStats.definitions} />
+        <InfoLine label="Atanmış kod" value={overallStats.assigned} />
+        <InfoLine label="Hazır" value={overallStats.ready} />
+        <InfoLine label="Kullanıldı" value={overallStats.used} />
+        <InfoLine label="Planlandı" value={overallStats.scheduled} />
+        <InfoLine label="Süresi doldu / iptal" value={overallStats.expired + overallStats.cancelled} />
+      </div>
 
-          <input
-            className="mb-2 w-full rounded-md bg-stone-800/60 p-2"
-            placeholder="Başlık"
-            value={title}
-            onChange={(event) => setTitle(event.target.value)}
-          />
+      <div className="card grid gap-4 p-3 sm:p-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.9fr)_minmax(0,0.95fr)]">
+        <section className="space-y-4 rounded-2xl border border-stone-700/60 bg-stone-950/25 p-3">
+          <div>
+            <div className="text-lg font-semibold">Yeni kupon oluştur</div>
+            <p className="mt-1 text-xs leading-relaxed text-stone-400">
+              Burada kuponun ana kuralını oluşturuyorsun. Müşteriye atayınca sağdaki
+              “Atanmış kuponlar” bölümünde ayrı kod olarak görünür.
+            </p>
+          </div>
 
-          <div className="mb-2 flex gap-2">
-            <select
-              value={type}
-              onChange={(event) => setType(event.target.value as Coupons.CouponType)}
-              className="rounded-md bg-stone-800/60 p-2"
-            >
-              <option value="fixed">Sabit tutar (€)</option>
-              <option value="percent">Yüzde (%)</option>
-              <option value="free_item">Bedava ürün</option>
-              <option value="bogo">2 al, 1 bedava</option>
-            </select>
-
+          <FieldBlock label="Kupon başlığı" hint="Admin ekranında ve açıklamalarda görünür. Boş kalırsa sadece kod görünür.">
             <input
-              type="number"
-              className="w-28 rounded-md bg-stone-800/60 p-2"
-              value={value}
-              onChange={(event) => setValue(toNumber(event.target.value, 0))}
+              className="w-full rounded-md bg-stone-800/60 p-2"
+              placeholder="Örn. Haftalık 10% indirim"
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
             />
+          </FieldBlock>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <FieldBlock label="Kupon tipi">
+              <select
+                value={type}
+                onChange={(event) => setType(event.target.value as Coupons.CouponType)}
+                className="w-full rounded-md bg-stone-800/60 p-2"
+              >
+                <option value="fixed">Sabit tutar (€)</option>
+                <option value="percent">Yüzde (%)</option>
+                <option value="free_item">Bedava ürün</option>
+                <option value="bogo">2 al, 1 bedava</option>
+              </select>
+            </FieldBlock>
+
+            <FieldBlock
+              label={type === "percent" ? "İndirim yüzdesi" : type === "fixed" ? "İndirim tutarı (€)" : "Değer"}
+              hint={type === "percent" ? "Örn. 10 = %10 indirim." : type === "fixed" ? "Örn. 5 = 5€ indirim." : undefined}
+            >
+              <input
+                type="number"
+                className="w-full rounded-md bg-stone-800/60 p-2"
+                value={value}
+                onChange={(event) => setValue(toNumber(event.target.value, 0))}
+              />
+            </FieldBlock>
           </div>
 
           {type === "free_item" && (
-            <input
-              className="mb-2 w-full rounded-md bg-stone-800/60 p-2"
-              placeholder="Ürün adı, örn. 2x içecek"
-              value={freeItemName}
-              onChange={(event) => setFreeItemName(event.target.value)}
-            />
+            <FieldBlock label="Bedava ürün adı" hint="Müşteriye gösterilecek ücretsiz ürün açıklaması.">
+              <input
+                className="w-full rounded-md bg-stone-800/60 p-2"
+                placeholder="Örn. 1x içecek"
+                value={freeItemName}
+                onChange={(event) => setFreeItemName(event.target.value)}
+              />
+            </FieldBlock>
           )}
 
           {type === "bogo" && (
-            <div className="mb-2 space-y-2 rounded border border-stone-700/60 p-2">
-              <div className="text-sm font-medium">2 al 1 bedava ayarları</div>
-
-              <div className="flex gap-2">
-                <select
-                  className="rounded-md bg-stone-800/60 p-2"
-                  value={bogoMatchBy}
-                  onChange={(event) => setBogoMatchBy(event.target.value as any)}
-                >
-                  <option value="name">Ad</option>
-                  <option value="sku">SKU</option>
-                  <option value="category">Kategori</option>
-                </select>
-
-                <input
-                  className="flex-1 rounded-md bg-stone-800/60 p-2"
-                  placeholder="Değer, örn. Big Daddy"
-                  value={bogoMatchValue}
-                  onChange={(event) => setBogoMatchValue(event.target.value)}
-                />
+            <div className="space-y-3 rounded-2xl border border-stone-700/60 bg-stone-950/35 p-3">
+              <div>
+                <div className="text-sm font-semibold">2 al 1 bedava ayarları</div>
+                <p className="mt-1 text-xs text-stone-400">
+                  Hangi ürün/kategori eşleşirse bedava kuralı çalışacağını seçiyorsun.
+                </p>
               </div>
 
-              <div className="flex flex-wrap gap-2">
-                <input
-                  type="number"
-                  className="w-24 rounded-md bg-stone-800/60 p-2"
-                  value={bogoBuy}
-                  onChange={(event) => setBogoBuy(Math.max(1, Number(event.target.value) || 1))}
-                />
+              <div className="grid gap-2 sm:grid-cols-[130px_1fr]">
+                <FieldBlock label="Eşleşme tipi">
+                  <select
+                    className="w-full rounded-md bg-stone-800/60 p-2"
+                    value={bogoMatchBy}
+                    onChange={(event) => setBogoMatchBy(event.target.value as any)}
+                  >
+                    <option value="name">Ad</option>
+                    <option value="sku">SKU</option>
+                    <option value="category">Kategori</option>
+                  </select>
+                </FieldBlock>
 
-                <span className="self-center text-sm">al →</span>
+                <FieldBlock label="Eşleşme değeri" hint="Örn. Big Daddy, burger, drinks gibi.">
+                  <input
+                    className="w-full rounded-md bg-stone-800/60 p-2"
+                    placeholder="Örn. Big Daddy"
+                    value={bogoMatchValue}
+                    onChange={(event) => setBogoMatchValue(event.target.value)}
+                  />
+                </FieldBlock>
+              </div>
 
-                <input
-                  type="number"
-                  className="w-24 rounded-md bg-stone-800/60 p-2"
-                  value={bogoFree}
-                  onChange={(event) => setBogoFree(Math.max(1, Number(event.target.value) || 1))}
-                />
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                <FieldBlock label="Kaç adet alınacak?">
+                  <input
+                    type="number"
+                    className="w-full rounded-md bg-stone-800/60 p-2"
+                    value={bogoBuy}
+                    onChange={(event) => setBogoBuy(Math.max(1, Number(event.target.value) || 1))}
+                  />
+                </FieldBlock>
 
-                <span className="self-center text-sm">bedava</span>
+                <FieldBlock label="Kaç adet bedava?">
+                  <input
+                    type="number"
+                    className="w-full rounded-md bg-stone-800/60 p-2"
+                    value={bogoFree}
+                    onChange={(event) => setBogoFree(Math.max(1, Number(event.target.value) || 1))}
+                  />
+                </FieldBlock>
 
-                <input
-                  type="number"
-                  className="w-36 rounded-md bg-stone-800/60 p-2"
-                  placeholder="Maks. bedava"
-                  value={bogoMaxFree}
-                  onChange={(event) =>
-                    setBogoMaxFree(event.target.value === "" ? "" : Number(event.target.value))
-                  }
-                />
+                <FieldBlock label="Maks. bedava">
+                  <input
+                    type="number"
+                    className="w-full rounded-md bg-stone-800/60 p-2"
+                    placeholder="Opsiyonel"
+                    value={bogoMaxFree}
+                    onChange={(event) =>
+                      setBogoMaxFree(event.target.value === "" ? "" : Number(event.target.value))
+                    }
+                  />
+                </FieldBlock>
               </div>
             </div>
           )}
 
-          <input
-            className="mb-2 w-full rounded-md bg-stone-800/60 p-2"
-            placeholder="Minimum sepet tutarı, örn. 20"
-            value={minCart}
-            onChange={(event) => setMinCart(event.target.value === "" ? "" : Number(event.target.value))}
-          />
+          <div className="grid gap-3 sm:grid-cols-3">
+            <FieldBlock label="Minimum sepet (€)" hint="Boşsa minimum şart aranmaz.">
+              <input
+                className="w-full rounded-md bg-stone-800/60 p-2"
+                placeholder="Örn. 20"
+                value={minCart}
+                onChange={(event) => setMinCart(event.target.value === "" ? "" : Number(event.target.value))}
+              />
+            </FieldBlock>
 
-          <input
-            className="mb-2 w-full rounded-md bg-stone-800/60 p-2"
-            placeholder="Geçerlilik süresi (gün), örn. 7"
-            value={validDays}
-            onChange={(event) => setValidDays(event.target.value === "" ? "" : Number(event.target.value))}
-          />
+            <FieldBlock label="Geçerlilik (gün)" hint="Buradaki 7 = kupon 7 gün geçerli olur.">
+              <input
+                className="w-full rounded-md bg-stone-800/60 p-2"
+                placeholder="Örn. 7"
+                value={validDays}
+                onChange={(event) => setValidDays(event.target.value === "" ? "" : Number(event.target.value))}
+              />
+            </FieldBlock>
 
-          <input
-            className="mb-2 w-full rounded-md bg-stone-800/60 p-2"
-            placeholder="Müşteri başı kullanım limiti"
-            value={perCust}
-            onChange={(event) => setPerCust(event.target.value === "" ? "" : Number(event.target.value))}
-          />
+            <FieldBlock label="Müşteri kullanım limiti" hint="Örn. 1 yazarsan müşteri bu kuponu 1 kez kullanır.">
+              <input
+                className="w-full rounded-md bg-stone-800/60 p-2"
+                placeholder="Opsiyonel"
+                value={perCust}
+                onChange={(event) => setPerCust(event.target.value === "" ? "" : Number(event.target.value))}
+              />
+            </FieldBlock>
+          </div>
 
-          <label className="mb-2 flex items-center gap-2 text-sm">
+          <label className="flex items-start gap-3 rounded-2xl border border-amber-400/25 bg-amber-500/10 p-3 text-sm">
             <input
               type="checkbox"
+              className="mt-1"
               checked={uniquePerIssue}
               onChange={(event) => setUniquePerIssue(event.target.checked)}
             />
-            Her atamada <b>tek kullanımlık kod</b> üret
+            <span>
+              <b>Her atamada tek kullanımlık kod üret</b>
+              <span className="mt-1 block text-xs text-stone-400">
+                Önerilen ayar budur. Her müşteriye ayrı kod verir; biri kullandıysa tekrar kullanamaz.
+              </span>
+            </span>
           </label>
 
-          <div className="mb-2 rounded border border-stone-700/60 p-2">
-            <div className="mb-1 text-sm font-medium">Kötüye kullanım koruması</div>
+          <div className="space-y-3 rounded-2xl border border-stone-700/60 bg-stone-950/35 p-3">
+            <div>
+              <div className="text-sm font-semibold">Kötüye kullanım koruması</div>
+              <p className="mt-1 text-xs text-stone-400">
+                Aynı müşteriye çok sık kupon atanmasını engellemek için kullanılır.
+              </p>
+            </div>
 
-            <label className="mb-1 flex items-center gap-2 text-sm">
+            <label className="flex items-start gap-3 text-sm">
               <input
                 type="checkbox"
+                className="mt-1"
                 checked={singlePerCustomer}
                 onChange={(event) => setSinglePerCustomer(event.target.checked)}
               />
-              Bu kuponu müşteri başına <b>en fazla 1 kez</b> ata
+              <span>
+                Bu kuponu müşteri başına <b>en fazla 1 kez</b> ata
+              </span>
             </label>
 
-            <div className="mb-1 flex gap-2">
-              <input
-                className="w-40 rounded-md bg-stone-800/60 p-2"
-                placeholder="7 günde maks."
-                value={capPerWeek}
-                onChange={(event) => setCapPerWeek(event.target.value === "" ? "" : Number(event.target.value))}
-              />
+            <div className="grid gap-2 sm:grid-cols-2">
+              <FieldBlock label="7 günde maksimum atama" hint="Örn. 2 = aynı müşteriye haftada en fazla 2 kupon.">
+                <input
+                  className="w-full rounded-md bg-stone-800/60 p-2"
+                  placeholder="Opsiyonel"
+                  value={capPerWeek}
+                  onChange={(event) => setCapPerWeek(event.target.value === "" ? "" : Number(event.target.value))}
+                />
+              </FieldBlock>
 
-              <input
-                className="w-48 rounded-md bg-stone-800/60 p-2"
-                placeholder="Bekleme süresi (gün)"
-                value={cooldownDays}
-                onChange={(event) => setCooldownDays(event.target.value === "" ? "" : Number(event.target.value))}
-              />
-            </div>
-
-            <div className="text-xs opacity-70">
-              Örnek: haftada en fazla 2 kupon ve arada en az 3 gün bekleme.
+              <FieldBlock label="Bekleme süresi (gün)" hint="Örn. 3 = aynı müşteriye tekrar atamadan önce 3 gün bekler.">
+                <input
+                  className="w-full rounded-md bg-stone-800/60 p-2"
+                  placeholder="Opsiyonel"
+                  value={cooldownDays}
+                  onChange={(event) => setCooldownDays(event.target.value === "" ? "" : Number(event.target.value))}
+                />
+              </FieldBlock>
             </div>
           </div>
 
-          <textarea
-            className="mb-2 w-full rounded-md bg-stone-800/60 p-2"
-            rows={2}
-            placeholder="Açıklama veya müşteriye gösterilecek metin"
-            value={aboutText}
-            onChange={(event) => setAboutText(event.target.value)}
-          />
-
-          <div className="mb-2 flex flex-wrap gap-2">
-            <input
-              className="rounded-md bg-stone-800/60 p-2"
-              placeholder="Kod ön eki, örn. BB"
-              value={codePrefix}
-              onChange={(event) => setCodePrefix(event.target.value)}
+          <FieldBlock label="Müşteriye gösterilecek açıklama">
+            <textarea
+              className="w-full rounded-md bg-stone-800/60 p-2"
+              rows={3}
+              placeholder="Örn. Bu hafta sana özel %10 indirim!"
+              value={aboutText}
+              onChange={(event) => setAboutText(event.target.value)}
             />
+          </FieldBlock>
 
-            <button className="card-cta" onClick={create} disabled={loading}>
+          <div className="grid gap-2 sm:grid-cols-[1fr_auto_auto]">
+            <FieldBlock label="Kod ön eki" hint="Örn. BB yazarsan kod BB-XXXX şeklinde oluşur.">
+              <input
+                className="w-full rounded-md bg-stone-800/60 p-2"
+                placeholder="BB"
+                value={codePrefix}
+                onChange={(event) => setCodePrefix(event.target.value)}
+              />
+            </FieldBlock>
+
+            <button className="card-cta self-end" onClick={create} disabled={loading}>
               Oluştur
             </button>
 
-            <button className="btn-ghost" onClick={bulkRandom} disabled={loading}>
+            <button className="btn-ghost self-end" onClick={bulkRandom} disabled={loading}>
               Toplu oluştur
             </button>
           </div>
-        </div>
+        </section>
 
-        <div>
-          <div className="mb-2 font-medium">Otomatik ödül kuralları</div>
+        <section className="space-y-4 rounded-2xl border border-stone-700/60 bg-stone-950/25 p-3">
+          <div>
+            <div className="text-lg font-semibold">Otomatik ödül kuralları</div>
+            <p className="mt-1 text-xs leading-relaxed text-stone-400">
+              Bu bölüm ileride müşteri sipariş sayısına veya sepet tutarına göre otomatik
+              kupon dağıtımı için. Kural yoksa otomatik dağıtım yapılmaz.
+            </p>
+          </div>
 
-          <div className="mb-2 flex flex-wrap gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
             <button className="btn-ghost" onClick={() => addRule("nth_order")}>
-              + N. siparişte
+              + N. siparişte kupon ver
             </button>
 
             <button className="btn-ghost" onClick={() => addRule("spent_total")}>
-              + Sepet tutarı ≥ X €
+              + Sepet tutarı ≥ X € olunca ver
             </button>
           </div>
 
           <div className="space-y-2">
             {rules.map((rule) => (
-              <div key={rule.id} className="rounded border border-stone-700/60 p-2">
+              <div key={rule.id} className="rounded-2xl border border-stone-700/60 bg-stone-900/40 p-3">
                 {rule.kind === "nth_order" ? (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-sm">N. sipariş:</span>
+                  <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+                    <FieldBlock label="Kaçıncı siparişte?">
+                      <input
+                        type="number"
+                        className="w-full rounded-md bg-stone-800/60 p-2"
+                        value={rule.n || 10}
+                        onChange={(event) => updRule(rule.id, { n: Number(event.target.value) })}
+                      />
+                    </FieldBlock>
 
-                    <input
-                      type="number"
-                      className="w-20 rounded-md bg-stone-800/60 p-1"
-                      value={rule.n || 10}
-                      onChange={(event) => updRule(rule.id, { n: Number(event.target.value) })}
-                    />
+                    <FieldBlock label="Kaç gün geçerli?">
+                      <input
+                        type="number"
+                        className="w-full rounded-md bg-stone-800/60 p-2"
+                        value={rule.expiresDays || 7}
+                        onChange={(event) => updRule(rule.id, { expiresDays: Number(event.target.value) })}
+                      />
+                    </FieldBlock>
 
-                    <span className="text-sm">Geçerlilik:</span>
-
-                    <input
-                      type="number"
-                      className="w-20 rounded-md bg-stone-800/60 p-1"
-                      value={rule.expiresDays || 7}
-                      onChange={(event) => updRule(rule.id, { expiresDays: Number(event.target.value) })}
-                    />
-
-                    <button className="btn-ghost ml-auto" onClick={() => rmRule(rule.id)}>
+                    <button className="btn-ghost self-end" onClick={() => rmRule(rule.id)}>
                       Sil
                     </button>
                   </div>
                 ) : (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-sm">Minimum tutar (€):</span>
+                  <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+                    <FieldBlock label="Minimum sepet tutarı (€)">
+                      <input
+                        type="number"
+                        className="w-full rounded-md bg-stone-800/60 p-2"
+                        value={rule.minTotal || 20}
+                        onChange={(event) => updRule(rule.id, { minTotal: Number(event.target.value) })}
+                      />
+                    </FieldBlock>
 
-                    <input
-                      type="number"
-                      className="w-24 rounded-md bg-stone-800/60 p-1"
-                      value={rule.minTotal || 20}
-                      onChange={(event) => updRule(rule.id, { minTotal: Number(event.target.value) })}
-                    />
+                    <FieldBlock label="Kaç gün geçerli?">
+                      <input
+                        type="number"
+                        className="w-full rounded-md bg-stone-800/60 p-2"
+                        value={rule.expiresDays || 7}
+                        onChange={(event) => updRule(rule.id, { expiresDays: Number(event.target.value) })}
+                      />
+                    </FieldBlock>
 
-                    <span className="text-sm">Geçerlilik:</span>
-
-                    <input
-                      type="number"
-                      className="w-20 rounded-md bg-stone-800/60 p-1"
-                      value={rule.expiresDays || 7}
-                      onChange={(event) => updRule(rule.id, { expiresDays: Number(event.target.value) })}
-                    />
-
-                    <button className="btn-ghost ml-auto" onClick={() => rmRule(rule.id)}>
+                    <button className="btn-ghost self-end" onClick={() => rmRule(rule.id)}>
                       Sil
                     </button>
                   </div>
@@ -1126,200 +1375,284 @@ export default function AdminCouponsPage() {
             ))}
 
             {rules.length === 0 && (
-              <div className="text-sm opacity-70">
-                Kural yoksa otomatik dağıtım yapılmaz.
+              <div className="rounded-2xl border border-stone-700/60 bg-stone-900/40 p-3 text-sm text-stone-400">
+                Şu an otomatik kural yok. Kuponlar sadece manuel veya toplu işlemle atanır.
               </div>
             )}
           </div>
-        </div>
+        </section>
 
-        <div>
-          <div className="mb-2 font-medium">Hızlı işlemler</div>
+        <section className="space-y-4 rounded-2xl border border-stone-700/60 bg-stone-950/25 p-3">
+          <div>
+            <div className="text-lg font-semibold">Hızlı işlemler</div>
+            <p className="mt-1 text-xs leading-relaxed text-stone-400">
+              Oluşturduğun kuponu seçip telefona atayabilir veya toplu dağıtım planı yapabilirsin.
+            </p>
+          </div>
 
-          <select
-            className="mb-2 w-full rounded-md bg-stone-800/60 p-2"
-            value={selectedCouponId}
-            onChange={(event) => setSelectedCouponId(event.target.value)}
-          >
-            <option value="">— Kupon seç —</option>
-            {coupons.map((coupon) => (
-              <option key={coupon.id} value={coupon.id}>
-                {coupon.code} — {coupon.title}
-              </option>
-            ))}
-          </select>
+          <FieldBlock label="İşlem yapılacak kupon">
+            <select
+              className="w-full rounded-md bg-stone-800/60 p-2"
+              value={selectedCouponId}
+              onChange={(event) => setSelectedCouponId(event.target.value)}
+            >
+              <option value="">— Kupon seç —</option>
+              {coupons.map((coupon) => {
+                const stats = getCouponUsageStats(coupon, issued);
 
-          <div className="mb-2 flex flex-wrap gap-2">
+                return (
+                  <option key={coupon.id} value={coupon.id}>
+                    {coupon.code} — {coupon.title || "Başlıksız"} · Atanmış {stats.totalAssigned} / Kullanıldı {stats.used}
+                  </option>
+                );
+              })}
+            </select>
+          </FieldBlock>
+
+          <div className="grid gap-2 sm:grid-cols-2">
             <button className="btn-ghost" onClick={issueToPhone} disabled={!coupons.length || loading}>
-              Telefona ata
+              Telefona kupon ata
             </button>
 
             <button className="btn-ghost" onClick={scheduleBulk} disabled={!coupons.length || loading}>
-              7 güne yay
+              Toplu dağıtımı planla
             </button>
           </div>
 
-          <div className="mt-4">
-            <div className="mb-1 text-xs opacity-70">İçe / dışa aktarma</div>
+          <div className="rounded-2xl border border-sky-400/25 bg-sky-500/10 p-3 text-xs leading-relaxed text-sky-100">
+            <b>Toplu dağıtımı planla</b>: Seçili kupondan istediğin sayıda kod üretir ve
+            belirlediğin gün aralığına yayar. Örneğin “20 kuponu 7 güne yay” dersen sistem
+            kodları 7 gün içine planlar.
+          </div>
 
-            <div className="flex flex-wrap gap-2">
+          <div>
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-stone-400">
+              İçe / dışa aktarma
+            </div>
+
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
               <button className="btn-ghost" onClick={exportAll}>
-                JSON exportieren
+                JSON dışa aktar
               </button>
 
-              <label className="btn-ghost cursor-pointer">
-                İçe aktar
+              <label className="btn-ghost cursor-pointer text-center">
+                JSON içe aktar
                 <input type="file" accept="application/json" hidden onChange={importAll} />
               </label>
             </div>
           </div>
 
-          <div className="mt-4">
+          <FieldBlock label="Kupon / telefon / kod ara">
             <input
               className="w-full rounded-md bg-stone-800/60 p-2"
-              placeholder="Kupon ara..."
+              placeholder="Kod, başlık veya telefon yaz..."
               value={filter}
               onChange={(event) => setFilter(event.target.value)}
             />
-          </div>
-        </div>
+          </FieldBlock>
+        </section>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <div className="card p-3">
-          <div className="mb-2 font-medium">Kupon tanımları</div>
+      <div className="grid gap-4 xl:grid-cols-2">
+        <section className="card p-3 sm:p-4">
+          <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <div className="text-lg font-semibold">Kupon tanımları</div>
+              <p className="text-xs text-stone-400">
+                Sol taraf ana kupon kurallarıdır. Altında bu kupondan kaç kod atandığı ve kaçının kullanıldığı görünür.
+              </p>
+            </div>
 
-          <div className="space-y-2">
-            {filteredCoupons.map((coupon) => (
-              <div key={coupon.id} className="rounded border border-stone-700/60 p-2">
-                <div className="flex justify-between gap-3">
-                  <div>
-                    <div className="font-semibold">
-                      {coupon.code} <span className="opacity-70">— {coupon.title || "—"}</span>
-                    </div>
+            <div className="text-xs text-stone-500">{filteredCoupons.length} kayıt</div>
+          </div>
 
-                    <div className="text-xs opacity-80">
-                      Tür: {couponTypeLabel(coupon.type)}
-                      {" • "}Değer:{" "}
-                      {coupon.type === "percent" ? `${coupon.value}%` : `€${coupon.value.toFixed(2)}`}
-                      {" • "}Minimum: {coupon.minCartTotal ?? "—"}
-                      {" • "}Tekil kod: {coupon.meta?.uniquePerIssue ? "✓" : "—"}
-                    </div>
+          <div className="space-y-3">
+            {filteredCoupons.map((coupon) => {
+              const stats = getCouponUsageStats(coupon, issued);
 
-                    {!!(
-                      coupon.meta?.singlePerCustomer ||
-                      coupon.meta?.issueCapPerWeek ||
-                      coupon.meta?.issueCooldownDays
-                    ) && (
-                      <div className="mt-1 text-xs opacity-80">
-                        Koruma: {coupon.meta?.singlePerCustomer ? "1x/müşteri" : ""}
-                        {coupon.meta?.issueCapPerWeek ? `, 7T≤${coupon.meta.issueCapPerWeek}` : ""}
-                        {coupon.meta?.issueCooldownDays ? `, ${coupon.meta.issueCooldownDays}T Pause` : ""}
+              return (
+                <div key={coupon.id} className="rounded-2xl border border-stone-700/60 bg-stone-950/25 p-3">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div className="break-all text-base font-bold text-stone-100">{coupon.code}</div>
+                        <span className="rounded-full border border-stone-600/70 bg-stone-800/70 px-2 py-0.5 text-[11px] text-stone-300">
+                          {couponTypeLabel(coupon.type)}
+                        </span>
+                        {coupon.meta?.uniquePerIssue && (
+                          <span className="rounded-full border border-amber-400/50 bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-100">
+                            Tek kullanımlık kod
+                          </span>
+                        )}
                       </div>
-                    )}
 
-                    <pre className="mt-1 whitespace-pre-wrap text-xs opacity-70">
-                      {describeCouponTr(coupon)}
-                    </pre>
+                      <div className="mt-1 text-sm text-stone-300">
+                        {coupon.title || "Başlıksız kupon"}
+                      </div>
 
-                    <div className="mt-1 text-xs opacity-60">
-                      Geçerlilik: {fmtDT(coupon.validFrom)} → {fmtDT(coupon.validUntil)}
+                      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+                        <InfoLine label="Atanmış" value={stats.totalAssigned} />
+                        <InfoLine label="Hazır" value={stats.ready} />
+                        <InfoLine label="Kullanıldı" value={stats.used} />
+                        <InfoLine label="Planlı" value={stats.scheduled} />
+                        <InfoLine
+                          label={stats.maxUses != null ? "Kalan limit" : "Süresi doldu / iptal"}
+                          value={
+                            stats.maxUses != null
+                              ? stats.remainingByMax
+                              : stats.expired + stats.cancelled
+                          }
+                        />
+                      </div>
+
+                      <div className="mt-3 text-xs leading-relaxed text-stone-300">
+                        <div>
+                          <b>Değer:</b>{" "}
+                          {coupon.type === "percent" ? `%${coupon.value}` : `€${coupon.value.toFixed(2)}`}
+                          {" · "}
+                          <b>Minimum:</b> {coupon.minCartTotal ? fmtMoney(coupon.minCartTotal) : "Yok"}
+                          {" · "}
+                          <b>Müşteri limiti:</b> {coupon.perCustomerLimit || "Yok"}
+                        </div>
+
+                        {!!(
+                          coupon.meta?.singlePerCustomer ||
+                          coupon.meta?.issueCapPerWeek ||
+                          coupon.meta?.issueCooldownDays
+                        ) && (
+                          <div className="mt-1">
+                            <b>Koruma:</b>{" "}
+                            {coupon.meta?.singlePerCustomer ? "1x/müşteri" : "—"}
+                            {coupon.meta?.issueCapPerWeek ? ` · 7 günde en fazla ${coupon.meta.issueCapPerWeek}` : ""}
+                            {coupon.meta?.issueCooldownDays ? ` · ${coupon.meta.issueCooldownDays} gün bekleme` : ""}
+                          </div>
+                        )}
+
+                        <div className="mt-1">
+                          <b>Geçerlilik:</b> {fmtDT(coupon.validFrom)} → {fmtDT(coupon.validUntil)}
+                        </div>
+                      </div>
+
+                      <pre className="mt-2 whitespace-pre-wrap rounded-xl border border-stone-800/70 bg-black/20 p-2 text-xs leading-relaxed text-stone-400">
+                        {describeCouponTr(coupon)}
+                      </pre>
                     </div>
-                  </div>
 
-                  <div className="flex flex-col gap-2">
-                    <button
-                      className="btn-ghost"
-                      type="button"
-                      onClick={() => {
-                        navigator.clipboard?.writeText(coupon.code);
-                        alert("Kod kopyalandı.");
-                      }}
-                    >
-                      Code kopieren
-                    </button>
+                    <div className="flex shrink-0 flex-row gap-2 lg:flex-col">
+                      <button
+                        className="btn-ghost flex-1 lg:flex-none"
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard?.writeText(coupon.code);
+                          alert("Kod kopyalandı.");
+                        }}
+                      >
+                        Kodu kopyala
+                      </button>
 
-                    <button className="btn-ghost" type="button" onClick={() => delCoupon(coupon)}>
-                      Sil
-                    </button>
+                      <button className="btn-ghost flex-1 lg:flex-none" type="button" onClick={() => delCoupon(coupon)}>
+                        Sil
+                      </button>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
 
             {!filteredCoupons.length && (
-              <div className="text-sm opacity-70">Kayıt yok.</div>
+              <div className="rounded-2xl border border-stone-700/60 bg-stone-950/25 p-4 text-sm text-stone-400">
+                Kayıt yok.
+              </div>
             )}
           </div>
-        </div>
+        </section>
 
-        <div className="card p-3">
-          <div className="mb-2 font-medium">Atanmış kuponlar</div>
+        <section className="card p-3 sm:p-4">
+          <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <div className="text-lg font-semibold">Atanmış kuponlar</div>
+              <p className="text-xs text-stone-400">
+                Sağ taraf müşteriye veya kampanyaya dağıtılan gerçek kodlardır. Kullanıldıysa durum burada görünür.
+              </p>
+            </div>
 
-          <div className="max-h-96 space-y-2 overflow-auto pr-1">
-            {issued.map((item) => (
-              <div key={item.id} className="rounded border border-stone-700/60 p-2">
-                <div className="flex justify-between gap-3">
-                  <div>
-                    <div className="font-semibold">
-                      {item.code} <span className="opacity-70">— {item.source || "—"}</span>
-                    </div>
+            <div className="text-xs text-stone-500">{filteredIssued.length} kayıt</div>
+          </div>
 
-                    <div className="text-xs opacity-70">
-                      {item.assignedToPhone ? `Telefon: ${item.assignedToPhone}` : "Genel"} • Durum:{" "}
-                      {item.note === "scheduled"
-                        ? "Planlandı"
-                        : item.note === "cancelled"
-                          ? "İptal edildi"
-                          : "Hazır"}
-                    </div>
+          <div className="max-h-[32rem] space-y-3 overflow-auto pr-1">
+            {filteredIssued.map((item) => {
+              const def = coupons.find((coupon) => coupon.id === item.couponId);
+              const status = getIssuedStatus(item);
 
-                    <div className="text-xs opacity-70">
-                      Atanma: {fmtDT(item.issuedAt)} • Geçerli son tarih: {fmtDT(item.expiresAt)}
-                    </div>
+              return (
+                <div key={item.id} className="rounded-2xl border border-stone-700/60 bg-stone-950/25 p-3">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div className="break-all text-base font-bold text-stone-100">{item.code}</div>
+                        <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${status.className}`}>
+                          {status.label}
+                        </span>
+                      </div>
 
-                    <div className="text-xs opacity-70">
-                      Kullanıldı: {item.used ? fmtDT(item.usedAt) : "Hayır"}
-                    </div>
+                      <div className="mt-1 text-sm text-stone-300">
+                        {def?.title || def?.code || "Kupon tanımı bulunamadı"}{" "}
+                        <span className="text-stone-500">— {sourceLabel(item.source)}</span>
+                      </div>
 
-                    {(() => {
-                      const def = coupons.find((coupon) => coupon.id === item.couponId);
-                      if (!def) return null;
+                      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                        <InfoLine
+                          label="Müşteri telefonu"
+                          value={item.assignedToPhone || "Genel / telefona bağlı değil"}
+                        />
+                        <InfoLine label="Durum açıklaması" value={status.helper} />
+                        <InfoLine label="Atanma zamanı" value={fmtDT(item.issuedAt)} />
+                        <InfoLine label="Son geçerlilik" value={fmtDT(item.expiresAt)} />
+                      </div>
 
-                      return (
-                        <pre className="mt-1 whitespace-pre-wrap text-xs opacity-70">
+                      {item.used && (
+                        <div className="mt-3 rounded-xl border border-emerald-400/25 bg-emerald-500/10 p-2 text-xs text-emerald-100">
+                          Bu kupon kullanıldı. Tekrar kullanılmamalı; checkout ve backend bunu engeller.
+                        </div>
+                      )}
+
+                      {def && (
+                        <pre className="mt-2 whitespace-pre-wrap rounded-xl border border-stone-800/70 bg-black/20 p-2 text-xs leading-relaxed text-stone-400">
                           {describeCouponTr(def, item)}
                         </pre>
-                      );
-                    })()}
-                  </div>
+                      )}
+                    </div>
 
-                  <div className="flex flex-col gap-2">
-                    <button
-                      className="btn-ghost"
-                      type="button"
-                      onClick={() => {
-                        navigator.clipboard?.writeText(item.code);
-                        alert("Kod kopyalandı.");
-                      }}
-                    >
-                      Code kopieren
-                    </button>
+                    <div className="flex shrink-0 flex-row gap-2 lg:flex-col">
+                      <button
+                        className="btn-ghost flex-1 lg:flex-none"
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard?.writeText(item.code);
+                          alert("Kod kopyalandı.");
+                        }}
+                      >
+                        Kodu kopyala
+                      </button>
 
-                    <button className="btn-ghost" type="button" onClick={() => delIssued(item)}>
-                      Sil
-                    </button>
+                      <button className="btn-ghost flex-1 lg:flex-none" type="button" onClick={() => delIssued(item)}>
+                        Sil
+                      </button>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
 
-            {!issued.length && (
-              <div className="text-sm opacity-70">Kayıt yok.</div>
+            {!filteredIssued.length && (
+              <div className="rounded-2xl border border-stone-700/60 bg-stone-950/25 p-4 text-sm text-stone-400">
+                Kayıt yok.
+              </div>
             )}
           </div>
-        </div>
+        </section>
       </div>
+
     </main>
   );
 }

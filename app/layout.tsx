@@ -127,23 +127,44 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     wrap.style.placeItems = "center";
     wrap.style.padding = "24px";
 
-    var fallback = (location.origin + "/logo-burger-brothers.png")
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, "\\\\'");
+    var content = document.createElement("div");
+    content.style.textAlign = "center";
+    content.style.maxWidth = "760px";
 
-    var logoHtml = logoUrl
-      ? '<img src="' + logoUrl +
-        '" alt="Logo" onerror="this.onerror=null;this.src=\\'' + fallback + '\\'" ' +
-        'style="width:140px;height:140px;object-fit:contain;border-radius:24px;display:block;margin:0 auto 20px auto;" />'
-      : "";
+    if (logoUrl) {
+      var logo = document.createElement("img");
+      logo.alt = "Logo";
+      logo.src = logoUrl;
+      logo.style.width = "140px";
+      logo.style.height = "140px";
+      logo.style.objectFit = "contain";
+      logo.style.borderRadius = "24px";
+      logo.style.display = "block";
+      logo.style.margin = "0 auto 20px auto";
+      logo.addEventListener("error", function () {
+        logo.src = location.origin + "/logo-burger-brothers.png";
+      }, { once: true });
+      content.appendChild(logo);
+    }
 
-    wrap.innerHTML =
-      '<div style="text-align:center;max-width:760px">' +
-        logoHtml +
-        '<div style="font-weight:700;font-size:22px;line-height:1.1;margin-bottom:8px;color:#fff">Wartungsmodus</div>' +
-        '<div style="color:#d6d3d1;font-size:14px;letter-spacing:.2px;white-space:pre-line">' + (msg || "") + "</div>" +
-      "</div>";
+    var title = document.createElement("div");
+    title.style.fontWeight = "700";
+    title.style.fontSize = "22px";
+    title.style.lineHeight = "1.1";
+    title.style.marginBottom = "8px";
+    title.style.color = "#fff";
+    title.textContent = "Wartungsmodus";
+    content.appendChild(title);
 
+    var message = document.createElement("div");
+    message.style.color = "#d6d3d1";
+    message.style.fontSize = "14px";
+    message.style.letterSpacing = ".2px";
+    message.style.whiteSpace = "pre-line";
+    message.textContent = String(msg || "");
+    content.appendChild(message);
+
+    wrap.appendChild(content);
     document.body.appendChild(wrap);
   }
 
@@ -228,7 +249,7 @@ body:has(#bb-landing-page) .bb-mobile-footer-gap {
           <main className="app-shell min-w-0">{children}</main>
         </CatalogProvider>
 
-        {/* 
+        {/*
           Kampanya / broşür artık global layout'ta gösterilmiyor.
           Büyük kampanya pop-up sadece app/page.tsx ana giriş sayfasında çalışır.
         */}

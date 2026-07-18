@@ -109,16 +109,16 @@ export async function GET(req: Request) {
     ];
   }
 
-  const chosen =
-    dbPin
-      ? { pin: dbPin, source: dbSource || "db:setting" }
-      : envPin
-        ? { pin: envPin, source: "env:TV_PIN" }
-        : { pin: "19051905", source: "dev:fallback" };
+  const chosen = dbPin
+    ? { source: dbSource || "db:setting" }
+    : envPin
+      ? { source: "env:TV_PIN" }
+      : { source: "not_configured" };
 
   return NextResponse.json({
     ok: true,
     using: chosen.source,
+    configured: Boolean(dbPin || envPin),
     dbPresent: !!dbPin,
     envPresent: !!envPin,
   }, {

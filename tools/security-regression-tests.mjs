@@ -27,8 +27,11 @@ const middleware = read("middleware.ts");
 if (!middleware.includes('if (path === "/api/orders") return "operational"')) {
   failures.push("legacy /api/orders is not middleware protected");
 }
-if (!middleware.includes('return readOnly ? "public" : "admin"')) {
-  failures.push("unknown API mutations do not fail closed");
+if (!middleware.includes('return "admin"')) {
+  failures.push("unknown API routes do not fail closed");
+}
+if (!middleware.includes('path === "/api/payments/session"')) {
+  failures.push("payment session public route is not explicitly classified");
 }
 if (!middleware.includes('child(path, "/api/admin/cron")')) {
   failures.push("cron token route is not explicitly handled");
@@ -197,6 +200,21 @@ for (const route of [
 
 requireText("lib/settings.ts", 'driverPin: ""', "client driver PIN fallback was not removed");
 rejectPattern("app/qr/[id]/page.tsx", /19051905|123456|driverPin|password/i, "QR page contains client-side credential logic");
+
+
+const legacyDriverPage = read("app/driver/[orderId]/page.tsx");
+rejectPattern("app/driver/[orderId]/page.tsx", /DRIVER_PASSWORD|1905|fetchOrderFromDb|localStorage/, "legacy driver order page still exposes client auth/cache flow");
+if (!legacyDriverPage.includes('redirect(`/driver${query}`)')) {
+  failures.push("legacy driver order page is not redirected to the signed driver flow");
+}
+requireText("lib/orders.ts", 'throw error;', "order status persistence errors are still swallowed");
+rejectPattern("app/admin/coupons/page.tsx", /Math\.random|makeCouponCode|makeIssuedCode/, "admin coupon UI generates codes client-side");
+requireText("app/admin/coupons/page.tsx", "serverGenerateCodes: true", "automatic coupon definitions are not server-generated");
+requireText("app/admin/coupons/page.tsx", 'action: "issueCoupon"', "issued coupon codes are not generated server-side");
+requireText("app/api/coupons/route.ts", "serverGeneratedCode", "coupon API does not support authoritative server code generation");
+rejectPattern("app/api/tv/debug/route.ts", /19051905|dev:fallback/, "TV debug fallback PIN remains");
+rejectPattern("app/layout.tsx", /wrap\.innerHTML/, "maintenance overlay still uses innerHTML");
+requireText("app/api/payments/session/route.ts", "enforceRateLimit", "payment session endpoint rate limit missing");
 
 for (const route of [
   "app/driver/page.tsx",

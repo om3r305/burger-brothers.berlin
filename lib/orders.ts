@@ -715,7 +715,9 @@ export function setOrderStatus(id: string, status: OrderStatus, by?: string) {
     writeAllOrders(list);
   }
 
-  void persistStatusToDb(target, status, by);
+  void persistStatusToDb(target, status, by).catch((error) => {
+    console.error("setOrderStatus persistence failed", error);
+  });
 }
 
 export function setOrderChannel(id: string, channel: OrderChannel, by?: string) {
@@ -824,7 +826,9 @@ export function cancelOrder(id: string, reason?: string, by?: string) {
   pushHistory(list[idx], "status:cancelled", reason, by);
   writeAllOrders(list);
 
-  void persistStatusToDb(target, "cancelled", by);
+  void persistStatusToDb(target, "cancelled", by).catch((error) => {
+    console.error("cancelOrder persistence failed", error);
+  });
 }
 
 export function isOrderClaimed(order: StoredOrder): boolean {
@@ -1075,6 +1079,7 @@ export async function persistStatusToDb(
     }
   } catch (error) {
     console.error("persistStatusToDb failed", error);
+    throw error;
   }
 }
 

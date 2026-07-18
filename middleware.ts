@@ -95,6 +95,9 @@ export function apiAccess(path: string, methodRaw: string): Access {
   ) {
     return "public";
   }
+  if (path === "/api/payments/session" && method === "GET") {
+    return "public";
+  }
 
   // Logout endpoints only expire their own cookies.
   if (
@@ -149,8 +152,8 @@ export function apiAccess(path: string, methodRaw: string): Access {
     return "operational";
   }
 
-  // Unknown reads stay reachable; unknown mutations fail closed.
-  return readOnly ? "public" : "admin";
+  // Unknown API routes fail closed. Public routes must be explicitly listed above.
+  return "admin";
 }
 
 function createNonce() {

@@ -27,7 +27,10 @@ secrets.json
 *.sqlite3
 prisma/data/
 prisma/prisma/data/
-data/
+/data/
+!/public/data/
+!/public/data/streets.json
+!/public/data/route_clusters.json
 bootstrap.json
 .burger-brothers-fallback-snapshots/
 

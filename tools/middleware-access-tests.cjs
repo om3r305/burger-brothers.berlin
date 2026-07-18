@@ -60,6 +60,7 @@ try {
     ["/api/payments/profile", "DELETE", "public"],
     ["/api/payments/share", "GET", "public"],
     ["/api/payments/share", "POST", "public"],
+    ["/api/payments/session", "GET", "public"],
     ["/api/tv/logout", "GET", "public"],
     ["/api/tv/logout", "POST", "public"],
     ["/api/drivers", "GET", "admin"],
@@ -68,6 +69,7 @@ try {
     ["/api/drivers", "PUT", "admin"],
     ["/api/private/file.js", "POST", "admin"],
     ["/api/not-classified-mutation", "POST", "admin"],
+    ["/api/not-classified-read", "GET", "admin"],
   ];
 
   for (const [route, method, expected] of matrix) {

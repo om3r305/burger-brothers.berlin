@@ -304,8 +304,17 @@ function generateCode(length = 8, prefix = "", snapshot: CouponSnapshot = DEFAUL
   );
 }
 
+function normalizedCodePrefix(value: unknown, fallback = "BB") {
+  const prefix = displayCode(String(value || fallback))
+    .replace(/[^A-Z0-9]/g, "")
+    .slice(0, 8);
+  return prefix || fallback;
+}
+
 function normalizeCouponDef(input: any, snapshot: CouponSnapshot = DEFAULT_SNAPSHOT): CouponDef {
   const now = Date.now();
+  const serverGeneratedCode = input?.serverGeneratedCode === true || input?.codeMode === "server";
+  const codePrefix = normalizedCodePrefix(input?.codePrefix, "BB");
 
   const type = String(input?.type || "fixed");
   const safeType: CouponType =
@@ -315,7 +324,11 @@ function normalizeCouponDef(input: any, snapshot: CouponSnapshot = DEFAULT_SNAPS
 
   return {
     id: String(input?.id || rid()),
-    code: displayCode(input?.code || generateCode(8, "BB", snapshot)),
+    code: displayCode(
+      serverGeneratedCode
+        ? generateCode(8, codePrefix, snapshot)
+        : input?.code || generateCode(8, codePrefix, snapshot),
+    ),
     title: input?.title != null ? String(input.title) : "",
     type: safeType,
     value: toNum(input?.value, 0),
@@ -467,8 +480,18 @@ async function saveCouponToDb(
   raw: any,
   snapshot: CouponSnapshot,
 ): Promise<CouponDef | null> {
-  const coupon = normalizeCouponDef(raw?.definition ?? raw, snapshot);
-  const code = displayCode(raw?.code ?? coupon.code);
+  const definition = raw?.definition && typeof raw.definition === "object"
+    ? raw.definition
+    : raw;
+  const serverGeneratedCode = raw?.serverGeneratedCode === true || definition?.serverGeneratedCode === true;
+  const normalizedInput = {
+    ...definition,
+    serverGeneratedCode,
+    codePrefix: raw?.codePrefix ?? definition?.codePrefix,
+    code: serverGeneratedCode ? undefined : (raw?.code ?? definition?.code),
+  };
+  const coupon = normalizeCouponDef(normalizedInput, snapshot);
+  const code = displayCode(coupon.code);
 
   if (!code) return null;
 
@@ -1001,6 +1024,7 @@ function issueCoupon(snapshot: CouponSnapshot, opts: any) {
   }
 
   const now = Date.now();
+  const issuedAt = opts?.issuedAt != null ? toTs(opts.issuedAt) : now;
   const phone = normalizePhone(opts?.phone) || null;
 
   if (!canIssueToPhone(snapshot, def, phone, now)) {
@@ -1017,11 +1041,13 @@ function issueCoupon(snapshot: CouponSnapshot, opts: any) {
     code: pickIssueCodeFromDef(def, snapshot),
     assignedToPhone: phone,
     assignedToEmail: opts?.email ?? null,
-    issuedAt: now,
+    issuedAt,
     expiresAt:
-      opts?.expiresAfterDays != null
-        ? now + Number(opts.expiresAfterDays) * 24 * 3600 * 1000
-        : def.validUntil ?? null,
+      opts?.expiresAt != null
+        ? toTs(opts.expiresAt)
+        : opts?.expiresAfterDays != null
+          ? issuedAt + Number(opts.expiresAfterDays) * 24 * 3600 * 1000
+          : def.validUntil ?? null,
     used: false,
     usedAt: null,
     source: opts?.source || "manual",
@@ -1233,11 +1259,18 @@ export async function POST(req: Request) {
     if (body?.kind === "coupons") {
       const items = readItems(body);
       const savedCodes: string[] = [];
+      let workingSnapshot = current;
 
       await prisma.$transaction(async (tx: any) => {
         for (const raw of items) {
-          const saved = await saveCouponToDb(tx, tenantId, raw, current);
-          if (saved?.code) savedCodes.push(saved.code);
+          const saved = await saveCouponToDb(tx, tenantId, raw, workingSnapshot);
+          if (saved?.code) {
+            savedCodes.push(saved.code);
+            workingSnapshot = {
+              ...workingSnapshot,
+              coupons: [saved, ...workingSnapshot.coupons],
+            };
+          }
         }
 
         if (body?.replace === true && items.length > 0 && savedCodes.length > 0) {
@@ -1266,11 +1299,30 @@ export async function POST(req: Request) {
     if (body?.kind === "issued") {
       const items = readItems(body);
       const savedCodes: string[] = [];
+      let workingSnapshot = current;
 
       await prisma.$transaction(async (tx: any) => {
         for (const raw of items) {
-          const saved = await saveIssuedToDb(tx, tenantId, raw, current);
-          if (saved?.code) savedCodes.push(saved.code);
+          const baseDef = workingSnapshot.coupons.find(
+            (coupon) => coupon.id === String(raw?.couponId || ""),
+          );
+          const serverGeneratedCode = raw?.serverGeneratedCode === true;
+          const preparedRaw = serverGeneratedCode
+            ? {
+                ...raw,
+                code: baseDef
+                  ? pickIssueCodeFromDef(baseDef, workingSnapshot)
+                  : generateCode(8, normalizedCodePrefix(raw?.codePrefix, "BB"), workingSnapshot),
+              }
+            : raw;
+          const saved = await saveIssuedToDb(tx, tenantId, preparedRaw, workingSnapshot);
+          if (saved?.code) {
+            savedCodes.push(saved.code);
+            workingSnapshot = {
+              ...workingSnapshot,
+              issued: [saved, ...workingSnapshot.issued],
+            };
+          }
         }
 
         if (body?.replace === true && items.length > 0 && savedCodes.length > 0) {

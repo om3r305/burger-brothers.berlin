@@ -5,11 +5,7 @@ const root = process.cwd();
 const targetArg = process.argv[2] || "";
 const failures = [];
 
-const forbiddenNames = new Set([
-  ".env",
-  "bootstrap.json",
-  "secrets.json",
-]);
+const forbiddenNames = new Set([".env", "bootstrap.json", "secrets.json"]);
 const forbiddenExtensions = new Set([
   ".pem",
   ".key",
@@ -28,9 +24,22 @@ const forbiddenSegments = new Set([
   ".git",
   ".next",
   "node_modules",
-  "data",
   ".burger-brothers-fallback-snapshots",
 ]);
+
+const requiredReleaseFiles = [
+  "package.json",
+  "package-lock.json",
+  "prisma/schema.prisma",
+  "public/data/streets.json",
+  "public/data/route_clusters.json",
+  "types/qrcode.d.ts",
+  "types/r3f-jsx.d.ts",
+  "types/react-dom.d.ts",
+  "types/react-three-jsx.d.ts",
+  "global.d.ts",
+  "vercel.json",
+];
 
 function normalizedRelative(base, full) {
   return path.relative(base, full).split(path.sep).join("/");
@@ -47,6 +56,7 @@ function isForbidden(relative) {
   if (forbiddenNames.has(name) || name.startsWith(".env.")) return true;
   if (forbiddenExtensions.has(extension)) return true;
   if (segments.some((segment) => forbiddenSegments.has(segment))) return true;
+  if (lower === "data" || lower.startsWith("data/")) return true;
   if (lower === "print-agent/config.json") return true;
   if (lower === "print-proxy/config.json" || lower === "print-proxy/.env") return true;
   if (name.startsWith("package-lock.json.registry-backup-")) return true;
@@ -63,11 +73,40 @@ function walk(directory) {
   return output;
 }
 
+function requireFile(base, relative) {
+  if (!fs.existsSync(path.join(base, relative))) {
+    failures.push(`required release file missing: ${relative}`);
+  }
+}
+
 if (!targetArg) {
   const releaseScript = path.join(root, "tools", "create-secure-release.ps1");
-  if (!fs.existsSync(releaseScript)) failures.push("secure release script missing");
+  if (!fs.existsSync(releaseScript)) {
+    failures.push("secure release script missing");
+  } else {
+    const script = fs.readFileSync(releaseScript, "utf8");
+    for (const marker of [
+      '"types"',
+      '"global.d.ts"',
+      '"vercel.json"',
+      '"public\\data\\streets.json"',
+      '"public\\data\\route_clusters.json"',
+      "staged npm ci",
+      "staged prisma generate",
+      "staged typecheck",
+      "staged security tests",
+      "staged production build",
+      "release security scan",
+    ]) {
+      if (!script.includes(marker)) failures.push(`release script missing marker: ${marker}`);
+    }
 
-  const ignored = fs.readFileSync(path.join(root, ".gitignore"), "utf8");
+    if (/\$segments\s*-contains\s*["']data["']/.test(script)) {
+      failures.push("release script globally blocks every data directory");
+    }
+  }
+
+  const gitignore = fs.readFileSync(path.join(root, ".gitignore"), "utf8");
   for (const marker of [
     ".env",
     "*.pem",
@@ -76,22 +115,44 @@ if (!targetArg) {
     ".next",
     "node_modules",
     ".burger-brothers-fallback-snapshots",
+    "/data/",
+    "!/public/data/",
   ]) {
-    if (!ignored.includes(marker)) failures.push(`.gitignore missing ${marker}`);
+    if (!gitignore.includes(marker)) failures.push(`.gitignore missing ${marker}`);
+  }
+
+  if (/^data\/$/m.test(gitignore)) {
+    failures.push(".gitignore uses broad data/ rule and may ignore public/data");
   }
 } else {
   const target = path.resolve(root, targetArg);
   if (!fs.existsSync(target) || !fs.statSync(target).isDirectory()) {
     failures.push(`release directory missing: ${target}`);
   } else {
-    const files = walk(target);
+    for (const relative of requiredReleaseFiles) requireFile(target, relative);
 
+    const files = walk(target);
     for (const full of files) {
       const relative = normalizedRelative(target, full);
       if (isForbidden(relative)) failures.push(`forbidden release file: ${relative}`);
 
       const extension = path.extname(relative).toLowerCase();
-      if (![".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".json", ".md", ".txt", ".ps1", ".prisma", ".env"].includes(extension)) {
+      if (
+        ![
+          ".ts",
+          ".tsx",
+          ".js",
+          ".jsx",
+          ".mjs",
+          ".cjs",
+          ".json",
+          ".md",
+          ".txt",
+          ".ps1",
+          ".prisma",
+          ".env",
+        ].includes(extension)
+      ) {
         continue;
       }
 
@@ -118,6 +179,6 @@ if (failures.length) {
 
 console.log(
   targetArg
-    ? "Release directory secret scan passed."
+    ? "Release directory completeness and secret scan passed."
     : "Secure release policy tests passed.",
 );

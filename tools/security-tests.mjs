@@ -106,6 +106,33 @@ if (/const\s+PIN\s*=|1905|Falsche PIN/.test(scanPage)) {
   failures.push("scan page still contains client-side PIN authentication");
 }
 
+
+const legacyDriverPage = fs.readFileSync(path.join(root, "app/driver/[orderId]/page.tsx"), "utf8");
+if (/DRIVER_PASSWORD|1905|fetchOrderFromDb|localStorage/.test(legacyDriverPage)) {
+  failures.push("legacy driver order page still contains client-side authentication or cached-order access");
+}
+if (!legacyDriverPage.includes('redirect(`/driver${query}`)')) {
+  failures.push("legacy driver order page does not redirect to signed driver session flow");
+}
+
+const tvDebug = fs.readFileSync(path.join(root, "app/api/tv/debug/route.ts"), "utf8");
+if (/19051905|dev:fallback/.test(tvDebug)) {
+  failures.push("TV debug route still contains a hard-coded fallback PIN");
+}
+
+const adminCoupons = fs.readFileSync(path.join(root, "app/admin/coupons/page.tsx"), "utf8");
+if (/Math\.random|makeCouponCode|makeIssuedCode/.test(adminCoupons)) {
+  failures.push("admin coupon UI still generates security-sensitive coupon codes client-side");
+}
+if (!adminCoupons.includes("serverGenerateCodes: true") || !adminCoupons.includes('action: "issueCoupon"')) {
+  failures.push("admin coupon UI does not delegate automatic code generation to the server");
+}
+
+const rootLayoutSecurity = fs.readFileSync(path.join(root, "app/layout.tsx"), "utf8");
+if (rootLayoutSecurity.includes("wrap.innerHTML")) {
+  failures.push("maintenance overlay still uses innerHTML");
+}
+
 const requestSecurity = fs.readFileSync(path.join(root, "lib/server/request-security.ts"), "utf8");
 if (!requestSecurity.includes("UPSTASH_REDIS_REST_URL") || !requestSecurity.includes("sweepLocalRateStore")) {
   failures.push("distributed/bounded rate limiter support missing");

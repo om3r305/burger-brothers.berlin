@@ -1,12 +1,16 @@
 import { NextResponse } from "next/server";
 import { finalizePaymentSession } from "@/lib/server/payment-finalize";
 import { prisma, getTenantId } from "@/lib/db";
+import { enforceRateLimit } from "@/lib/server/request-security";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export async function GET(req: Request) {
+  const rateError = await enforceRateLimit(req, "payments:session", 30, 60_000);
+  if (rateError) return rateError;
+
   const url = new URL(req.url);
   const paymentSessionId =
     url.searchParams.get("id") ||
