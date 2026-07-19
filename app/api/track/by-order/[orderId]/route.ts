@@ -2,9 +2,11 @@ import { NextResponse } from "next/server";
 import { prisma, getTenantId } from "@/lib/db";
 import {
   enforceRateLimit,
+  getSessionSubject,
   hasAnySessionRole,
   securityJson,
 } from "@/lib/server/request-security";
+import { orderAssignedToDriver } from "@/lib/server/driver-order";
 import {
   extractTrackingToken,
   matchesTrackingToken,
@@ -43,7 +45,11 @@ export async function GET(
   try {
     const tenantId = await getTenantId();
     const orderId = String(params?.orderId || "").trim();
-    const operational = await hasAnySessionRole(req, ["admin", "tv", "driver"]);
+    const privileged = await hasAnySessionRole(req, ["admin", "tv"]);
+    const driverSubject = privileged
+      ? ""
+      : await getSessionSubject(req, "driver");
+    const operational = privileged || Boolean(driverSubject);
     const token = extractTrackingToken(req) || (orderId.length >= 32 ? orderId : "");
 
     let order: any = null;
@@ -51,7 +57,13 @@ export async function GET(
     if (operational && orderId) {
       order = await prisma.order.findFirst({
         where: { tenantId, id: orderId },
-        select: { id: true, meta: true },
+        select: {
+          id: true,
+          mode: true,
+          status: true,
+          driver: true,
+          meta: true,
+        },
       });
     } else if (token) {
       order = await prisma.order.findFirst({
@@ -72,8 +84,23 @@ export async function GET(
 
     if (!order?.id) return json({ ok: false, error: "not_found" }, 404);
 
+    if (
+      driverSubject &&
+      (String(order?.status || "").toLowerCase().startsWith("payment_") ||
+        !orderAssignedToDriver(order, driverSubject))
+    ) {
+      return securityJson(
+        { ok: false, error: "order_not_assigned_to_driver" },
+        403,
+      );
+    }
+
     const row = await prisma.trackingSession.findFirst({
-      where: { tenantId, orderIds: { has: order.id } },
+      where: {
+        tenantId,
+        orderIds: { has: order.id },
+        ...(driverSubject ? { driverId: driverSubject } : {}),
+      },
       orderBy: { updatedAt: "desc" },
     });
 

@@ -597,7 +597,10 @@ export async function GET(req: Request) {
   if (rateError) return rateError;
 
   try {
-    const operational = await hasAnySessionRole(req, ["admin", "tv", "driver"]);
+    const isAdmin = await hasAnySessionRole(req, ["admin"]);
+    // Doğrudan sipariş koduyla tam operasyon görünümü yalnızca admin/TV içindir.
+    // Sürücü dahil diğer tüm istemciler imzalı takip token'ı kullanır.
+    const operational = isAdmin || (await hasAnySessionRole(req, ["tv"]));
     const token = extractTrackingToken(req);
     const result = operational
       ? await findOrder(extractCodeFromRequestUrl(req))
@@ -605,6 +608,14 @@ export async function GET(req: Request) {
 
     if (!result.order) {
       return errorResponse(result.error || "not_found", result.status, result.code);
+    }
+
+    if (
+      operational &&
+      !isAdmin &&
+      String(result.order?.status || "").toLowerCase().startsWith("payment_")
+    ) {
+      return errorResponse("payment_session_not_operational_order", 403, result.code);
     }
 
     return okResponse(result.order, result.code, operational);
@@ -620,7 +631,8 @@ export async function POST(req: Request) {
 
   try {
     const body = await req.json().catch(() => ({} as any));
-    const operational = await hasAnySessionRole(req, ["admin", "tv", "driver"]);
+    const isAdmin = await hasAnySessionRole(req, ["admin"]);
+    const operational = isAdmin || (await hasAnySessionRole(req, ["tv"]));
 
     const code =
       body?.id ||
@@ -641,6 +653,14 @@ export async function POST(req: Request) {
 
     if (!result.order) {
       return errorResponse(result.error || "not_found", result.status, result.code);
+    }
+
+    if (
+      operational &&
+      !isAdmin &&
+      String(result.order?.status || "").toLowerCase().startsWith("payment_")
+    ) {
+      return errorResponse("payment_session_not_operational_order", 403, result.code);
     }
 
     return okResponse(result.order, result.code, operational);

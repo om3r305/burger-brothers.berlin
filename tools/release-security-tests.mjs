@@ -30,7 +30,9 @@ const forbiddenSegments = new Set([
 const requiredReleaseFiles = [
   "package.json",
   "package-lock.json",
+  "TESLIMAT-README.txt",
   "prisma/schema.prisma",
+  "prisma/seed.ts",
   "public/data/streets.json",
   "public/data/route_clusters.json",
   "types/qrcode.d.ts",
@@ -89,6 +91,7 @@ if (!targetArg) {
       '"types"',
       '"global.d.ts"',
       '"vercel.json"',
+      '"prisma\\seed.ts"',
       '"public\\data\\streets.json"',
       '"public\\data\\route_clusters.json"',
       "staged npm ci",

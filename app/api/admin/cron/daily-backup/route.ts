@@ -36,7 +36,12 @@ function verifyCronRequest(req: NextRequest) {
   const cronSecret = String(process.env.CRON_SECRET || "").trim();
 
   if (!cronSecret) {
-    if (process.env.VERCEL_ENV === "production") {
+    const production =
+      process.env.NODE_ENV === "production" ||
+      process.env.VERCEL_ENV === "production" ||
+      Boolean(process.env.VERCEL);
+
+    if (production) {
       return false;
     }
 

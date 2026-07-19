@@ -1,10 +1,14 @@
 import { NextResponse } from "next/server";
 import { prisma, getTenantId } from "@/lib/db";
+import { requireSessionRole } from "@/lib/server/request-security";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-export async function GET(_: Request, { params }: { params: { id: string } }) {
+export async function GET(req: Request, { params }: { params: { id: string } }) {
+  const authError = await requireSessionRole(req, "admin");
+  if (authError) return authError;
+
   try {
     const tenantId = await getTenantId();
     const id = String(params?.id || "");

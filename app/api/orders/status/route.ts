@@ -1045,7 +1045,10 @@ async function handleStatusUpdate(req: Request) {
       by: isAdmin ? cleanText(body?.by, "admin") : isTv ? "tv" : "driver",
     };
 
-    if (String((row as any)?.status || "").toLowerCase() === "payment_pending" && !isAdmin) {
+    if (
+      String((row as any)?.status || "").toLowerCase().startsWith("payment_") &&
+      !isAdmin
+    ) {
       return securityJson({ ok: false, error: "payment_session_not_operational_order" }, 403);
     }
 
@@ -1259,7 +1262,7 @@ export async function GET(req: Request) {
 
     if (
       !isAdmin &&
-      String((row as any)?.status || "").toLowerCase() === "payment_pending"
+      String((row as any)?.status || "").toLowerCase().startsWith("payment_")
     ) {
       return securityJson({ ok: false, error: "payment_session_not_operational_order" }, 403);
     }

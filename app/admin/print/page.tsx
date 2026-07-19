@@ -2,6 +2,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import QRCode from "react-qr-code";
 import { readSettings } from "@/lib/settings";
 
 type PrintType = "kitchen" | "driver" | "full";
@@ -432,12 +433,18 @@ export default function PrintPage() {
           {showQr && addressLine ? (
             <div className="flex justify-end">
               <div>
-                <img
-                  alt="Google Maps QR"
-                  width={150}
-                  height={150}
-                  src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(maps)}`}
-                />
+                <div
+                  aria-label="Google Maps QR"
+                  className="inline-flex bg-white p-1"
+                >
+                  <QRCode
+                    value={maps}
+                    size={150}
+                    bgColor="#ffffff"
+                    fgColor="#000000"
+                    level="M"
+                  />
+                </div>
                 <div className="mt-1 max-w-[260px] break-all text-[10px] opacity-70">
                   {maps}
                 </div>

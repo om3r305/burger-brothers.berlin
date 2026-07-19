@@ -98,7 +98,9 @@ function Assert-RequiredFiles {
   $required = @(
     "package.json",
     "package-lock.json",
+    "TESLIMAT-README.txt",
     "prisma\schema.prisma",
+    "prisma\seed.ts",
     "public\data\streets.json",
     "public\data\route_clusters.json",
     "types\qrcode.d.ts",
@@ -139,7 +141,7 @@ $topFiles = @(
   "next.config.js", "next.config.ts", "package.json", "package-lock.json",
   "postcss.config.cjs", "postcss.config.js", "tailwind.config.ts",
   "tailwind.config.js", "tsconfig.json", "next-env.d.ts", "server.js",
-  "global.d.ts", "vercel.json"
+  "global.d.ts", "vercel.json", "TESLIMAT-README.txt"
 )
 
 foreach ($relative in $topFiles) {
@@ -149,7 +151,7 @@ foreach ($relative in $topFiles) {
 
 $includeDirectories = @(
   "app", "components", "config", "i18n", "lib", "public", "tools",
-  "print-agent", "print-proxy", "prisma/migrations", "styles", "types", "utils"
+  "print-agent", "print-proxy", "prisma", "styles", "types", "utils"
 )
 
 foreach ($relativeDirectory in $includeDirectories) {

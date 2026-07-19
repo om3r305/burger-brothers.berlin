@@ -4,10 +4,8 @@ import { prisma, getTenantId } from "@/lib/db";
 import { generateOrderId } from "@/lib/order-id";
 import { getServerSettings } from "@/lib/server/settings";
 import {
-  getSessionSubject,
   hasSessionRole,
   requireAnySessionRole,
-  requireMutationRole,
   securityJson,
 } from "@/lib/server/request-security";
 import { createTrackingToken } from "@/lib/server/public-order";
@@ -963,10 +961,21 @@ function errorResponse(error: any, fallback: string, status = 500) {
   );
 }
 
-async function listOrders(tenantId: string, take = 1000, includeArchived = false) {
+async function listOrders(
+  tenantId: string,
+  take = 1000,
+  includeArchived = false,
+  includePaymentSessions = false,
+) {
   const where: Record<string, any> = {
     tenantId,
   };
+
+  if (!includePaymentSessions) {
+    where.status = {
+      notIn: ["payment_pending", "payment_completed"],
+    };
+  }
 
   if (hasOrderField("archivedAt") && !includeArchived) {
     where.archivedAt = null;
@@ -981,7 +990,15 @@ async function listOrders(tenantId: string, take = 1000, includeArchived = false
     select: buildOrderSelect() as any,
   });
 
-  return rows.map(serializeOrder);
+  return rows
+    .filter(
+      (row: any) =>
+        includePaymentSessions ||
+        !String(row?.status || "")
+          .toLowerCase()
+          .startsWith("payment_"),
+    )
+    .map(serializeOrder);
 }
 
 async function upsertImportedOrder(tx: any, tenantId: string, raw: any) {
@@ -1018,10 +1035,13 @@ async function upsertImportedOrder(tx: any, tenantId: string, raw: any) {
 }
 
 export async function GET(req: Request) {
-  const authError = await requireAnySessionRole(req, ["admin", "tv", "driver"]);
+  // Bu eski endpoint yalnızca admin/TV uyumluluğu için tutulur. Sürücü akışı
+  // daraltılmış /api/orders/list ve /status endpoint'lerini kullanır.
+  const authError = await requireAnySessionRole(req, ["admin", "tv"]);
   if (authError) return authError;
 
   try {
+    const isAdmin = await hasSessionRole(req, "admin");
     const tenantId = await getTenantId();
     const url = new URL(req.url);
     const id =
@@ -1031,6 +1051,20 @@ export async function GET(req: Request) {
 
     if (id) {
       const row = await findOrder(tenantId, id);
+
+      if (
+        row &&
+        !isAdmin &&
+        String((row as any)?.status || "")
+          .toLowerCase()
+          .startsWith("payment_")
+      ) {
+        return securityJson(
+          { ok: false, error: "payment_session_not_operational_order" },
+          403,
+        );
+      }
+
       const order = row ? serializeOrder(row) : null;
 
       if (!order) {
@@ -1065,7 +1099,12 @@ export async function GET(req: Request) {
       parseBool(url.searchParams.get("includeArchived")) ||
       parseBool(url.searchParams.get("archived"));
 
-    const orders = await listOrders(tenantId, take, includeArchived);
+    const orders = await listOrders(
+      tenantId,
+      take,
+      includeArchived,
+      isAdmin,
+    );
 
     return jsonResponse({
       ok: true,

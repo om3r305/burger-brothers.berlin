@@ -2,6 +2,7 @@
 import { findOrderById } from "@/lib/server/orders-store";
 import { readSettings } from "@/lib/settings"; // sende zaten var
 import type { OrderLog } from "@/lib/server/orders-store";
+import QRCode from "react-qr-code";
 
 const fmt = (n: number) =>
   new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" }).format(n);
@@ -73,15 +74,18 @@ export default async function PrintPage({ searchParams }: PrintPageProps) {
           <>
             <div className="mt-1">{addrLine}</div>
             {s.printing?.showQR && addrLine && (
-              <img
-                alt="qr"
-                width={160}
-                height={160}
-                src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(
-                  maps
-                )}`}
-                className="mt-2"
-              />
+              <div
+                aria-label="Google Maps QR"
+                className="mt-2 inline-flex bg-white p-1"
+              >
+                <QRCode
+                  value={maps}
+                  size={160}
+                  bgColor="#ffffff"
+                  fgColor="#000000"
+                  level="M"
+                />
+              </div>
             )}
             {addrLine && (
               <div className="text-xs opacity-70 break-all">{maps}</div>

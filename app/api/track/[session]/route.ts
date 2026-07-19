@@ -4,6 +4,7 @@ import {
   enforceRateLimit,
   getSessionSubject,
   hasAnySessionRole,
+  hasSessionRole,
   requireMutationRole,
   securityJson,
 } from "@/lib/server/request-security";
@@ -116,9 +117,12 @@ export async function GET(
 
     if (!row) return json({ ok: false, error: "not_found" }, 404);
 
-    const operational = await hasAnySessionRole(req, ["admin", "tv", "driver"]);
+    const privileged = await hasAnySessionRole(req, ["admin", "tv"]);
+    const driverSubject = privileged
+      ? ""
+      : await getSessionSubject(req, "driver");
 
-    if (!operational) {
+    if (!privileged && !driverSubject) {
       if (trackingExpired(row)) {
         return securityJson({ ok: false, error: "tracking_expired" }, 410);
       }
@@ -132,6 +136,16 @@ export async function GET(
         source: "db",
         session: publicTrackingSessionDto(row),
       });
+    }
+
+    if (
+      driverSubject &&
+      (!row.driverId || String(row.driverId) !== driverSubject)
+    ) {
+      return securityJson(
+        { ok: false, error: "tracking_session_owned_by_other_driver" },
+        403,
+      );
     }
 
     return json({
@@ -169,7 +183,10 @@ export async function POST(
     const body = await req.json().catch(() => ({} as any));
     const active = body?.active !== false;
     const location = point(body);
-    const driverSubject = await getSessionSubject(req, "driver");
+    const isAdmin = await hasSessionRole(req, "admin");
+    const driverSubject = isAdmin
+      ? ""
+      : await getSessionSubject(req, "driver");
     const requestedDriverId = String(body?.driverId || "").trim();
     const driverId = driverSubject || requestedDriverId;
 

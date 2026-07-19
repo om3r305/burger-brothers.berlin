@@ -2,12 +2,16 @@
 import { NextResponse } from "next/server";
 import { prisma, getTenantId } from "@/lib/db";
 import { currentMode, usingPrisma, usingSQLite } from "@/lib/server/db";
+import { requireSessionRole } from "@/lib/server/request-security";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-export async function GET() {
+export async function GET(req: Request) {
+  const authError = await requireSessionRole(req, "admin");
+  if (authError) return authError;
+
   const info: Record<string, any> = {
     ok: true,
     source: "db",

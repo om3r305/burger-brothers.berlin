@@ -834,7 +834,17 @@ export async function GET(req: Request) {
       select: buildOrderSelect() as any,
     });
 
-    let allOrders = rows.map(serializeOrder);
+    // Stripe ödeme taslakları gerçek operasyon siparişi değildir. Özellikle
+    // includeArchived=1 kullanıldığında payment_completed kayıtlarının status
+    // normalizasyonuyla yanlışlıkla "new" görünmesini engelle.
+    let allOrders = rows
+      .filter(
+        (row: any) =>
+          !String(row?.status || "")
+            .toLowerCase()
+            .startsWith("payment_"),
+      )
+      .map(serializeOrder);
 
     /*
       Güvenlik filtresi:

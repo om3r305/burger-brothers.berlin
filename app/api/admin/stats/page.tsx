@@ -23,9 +23,18 @@ type Category =
   | "donuts"
   | "bubbleTea";
 
+type OrderStatus =
+  | "new"
+  | "preparing"
+  | "ready"
+  | "out_for_delivery"
+  | "done"
+  | "cancelled";
+
 type OrderAddon = {
   id?: string;
   name?: string;
+  label?: string;
   price?: number;
 };
 
@@ -44,12 +53,14 @@ type OrderLog = {
   ts: number;
   createdAt?: string | null;
   mode: Mode;
-  status?: string;
+  status: OrderStatus;
   plz?: string | null;
   merchandise?: number;
   discount?: number;
   surcharges?: number;
   total: number;
+  archivedAt?: string | null;
+  anonymizedAt?: string | null;
   items: OrderItem[];
   customer?: {
     name?: string;
@@ -67,7 +78,7 @@ type VisitorPing = {
   userAgent?: string;
 };
 
-const API_ORDERS = "/api/admin/orders";
+const API_ORDERS = "/api/orders/list";
 const API_VISITORS = "/api/admin/visitors";
 
 const fmtEur = (n: number) =>
@@ -85,6 +96,18 @@ function endOfDay(d: Date) {
   const x = new Date(d);
   x.setHours(23, 59, 59, 999);
   return x;
+}
+
+function startOfMonth(d: Date) {
+  return new Date(d.getFullYear(), d.getMonth(), 1, 0, 0, 0, 0);
+}
+
+function startOfYear(d: Date) {
+  return new Date(d.getFullYear(), 0, 1, 0, 0, 0, 0);
+}
+
+function endOfYear(d: Date) {
+  return new Date(d.getFullYear(), 11, 31, 23, 59, 59, 999);
 }
 
 function csvEscape(s: string) {
@@ -137,25 +160,84 @@ function toTimestamp(value: any, fallback = Date.now()) {
 function normalizeMode(value: any): Mode {
   const text = String(value || "").toLowerCase().trim();
 
-  if (text === "delivery" || text === "lieferung" || text === "lifa") return "delivery";
+  if (text === "delivery" || text === "lieferung" || text === "lifa") {
+    return "delivery";
+  }
 
   return "pickup";
+}
+
+function normalizeStatus(value: any): OrderStatus {
+  const text = String(value || "").toLowerCase().trim();
+
+  if (text === "received" || text === "eingegangen") return "new";
+
+  if (
+    text === "prepare" ||
+    text === "preparing" ||
+    text === "zubereitung" ||
+    text === "in_vorbereitung" ||
+    text === "in vorbereitung"
+  ) {
+    return "preparing";
+  }
+
+  if (text === "ready" || text === "bereit" || text === "abholbereit") {
+    return "ready";
+  }
+
+  if (text === "on_the_way" || text === "unterwegs") {
+    return "out_for_delivery";
+  }
+
+  if (text === "delivered" || text === "completed" || text === "geliefert") {
+    return "done";
+  }
+
+  if (text === "canceled" || text === "cancelled" || text === "storniert") {
+    return "cancelled";
+  }
+
+  return "new";
 }
 
 function normalizeCategory(value: any): Category {
   const text = String(value || "").toLowerCase().trim();
 
-  if (text === "vegan") return "vegan";
-  if (text === "extras" || text === "fries" || text === "pommes") return "extras";
-  if (text === "sauces" || text === "sauce" || text === "soßen" || text === "sossen") {
+  if (text.includes("vegan") || text.includes("vegetar")) return "vegan";
+
+  if (
+    text.includes("extra") ||
+    text.includes("snack") ||
+    text.includes("fries") ||
+    text.includes("pommes")
+  ) {
+    return "extras";
+  }
+
+  if (text.includes("sauce") || text.includes("soß") || text.includes("sos")) {
     return "sauces";
   }
-  if (text === "drinks" || text === "drink" || text === "getränke" || text === "getraenke") {
+
+  if (
+    text.includes("drink") ||
+    text.includes("getränk") ||
+    text.includes("getraenke")
+  ) {
     return "drinks";
   }
-  if (text === "hotdogs" || text === "hotdog" || text === "hot-dogs") return "hotdogs";
-  if (text === "donuts" || text === "donut") return "donuts";
-  if (text === "bubbletea" || text === "bubble-tea" || text === "bubble_tea") {
+
+  if (
+    text.includes("hotdog") ||
+    text.includes("hot dog") ||
+    text.includes("hot-dog")
+  ) {
+    return "hotdogs";
+  }
+
+  if (text.includes("donut") || text.includes("doughnut")) return "donuts";
+
+  if (text.includes("bubble") || text.includes("boba") || text.includes("milk tea")) {
     return "bubbleTea";
   }
 
@@ -173,7 +255,8 @@ function normalizeAddons(value: any): OrderAddon[] {
     .filter(Boolean)
     .map((row: any) => ({
       id: row?.id ? String(row.id) : undefined,
-      name: row?.name ? String(row.name) : undefined,
+      name: row?.name ? String(row.name) : row?.label ? String(row.label) : undefined,
+      label: row?.label ? String(row.label) : row?.name ? String(row.name) : undefined,
       price: toNumber(row?.price, 0),
     }));
 }
@@ -217,19 +300,21 @@ function normalizeOrder(row: any): OrderLog | null {
   const id = String(source.id ?? source.orderId ?? source.code ?? "").trim();
   if (!id) return null;
 
-  const ts = toTimestamp(source.ts ?? source.createdAt ?? source.date ?? source.meta?.ts);
+  const meta = source.meta && typeof source.meta === "object" ? source.meta : {};
+  const customer = source.customer && typeof source.customer === "object" ? source.customer : {};
   const totals = source.totals && typeof source.totals === "object" ? source.totals : {};
 
+  const ts = toTimestamp(source.ts ?? source.createdAt ?? source.date ?? meta?.ts);
+  const items = normalizeOrderItems(source.items);
+
   const merchandise = toNumber(source.merchandise ?? totals.merchandise ?? totals.subtotal, 0);
-  const discount = toNumber(source.discount ?? totals.discount ?? source.couponDiscount, 0);
+  const discount = toNumber(source.discount ?? totals.discount, 0);
   const surcharges = toNumber(source.surcharges ?? totals.surcharges ?? totals.deliveryFee, 0);
+
   const total = toNumber(
     source.total ?? totals.total ?? merchandise - discount + surcharges,
     0,
   );
-
-  const customer =
-    source.customer && typeof source.customer === "object" ? source.customer : {};
 
   return {
     id,
@@ -239,13 +324,15 @@ function normalizeOrder(row: any): OrderLog | null {
         ? source.createdAt
         : new Date(ts).toISOString(),
     mode: normalizeMode(source.mode),
-    status: String(source.status ?? source.meta?.statusManual ?? source.meta?.status ?? ""),
-    plz: source.plz ?? customer.plz ?? customer.zip ?? source.meta?.plz ?? null,
+    status: normalizeStatus(source.status ?? meta?.statusManual ?? meta?.lastStatus),
+    plz: source.plz ?? customer.plz ?? customer.zip ?? meta?.plz ?? null,
     merchandise,
     discount,
     surcharges,
     total,
-    items: normalizeOrderItems(source.items),
+    archivedAt: source.archivedAt ?? meta?.archivedAt ?? null,
+    anonymizedAt: source.anonymizedAt ?? meta?.anonymizedAt ?? null,
+    items,
     customer: {
       name: customer.name ? String(customer.name) : undefined,
       phone: customer.phone ? String(customer.phone) : undefined,
@@ -300,9 +387,19 @@ function normalizeVisitors(value: any): VisitorPing[] {
   return list.map(normalizeVisitor).filter(Boolean) as VisitorPing[];
 }
 
-async function fetchOrdersAndVisitors() {
+async function fetchOrdersAndVisitors(from: string, to: string) {
+  const fromTs = from ? Date.parse(from) : Date.now() - 7 * 86400000;
+  const toTs = to ? Date.parse(to) : Date.now();
+
+  const u = new URL(API_ORDERS, window.location.origin);
+  u.searchParams.set("from", String(fromTs));
+  u.searchParams.set("to", String(toTs));
+  u.searchParams.set("includeDone", "1");
+  u.searchParams.set("includeArchived", "1");
+  u.searchParams.set("take", "1000");
+
   const [ordersRes, visitorsRes] = await Promise.all([
-    fetch(API_ORDERS, {
+    fetch(u.toString(), {
       cache: "no-store",
       headers: { accept: "application/json" },
     }),
@@ -325,44 +422,6 @@ async function fetchOrdersAndVisitors() {
     orders: normalizeOrders(ordersJson),
     visitors: visitorsJson?.ok === false ? [] : normalizeVisitors(visitorsJson),
   };
-}
-
-async function importOrdersToAPI(arr: any[]): Promise<OrderLog[]> {
-  const res = await fetch(API_ORDERS, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      accept: "application/json",
-    },
-    body: JSON.stringify({ action: "import", orders: arr }),
-  });
-
-  const data = await res.json().catch(() => ({}));
-
-  if (!res.ok || data?.ok === false) {
-    throw new Error(data?.error || "IMPORT_ORDERS_FAILED");
-  }
-
-  return normalizeOrders(data);
-}
-
-async function importVisitorsToAPI(arr: any[]): Promise<VisitorPing[]> {
-  const res = await fetch(API_VISITORS, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      accept: "application/json",
-    },
-    body: JSON.stringify({ action: "import", visitors: arr }),
-  });
-
-  const data = await res.json().catch(() => ({}));
-
-  if (!res.ok || data?.ok === false) {
-    throw new Error(data?.error || "IMPORT_VISITORS_FAILED");
-  }
-
-  return normalizeVisitors(data);
 }
 
 function downloadFile(filename: string, content: string, type: string) {
@@ -392,6 +451,7 @@ export default function AdminStatsPage() {
   const [from, setFrom] = useState<string>(defaultFrom.current);
   const [to, setTo] = useState<string>(defaultTo.current);
   const [mode, setMode] = useState<"all" | Mode>("all");
+  const [status, setStatus] = useState<"all" | OrderStatus>("all");
   const [cat, setCat] = useState<"all" | Category>("all");
   const [q, setQ] = useState("");
   const [pathFilter, setPathFilter] = useState<string>("all");
@@ -400,7 +460,7 @@ export default function AdminStatsPage() {
     setLoaded(false);
 
     try {
-      const data = await fetchOrdersAndVisitors();
+      const data = await fetchOrdersAndVisitors(from, to);
 
       setOrders(data.orders);
       setVisitors(data.visitors);
@@ -418,8 +478,10 @@ export default function AdminStatsPage() {
     let cancelled = false;
 
     (async () => {
+      setLoaded(false);
+
       try {
-        const data = await fetchOrdersAndVisitors();
+        const data = await fetchOrdersAndVisitors(from, to);
         if (cancelled) return;
 
         setOrders(data.orders);
@@ -439,7 +501,7 @@ export default function AdminStatsPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [from, to]);
 
   const filtered = useMemo(() => {
     const fromTs = from ? Date.parse(from) : -Infinity;
@@ -449,9 +511,10 @@ export default function AdminStatsPage() {
     return orders.filter((order) => {
       if (!(order.ts >= fromTs && order.ts <= toTs)) return false;
       if (mode !== "all" && order.mode !== mode) return false;
+      if (status !== "all" && order.status !== status) return false;
 
       if (cat !== "all") {
-        if (!order.items?.some((item) => String(item.category || "") === cat)) return false;
+        if (!order.items?.some((item) => item.category === cat)) return false;
       }
 
       if (text) {
@@ -464,7 +527,17 @@ export default function AdminStatsPage() {
 
       return true;
     });
-  }, [orders, from, to, mode, cat, q]);
+  }, [orders, from, to, mode, status, cat, q]);
+
+  const salesOrders = useMemo(
+    () => filtered.filter((order) => order.status !== "cancelled"),
+    [filtered],
+  );
+
+  const cancelledOrders = useMemo(
+    () => filtered.filter((order) => order.status === "cancelled"),
+    [filtered],
+  );
 
   const filteredVisitors = useMemo(() => {
     const fromTs = from ? Date.parse(from) : -Infinity;
@@ -478,14 +551,14 @@ export default function AdminStatsPage() {
   }, [visitors, from, to, pathFilter]);
 
   const kpi = useMemo(() => {
-    const count = filtered.length;
-    const revenue = sum(filtered.map((order) => order.total));
-    const merch = sum(filtered.map((order) => order.merchandise ?? 0));
-    const discount = sum(filtered.map((order) => order.discount ?? 0));
-    const surcharges = sum(filtered.map((order) => order.surcharges ?? 0));
+    const count = salesOrders.length;
+    const revenue = sum(salesOrders.map((order) => order.total));
+    const merch = sum(salesOrders.map((order) => order.merchandise ?? 0));
+    const discount = sum(salesOrders.map((order) => order.discount ?? 0));
+    const surcharges = sum(salesOrders.map((order) => order.surcharges ?? 0));
     const avg = count ? revenue / count : 0;
     const itemCount = sum(
-      filtered.map((order) => sum(order.items?.map((item) => item.qty || 0) || [])),
+      salesOrders.map((order) => sum(order.items?.map((item) => item.qty || 0) || [])),
     );
 
     const visits = filteredVisitors.length;
@@ -498,6 +571,7 @@ export default function AdminStatsPage() {
 
     return {
       count,
+      cancelled: cancelledOrders.length,
       revenue,
       merch,
       discount,
@@ -507,7 +581,7 @@ export default function AdminStatsPage() {
       visits,
       uniqueSessions,
     };
-  }, [filtered, filteredVisitors]);
+  }, [salesOrders, cancelledOrders, filteredVisitors]);
 
   const byProduct = useMemo(() => {
     const map = new Map<
@@ -515,7 +589,7 @@ export default function AdminStatsPage() {
       { name: string; category: string; qty: number; revenue: number }
     >();
 
-    for (const order of filtered) {
+    for (const order of salesOrders) {
       for (const item of order.items || []) {
         const key = `${item.sku || item.id || item.name || ""}|${item.category || ""}`;
 
@@ -541,12 +615,12 @@ export default function AdminStatsPage() {
     const arr = Array.from(map.values());
     arr.sort((a, b) => b.qty - a.qty || b.revenue - a.revenue || a.name.localeCompare(b.name));
     return arr;
-  }, [filtered]);
+  }, [salesOrders]);
 
   const byCategory = useMemo(() => {
     const catMap = new Map<string, { qty: number; revenue: number }>();
 
-    for (const order of filtered) {
+    for (const order of salesOrders) {
       for (const item of order.items || []) {
         const c = String(item.category || "other");
 
@@ -573,12 +647,12 @@ export default function AdminStatsPage() {
     );
 
     return arr;
-  }, [filtered]);
+  }, [salesOrders]);
 
   const byHour = useMemo(() => {
     const hours = Array.from({ length: 24 }, () => ({ count: 0, revenue: 0 }));
 
-    for (const order of filtered) {
+    for (const order of salesOrders) {
       const h = new Date(order.ts).getHours();
       const row = hours[h];
 
@@ -589,12 +663,12 @@ export default function AdminStatsPage() {
     }
 
     return hours;
-  }, [filtered]);
+  }, [salesOrders]);
 
   const byPLZ = useMemo(() => {
     const map = new Map<string, { count: number; revenue: number }>();
 
-    for (const order of filtered) {
+    for (const order of salesOrders) {
       const key = String(order.plz || "—");
 
       if (!map.has(key)) map.set(key, { count: 0, revenue: 0 });
@@ -613,7 +687,25 @@ export default function AdminStatsPage() {
     arr.sort((a, b) => b.revenue - a.revenue || b.count - a.count || a.plz.localeCompare(b.plz));
 
     return arr;
-  }, [filtered]);
+  }, [salesOrders]);
+
+  const byMode = useMemo(() => {
+    const delivery = salesOrders.filter((order) => order.mode === "delivery");
+    const pickup = salesOrders.filter((order) => order.mode === "pickup");
+
+    return [
+      {
+        mode: "Lieferung",
+        count: delivery.length,
+        revenue: sum(delivery.map((order) => order.total)),
+      },
+      {
+        mode: "Abholung",
+        count: pickup.length,
+        revenue: sum(pickup.map((order) => order.total)),
+      },
+    ];
+  }, [salesOrders]);
 
   const visitorsByHour = useMemo(() => {
     const hours = Array.from({ length: 24 }, () => 0);
@@ -660,7 +752,7 @@ export default function AdminStatsPage() {
   const exportOrdersCSV = () => {
     try {
       const header =
-        "order_id;datetime;mode;plz;item;category;qty;unit_price;line_total;order_total\n";
+        "order_id;datetime;status;mode;plz;item;category;qty;unit_price;line_total;order_total\n";
 
       const lines: string[] = [];
 
@@ -672,6 +764,7 @@ export default function AdminStatsPage() {
             [
               order.id,
               dt,
+              order.status,
               order.mode,
               order.plz || "",
               "",
@@ -698,6 +791,7 @@ export default function AdminStatsPage() {
             [
               order.id,
               dt,
+              order.status,
               order.mode,
               order.plz || "",
               item.name || "",
@@ -728,62 +822,54 @@ export default function AdminStatsPage() {
   };
 
   const onImportOrders = async (ev: ChangeEvent<HTMLInputElement>) => {
-    const file = ev.target.files?.[0];
-    if (!file) return;
-
-    try {
-      const text = await file.text();
-      const parsed = JSON.parse(text);
-      const arr = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.orders) ? parsed.orders : [];
-
-      if (!arr.length) throw new Error("Keine Bestellungen gefunden.");
-
-      const safe = await importOrdersToAPI(arr);
-
-      setOrders(safe);
-      ev.target.value = "";
-
-      alert(`Import OK ✅\nDatensätze: ${safe.length}`);
-    } catch (error: any) {
-      ev.target.value = "";
-      alert(`Import-Fehler. Ungültige JSON.\n${error?.message || ""}`);
-    }
+    ev.target.value = "";
+    alert("Import bleibt erstmal deaktiviert. Für DB-Import nutzen wir später die Backup/Import API.");
   };
 
   const onImportVisitors = async (ev: ChangeEvent<HTMLInputElement>) => {
-    const file = ev.target.files?.[0];
-    if (!file) return;
-
-    try {
-      const text = await file.text();
-      const parsed = JSON.parse(text);
-      const arr = Array.isArray(parsed)
-        ? parsed
-        : Array.isArray(parsed?.visitors)
-          ? parsed.visitors
-          : [];
-
-      if (!arr.length) throw new Error("Keine Besucher-Pings gefunden.");
-
-      const safe = await importVisitorsToAPI(arr);
-
-      setVisitors(safe);
-      ev.target.value = "";
-
-      alert(`Import OK ✅\nBesucher-Pings: ${safe.length}`);
-    } catch (error: any) {
-      ev.target.value = "";
-      alert(`Import-Fehler. Ungültige JSON.\n${error?.message || ""}`);
-    }
+    ev.target.value = "";
+    alert("Import bleibt erstmal deaktiviert. Für Besucher-Import nutzen wir später die Backup/Import API.");
   };
 
   const resetFilters = () => {
     setFrom(defaultFrom.current);
     setTo(defaultTo.current);
     setMode("all");
+    setStatus("all");
     setCat("all");
     setQ("");
     setPathFilter("all");
+  };
+
+  const setRangeToday = () => {
+    const d = new Date();
+    setFrom(toInputDatetime(startOfDay(d)));
+    setTo(toInputDatetime(endOfDay(d)));
+  };
+
+  const setRange7Days = () => {
+    const d = new Date();
+    setFrom(toInputDatetime(startOfDay(new Date(d.getTime() - 6 * 86400000))));
+    setTo(toInputDatetime(endOfDay(d)));
+  };
+
+  const setRangeThisMonth = () => {
+    const d = new Date();
+    setFrom(toInputDatetime(startOfMonth(d)));
+    setTo(toInputDatetime(endOfDay(d)));
+  };
+
+  const setRangeThisYear = () => {
+    const d = new Date();
+    setFrom(toInputDatetime(startOfYear(d)));
+    setTo(toInputDatetime(endOfDay(d)));
+  };
+
+  const setRangeLastYear = () => {
+    const d = new Date();
+    const lastYear = new Date(d.getFullYear() - 1, 0, 1);
+    setFrom(toInputDatetime(startOfYear(lastYear)));
+    setTo(toInputDatetime(endOfYear(lastYear)));
   };
 
   return (
@@ -834,6 +920,24 @@ export default function AdminStatsPage() {
       </div>
 
       <div className="card mb-6">
+        <div className="mb-4 flex flex-wrap gap-2">
+          <button className="btn-ghost" onClick={setRangeToday}>
+            Heute
+          </button>
+          <button className="btn-ghost" onClick={setRange7Days}>
+            7 Tage
+          </button>
+          <button className="btn-ghost" onClick={setRangeThisMonth}>
+            Dieser Monat
+          </button>
+          <button className="btn-ghost" onClick={setRangeThisYear}>
+            Dieses Jahr
+          </button>
+          <button className="btn-ghost" onClick={setRangeLastYear}>
+            Letztes Jahr
+          </button>
+        </div>
+
         <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
           <Field label="Start">
             <input
@@ -862,6 +966,22 @@ export default function AdminStatsPage() {
               <option value="all">Alle</option>
               <option value="delivery">Liefern</option>
               <option value="pickup">Abholen</option>
+            </select>
+          </Field>
+
+          <Field label="Status">
+            <select
+              value={status}
+              onChange={(event) => setStatus(event.target.value as any)}
+              className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2 outline-none"
+            >
+              <option value="all">Alle</option>
+              <option value="new">Neu</option>
+              <option value="preparing">In Vorbereitung</option>
+              <option value="ready">Bereit</option>
+              <option value="out_for_delivery">Unterwegs</option>
+              <option value="done">Abgeschlossen</option>
+              <option value="cancelled">Storniert</option>
             </select>
           </Field>
 
@@ -916,14 +1036,15 @@ export default function AdminStatsPage() {
 
       <div className="grid grid-cols-1 gap-3 md:grid-cols-3 lg:grid-cols-6">
         <KPI title="Bestellungen" value={String(kpi.count)} />
-        <KPI title="Umsatz (Gesamt)" value={fmtEur(kpi.revenue)} />
+        <KPI title="Storniert" value={String(kpi.cancelled)} />
+        <KPI title="Umsatz" value={fmtEur(kpi.revenue)} />
         <KPI title="Warenwert" value={fmtEur(kpi.merch)} />
         <KPI title="Rabatt" value={fmtEur(kpi.discount)} />
         <KPI title="Aufschläge" value={fmtEur(kpi.surcharges)} />
-        <KPI title="Ø Warenkorb" value={fmtEur(kpi.avg)} />
       </div>
 
       <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3 lg:grid-cols-6">
+        <KPI title="Ø Warenkorb" value={fmtEur(kpi.avg)} />
         <KPI title="Artikel gesamt" value={String(kpi.itemCount)} />
         <KPI title="Besucher (Pings)" value={String(kpi.visits)} />
         <KPI title="Eindeutige Sessions*" value={String(kpi.uniqueSessions)} />
@@ -931,6 +1052,7 @@ export default function AdminStatsPage() {
 
       <div className="mt-1 text-xs text-stone-400">
         *Wenn ein <code>sessionId</code> mitgeloggt wird; sonst Schätzung.
+        Stornierte Bestellungen werden bei Umsatz/KPI nicht mitgerechnet.
       </div>
 
       <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -992,6 +1114,24 @@ export default function AdminStatsPage() {
         </div>
 
         <div className="card">
+          <div className="mb-3 text-lg font-medium">Modus-Breakdown</div>
+          <Table
+            headers={["Modus", "Bestellungen", "Umsatz"]}
+            rows={byMode.map((row) => [row.mode, String(row.count), fmtEur(row.revenue)])}
+            empty="Keine Daten."
+          />
+        </div>
+
+        <div className="card">
+          <div className="mb-3 text-lg font-medium">PLZ-Verteilung</div>
+          <Table
+            headers={["PLZ", "Bestellungen", "Umsatz"]}
+            rows={byPLZ.map((row) => [row.plz, String(row.count), fmtEur(row.revenue)])}
+            empty="Keine Daten."
+          />
+        </div>
+
+        <div className="card">
           <div className="mb-3 text-lg font-medium">Besucher nach Stunde (0–23)</div>
           <div className="overflow-auto">
             <table className="w-full text-sm">
@@ -1019,21 +1159,21 @@ export default function AdminStatsPage() {
         </div>
 
         <div className="card">
-          <div className="mb-3 text-lg font-medium">PLZ-Verteilung</div>
-          <Table
-            headers={["PLZ", "Bestellungen", "Umsatz"]}
-            rows={byPLZ.map((row) => [row.plz, String(row.count), fmtEur(row.revenue)])}
-            empty="Keine Daten."
-          />
-        </div>
-
-        <div className="card">
           <div className="mb-3 text-lg font-medium">Besucher nach Seite</div>
           <Table
             headers={["Seite", "Pings"]}
             rows={visitorsByPath.map((row) => [row.path, String(row.count)])}
             empty="Keine Daten."
           />
+        </div>
+      </div>
+
+      <div className="mt-6 rounded-xl border border-stone-700/60 bg-stone-900/60 p-4 text-sm text-stone-300">
+        <div className="mb-1 font-medium">Info</div>
+        <div className="text-xs text-stone-400">
+          Diese Ansicht liest Bestellungen aus der DB inklusive archivierter Daten.
+          Für sehr große Jahresberichte bauen wir als nächsten Schritt eine Summary-API,
+          damit nicht jedes Mal alle Einzelbestellungen geladen werden müssen.
         </div>
       </div>
     </main>
@@ -1064,7 +1204,7 @@ function Table({
   empty,
 }: {
   headers: string[];
-  rows: (string | number)[][];
+  rows: Array<Array<string | number | null | undefined>>;
   empty: string;
 }) {
   return rows.length === 0 ? (
@@ -1084,7 +1224,7 @@ function Table({
             <tr key={index} className="border-t border-stone-800/60">
               {row.map((cell, cellIndex) => (
                 <td key={cellIndex} className="px-3 py-2">
-                  {cell}
+                  {cell ?? "—"}
                 </td>
               ))}
             </tr>

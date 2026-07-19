@@ -166,6 +166,12 @@ function normalizeConfigCampaign(campaign: Campaign): Campaign {
     endsAt: toISO(campaign.endsAt),
     priority: Number(campaign.priority ?? 0) || 0,
     badgeText: campaign.badgeText || undefined,
+    cartThresholdEnabled: campaign.cartThresholdEnabled === true,
+    minNetTotal: Math.max(0, Number(campaign.minNetTotal ?? 0) || 0),
+    overrideStandardDiscount: campaign.overrideStandardDiscount !== false,
+    customerNotice: campaign.customerNotice
+      ? String(campaign.customerNotice)
+      : undefined,
   };
 }
 
@@ -253,6 +259,13 @@ export function loadNormalizedCampaigns(): Campaign[] {
             campaign?.badgeText ||
             campaign?.label ||
             undefined,
+          cartThresholdEnabled: campaign?.cartThresholdEnabled === true,
+          minNetTotal: Math.max(0, Number(campaign?.minNetTotal ?? 0) || 0),
+          overrideStandardDiscount:
+            campaign?.overrideStandardDiscount !== false,
+          customerNotice: campaign?.customerNotice
+            ? String(campaign.customerNotice)
+            : undefined,
         } as Campaign;
       });
     }

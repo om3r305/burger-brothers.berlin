@@ -861,7 +861,7 @@ export async function POST(req: Request) {
       }
 
       if (
-        rawStatus === "payment_pending" ||
+        rawStatus.startsWith("payment_") ||
         !["new", "preparing", "ready"].includes(status)
       ) {
         return {
