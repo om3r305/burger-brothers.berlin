@@ -639,6 +639,21 @@ function normalizeForSave(raw: any) {
     discountRate: pickupDiscountRate,
   };
 
+  // Güncel pickup/delivery alanları fiyatlandırmanın tek doğruluk kaynağıdır.
+  // Eski kurulumlardan kalan lifa/apollon değerlerini de aynı değere çekerek
+  // istemci ile sunucunun farklı indirim uygulamasını önleriz.
+  next.lifa = {
+    ...(next.lifa || {}),
+    active: next.lifa?.active !== false,
+    discountRate: deliveryDiscountRate,
+  };
+
+  next.apollon = {
+    ...(next.apollon || {}),
+    active: next.apollon?.active !== false,
+    discountRate: pickupDiscountRate,
+  };
+
   next.discount = {
     ...(next.discount || {}),
     lifaRate: deliveryDiscountRate,

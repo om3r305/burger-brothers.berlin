@@ -257,6 +257,31 @@ async function main() {
   assert.equal(inactiveDiscount.discountCents, 0);
   assert.equal(inactiveDiscount.payableCents, 1000);
 
+  const modernPickupRateWins = await rebuildOrderPricingFromDatabase({
+    tenantId: "tenant-1",
+    settings: {
+      pickup: { discountRate: 0 },
+      apollon: { active: true, discountRate: 0.1 },
+      freebies: { enabled: false, rules: [] },
+      routeDeals: { enabled: false, active: [] },
+      pfand: { enabled: true },
+    },
+    order: {
+      mode: "pickup",
+      items: [{ id: "product-1", sku: "BB-1", qty: 1 }],
+      merchandise: 10,
+      discount: 0,
+      surcharges: 0,
+      total: 12,
+      customer: { phone: "03012345678" },
+      meta: { payment: { tip: 2 } },
+    },
+  });
+
+  assert.equal(modernPickupRateWins.discountCents, 0);
+  assert.equal(modernPickupRateWins.tipCents, 200);
+  assert.equal(modernPickupRateWins.payableCents, 1200);
+
   resetState();
   state.products.push(product({ price: 20 }));
   state.coupons.push({

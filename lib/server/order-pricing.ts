@@ -775,6 +775,43 @@ function normalizeRate(value: any) {
   return Math.min(0.9999, raw > 1 ? raw / 100 : raw);
 }
 
+function firstConfiguredValue(values: any[]) {
+  for (const value of values) {
+    if (value !== undefined && value !== null) return value;
+  }
+
+  return 0;
+}
+
+function standardDiscountRate(settings: any, mode: OrderMode) {
+  const legacyConfig =
+    mode === "pickup" ? settings?.apollon : settings?.lifa;
+
+  // Eski etkinlik anahtarı açıkça kapalıysa indirim uygulanmaz. Anahtarın
+  // bulunmadığı güncel ayarlarda ise indirim alanı tek başına yeterlidir.
+  if (legacyConfig?.active === false) return 0;
+
+  const configuredRate =
+    mode === "pickup"
+      ? firstConfiguredValue([
+          settings?.pickup?.discountRate,
+          settings?.discount?.apollonRate,
+          settings?.discounts?.pickupPercent,
+          settings?.discounts?.apolloPercent,
+          settings?.discounts?.apollonPercent,
+          settings?.apollon?.discountRate,
+        ])
+      : firstConfiguredValue([
+          settings?.delivery?.discountRate,
+          settings?.discount?.lifaRate,
+          settings?.discounts?.deliveryPercent,
+          settings?.discounts?.lifaPercent,
+          settings?.lifa?.discountRate,
+        ]);
+
+  return normalizeRate(configuredRate);
+}
+
 function normalizePhone(value: any) {
   return String(value || "").replace(/\D/g, "");
 }
@@ -1292,15 +1329,7 @@ export async function rebuildOrderPricingFromDatabase(params: {
     now,
   });
 
-  const standardRate = normalizeRate(
-    mode === "pickup"
-      ? params.settings?.apollon?.active === true
-        ? params.settings?.apollon?.discountRate
-        : 0
-      : params.settings?.lifa?.active === true
-        ? params.settings?.lifa?.discountRate
-        : 0,
-  );
+  const standardRate = standardDiscountRate(params.settings, mode);
 
   const conditional = evaluateConditionalCartCampaign({
     cartOffers: ensureArr(params.settings?.cartOffers),
