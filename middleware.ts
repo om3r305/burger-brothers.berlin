@@ -160,9 +160,23 @@ function createNonce() {
   return crypto.randomUUID().replaceAll("-", "");
 }
 
-export function contentSecurityPolicy(nonce: string) {
+export type ContentSecurityPolicyOptions = {
+  allowLocalPrintProxy?: boolean;
+};
+
+export function contentSecurityPolicy(
+  nonce: string,
+  options: ContentSecurityPolicyOptions = {},
+) {
   const developmentEval = process.env.NODE_ENV === "production" ? "" : " 'unsafe-eval'";
-  const upgrade = process.env.NODE_ENV === "production" ? "; upgrade-insecure-requests" : "";
+  const allowLocalPrintProxy = options.allowLocalPrintProxy === true;
+  // The kitchen TV deliberately talks to an HTTP service on the same machine.
+  // Keep that exception restricted to /tv; every other page retains the strict policy.
+  const localPrintProxy = allowLocalPrintProxy ? " http://127.0.0.1:7777" : "";
+  const upgrade =
+    process.env.NODE_ENV === "production" && !allowLocalPrintProxy
+      ? "; upgrade-insecure-requests"
+      : "";
 
   return [
     "default-src 'self'",
@@ -176,7 +190,7 @@ export function contentSecurityPolicy(nonce: string) {
     "img-src 'self' data: blob: https:",
     "font-src 'self' data:",
     "media-src 'self' blob: https:",
-    "connect-src 'self' https://api.stripe.com https://*.stripe.com https://*.supabase.co wss://*.supabase.co",
+    `connect-src 'self' https://api.stripe.com https://*.stripe.com https://*.supabase.co wss://*.supabase.co${localPrintProxy}`,
     "frame-src 'self' https://js.stripe.com https://hooks.stripe.com https://checkout.stripe.com https://www.openstreetmap.org",
     "worker-src 'self' blob:",
     "manifest-src 'self'",
@@ -185,7 +199,9 @@ export function contentSecurityPolicy(nonce: string) {
 
 function nextPageResponse(req: NextRequest) {
   const nonce = createNonce();
-  const csp = contentSecurityPolicy(nonce);
+  const allowLocalPrintProxy =
+    req.nextUrl.pathname === "/tv" || req.nextUrl.pathname === "/tv/";
+  const csp = contentSecurityPolicy(nonce, { allowLocalPrintProxy });
   const requestHeaders = new Headers(req.headers);
   requestHeaders.set("x-nonce", nonce);
   requestHeaders.set("Content-Security-Policy", csp);
