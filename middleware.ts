@@ -95,7 +95,7 @@ export function apiAccess(path: string, methodRaw: string): Access {
   ) {
     return "public";
   }
-  if (path === "/api/payments/session" && method === "GET") {
+  if (path === "/api/payments/session" && (method === "GET" || method === "POST")) {
     return "public";
   }
 

@@ -57,7 +57,14 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const nonce = (await headers()).get("x-nonce") || undefined;
 
   return (
-    <html lang="de" suppressHydrationWarning data-bb-theme="classic" data-bb-effects="0" data-bb-motion="1" data-bb-snow="0">
+    <html
+      lang="de"
+      suppressHydrationWarning
+      data-bb-theme="classic"
+      data-bb-effects="0"
+      data-bb-motion="1"
+      data-bb-snow="0"
+    >
       <body
         className={`${inter.variable} bg-stone-950 text-stone-100 min-h-screen`}
         style={{
@@ -70,6 +77,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <script
           id="bb-maintenance-gate"
           nonce={nonce}
+          suppressHydrationWarning
           dangerouslySetInnerHTML={{
             __html: `
 (function () {

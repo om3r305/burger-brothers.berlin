@@ -1,252 +1,342 @@
-import fs from "node:fs";
-import path from "node:path";
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const Module = require("node:module");
+const ts = require("typescript");
+const { NextRequest } = require("next/server");
 
 const root = process.cwd();
-const failures = [];
+const originalResolveFilename = Module._resolveFilename;
+const originalTsLoader = require.extensions[".ts"];
+const previousSecret = process.env.SESSION_SECRET;
+const previousVercel = process.env.VERCEL;
+const previousVercelEnv = process.env.VERCEL_ENV;
 
-function read(relative) {
-  const full = path.join(root, relative);
-  if (!fs.existsSync(full)) {
-    failures.push(`missing file: ${relative}`);
-    return "";
+function resolveAlias(request) {
+  if (!request.startsWith("@/")) return null;
+
+  const base = path.join(root, request.slice(2));
+  const candidates = [
+    base,
+    `${base}.ts`,
+    `${base}.tsx`,
+    path.join(base, "index.ts"),
+    path.join(base, "index.tsx"),
+  ];
+
+  return candidates.find((candidate) => fs.existsSync(candidate)) || null;
+}
+
+require.extensions[".ts"] = (module, filename) => {
+  const source = fs.readFileSync(filename, "utf8");
+  const output = ts.transpileModule(source, {
+    compilerOptions: {
+      target: ts.ScriptTarget.ES2022,
+      module: ts.ModuleKind.CommonJS,
+      moduleResolution: ts.ModuleResolutionKind.Node10,
+      esModuleInterop: true,
+      strict: true,
+    },
+    fileName: filename,
+    reportDiagnostics: true,
+  });
+  const errors = (output.diagnostics || []).filter(
+    (diagnostic) => diagnostic.category === ts.DiagnosticCategory.Error,
+  );
+
+  if (errors.length) {
+    throw new Error(
+      errors
+        .map((diagnostic) =>
+          ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"),
+        )
+        .join("\n"),
+    );
   }
-  return fs.readFileSync(full, "utf8");
+
+  module._compile(output.outputText, filename);
+};
+
+Module._resolveFilename = function patchedResolve(
+  request,
+  parent,
+  isMain,
+  options,
+) {
+  const alias = resolveAlias(request);
+  if (alias) return alias;
+  return originalResolveFilename.call(this, request, parent, isMain, options);
+};
+
+function request(pathname, options = {}) {
+  return new NextRequest(`https://www.burger-brothers.berlin${pathname}`, {
+    method: options.method || "GET",
+    headers: options.cookie ? { cookie: options.cookie } : undefined,
+  });
 }
 
-function requireText(relative, text, message) {
-  const source = read(relative);
-  if (!source.includes(text)) failures.push(message || `${relative} missing ${text}`);
+async function expectAllowed(middleware, req) {
+  const response = await middleware(req);
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("x-middleware-next"), "1");
 }
 
-function rejectPattern(relative, pattern, message) {
-  const source = read(relative);
-  if (pattern.test(source)) failures.push(message || `${relative} matched ${pattern}`);
+async function expectUnauthorized(middleware, req) {
+  const response = await middleware(req);
+  assert.equal(response.status, 401);
+  const payload = await response.json();
+  assert.equal(payload.error, "unauthorized");
 }
 
-const middleware = read("middleware.ts");
-if (!middleware.includes('if (path === "/api/orders") return "operational"')) {
-  failures.push("legacy /api/orders is not middleware protected");
-}
-if (!middleware.includes('return "admin"')) {
-  failures.push("unknown API routes do not fail closed");
-}
-if (!middleware.includes('path === "/api/payments/session"')) {
-  failures.push("payment session public route is not explicitly classified");
-}
-if (!middleware.includes('child(path, "/api/admin/cron")')) {
-  failures.push("cron token route is not explicitly handled");
-}
+async function main() {
+  process.env.SESSION_SECRET = "test-session-secret-0123456789-ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
-const legacyOrders = read("app/api/orders/route.ts");
-if (!legacyOrders.includes("legacy_orders_mutation_disabled")) {
-  failures.push("legacy order mutations are not disabled");
-}
-for (const action of ["addDummy", "updateDriverPosition", "setStatus", "duplicate", "import"]) {
-  if (legacyOrders.includes(`action === "${action}"`)) {
-    failures.push(`legacy /api/orders still implements ${action}`);
+  const {
+    createSessionToken,
+    readSessionToken,
+    verifySessionToken,
+  } = require(path.join(root, "lib/server/session.ts"));
+  const {
+    mayUseLocalTvPinFallback,
+    isLoopbackTvHost,
+  } = require(path.join(root, "lib/server/tv-pin-policy.ts"));
+  const { contentSecurityPolicy, middleware } = require(
+    path.join(root, "middleware.ts"),
+  );
+
+  delete process.env.VERCEL;
+  delete process.env.VERCEL_ENV;
+
+  assert.equal(isLoopbackTvHost("localhost"), true);
+  assert.equal(isLoopbackTvHost("127.0.0.1"), true);
+  assert.equal(isLoopbackTvHost("::1"), true);
+  assert.equal(isLoopbackTvHost("www.burger-brothers.berlin"), false);
+
+  for (const [url, environment] of [
+    ["http://localhost:3000/api/tv/login", "production"],
+    ["http://127.0.0.1:3000/api/tv/login", "production"],
+    ["https://www.burger-brothers.berlin/api/tv/login", "production"],
+    ["https://www.burger-brothers.berlin/api/tv/login", "development"],
+  ]) {
+    assert.equal(
+      mayUseLocalTvPinFallback(new Request(url), environment),
+      false,
+    );
   }
+
+  process.env.VERCEL = "1";
+  assert.equal(
+    mayUseLocalTvPinFallback(
+      new Request("http://localhost:3000/api/tv/login"),
+      "production",
+    ),
+    false,
+  );
+  delete process.env.VERCEL;
+
+  const adminToken = await createSessionToken("admin", 3600);
+  const tvToken = await createSessionToken("tv", 3600);
+  const driverToken = await createSessionToken("driver", 3600, "driver-1");
+
+  const nodeEnvBeforeCspTest = process.env.NODE_ENV;
+  process.env.NODE_ENV = "production";
+  const defaultCsp = contentSecurityPolicy("default-test-nonce");
+  const tvCsp = contentSecurityPolicy("tv-test-nonce", {
+    allowLocalPrintProxy: true,
+  });
+  if (nodeEnvBeforeCspTest === undefined) delete process.env.NODE_ENV;
+  else process.env.NODE_ENV = nodeEnvBeforeCspTest;
+  assert.equal(defaultCsp.includes("http://127.0.0.1:7777"), false);
+  assert.equal(tvCsp.includes("http://127.0.0.1:7777"), true);
+  assert.equal(defaultCsp.includes("upgrade-insecure-requests"), true);
+  assert.equal(tvCsp.includes("upgrade-insecure-requests"), false);
+
+  assert.equal(await verifySessionToken(adminToken, "admin"), true);
+  assert.equal(await verifySessionToken(adminToken, "tv"), false);
+  assert.equal(await verifySessionToken(driverToken, "driver"), true);
+  assert.equal((await readSessionToken(driverToken, "driver"))?.sub, "driver-1");
+  assert.equal(
+    await verifySessionToken(`${adminToken.slice(0, -1)}x`, "admin"),
+    false,
+  );
+
+  const expiredToken = await createSessionToken("admin", -1);
+  assert.equal(await verifySessionToken(expiredToken, "admin"), false);
+
+  await expectUnauthorized(
+    middleware,
+    request("/api/admin/orders", { cookie: "bb_admin_sess=ok:forged" }),
+  );
+  await expectAllowed(
+    middleware,
+    request("/api/admin/orders", {
+      cookie: `bb_admin_sess=${encodeURIComponent(adminToken)}`,
+    }),
+  );
+
+  await expectUnauthorized(middleware, request("/api/orders/list"));
+  await expectAllowed(
+    middleware,
+    request("/api/orders/list", {
+      cookie: `bb_driver_sess=${encodeURIComponent(driverToken)}`,
+    }),
+  );
+  await expectAllowed(
+    middleware,
+    request("/api/orders/list", {
+      cookie: `bb_tv_auth=${encodeURIComponent(tvToken)}`,
+    }),
+  );
+
+  const tvPageResponse = await middleware(
+    request("/tv", {
+      cookie: `bb_tv_auth=${encodeURIComponent(tvToken)}`,
+    }),
+  );
+  assert.equal(tvPageResponse.status, 200);
+  assert.match(
+    tvPageResponse.headers.get("content-security-policy") || "",
+    /connect-src[^;]*http:\/\/127\.0\.0\.1:7777/,
+  );
+
+  const adminPageResponse = await middleware(
+    request("/admin", {
+      cookie: `bb_admin_sess=${encodeURIComponent(adminToken)}`,
+    }),
+  );
+  assert.equal(adminPageResponse.status, 200);
+  assert.equal(
+    (adminPageResponse.headers.get("content-security-policy") || "").includes(
+      "http://127.0.0.1:7777",
+    ),
+    false,
+  );
+
+  await expectUnauthorized(middleware, request("/api/orders?id=ABC123"));
+  await expectUnauthorized(
+    middleware,
+    request("/api/orders", { method: "POST" }),
+  );
+  await expectUnauthorized(
+    middleware,
+    request("/api/orders", { method: "PUT" }),
+  );
+  await expectAllowed(
+    middleware,
+    request("/api/orders/create", { method: "POST" }),
+  );
+  await expectUnauthorized(
+    middleware,
+    request("/api/products", {
+      method: "PUT",
+      cookie: "bb_admin_sess=ok:forged",
+    }),
+  );
+  await expectAllowed(
+    middleware,
+    request("/api/products", {
+      method: "PUT",
+      cookie: `bb_admin_sess=${encodeURIComponent(adminToken)}`,
+    }),
+  );
+  for (const path of [
+    "/api/coupons",
+    "/api/catalog",
+    "/api/groups",
+    "/api/bootstrap",
+  ]) {
+    await expectUnauthorized(
+      middleware,
+      request(path, {
+        method: "POST",
+        cookie: "bb_admin_sess=ok:forged",
+      }),
+    );
+  }
+
+  await expectUnauthorized(
+    middleware,
+    request("/api/pause", { method: "POST" }),
+  );
+  await expectUnauthorized(
+    middleware,
+    request("/api/track/session-1", { method: "POST" }),
+  );
+  await expectUnauthorized(
+    middleware,
+    request("/api/print/test", { method: "POST" }),
+  );
+  await expectUnauthorized(
+    middleware,
+    request("/api/brian/learn", { method: "POST" }),
+  );
+  await expectAllowed(
+    middleware,
+    request("/api/track/lookup?trackingToken=test"),
+  );
+  await expectAllowed(middleware, request("/api/settings"));
+
+  for (const [path, method] of [
+    ["/api/payments/profile", "GET"],
+    ["/api/payments/profile", "POST"],
+    ["/api/payments/profile", "DELETE"],
+    ["/api/payments/share", "GET"],
+    ["/api/payments/share", "POST"],
+    ["/api/tv/logout", "GET"],
+    ["/api/tv/logout", "POST"],
+    ["/api/drivers", "POST"],
+    ["/api/drivers", "DELETE"],
+  ]) {
+    await expectAllowed(middleware, request(path, { method }));
+  }
+
+  await expectUnauthorized(middleware, request("/api/drivers"));
+  await expectUnauthorized(
+    middleware,
+    request("/api/private/file.js", { method: "POST" }),
+  );
+
+  await expectUnauthorized(
+    middleware,
+    request("/api/not-classified-mutation", { method: "POST" }),
+  );
+  await expectUnauthorized(
+    middleware,
+    request("/api/orders/claim", {
+      cookie: `bb_tv_auth=${encodeURIComponent(tvToken)}`,
+      method: "POST",
+    }),
+  );
+  await expectAllowed(
+    middleware,
+    request("/api/orders/claim", {
+      cookie: `bb_driver_sess=${encodeURIComponent(driverToken)}`,
+      method: "POST",
+    }),
+  );
+
+  console.log("Session and API authorization tests passed.");
 }
 
-for (const route of [
-  "app/api/products/route.ts",
-  "app/api/coupons/route.ts",
-  "app/api/catalog/route.ts",
-  "app/api/groups/route.ts",
-]) {
-  requireText(route, "requireMutationRole", `${route} mutation auth missing`);
-  rejectPattern(route, /startsWith\(["']ok:/, `${route} accepts forged ok: cookie`);
-}
+main()
+  .catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  })
+  .finally(() => {
+    Module._resolveFilename = originalResolveFilename;
+    if (originalTsLoader) require.extensions[".ts"] = originalTsLoader;
+    else delete require.extensions[".ts"];
 
-requireText("app/api/bootstrap/route.ts", "BOOTSTRAP_MIGRATION_TOKEN", "bootstrap migration token missing");
-requireText("app/api/bootstrap/route.ts", "hasSessionRole(req, \"admin\")", "bootstrap admin session fallback missing");
-requireText("app/api/pause/route.ts", "requireMutationRole", "pause mutation auth missing");
+    if (previousSecret === undefined) delete process.env.SESSION_SECRET;
+    else process.env.SESSION_SECRET = previousSecret;
 
-const settings = read("app/api/settings/route.ts");
-for (const marker of ["PUBLIC_SETTING_KEYS", "PRIVATE_TOP_LEVEL_KEYS", "isSensitiveSettingField", "snapshotSafeSettingsView"]) {
-  if (!settings.includes(marker)) failures.push(`settings security marker missing: ${marker}`);
-}
-if (!settings.includes('"drivers"') || !settings.includes('normalized.includes("password")')) {
-  failures.push("driver/password settings redaction is incomplete");
-}
+    if (previousVercel === undefined) delete process.env.VERCEL;
+    else process.env.VERCEL = previousVercel;
 
-for (const route of [
-  "app/api/track/lookup/route.ts",
-  "app/api/track/[session]/route.ts",
-  "app/api/track/by-order/[orderId]/route.ts",
-]) {
-  requireText(route, "tracking", `${route} tracking implementation missing`);
-}
-requireText("app/api/track/lookup/route.ts", "findOrderByTrackingToken", "public lookup does not require tracking token");
-requireText("app/api/track/[session]/route.ts", "requireMutationRole", "tracking writes are not authenticated");
-requireText("app/api/track/[session]/route.ts", "order_not_assigned_to_driver", "driver/order binding missing");
-requireText("lib/server/public-order.ts", "publicOrderDto", "public order DTO missing");
-rejectPattern("lib/server/public-order.ts", /phone|email|address/i, "public order DTO contains PII fields");
-
-requireText("app/api/print/test/route.ts", "requireMutationRole", "print test route auth missing");
-requireText("app/api/print/test/route.ts", "PRINT_TEST_ENABLED", "production print-test kill switch missing");
-requireText("print-proxy/index.cjs", "127.0.0.1", "print proxy is not localhost-bound by default");
-requireText("print-proxy/index.cjs", "PRINT_PROXY_TOKEN", "print proxy token auth missing");
-requireText("print-proxy/index.cjs", "ORDER_URL_ORIGIN_NOT_ALLOWED", "print URL allowlist missing");
-rejectPattern("app/api/print/jobs/route.ts", /searchParams\.get\(["']token["']\)/, "print jobs accepts token in URL");
-rejectPattern("app/api/print/mark/route.ts", /searchParams\.get\(["']token["']\)/, "print mark accepts token in URL");
-
-requireText("app/api/brian/learn/route.ts", "requireMutationRole", "Brian learn auth missing");
-requireText("app/api/brian/export/route.ts", "requireAnySessionRole", "Brian export auth missing");
-requireText("app/api/analytics/collect/route.ts", "createHmac", "analytics IP is not pseudonymized");
-rejectPattern("app/api/analytics/collect/route.ts", /return\s+ip\s*;/, "analytics stores raw IP");
-requireText("app/api/diagnostics/operational/route.ts", "requireAnySessionRole", "diagnostics auth missing");
-
-
-requireText("app/api/telegram/send/route.ts", "requireMutationRole", "Telegram test relay is not admin protected");
-requireText("app/api/telegram/send/route.ts", "enforceRateLimit", "Telegram test relay rate limit missing");
-requireText("app/api/coupons/validate/route.ts", "publicIssuedCoupon", "coupon validation leaks raw issued coupon records");
-requireText("app/api/coupons/validate/route.ts", "enforceRateLimit", "coupon validation rate limit missing");
-requireText("app/api/drivers/route.ts", "requireMutationRole", "driver administration mutation auth missing");
-requireText("components/DriverLiveTracker.tsx", "/api/track/", "driver tracker does not use secured tracking endpoint");
-rejectPattern("components/DriverLiveTracker.tsx", /fetch\(["`]\/api\/orders["`]/, "driver tracker still writes through legacy /api/orders");
-requireText("app/api/qr/[id]/route.ts", "legacy_qr_endpoint_disabled", "legacy QR mutation endpoint is still active");
-requireText("app/api/qr-image/[id]/route.ts", "requireAnySessionRole", "QR image endpoint exposes order existence publicly");
-requireText("app/api/orders/create/route.ts", "databaseUnavailableForEmergency", "emergency Telegram fallback does not verify DB outage");
-requireText("app/api/orders/create/route.ts", "orders:emergency", "emergency order fallback rate limit missing");
-requireText("app/api/track/[session]/route.ts", "tracking_expired", "public tracking TTL missing");
-requireText("app/api/admin/cron/daily-backup/route.ts", "TRACKING_RETENTION_DAYS", "tracking retention cleanup missing");
-requireText("app/checkout/page.tsx", "trackingToken", "checkout does not preserve the public tracking token");
-requireText("components/ui/TrackPanel.tsx", "trackingToken=", "tracking panel does not use the public tracking token");
-rejectPattern("components/ui/TrackPanel.tsx", /track\/lookup\?id=/, "tracking panel still exposes order-number lookup");
-requireText("app/track/[id]/page.tsx", "fetchTrackingPosition", "customer tracking page does not load secured live position");
-requireText("app/track/[id]/page.tsx", "trackingToken=", "customer tracking page does not use the tracking token");
-rejectPattern("app/track/[id]/page.tsx", /\/api\/orders(?:\?|\/list)/, "customer tracking page still calls legacy order APIs");
-
-const nextConfig = read("next.config.mjs");
-const middlewareSecurity = read("middleware.ts");
-for (const header of [
-  "Strict-Transport-Security",
-  "X-Frame-Options",
-  "Referrer-Policy",
-  "Permissions-Policy",
-]) {
-  if (!nextConfig.includes(header)) failures.push(`security header missing: ${header}`);
-}
-
-for (const marker of [
-  "Content-Security-Policy",
-  "contentSecurityPolicy",
-  "x-nonce",
-  "strict-dynamic",
-  "https://www.openstreetmap.org",
-]) {
-  if (!middlewareSecurity.includes(marker)) failures.push(`dynamic CSP marker missing: ${marker}`);
-}
-if (/script-src[^;\n]*unsafe-inline/.test(middlewareSecurity)) {
-  failures.push("production script CSP still allows unsafe-inline");
-}
-if (!middlewareSecurity.includes('const developmentEval = process.env.NODE_ENV === "production" ? ""')) {
-  failures.push("unsafe-eval is not restricted to development");
-}
-
-for (const marker of [
-  'path === "/api/payments/profile"',
-  'path === "/api/payments/share"',
-  'path === "/api/tv/logout"',
-]) {
-  if (!middleware.includes(marker)) failures.push(`middleware access rule missing: ${marker}`);
-}
-if (!middleware.includes('if (path.startsWith("/api/")) return false')) {
-  failures.push("API asset-suffix bypass is not blocked");
-}
-
-for (const route of [
-  "app/api/payments/profile/route.ts",
-  "app/api/payments/share/route.ts",
-]) {
-  requireText(route, "hasTrustedMutationOrigin", `${route} same-origin protection missing`);
-  requireText(route, "enforceRateLimit", `${route} rate limit missing`);
-}
-
-requireText("app/api/tv/logout/route.ts", "hasTrustedMutationOrigin", "TV logout origin protection missing");
-requireText("app/tv/page.tsx", "response.ok", "TV logout UI ignores failed logout response");
-rejectPattern("app/layout.tsx", /DriversSync/, "global driver synchronization is still mounted");
-requireText("app/api/drivers/route.ts", 'requireSessionRole(req, "admin")', "driver list is not admin protected");
-rejectPattern("app/driver/page.tsx", /bb_driver_lastpass|LASTPASS_KEY|function\s+enc\(/, "driver password is stored client-side");
-rejectPattern("app/scan/page.tsx", /const\s+PIN\s*=|1905|Falsche PIN/, "scan page uses a client PIN");
-rejectPattern("app/api/tv/login/route.ts", /LOCAL_DEV_FALLBACK_PIN|19051905/, "hard-coded TV fallback PIN remains");
-rejectPattern("app/api/coupons/route.ts", /Math\.random/, "server coupon generation uses Math.random");
-rejectPattern("lib/coupons.ts", /Math\.random/, "client coupon generation uses Math.random");
-requireText("lib/server/request-security.ts", "UPSTASH_REDIS_REST_URL", "persistent rate limiter support missing");
-requireText("lib/server/request-security.ts", "RATE_LIMIT_LOCAL_MAX_KEYS", "bounded local rate limiter missing");
-
-for (const route of [
-  "app/api/admin/campaigns/route.ts",
-  "app/api/admin/customers/route.ts",
-  "app/api/admin/visitors/route.ts",
-  "app/api/admin/orders/route.ts",
-  "app/api/admin/coupons/route.ts",
-  "app/api/admin/backup/export/route.ts",
-  "app/api/admin/backup/import/route.ts",
-  "app/api/admin/maintenance/archive-orders/route.ts",
-  "app/api/admin/stats/summary/route.ts",
-]) {
-  requireText(route, "requireSessionRole", `${route} route-level admin auth missing`);
-  rejectPattern(route, /some\([\s\S]{0,250}startsWith\(`?\$\{ADMIN_COOKIE/, `${route} trusts cookie presence`);
-}
-
-for (const route of [
-  "app/api/admin/login/route.ts",
-  "app/api/tv/login/route.ts",
-  "app/api/drivers/route.ts",
-]) {
-  requireText(route, "enforceRateLimit", `${route} brute-force rate limit missing`);
-}
-
-requireText("lib/settings.ts", 'driverPin: ""', "client driver PIN fallback was not removed");
-rejectPattern("app/qr/[id]/page.tsx", /19051905|123456|driverPin|password/i, "QR page contains client-side credential logic");
-
-
-const legacyDriverPage = read("app/driver/[orderId]/page.tsx");
-rejectPattern("app/driver/[orderId]/page.tsx", /DRIVER_PASSWORD|1905|fetchOrderFromDb|localStorage/, "legacy driver order page still exposes client auth/cache flow");
-if (!legacyDriverPage.includes('redirect(`/driver${query}`)')) {
-  failures.push("legacy driver order page is not redirected to the signed driver flow");
-}
-requireText("lib/orders.ts", 'throw error;', "order status persistence errors are still swallowed");
-rejectPattern("app/admin/coupons/page.tsx", /Math\.random|makeCouponCode|makeIssuedCode/, "admin coupon UI generates codes client-side");
-requireText("app/admin/coupons/page.tsx", "serverGenerateCodes: true", "automatic coupon definitions are not server-generated");
-requireText("app/admin/coupons/page.tsx", 'action: "issueCoupon"', "issued coupon codes are not generated server-side");
-requireText("app/api/coupons/route.ts", "serverGeneratedCode", "coupon API does not support authoritative server code generation");
-rejectPattern("app/api/tv/debug/route.ts", /19051905|dev:fallback/, "TV debug fallback PIN remains");
-rejectPattern("app/layout.tsx", /wrap\.innerHTML/, "maintenance overlay still uses innerHTML");
-requireText("app/api/payments/session/route.ts", "enforceRateLimit", "payment session endpoint rate limit missing");
-
-for (const route of [
-  "app/driver/page.tsx",
-  "app/tv/page.tsx",
-  "lib/orders.ts",
-]) {
-  rejectPattern(route, /fetch\(["`]\/api\/orders["`]/, `${route} still calls legacy /api/orders mutation/list endpoint`);
-  rejectPattern(route, /\/api\/admin\/orders/, `${route} still uses admin order fallback`);
-}
-
-requireText("app/api/orders/list/route.ts", "driverCanSeeOrder", "driver order visibility filter missing");
-requireText("app/api/orders/list/route.ts", "sanitizeOrderForDriver", "driver order DTO redaction missing");
-requireText("app/api/orders/list/route.ts", 'not: "payment_pending"', "pending payment sessions leak into order list");
-requireText("app/api/orders/status/route.ts", "driver_status_transition_not_allowed", "driver status transition policy missing");
-requireText("app/api/orders/status/route.ts", "order_cancellation_requires_admin", "order cancellation is not admin-only");
-requireText("app/api/orders/status/route.ts", "effectiveBody", "status audit actor is still client-controlled");
-requireText("app/api/orders/claim/route.ts", "configuredDriver", "claim identity is not loaded from server driver settings");
-rejectPattern("app/api/orders/claim/route.ts", /driverPassword|raw\?\.password|password:/, "claim route still accepts or persists a driver password");
-requireText("app/api/orders/create/route.ts", "general_redemption", "general coupon redemption records are missing");
-requireText("app/api/orders/create/route.ts", "pg_advisory_xact_lock", "general coupon redemption is not transaction-serialized");
-for (const route of [
-  "app/api/orders/create/route.ts",
-  "app/api/payments/prepare/route.ts",
-]) {
-  requireText(route, "validateOrderForCheckout", `${route} does not enforce shared checkout rules`);
-}
-requireText("app/api/drivers/route.ts", "driver_password_weak", "driver password policy missing");
-requireText("lib/server/fallback-snapshot.ts", "hasPersistentFallbackStore", "persistent fallback store detection missing");
-
-if (failures.length) {
-  console.error("SECURITY REGRESSION TESTS FAILED\n- " + failures.join("\n- "));
-  process.exit(1);
-}
-
-console.log("Security regression tests passed.");
+    if (previousVercelEnv === undefined) delete process.env.VERCEL_ENV;
+    else process.env.VERCEL_ENV = previousVercelEnv;
+  });

@@ -58,6 +58,7 @@ export default function SharedPaymentPage() {
   const [notice, setNotice] = useState(
     paymentCancelled ? "Die Zahlung wurde abgebrochen. Du kannst es erneut versuchen." : "",
   );
+  const [refreshVersion, setRefreshVersion] = useState(0);
   const profileAttempted = useRef(false);
 
   useEffect(() => {
@@ -105,7 +106,28 @@ export default function SharedPaymentPage() {
       active = false;
       if (timer) window.clearTimeout(timer);
     };
-  }, [token]);
+  }, [token, refreshVersion]);
+
+  useEffect(() => {
+    const restore = () => {
+      document.documentElement.classList.remove("bb-route-pending");
+      document.body.classList.remove("bb-route-pending");
+      setBusy(false);
+      setLoading(true);
+      setRefreshVersion((value) => value + 1);
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") restore();
+    };
+    window.addEventListener("pageshow", restore);
+    window.addEventListener("focus", restore);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("pageshow", restore);
+      window.removeEventListener("focus", restore);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, []);
 
   useEffect(() => {
     if (
@@ -209,11 +231,15 @@ export default function SharedPaymentPage() {
       "Die Bestellung wird erst bestätigt, wenn alle Anteile bezahlt wurden.",
     ].join("\n");
 
-    window.open(
-      `https://wa.me/?text=${encodeURIComponent(message)}`,
-      "_blank",
-      "noopener,noreferrer",
-    );
+    const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
+    const standalone =
+      window.matchMedia?.("(display-mode: standalone)")?.matches ||
+      Boolean((navigator as any).standalone);
+    if (standalone || /iPhone|iPad|iPod|Android/i.test(navigator.userAgent || "")) {
+      window.location.href = whatsappUrl;
+      return;
+    }
+    window.open(whatsappUrl, "_blank", "noopener,noreferrer");
   };
 
   return (

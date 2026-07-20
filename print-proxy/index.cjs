@@ -1,4 +1,4 @@
-// ESC/POS proxy – CP1252 (Euro) – sabit sıra, belirgin grup başlıkları,
+// ESC/POS proxy – CP858/CP1252 (Euro) – sabit sıra, belirgin grup başlıkları,
 // KDV özeti (7% / 19%), üstte LOGO, barkod en altta.
 // Logo: URL'den **BMP** (1/8/24 bpp) indir, auto-invert + brighten + gamma + dithering + auto-crop ile raster bas.
 
@@ -6,20 +6,43 @@ const http = require('http');
 const https = require('https');
 const url = require('url');
 const net = require('net');
+const fs = require('fs');
+const path = require('path');
+
+/* ====== .env loader (npm paketi gerekmez) ====== */
+function loadLocalEnv(filePath = path.join(__dirname, '.env')) {
+  try {
+    if (!fs.existsSync(filePath)) return;
+    const raw = fs.readFileSync(filePath, 'utf8');
+    for (const line of raw.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eq = trimmed.indexOf('=');
+      if (eq <= 0) continue;
+      const key = trimmed.slice(0, eq).trim();
+      let value = trimmed.slice(eq + 1).trim();
+      value = value.replace(/\s+#.*$/, '').trim();
+      if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+        value = value.slice(1, -1);
+      }
+      if (key && process.env[key] == null) process.env[key] = value;
+    }
+  } catch (err) {
+    console.warn('.env okunamadı:', err?.message || err);
+  }
+}
+loadLocalEnv();
 
 /* ====== AYAR ====== */
 const PORT          = Number(process.env.PORT || 7777);
-const PRINTER_IP    = process.env.PRINTER_IP || '192.168.0.150';
+const PRINTER_IP    = process.env.PRINTER_HOST || process.env.PRINTER_IP || '192.168.0.150';
 const PRINTER_PORT  = Number(process.env.PRINTER_PORT || 9100);
-const LISTEN_HOST    = process.env.PRINT_PROXY_HOST || '127.0.0.1';
-const PROXY_TOKEN    = String(process.env.PRINT_PROXY_TOKEN || process.env.PRINT_AGENT_TOKEN || '').trim();
-const ALLOW_ORIGINS = (process.env.ALLOW_ORIGINS || 'https://www.burger-brothers.berlin,http://127.0.0.1,http://localhost')
+const PRINTER_CODEPAGE = String(process.env.PRINTER_CODEPAGE || 'CP858').trim().toUpperCase();
+const ALLOW_ORIGINS = (process.env.ALLOW_ORIGINS || 'https://www.burger-brothers.berlin,https://www.burger-brothers.berlin')
   .split(',').map(s=>s.trim()).filter(Boolean);
-const ALLOW_ORDER_URL_RESOLUTION = String(process.env.ALLOW_ORDER_URL_RESOLUTION || '0') === '1';
-const ORDER_URL_ORIGINS = new Set((process.env.ORDER_URL_ORIGINS || 'https://www.burger-brothers.berlin')
-  .split(',').map(s=>s.trim()).filter(Boolean));
 
-// Varsayılan logo: Next.js public klasörü (public/logo-thermal.bmp)
+// Varsayılan logo: önce print-proxy klasöründeki local BMP, yoksa URL
+const DEFAULT_LOGO_FILE = path.join(__dirname, process.env.LOGO_FILE || 'logo-thermal.bmp');
 const DEFAULT_LOGO_URL = 'https://www.burger-brothers.berlin/logo-thermal.bmp';
 const LOGO_URL         = process.env.LOGO_URL || DEFAULT_LOGO_URL;
 
@@ -29,18 +52,26 @@ const insecureHttpsAgent  = new https.Agent({ rejectUnauthorized: false });
 
 // Logo render ayarları (env ile override edilebilir)
 // Daha koyu varsayılan: threshold ↑, blackBoost ↑
-const LOGO_THRESHOLD   = Number(process.env.LOGO_THRESHOLD || 242);  // 210–245 (yükseldikçe daha siyah)
-const LOGO_MAX_WIDTH   = Number(process.env.LOGO_MAX_WIDTH || 320);  // 300–340
-const LOGO_BRIGHTEN    = Number(process.env.LOGO_BRIGHTEN  || 1.20); // 1.0–1.4
-const LOGO_GAMMA       = Number(process.env.LOGO_GAMMA     || 1.10); // 1.0–1.6
-const LOGO_DITHER      = String(process.env.LOGO_DITHER || '1') === '1';
-const LOGO_BLACK_BOOST = Number(process.env.LOGO_BLACK_BOOST || 0.12); // 0.00–0.20
+const LOGO_THRESHOLD   = Number(process.env.LOGO_THRESHOLD || 210);  // 190–230; yüksek olursa beyaz zemin kirlenebilir
+const LOGO_MAX_WIDTH   = Number(process.env.LOGO_MAX_WIDTH || 280);  // logo daha kompakt; üst boşluk azalır
+const LOGO_BRIGHTEN    = Number(process.env.LOGO_BRIGHTEN  || 1.00); // temiz thermal logo için nötr
+const LOGO_GAMMA       = Number(process.env.LOGO_GAMMA     || 1.00); // temiz thermal logo için nötr
+const LOGO_DITHER      = String(process.env.LOGO_DITHER || '0') === '1';
+const LOGO_BLACK_BOOST = Number(process.env.LOGO_BLACK_BOOST || 0.00); // beyaz zemin kirlenmesin
 const LOGO_AUTOCROP    = String(process.env.LOGO_AUTOCROP || '1') === '1';
-const LOGO_CROP_PAD    = Number(process.env.LOGO_CROP_PAD || 4);      // crop sonrası kenarda bırakılacak pay (px)
+const LOGO_CROP_PAD    = Number(process.env.LOGO_CROP_PAD || 0);      // crop sonrası kenarda bırakılacak pay (px)
 
 // Barkod ölçüleri
 const BARCODE_HEIGHT   = Number(process.env.BARCODE_HEIGHT || 80); // 40–255
 const BARCODE_MODULE   = Number(process.env.BARCODE_MODULE || 1);  // 1=ince,2=orta,3=kalın
+
+// Kasada toplamı 10 cent basamağına matematiksel yuvarla:
+// 23.58 => 23.60, 37.56 => 37.60, 37.54 => 37.50
+// Eski tam-Euro yuvarlama kapalı; gerekirse .env ile ROUND_TOTAL_STEP_CENTS değiştirilebilir.
+const ROUND_TOTAL_STEP_CENTS = Math.max(
+  1,
+  Math.min(100, Number(process.env.ROUND_TOTAL_STEP_CENTS || 10) || 10),
+);
 
 /* ====== SABİT MAĞAZA BİLGİLERİ ====== */
 const STORE_HEADER_LINES = [
@@ -52,29 +83,11 @@ const STORE_HEADER_LINES = [
 
 /* ====== CORS & yardımcılar ====== */
 function cors(res, reqOrigin='') {
-  if (reqOrigin && ALLOW_ORIGINS.includes(reqOrigin)) {
-    res.setHeader('Access-Control-Allow-Origin', reqOrigin);
-    res.setHeader('Vary', 'Origin');
-  }
+  const origin = (ALLOW_ORIGINS.includes(reqOrigin) ? reqOrigin : ALLOW_ORIGINS[0]) || '*';
+  res.setHeader('Access-Control-Allow-Origin', origin);
   res.setHeader('Access-Control-Allow-Methods', 'OPTIONS, POST, GET');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Print-Proxy-Token, Authorization');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 }
-
-function safeTokenEqual(a, b) {
-  const left = Buffer.from(String(a || ''));
-  const right = Buffer.from(String(b || ''));
-  if (!left.length || left.length !== right.length) return false;
-  try { return require('crypto').timingSafeEqual(left, right); } catch { return false; }
-}
-
-function proxyAuthorized(req) {
-  if (!PROXY_TOKEN) return false;
-  const auth = String(req.headers.authorization || '');
-  const bearer = auth.toLowerCase().startsWith('bearer ') ? auth.slice(7).trim() : '';
-  const token = String(req.headers['x-print-proxy-token'] || bearer || '').trim();
-  return safeTokenEqual(token, PROXY_TOKEN);
-}
-
 function readJson(req) {
   return new Promise((resolve, reject) => {
     let buf=''; req.on('data', c => buf+=c);
@@ -147,10 +160,26 @@ const init      = () => Buffer.from([ESC,0x40]);
 const align     = n => Buffer.from([ESC,0x61,n]);
 const bold      = on=> Buffer.from([ESC,0x45,on?1:0]);
 const underline = on=> Buffer.from([ESC,0x2D,on?1:0]);
-const cut       = () => Buffer.from([GS,0x56,0x42,0x03]);
+const CUT_ENABLED = String(process.env.CUT_ENABLED || '1') === '1';
+const CUT_FEED_LINES = Number(process.env.CUT_FEED_LINES || 8);
+const feedLines = (n=1) => Buffer.from([ESC,0x64, Math.max(0, Math.min(255, Number(n)||0))]);
+
+function cut(){
+  if (!CUT_ENABLED) return Buffer.alloc(0);
+  // Metapace/ESC-POS full cut. Barkoddan sonra feedLines ile kağıdı öne aldığımız için
+  // barkod yarım kalmadan keser.
+  return Buffer.from([GS,0x56,0x00]);
+}
 const fontA     = () => Buffer.from([GS,0x66,0x00]);
 const size      = (w=1,h=1)=>Buffer.from([GS,0x21, ((Math.max(1,w)-1)<<4)|((Math.max(1,h)-1)&0x0F)]);
 const codepage1252 = () => Buffer.from([ESC,0x74,16]);
+const codepage857  = () => Buffer.from([ESC,0x74,13]);
+const codepage858  = () => Buffer.from([ESC,0x74,19]);
+const selectCodepage = () => {
+  if (PRINTER_CODEPAGE === 'CP1252') return codepage1252();
+  if (PRINTER_CODEPAGE === 'CP858') return codepage858();
+  return codepage857();
+};
 const fontSel   = n => Buffer.from([ESC,0x4D,n]); // 0:A 1:B (B daha dar)
 const lineSpace = n => Buffer.from([ESC,0x33, Math.max(0, Math.min(255, n))]);
 const lineSpaceDefault = () => Buffer.from([ESC,0x32]);
@@ -161,6 +190,16 @@ const cp1252Special = new Map([
   [0x201C,0x93],[0x201D,0x94],[0x2022,0x95],[0x2013,0x96],[0x2014,0x97],[0x02DC,0x98],[0x2122,0x99],
   [0x0161,0x9A],[0x203A,0x9B],[0x0153,0x9C],[0x0178,0x9F],
 ]);
+
+const cp857Special = new Map([
+  ['Ç',0x80],['ü',0x81],['é',0x82],['â',0x83],['ä',0x84],['à',0x85],['å',0x86],['ç',0x87],
+  ['ê',0x88],['ë',0x89],['è',0x8A],['ï',0x8B],['î',0x8C],['ı',0x8D],['Ä',0x8E],['Å',0x8F],
+  ['É',0x90],['æ',0x91],['Æ',0x92],['ô',0x93],['ö',0x94],['ò',0x95],['û',0x96],['ù',0x97],
+  ['İ',0x98],['Ö',0x99],['Ü',0x9A],['ø',0x9B],['£',0x9C],['Ø',0x9D],['Ş',0x9E],['ş',0x9F],
+  ['á',0xA0],['í',0xA1],['ó',0xA2],['ú',0xA3],['ñ',0xA4],['Ñ',0xA5],['Ğ',0xA6],['ğ',0xA7],
+  ['ß',0xE1],['õ',0xE4],['Õ',0xE5],['Ú',0xE9],['Û',0xEA],['Ù',0xEB],['°',0xF8],['²',0xFD],['³',0xFC],['¼',0xAC],['½',0xAB],['¾',0xF3],
+]);
+
 function enc1252Str(s=''){
   const out=[];
   for(const ch of String(s)){
@@ -171,20 +210,87 @@ function enc1252Str(s=''){
   }
   return Buffer.from(out);
 }
-const text  = (s='') => Buffer.concat([enc1252Str(String(s)), Buffer.from('\n')]);
+function enc857Str(s=''){
+  const out=[];
+  for(const ch of String(s)){
+    const cp=ch.codePointAt(0);
+    if (cp>=0x20 && cp<=0x7E) { out.push(cp); continue; }
+    if (cp857Special.has(ch)) { out.push(cp857Special.get(ch)); continue; }
+    if (ch === '€') {
+      // CP858 Euro kodu. Fişte EUR yerine € isteniyor.
+      // Yazıcı ayarında PRINTER_CODEPAGE=CP858 önerilir.
+      out.push(0xD5);
+      continue;
+    }
+    if (ch === '–' || ch === '—') { out.push(0x2D); continue; }
+    if (ch === '×') { out.push(0x78); continue; }
+    if (ch === '’' || ch === '‘' || ch === '´' || ch === '`') { out.push(0x27); continue; }
+    if (ch === '“' || ch === '”') { out.push(0x22); continue; }
+    out.push(0x3F);
+  }
+  return Buffer.from(out);
+}
+function encStr(s=''){
+  if (PRINTER_CODEPAGE === 'CP1252') return enc1252Str(s);
+  return enc857Str(s);
+}
+const text  = (s='') => Buffer.concat([encStr(String(s)), Buffer.from('\n')]);
 const twoCol= (L,R)=>{const l=String(L), r=String(R); const sp=Math.max(1, LINE-l.length-r.length); return l+' '.repeat(sp)+r;};
+
+function wrapLines(prefix='', value='', max=LINE){
+  const p = String(prefix || '');
+  const words = String(value || '').replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
+  if (!words.length) return [];
+  const out = [];
+  let line = p;
+  const cont = ' '.repeat(Math.min(p.length, Math.max(0, max - 1)));
+
+  for (const word of words){
+    const candidate = (line === p || !line.trim()) ? line + word : line + ' ' + word;
+    if (candidate.length <= max){
+      line = candidate;
+      continue;
+    }
+
+    if (line.trim()) out.push(line);
+    line = cont + word;
+
+    while (line.length > max){
+      out.push(line.slice(0, max));
+      line = cont + line.slice(max);
+    }
+  }
+
+  if (line.trim()) out.push(line);
+  return out;
+}
+
+function pushWrapped(out, prefix, value, opts={}){
+  const lines = wrapLines(prefix, value, opts.max || LINE);
+  for (const line of lines) out.push(text(line));
+}
 
 /* ====== CODE128 ====== */
 function code128(data=''){
-  const payload = Buffer.from(String(data),'ascii');
+  const clean = String(data || '')
+    .trim()
+    .replace(/[^ -~]/g, '')
+    .slice(0, 48);
+
+  if (!clean) return Buffer.alloc(0);
+
+  // ESC/POS CODE128 Function B güvenli kullanım: önce Code Set B seçilir ({B).
+  // HRI kapalı; sipariş numarasını barkodun altında biz bir kez yazıyoruz.
+  const payload = Buffer.from(`{B${clean}`, 'ascii');
+
   return Buffer.concat([
     align(1),
-    Buffer.from([GS,0x48,0x02]),                                     // HRI altta
+    Buffer.from([GS,0x48,0x00]),                                     // HRI kapalı
     Buffer.from([GS,0x68, Math.max(40, Math.min(255, BARCODE_HEIGHT))]), // yükseklik
     Buffer.from([GS,0x77, Math.max(1, Math.min(3, BARCODE_MODULE))]),    // modül genişliği
     Buffer.from([GS,0x6B,0x49, payload.length]),                     // CODE128
     payload,
-    text(String(data))
+    text(clean)                                                     // barkod altında tek satır
   ]);
 }
 
@@ -196,34 +302,21 @@ function num(v){
   const m = s.match(/-?\d+(\.\d+)?/);
   return m ? parseFloat(m[0]) : 0;
 }
-const money = v => num(v).toFixed(2)+'€';
-
-function orderPfand(o){
-  const direct = num(o?.pfand ?? o?.deposit);
-  if (direct > 0) return direct;
-
-  const meta = o?.meta && typeof o.meta === 'object' ? o.meta : {};
-  const nested = num(
-    meta?.pfand?.amount ??
-    meta?.deposit?.amount ??
-    meta?.pfandAmount ??
-    meta?.depositAmount
-  );
-  if (nested > 0) return nested;
-
-  const items = Array.isArray(o?.items) ? o.items : [];
-  return items.reduce((sum, item) => {
-    const qty = Math.max(1, num(item?.qty || item?.quantity || 1));
-    const unit = num(
-      item?.pfandAmount ??
-      item?.depositAmount ??
-      item?.pfand ??
-      item?.deposit
-    );
-    return sum + unit * qty;
-  }, 0);
+function money(v){
+  const value = num(v);
+  // Fişte Euro işareti rakama bitişik basılsın: 15.00€
+  return value.toFixed(2) + '€';
 }
-
+function signedMoney(v){
+  const value = round2(num(v));
+  return (value > 0 ? '+' : '') + money(value);
+}
+function roundFinalTotal(v){
+  const value = round2(num(v));
+  const cents = Math.round(value * 100);
+  const roundedCents = Math.round(cents / ROUND_TOTAL_STEP_CENTS) * ROUND_TOTAL_STEP_CENTS;
+  return round2(roundedCents / 100);
+}
 
 const STRIP_SEPARATORS = [' - ', ' – ', ' — ', ': '];
 function cleanName(name=''){
@@ -265,51 +358,54 @@ function detectCategory(it){
 
 /* ====== URL'den order çöz ====== */
 async function resolveOrderFromUrl(urlStr){
-  if (!ALLOW_ORDER_URL_RESOLUTION) {
-    throw new Error('ORDER_URL_RESOLUTION_DISABLED');
-  }
-
   const u = new URL(urlStr);
-  if (!ORDER_URL_ORIGINS.has(u.origin)) {
-    throw new Error('ORDER_URL_ORIGIN_NOT_ALLOWED');
-  }
-
   const m = u.pathname.match(/\/print\/barcode\/([^/]+)/i);
   const orderId = m ? decodeURIComponent(m[1]) : null;
   if (!orderId) return null;
-
-  // Legacy compatibility only. The caller should normally send the complete
-  // order object. Remote resolution is opt-in and pinned to an allowlisted origin.
-  const list = await httpGetJson(`${u.origin}/api/orders`).catch(()=>null);
+  const list = await httpGetJson(`${u.protocol}//${u.host}/api/orders`).catch(()=>null);
   if (!Array.isArray(list)) return null;
   return list.find(o=>String(o?.id)===String(orderId)) || null;
 }
 
-/* ====== geplant saat ====== */
+/* ====== geplant / hedef saat ====== */
+function validMinutes(value){
+  const n = num(value);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+function parseHhmmToToday(value){
+  const m = String(value || '').trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return null;
+  const hh = Math.max(0, Math.min(23, parseInt(m[1], 10)));
+  const mm = Math.max(0, Math.min(59, parseInt(m[2], 10)));
+  const d = new Date();
+  d.setHours(hh, mm, 0, 0);
+  return d;
+}
+function fmtTime(d){
+  return d.toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'});
+}
 function computeGeplant(o){
-  if (o?.planned){
-    const [hh,mm] = String(o.planned).split(':').map(x=>parseInt(x,10));
-    if (!Number.isNaN(hh)){
-      const d = new Date(); d.setHours(hh||0, mm||0, 0, 0);
-      return d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
-    }
-  }
-  const dueIso = o?.targetAt || o?.dueAt;
+  const plannedDate = parseHhmmToToday(o?.planned);
+  if (plannedDate) return fmtTime(plannedDate);
+
+  const dueIso = o?.targetAt || o?.dueAt || o?.plannedAt || o?.etaAt;
   if (dueIso){
     const d = new Date(dueIso);
-    return d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+    if (Number.isFinite(d.valueOf())) return fmtTime(d);
   }
-  const base = new Date(o?.ts || Date.now());
+
+  const base = new Date(o?.ts || o?.createdAt || Date.now());
   const avg =
-    Number.isFinite(num(o?.avgMin)) ? num(o.avgMin) :
-    Number.isFinite(num(o?.etaMin)) ? num(o.etaMin) :
-    Number.isFinite(num(o?.avg))    ? num(o.avg)    :
-    Number.isFinite(num(o?.eta))    ? num(o.eta)    :
-    (o?.mode==='pickup'?15:35);
-  const plusList = ['addMin','plusMin','delayMin','adjustMin','deltaMin','extraMin','extendMin','bumpMin'];
-  const extra = plusList.reduce((s,k)=> s + (Number.isFinite(num(o?.[k]))? num(o[k]) : 0), 0);
+    validMinutes(o?.etaMin) ??
+    validMinutes(o?.avgMin) ??
+    validMinutes(o?.avg) ??
+    validMinutes(o?.eta) ??
+    (String(o?.mode || '').toLowerCase()==='pickup' ? 15 : 35);
+
+  const plusList = ['etaAdjustMin','addMin','plusMin','delayMin','adjustMin','deltaMin','extraMin','extendMin','bumpMin'];
+  const extra = plusList.reduce((sum,key) => sum + (validMinutes(o?.[key]) ?? 0), 0);
   base.setMinutes(base.getMinutes() + avg + extra);
-  return base.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+  return fmtTime(base);
 }
 
 /* ====== not & adres ====== */
@@ -489,7 +585,12 @@ function bmpToEscPosRaster(buf, opts={}){
       let r,g,b;
       if (bpp===24){ const idx=rowStart+x*3; b=buf[idx]; g=buf[idx+1]; r=buf[idx+2]; }
       else if (bpp===8){ const idx=rowStart+x; [r,g,b]=(palette[ buf[idx] ]||[255,255,255]); }
-      else { const byte=buf[rowStart+(x>>3)], bit=7-(x&7), val=(byte>>bit)&1; r=g=b= val?0:255; }
+      else {
+        const byte=buf[rowStart+(x>>3)], bit=7-(x&7), val=(byte>>bit)&1;
+        const pal = palette && palette[val];
+        if (pal) [r,g,b] = pal;
+        else r=g=b= val ? 255 : 0;
+      }
       sampleSum += L(r,g,b); sampleCnt++;
     }
   }
@@ -507,11 +608,17 @@ function bmpToEscPosRaster(buf, opts={}){
       let r,g,b;
       if (bpp===24){ const idx=rowStart+sx0*3; b=buf[idx]; g=buf[idx+1]; r=buf[idx+2]; }
       else if (bpp===8){ const idx=rowStart+sx0; [r,g,b]=(palette[ buf[idx] ]||[255,255,255]); }
-      else { const byte=buf[rowStart+(sx0>>3)], bit=7-(sx0&7), val=(byte>>bit)&1; r=g=b= val?0:255; }
+      else {
+        const byte=buf[rowStart+(sx0>>3)], bit=7-(sx0&7), val=(byte>>bit)&1;
+        const pal = palette && palette[val];
+        if (pal) [r,g,b] = pal;
+        else r=g=b= val ? 255 : 0;
+      }
       let y = L(r,g,b);
       if (invert) y = 255 - y;
-      // Siyah önyargı (daha koyu baskı)
-      y = Math.max(0, y - 255*blackBoost);
+      // Siyah önyargı: sadece zaten koyu/gri piksellere uygula.
+      // Saf beyaza uygularsak logo etrafında gri/siyah kare oluşur.
+      if (y < 245 && blackBoost > 0) y = Math.max(0, y - 255*blackBoost);
       gray0[oy*outW0 + ox] = y;
     }
   }
@@ -577,13 +684,32 @@ function bmpToEscPosRaster(buf, opts={}){
   return Buffer.concat(out);
 }
 
-async function printLogoIfAny(overrideUrl){
-  const urlStr = overrideUrl || LOGO_URL;
-  if (!urlStr) return Buffer.alloc(0);
-  try{
-    const buf = await httpGetBuffer(urlStr);
-    if (buf.length > 20*1024*1024) throw new Error('Logo çok büyük');
+function loadLocalLogoBuffer(){
+  const candidates = [
+    process.env.LOGO_FILE ? path.resolve(__dirname, process.env.LOGO_FILE) : null,
+    DEFAULT_LOGO_FILE,
+    path.join(process.cwd(), 'print-proxy', 'logo-thermal.bmp'),
+    path.join(process.cwd(), 'logo-thermal.bmp'),
+  ].filter(Boolean);
+  for (const file of candidates){
+    try{ if (fs.existsSync(file)) return fs.readFileSync(file); }catch{}
+  }
+  return null;
+}
 
+async function printLogoIfAny(overrideUrl){
+  try{
+    // Agent URL gönderse bile önce local logo-thermal.bmp kullanılır.
+    // Böylece gerçek domain açılmadan da logo basılır.
+    let buf = loadLocalLogoBuffer();
+
+    if (!buf && overrideUrl && /^https?:\/\//i.test(String(overrideUrl))) {
+      buf = await httpGetBuffer(String(overrideUrl));
+    }
+
+    if (!buf && LOGO_URL) buf = await httpGetBuffer(LOGO_URL);
+    if (!buf) return Buffer.alloc(0);
+    if (buf.length > 20*1024*1024) throw new Error('Logo çok büyük');
     const raster = bmpToEscPosRaster(buf, {
       threshold: LOGO_THRESHOLD,
       maxWidth: LOGO_MAX_WIDTH,
@@ -595,10 +721,9 @@ async function printLogoIfAny(overrideUrl){
       autoCrop: LOGO_AUTOCROP,
       cropPad: LOGO_CROP_PAD,
     });
-
     return Buffer.concat([ align(1), raster, align(0) ]);
   }catch(e){
-    console.warn('Logo indirilemedi:', e.message || e);
+    console.warn('Logo basılamadı:', e.message || e);
     return Buffer.alloc(0);
   }
 }
@@ -618,12 +743,11 @@ async function buildTicketFromOrder(o, opts={}){
     return !!lbl;
   }
   const baseLabel = (() => {
-    const ch = String(o?.channel || '').trim();
-    if (ch) return titleCase(ch);
     const m = String(o?.mode||'').toLowerCase();
     if (m==='delivery') return 'Lieferung';
     if (m==='pickup')   return 'Abholung';
-    return '';
+    const ch = String(o?.channel || '').trim();
+    return ch ? titleCase(ch) : 'Bestellung';
   })();
   const headerTag = [ isPlanned(o) ? 'Geplant' : '', baseLabel ].filter(Boolean).join(' ');
 
@@ -650,24 +774,37 @@ async function buildTicketFromOrder(o, opts={}){
   // Pricing
   const P = o?.pricing || {};
   const F = o?.fees || {};
-  const itemsSum  = items.reduce((s,it)=> s + num(it.price)*num(it.qty||1), 0);
-  const subRaw    = num(P.subtotal);
+  const M = o?.meta || {};
+  const PAY = o?.payment || M?.payment || {};
+  const itemsSum  = items.reduce((sum,it)=> sum + num(it.price)*num(it.qty||1), 0);
+  const subRaw    = num(o?.merchandise ?? P.subtotal);
   const subtotal  = subRaw > 0 ? subRaw : itemsSum;
   const deliveryFee = findDeliveryFeeDeep(o);
-  const serviceFee  = num(P.service ?? F.service);
+  const serviceFee  = num(PAY.serviceFeeTotal ?? P.service ?? F.service);
   const otherFee    = num(P.other ?? P.misc ?? F.other);
-  let explicitTotal = num(P.total ?? o.total ?? o.amount ?? o.payable ?? o.toPay);
-  if (explicitTotal <= 0) {
-    explicitTotal = subtotal + deliveryFee + serviceFee + otherFee - num(P.discount ?? F.discount);
-  }
-  let discountSum = num(P.discount ?? F.discount);
-  const fees = deliveryFee + serviceFee + otherFee;
-  const derivedDiscount = Math.max(0, (subtotal + fees) - explicitTotal);
-  if (Math.abs((subtotal + fees) - explicitTotal - discountSum) > 0.01) discountSum = derivedDiscount;
+  let explicitTotal = num(
+    PAY.collectedTotal ??
+      PAY.payableTotal ??
+      P.total ??
+      o.total ??
+      o.amount ??
+      o.payable ??
+      o.toPay,
+  );
 
-  const discList = Array.isArray(o?.adjustments)
-    ? o.adjustments.filter(a=>String(a?.type||'').toLowerCase()==='discount')
-    : [];
+  let regularDiscount = Math.max(0, num(o?.discount ?? P.regularDiscount ?? F.discount));
+  let couponDiscount  = Math.max(0, num(o?.couponDiscount ?? P.couponDiscount ?? o?.meta?.couponDiscount));
+  let discountSum = regularDiscount + couponDiscount;
+
+  if (explicitTotal <= 0) {
+    explicitTotal = Math.max(0, subtotal + deliveryFee + serviceFee + otherFee - discountSum);
+  }
+
+  const derivedDiscount = Math.max(0, (subtotal + deliveryFee + serviceFee + otherFee) - explicitTotal);
+  if (discountSum <= 0 && derivedDiscount > 0) {
+    regularDiscount = derivedDiscount;
+    discountSum = derivedDiscount;
+  }
 
   // ===== KDV toplama =====
   let br7 = 0, br19 = 0;
@@ -691,8 +828,27 @@ async function buildTicketFromOrder(o, opts={}){
   const { net19, vat19, net7, vat7 } =
     calcVatBlocks({ br7, br19, delivery: deliveryFee, discount: discountSum });
 
+  const paymentMethod = String(
+    PAY.method || o?.paymentMethod || M?.paymentMethod || 'cash',
+  ).toLowerCase();
+  const paymentStatus = String(
+    PAY.status || o?.paymentStatus || M?.paymentStatus || 'pending',
+  ).toLowerCase();
+  const paymentShares = Array.isArray(PAY.shares) ? PAY.shares : [];
+  const isSplitPayment = paymentMethod.includes('split') || paymentShares.length > 1;
+  const sharePaidAmount = paymentShares.reduce((sum, share) => {
+    const status = String(share?.status || '').toLowerCase();
+    return status === 'paid'
+      ? sum + num(share?.amount ?? (num(share?.baseAmount) + num(share?.serviceFee)))
+      : sum;
+  }, 0);
+  const chargedTotal = num(PAY.collectedTotal ?? PAY.payableTotal ?? explicitTotal);
+  const remainingPayment = Math.max(0, chargedTotal - sharePaidAmount);
+  const paymentPaid = ['paid', 'succeeded', 'completed'].includes(paymentStatus);
+  const onlinePayment = /online|stripe|card|karte|klarna|paypal|apple|google/.test(paymentMethod);
+
   const out=[];
-  out.push(init(), codepage1252(), fontA(), lineSpace(34));
+  out.push(init(), selectCodepage(), fontA(), lineSpace(30));
 
   // ===== ÜST BLOK =====
   const logoChunk = await printLogoIfAny(opts.logoUrl);
@@ -715,15 +871,42 @@ async function buildTicketFromOrder(o, opts={}){
     for (const it of map.get(g)){
       const qty=num(it.qty||1), price=num(it.price||0), line=qty*price;
       const itemName = cleanName(String(it.name||''));
-      out.push(bold(1), size(1,1), text(twoCol(`${qty}× ${itemName}`, money(line))), bold(0));
-      if (it.note){ out.push(fontSel(1), text('  ' + String(it.note)), fontSel(0)); }
+      out.push(bold(1), size(1,1), text(twoCol(`${qty}x ${itemName}`, money(line))), bold(0));
       if (Array.isArray(it.add) && it.add.length){
-        const extras = it.add.map(a=>cleanName(a?.label||a?.name||'')).filter(Boolean).join(', ');
-        if (extras) out.push(fontSel(1), text('  ' + extras), fontSel(0));
+        for (const a of it.add){
+          const extraName = cleanName(a?.label || a?.name || 'Extra');
+          if (!extraName) continue;
+          out.push(bold(1));
+          pushWrapped(out, '   + ', extraName, { max: 54 });
+          out.push(bold(0));
+        }
       }
+
       if (Array.isArray(it.rm) && it.rm.length){
-        out.push(fontSel(1), text('  Ohne: ' + it.rm.join(', ')), fontSel(0));
+        for (const r of it.rm){
+          const removeName = String(r || '').trim();
+          if (removeName) pushWrapped(out, '   - ohne ', removeName, { max: 54 });
+        }
       }
+
+      const desc = String(it.description || it.desc || it.itemDescription || it?.meta?.description || '').trim();
+      if (desc) {
+        out.push(fontSel(1));
+        pushWrapped(out, '     ', desc, { max: 56 });
+        out.push(fontSel(0));
+      }
+
+      if (it.note){
+        const note = String(it.note).trim();
+        if (note) {
+          out.push(fontSel(1), bold(1));
+          pushWrapped(out, '     ', note, { max: 56 });
+          out.push(bold(0), fontSel(0));
+        }
+      }
+
+      // Mutfakta satırlar birbirine yapışmasın.
+      out.push(text(''));
     }
   }
 
@@ -733,14 +916,10 @@ async function buildTicketFromOrder(o, opts={}){
   if (deliveryFee) out.push(text(twoCol('Lieferaufschläge', money(deliveryFee))));
   if (serviceFee)  out.push(text(twoCol('Service',          money(serviceFee))));
   if (otherFee)    out.push(text(twoCol('Sonstiges',        money(otherFee))));
-  if (discountSum){
-    out.push(text(twoCol('Rabatte', '-' + money(discountSum))));
-    for (const a of discList){
-      const tag = [a?.code, a?.reason].filter(Boolean).join(' – ') || (a?.source||'');
-      if (num(a?.amount) > 0){
-        out.push(text(twoCol('  - ' + (tag||'Indirim'), '-' + money(num(a.amount)))));
-      }
-    }
+  if (regularDiscount) out.push(text(twoCol('Rabatt / Angebot', '-' + money(regularDiscount))));
+  if (couponDiscount) {
+    const code = String(o?.coupon || o?.meta?.coupon || '').trim();
+    out.push(text(twoCol(code ? `Gutschein ${code}` : 'Gutschein', '-' + money(couponDiscount))));
   }
 
   // ===== KDV blokları — HER ZAMAN GÖRÜNSÜN =====
@@ -750,9 +929,30 @@ async function buildTicketFromOrder(o, opts={}){
   out.push(text(twoCol('Netto MwSt 7 %',  money(net7))));
   out.push(text(twoCol('MwSt 7 %',        money(vat7))));
 
-  const pfandAmount = orderPfand(o);
-  if (pfandAmount > 0) out.push(text(twoCol('Pfand', money(pfandAmount))));
-  out.push(bold(1), size(1,2), text(twoCol('Gesamt', money(explicitTotal))), size(1,1), bold(0), text(''));
+  const finalTotal = roundFinalTotal(explicitTotal);
+  // Rundung satırı mutfak fişinde gösterilmiyor; toplam yuvarlama mantığı korunuyor.
+  out.push(bold(1), size(1,2), text(twoCol('Gesamt', money(finalTotal))), size(1,1), bold(0), text(''));
+
+  // ===== ZAHLUNGSANWEISUNG (DIREKT VOR ADRESSE/BARKOD) =====
+  out.push(text('='.repeat(LINE)), align(1), bold(1), size(2,2));
+  if (isSplitPayment && paymentPaid) {
+    out.push(text('GETRENNT BEZAHLT'), size(1,2), text('NICHTS KASSIEREN'));
+  } else if (isSplitPayment) {
+    out.push(
+      text('GETRENNT ZAHLEN OFFEN'),
+      size(1,2),
+      text(`RESTBETRAG: ${money(remainingPayment || chargedTotal)}`),
+    );
+  } else if (onlinePayment && paymentPaid) {
+    out.push(text('ONLINE BEZAHLT'), size(1,2), text('NICHTS KASSIEREN'));
+  } else {
+    out.push(
+      text('BARZAHLUNG'),
+      size(1,2),
+      text(`BETRAG KASSIEREN: ${money(finalTotal)}`),
+    );
+  }
+  out.push(size(1,1), bold(0), align(0), text('='.repeat(LINE)), text(''));
 
   // ===== ADRES (barkod ÜSTÜ) + Lifa notu =====
   const bottomAddress = [buildAddressLine(o?.customer||{}), name].filter(Boolean).join(' - ');
@@ -767,7 +967,9 @@ async function buildTicketFromOrder(o, opts={}){
   // ===== BARKOD (EN ALTA) =====
   if (orderId) out.push(code128(orderId));
 
-  out.push(lineSpaceDefault(), text('\n'), cut());
+  // Barkod printer ağzında kalmasın; önce yeterli boşluk ver, sonra kes.
+  // CUT_FEED_LINES .env ile arttırılıp azaltılabilir.
+  out.push(lineSpaceDefault(), feedLines(CUT_FEED_LINES), cut());
   return Buffer.concat(out);
 }
 
@@ -777,17 +979,13 @@ const server = http.createServer(async (req,res)=>{
   const u = url.parse(req.url, true);
   if (req.method==='OPTIONS'){ res.statusCode=200; return res.end(); }
 
-  if (!proxyAuthorized(req)) {
-    res.writeHead(PROXY_TOKEN ? 401 : 503, {'Content-Type':'application/json'});
-    return res.end(JSON.stringify({ok:false,error:PROXY_TOKEN?'unauthorized':'PRINT_PROXY_TOKEN_MISSING'}));
-  }
-
   if (req.method==='GET' && u.pathname==='/health'){
     res.writeHead(200, {'Content-Type':'application/json'});
     return res.end(JSON.stringify({
       ok:true,
-      printer:{host:PRINTER_IP, port:PRINTER_PORT},
+      printer:{host:PRINTER_IP, port:PRINTER_PORT, codepage: PRINTER_CODEPAGE},
       logoUrl: LOGO_URL || null,
+      localLogo: fs.existsSync(DEFAULT_LOGO_FILE) ? DEFAULT_LOGO_FILE : null,
       insecureLogoAllowed: ALLOW_INSECURE_LOGO,
       logoParams: {
         threshold: LOGO_THRESHOLD,
@@ -815,7 +1013,7 @@ const server = http.createServer(async (req,res)=>{
       }
       const chunks = [];
       for (let i=0;i<copies;i++){
-        chunks.push(init(), codepage1252(), fontA(), lineSpace(34));
+        chunks.push(init(), selectCodepage(), fontA(), lineSpace(34));
         // İstersen üstte küçük başlık/metin ekleyebilirsin:
         // chunks.push(align(1), text('BARKOD'), align(0));
         chunks.push(code128(content));
@@ -833,7 +1031,7 @@ const server = http.createServer(async (req,res)=>{
   if (req.method==='POST' && u.pathname==='/print/test'){
     try{
       const b = Buffer.concat([
-        init(), codepage1252(), fontA(), lineSpace(34),
+        init(), selectCodepage(), fontA(), lineSpace(34),
         align(1), size(2,2), text('*** TEST ***'),
         align(0), text('Jalapeños € ä ö ü ß ñ – OK'),
         lineSpaceDefault(), cut()
@@ -850,7 +1048,7 @@ const server = http.createServer(async (req,res)=>{
   if (req.method==='POST' && u.pathname==='/print/lines'){
     try{
       const body=await readJson(req); const lines=Array.isArray(body?.lines)?body.lines:[];
-      const b=Buffer.concat([init(), codepage1252(), fontA(), lineSpace(34), ...lines.map(l=>text(String(l))), lineSpaceDefault(), cut()]);
+      const b=Buffer.concat([init(), selectCodepage(), fontA(), lineSpace(34), ...lines.map(l=>text(String(l))), lineSpaceDefault(), cut()]);
       await sendToPrinter(b);
       res.writeHead(200, {'Content-Type':'application/json'});
       return res.end(JSON.stringify({ok:true,lines:lines.length}));
@@ -896,9 +1094,10 @@ const server = http.createServer(async (req,res)=>{
   res.end(JSON.stringify({ ok:false, error:'Not found' }));
 });
 
-server.listen(PORT, LISTEN_HOST, ()=>{
-  console.log(`✅ print-proxy up on http://${LISTEN_HOST}:${PORT}`);
-  console.log(`➡️  Printer: ${PRINTER_IP}:${PRINTER_PORT}`);
+server.listen(PORT, ()=>{
+  console.log(`✅ print-proxy up on http://127.0.0.1:${PORT}`);
+  console.log(`➡️  Printer: ${PRINTER_IP}:${PRINTER_PORT} codepage=${PRINTER_CODEPAGE}`);
+  if (fs.existsSync(DEFAULT_LOGO_FILE)) console.log(`🖼  Local Logo: ${DEFAULT_LOGO_FILE}`);
   if (LOGO_URL) console.log(`🖼  Logo URL: ${LOGO_URL}  (insecure:${ALLOW_INSECURE_LOGO?'yes':'no'}) thr:${LOGO_THRESHOLD} mw:${LOGO_MAX_WIDTH} bright:${LOGO_BRIGHTEN} gamma:${LOGO_GAMMA} dither:${LOGO_DITHER?'on':'off'} blackBoost:${LOGO_BLACK_BOOST} autocrop:${LOGO_AUTOCROP?'on':'off'} pad:${LOGO_CROP_PAD}`);
   console.log(`🏷  Barcode h=${BARCODE_HEIGHT} module=${BARCODE_MODULE}`);
 });

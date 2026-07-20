@@ -87,6 +87,10 @@ function PaymentReturnContent() {
     () => String(params.get("checkout_session_id") || "").trim(),
     [params],
   );
+  const recoveryToken = useMemo(
+    () => String(params.get("recovery") || "").trim(),
+    [params],
+  );
   const paymentCancelled = params.get("payment") === "cancelled";
 
   const [state, setState] = useState<PaymentState>({
@@ -94,6 +98,8 @@ function PaymentReturnContent() {
   });
   const [busyShare, setBusyShare] = useState<number | null>(null);
   const [profileSaved, setProfileSaved] = useState(false);
+  const [refreshVersion, setRefreshVersion] = useState(0);
+  const [resumeBusy, setResumeBusy] = useState(false);
   const profileAttempted = useRef(false);
 
   useEffect(() => {
@@ -112,7 +118,7 @@ function PaymentReturnContent() {
     const load = async () => {
       try {
         const response = await fetch(
-          `/api/payments/session?id=${encodeURIComponent(paymentSessionId)}`,
+          `/api/payments/session?id=${encodeURIComponent(paymentSessionId)}&recovery=${encodeURIComponent(recoveryToken)}`,
           {
             cache: "no-store",
           },
@@ -128,6 +134,7 @@ function PaymentReturnContent() {
             clear?.();
             localStorage.removeItem("bb_active_coupon_code");
             localStorage.removeItem("bb_active_coupon_meta");
+            localStorage.removeItem("bb_active_payment_recovery_v1");
             localStorage.setItem(
               "bb_last_track_order_id",
               String(payload.finalOrderId),
@@ -172,7 +179,28 @@ function PaymentReturnContent() {
       active = false;
       if (timer) window.clearTimeout(timer);
     };
-  }, [paymentSessionId, clear]);
+  }, [paymentSessionId, recoveryToken, clear, refreshVersion]);
+
+  useEffect(() => {
+    const resumeView = () => {
+      document.documentElement.classList.remove("bb-route-pending");
+      document.body.classList.remove("bb-route-pending");
+      setBusyShare(null);
+      setResumeBusy(false);
+      setRefreshVersion((value) => value + 1);
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") resumeView();
+    };
+    window.addEventListener("pageshow", resumeView);
+    window.addEventListener("focus", resumeView);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("pageshow", resumeView);
+      window.removeEventListener("focus", resumeView);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, []);
 
   /*
    * Normal online ödeme sonrası Stripe Customer profili bu cihazda güvenli
@@ -226,11 +254,54 @@ function PaymentReturnContent() {
   const sendShareViaWhatsApp = (share: Share) => {
     if (!share.shareUrl) return;
 
-    window.open(
-      `https://wa.me/?text=${encodeURIComponent(whatsappMessage(share))}`,
-      "_blank",
-      "noopener,noreferrer",
-    );
+    const url = `https://wa.me/?text=${encodeURIComponent(whatsappMessage(share))}`;
+    const standalone =
+      window.matchMedia?.("(display-mode: standalone)")?.matches ||
+      Boolean((navigator as any).standalone);
+    if (standalone || /iPhone|iPad|iPod|Android/i.test(navigator.userAgent || "")) {
+      window.location.href = url;
+      return;
+    }
+    window.open(url, "_blank", "noopener,noreferrer");
+  };
+
+  const resumePayment = async () => {
+    if (!paymentSessionId || !recoveryToken || resumeBusy) return;
+    try {
+      setResumeBusy(true);
+      const response = await fetch("/api/payments/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "resume",
+          paymentSessionId,
+          recoveryToken,
+        }),
+        cache: "no-store",
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || payload?.ok === false) {
+        throw new Error(
+          payload?.message ||
+            payload?.error ||
+            "Die Zahlung konnte nicht fortgesetzt werden.",
+        );
+      }
+      if (payload?.url) {
+        window.location.assign(String(payload.url));
+        return;
+      }
+      setState(payload);
+      setRefreshVersion((value) => value + 1);
+    } catch (error: any) {
+      setState((current) => ({
+        ...current,
+        message:
+          error?.message || "Die Zahlung konnte nicht fortgesetzt werden.",
+      }));
+    } finally {
+      setResumeBusy(false);
+    }
   };
 
   return (
@@ -298,9 +369,21 @@ function PaymentReturnContent() {
                 Die Zahlungssitzung ist abgelaufen. Es wurde nichts berechnet.
               </p>
             )}
+            {recoveryToken && state.status === "expired" && (
+              <button
+                type="button"
+                disabled={resumeBusy}
+                onClick={resumePayment}
+                className="mt-5 w-full rounded-xl bg-amber-400 px-4 py-3 font-black text-black disabled:opacity-50"
+              >
+                {resumeBusy
+                  ? "Zahlung wird vorbereitet …"
+                  : "Neue sichere Zahlungssitzung öffnen"}
+              </button>
+            )}
             <Link
               href="/checkout"
-              className="mt-5 block rounded-xl border border-stone-600 px-4 py-3 text-center font-semibold"
+              className="mt-3 block rounded-xl border border-stone-600 px-4 py-3 text-center font-semibold"
             >
               Zurück zum Checkout
             </Link>

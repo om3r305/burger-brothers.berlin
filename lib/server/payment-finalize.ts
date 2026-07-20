@@ -380,6 +380,10 @@ export async function finalizePaymentSession(
   }
 
   const paidShares = shares.filter((share) => share.status === "paid");
+  const cancelled =
+    pending.status === "payment_cancelled" ||
+    Boolean(paymentSession.cancelledAt) ||
+    String(paymentSession.state || "") === "cancelled";
   const unpaidShares = shares.filter((share) => share.status !== "paid");
   const expired = unpaidShares.some((share) => share.status === "expired");
   const processing = unpaidShares.some((share) => share.status === "processing");
@@ -413,6 +417,62 @@ export async function finalizePaymentSession(
       },
     })
     .catch(() => null);
+
+  if (cancelled) {
+    const refunds = await refundPaidIntents({
+      paymentSessionId,
+      finalOrderId: finalOrderId || paymentSessionId,
+      intents: paidShares.map((share) => share.paymentIntentId).filter(Boolean),
+      reason: "payment_cancelled",
+    });
+    const refundFailed = refunds.some((refund) => refund?.error);
+
+    await prisma.order
+      .update({
+        where: { id: pending.id },
+        data: {
+          status: paidShares.length
+            ? refundFailed
+              ? "payment_failed"
+              : "payment_refunded"
+            : "payment_cancelled",
+          meta: sanitizeJson({
+            ...nextMeta,
+            paymentSession: {
+              ...ensureObj(nextMeta.paymentSession),
+              state: paidShares.length
+                ? refundFailed
+                  ? "refund_failed"
+                  : "refunded"
+                : "cancelled",
+              terminalAt: new Date().toISOString(),
+              autoRefunds: refunds,
+            },
+          }),
+        },
+      })
+      .catch(() => null);
+
+    return {
+      ok: false,
+      paymentSessionId,
+      paymentKind,
+      status: paidShares.length ? "refunded" : "failed",
+      finalized: false,
+      finalOrderId: finalOrderId || undefined,
+      paidCount: paidShares.length,
+      totalCount: shares.length,
+      nextUrl: null,
+      nextShareIndex: null,
+      shares,
+      error: refundFailed ? "AUTO_REFUND_FAILED" : "PAYMENT_CANCELLED",
+      message: paidShares.length
+        ? refundFailed
+          ? "Die Zahlung wurde abgebrochen. Mindestens eine Rückerstattung muss manuell geprüft werden."
+          : "Die Zahlung wurde abgebrochen und bereits bezahlte Anteile wurden automatisch zurückerstattet."
+        : "Die Zahlung wurde abgebrochen. Es wurde nichts berechnet.",
+    };
+  }
 
   if ((expired || failed) && paidShares.length > 0) {
     const refunds = await refundPaidIntents({
@@ -599,6 +659,16 @@ export async function finalizePaymentSession(
       stripeCustomerId,
       stripeCustomerIds,
       sessionId: paymentSessionId,
+      orderTotal: Number(
+        paymentSession.orderTotal ?? paymentSession.baseTotal ?? pendingOrder.total ?? 0,
+      ),
+      serviceFeeTotal: Number(paymentSession.serviceFeeTotal || 0),
+      collectedTotal: Number(
+        paymentSession.collectedTotal ?? paymentSession.total ?? pendingOrder.total ?? 0,
+      ),
+      payableTotal: Number(
+        paymentSession.collectedTotal ?? paymentSession.total ?? pendingOrder.total ?? 0,
+      ),
       shares,
       paidAt,
     },
@@ -619,6 +689,16 @@ export async function finalizePaymentSession(
         stripeCustomerId,
         stripeCustomerIds,
         sessionId: paymentSessionId,
+        orderTotal: Number(
+          paymentSession.orderTotal ?? paymentSession.baseTotal ?? pendingOrder.total ?? 0,
+        ),
+        serviceFeeTotal: Number(paymentSession.serviceFeeTotal || 0),
+        collectedTotal: Number(
+          paymentSession.collectedTotal ?? paymentSession.total ?? pendingOrder.total ?? 0,
+        ),
+        payableTotal: Number(
+          paymentSession.collectedTotal ?? paymentSession.total ?? pendingOrder.total ?? 0,
+        ),
         shares,
         paidAt,
       },

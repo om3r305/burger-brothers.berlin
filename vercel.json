@@ -3,6 +3,10 @@
     {
       "path": "/api/admin/cron/daily-backup",
       "schedule": "30 3 * * *"
+    },
+    {
+      "path": "/api/admin/cron/expire-payments",
+      "schedule": "15 4 * * *"
     }
   ]
 }

@@ -82,6 +82,51 @@ type Planned = {
 
 type PaymentMethod = "cash" | "online" | "split_contactless";
 
+type ActivePaymentRecovery = {
+  paymentSessionId: string;
+  recoveryToken: string;
+  manageUrl: string;
+  paymentKind: "online" | "split_contactless";
+  expiresAt?: string | null;
+};
+
+const ACTIVE_PAYMENT_RECOVERY_KEY = "bb_active_payment_recovery_v1";
+
+function browserOpaqueToken(bytesLength = 32) {
+  const bytes = new Uint8Array(bytesLength);
+  window.crypto.getRandomValues(bytes);
+  let binary = "";
+  bytes.forEach((value) => {
+    binary += String.fromCharCode(value);
+  });
+  return window
+    .btoa(binary)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+}
+
+function readActivePaymentRecovery(): ActivePaymentRecovery | null {
+  try {
+    const parsed = JSON.parse(
+      localStorage.getItem(ACTIVE_PAYMENT_RECOVERY_KEY) || "null",
+    );
+    if (!parsed?.paymentSessionId || !parsed?.recoveryToken || !parsed?.manageUrl) {
+      return null;
+    }
+    if (parsed?.expiresAt) {
+      const expiresAt = Date.parse(String(parsed.expiresAt));
+      if (Number.isFinite(expiresAt) && expiresAt <= Date.now()) {
+        localStorage.removeItem(ACTIVE_PAYMENT_RECOVERY_KEY);
+        return null;
+      }
+    }
+    return parsed as ActivePaymentRecovery;
+  } catch {
+    return null;
+  }
+}
+
 type SplitUnit = {
   key: string;
   label: string;
@@ -1650,12 +1695,25 @@ export default function CheckoutPage() {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cash");
   const [rememberPaymentMethod, setRememberPaymentMethod] = useState(true);
   const [paymentProfileRemembered, setPaymentProfileRemembered] = useState(false);
+  const [activePaymentRecovery, setActivePaymentRecovery] =
+    useState<ActivePaymentRecovery | null>(null);
   const [tipChoice, setTipChoice] = useState<TipChoice>("none");
   const [customTip, setCustomTip] = useState("");
   const [splitPeople, setSplitPeople] = useState(2);
   const [splitAssignments, setSplitAssignments] = useState<
     Record<string, number>
   >({});
+
+  useEffect(() => {
+    const restore = () => setActivePaymentRecovery(readActivePaymentRecovery());
+    restore();
+    window.addEventListener("pageshow", restore);
+    window.addEventListener("focus", restore);
+    return () => {
+      window.removeEventListener("pageshow", restore);
+      window.removeEventListener("focus", restore);
+    };
+  }, []);
 
   useEffect(() => {
     if (!paymentSettings.online || !paymentSettings.rememberPaymentMethods) {
@@ -2772,6 +2830,58 @@ export default function CheckoutPage() {
             </div>
           </div>
 
+          {activePaymentRecovery && (
+            <div className="mb-4 rounded-xl border border-amber-400/45 bg-amber-400/10 p-3 text-sm text-amber-50">
+              <div className="font-bold">Offene Online-Zahlung</div>
+              <div className="mt-1 text-xs text-stone-300">
+                Du kannst dieselbe sichere Zahlung fortsetzen. Es wird dabei keine zweite Bestellung angelegt.
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className="rounded-lg bg-amber-400 px-3 py-2 font-bold text-black"
+                  onClick={() => window.location.assign(activePaymentRecovery.manageUrl)}
+                >
+                  Zahlung fortsetzen
+                </button>
+                <button
+                  type="button"
+                  className="rounded-lg border border-stone-600 px-3 py-2 text-stone-200"
+                  onClick={async () => {
+                    try {
+                      const response = await fetch("/api/payments/session", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          action: "cancel",
+                          paymentSessionId: activePaymentRecovery.paymentSessionId,
+                          recoveryToken: activePaymentRecovery.recoveryToken,
+                        }),
+                        cache: "no-store",
+                      });
+                      const payload = await response.json().catch(() => ({}));
+                      if (!response.ok || payload?.ok === false) {
+                        throw new Error(
+                          payload?.message ||
+                            "Die offene Zahlung konnte nicht verworfen werden.",
+                        );
+                      }
+                      localStorage.removeItem(ACTIVE_PAYMENT_RECOVERY_KEY);
+                      setActivePaymentRecovery(null);
+                    } catch (error: any) {
+                      alert(
+                        error?.message ||
+                          "Die offene Zahlung konnte nicht verworfen werden. Bitte erneut versuchen.",
+                      );
+                    }
+                  }}
+                >
+                  Offene Zahlung verwerfen
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
             {paymentSettings.cash && (
               <button
@@ -3083,7 +3193,13 @@ export default function CheckoutPage() {
 
             <div className="mt-3 flex items-center justify-between rounded-lg bg-stone-900/70 px-3 py-2 text-sm">
               <span>Zu zahlen</span>
-              <span className="font-semibold">{fmt(payableTotal)}</span>
+              <span className="font-semibold">
+                {fmt(
+                  paymentMethod === "split_contactless"
+                    ? splitGrandTotal
+                    : payableTotal,
+                )}
+              </span>
             </div>
           </div>
         </div>
@@ -3529,7 +3645,17 @@ export default function CheckoutPage() {
     method: "online" | "split_contactless",
   ) {
     try {
+      const existingRecovery = readActivePaymentRecovery();
+      if (existingRecovery) {
+        setActivePaymentRecovery(existingRecovery);
+        throw new Error(
+          "Es gibt bereits eine offene Zahlung. Bitte zuerst auf ‚Zahlung fortsetzen‘ klicken oder die offene Zahlung verwerfen.",
+        );
+      }
+
       setSubmitBusy(true);
+      const paymentRequestId = browserOpaqueToken();
+      const recoveryToken = browserOpaqueToken();
 
       const orderBase = await handleLogBeforeNavigate(
         {
@@ -3561,6 +3687,8 @@ export default function CheckoutPage() {
         },
         body: JSON.stringify({
           paymentKind: method,
+          paymentRequestId,
+          recoveryToken,
           order: orderBase,
           shares,
           rememberPayment:
@@ -3586,12 +3714,25 @@ export default function CheckoutPage() {
         );
       }
 
+      const recovery: ActivePaymentRecovery = {
+        paymentSessionId: String(payload.paymentSessionId || ""),
+        recoveryToken: String(payload.recoveryToken || recoveryToken),
+        manageUrl: String(payload.manageUrl || destination),
+        paymentKind: method,
+        expiresAt: payload.recoveryExpiresAt || null,
+      };
+
       try {
         sessionStorage.setItem(
           "bb_active_payment_session",
-          String(payload.paymentSessionId || ""),
+          recovery.paymentSessionId,
+        );
+        localStorage.setItem(
+          ACTIVE_PAYMENT_RECOVERY_KEY,
+          JSON.stringify(recovery),
         );
       } catch {}
+      setActivePaymentRecovery(recovery);
 
       window.location.assign(String(destination));
     } catch (error: any) {

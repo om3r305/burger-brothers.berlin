@@ -137,7 +137,19 @@ export default function AppRouteTransition() {
       });
     };
 
+    const onExternalReturn = () => {
+      // Standalone PWA pages can be restored from the browser cache after
+      // Stripe or WhatsApp. Always clear a stale route transition overlay.
+      finish();
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") finish();
+    };
+
     window.addEventListener(START_EVENT, onStart as EventListener);
+    window.addEventListener("pageshow", onExternalReturn);
+    window.addEventListener("focus", onExternalReturn);
+    document.addEventListener("visibilitychange", onVisibility);
     document.addEventListener("click", onDocumentClick, true);
 
     return () => {
@@ -146,6 +158,9 @@ export default function AppRouteTransition() {
       }
 
       window.removeEventListener(START_EVENT, onStart as EventListener);
+      window.removeEventListener("pageshow", onExternalReturn);
+      window.removeEventListener("focus", onExternalReturn);
+      document.removeEventListener("visibilitychange", onVisibility);
       document.removeEventListener("click", onDocumentClick, true);
     };
   }, []);

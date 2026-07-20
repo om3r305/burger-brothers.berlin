@@ -318,11 +318,13 @@ export async function POST(req: Request) {
     const rememberAllowed =
       settings?.payments?.online?.rememberPaymentMethods !== false;
     const rememberPayment =
-      rememberAllowed && body?.rememberPayment !== false;
-    const profileCustomerId = await resolvePaymentProfileCustomerId({
-      req,
-      stripe,
-    });
+      rememberAllowed && body?.rememberPayment === true;
+    const profileCustomerId = rememberPayment
+      ? await resolvePaymentProfileCustomerId({
+          req,
+          stripe,
+        })
+      : "";
 
     const baseUrl = resolveBaseUrl(req.url);
     const successUrl = new URL(
@@ -365,6 +367,7 @@ export async function POST(req: Request) {
       rememberPayment,
       customerId: profileCustomerId || undefined,
       idempotencyKey: `bb-share-checkout-${loaded.payload.paymentSessionId}-${loaded.payload.shareIndex}-${attempt}`,
+      expiresAt: Number(loaded.payload.expiresAt || 0),
     });
 
     const nextShares = loaded.shares.map((item: any, index: number) =>

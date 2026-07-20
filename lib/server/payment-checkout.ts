@@ -22,11 +22,20 @@ export async function createBurgerCheckoutSession(params: {
   customerId?: string;
   customerEmail?: string;
   idempotencyKey: string;
+  expiresAt?: number;
 }) {
   const customerId = String(params.customerId || "").trim();
   const customerEmail = validEmail(params.customerEmail);
 
-  const customerParams: Stripe.Checkout.SessionCreateParams = customerId
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const requestedExpiry = Math.floor(Number(params.expiresAt) || 0);
+  const expiresAt = Math.max(
+    nowSeconds + 30 * 60,
+    Math.min(requestedExpiry || nowSeconds + 23 * 60 * 60, nowSeconds + 23 * 60 * 60),
+  );
+
+  const customerParams: Stripe.Checkout.SessionCreateParams =
+    params.rememberPayment && customerId
     ? {
         customer: customerId,
         customer_update: {
@@ -81,7 +90,7 @@ export async function createBurgerCheckoutSession(params: {
       ],
       success_url: params.successUrl,
       cancel_url: params.cancelUrl,
-      expires_at: Math.floor(Date.now() / 1000) + 23 * 60 * 60,
+      expires_at: expiresAt,
       metadata,
       payment_intent_data: {
         metadata,
