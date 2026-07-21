@@ -43,6 +43,109 @@ function stripeCustomerIdFromSession(session: any) {
   return "";
 }
 
+
+function maskEmail(value: any) {
+  const email = String(value || "").trim();
+  const at = email.indexOf("@");
+
+  if (at <= 0) return "";
+
+  const local = email.slice(0, at);
+  const domain = email.slice(at + 1);
+  const domainDot = domain.lastIndexOf(".");
+  const domainName = domainDot > 0 ? domain.slice(0, domainDot) : domain;
+  const suffix = domainDot > 0 ? domain.slice(domainDot) : "";
+
+  const maskedLocal =
+    local.length <= 2
+      ? `${local.slice(0, 1)}***`
+      : `${local.slice(0, 2)}***`;
+  const maskedDomain =
+    domainName.length <= 2
+      ? `${domainName.slice(0, 1)}***`
+      : `${domainName.slice(0, 2)}***`;
+
+  return `${maskedLocal}@${maskedDomain}${suffix}`;
+}
+
+function savedMethodLabel(paymentMethod: any) {
+  const type = String(paymentMethod?.type || "").toLowerCase();
+
+  if (type === "card") {
+    const brand = String(paymentMethod?.card?.brand || "Karte");
+    const last4 = String(paymentMethod?.card?.last4 || "");
+    return {
+      type: "card",
+      label: `${brand.charAt(0).toUpperCase()}${brand.slice(1)}${
+        last4 ? ` •••• ${last4}` : ""
+      }`,
+    };
+  }
+
+  if (type === "paypal") {
+    const email = maskEmail(
+      paymentMethod?.paypal?.payer_email ||
+        paymentMethod?.billing_details?.email,
+    );
+
+    return {
+      type: "paypal",
+      label: email ? `PayPal • ${email}` : "PayPal",
+    };
+  }
+
+  if (type === "link") {
+    const email = maskEmail(
+      paymentMethod?.link?.email ||
+        paymentMethod?.billing_details?.email,
+    );
+
+    return {
+      type: "link",
+      label: email ? `Link • ${email}` : "Link",
+    };
+  }
+
+  return {
+    type: type || "payment_method",
+    label: "Gespeicherte Zahlungsart",
+  };
+}
+
+async function listSavedPaymentMethods(params: {
+  stripe: ReturnType<typeof getStripeClient>;
+  customerId: string;
+}) {
+  const supportedTypes = ["card", "paypal", "link"] as const;
+  const methods: Array<{ id: string; type: string; label: string }> = [];
+
+  for (const type of supportedTypes) {
+    try {
+      const list = await params.stripe.paymentMethods.list({
+        customer: params.customerId,
+        type: type as any,
+        limit: 5,
+      });
+
+      for (const paymentMethod of list.data || []) {
+        const presentation = savedMethodLabel(paymentMethod);
+
+        methods.push({
+          id: String(paymentMethod.id || ""),
+          type: presentation.type,
+          label: presentation.label,
+        });
+      }
+    } catch {
+      /* Some Stripe accounts/API versions may not expose every wallet type. */
+    }
+  }
+
+  return methods
+    .filter((item) => item.id && item.label)
+    .slice(0, 6);
+}
+
 async function paymentPhone(params: {
   paymentSessionId: string;
   shareToken?: string;
@@ -97,11 +200,18 @@ export async function GET(req: Request) {
       req,
       stripe,
     });
+    const methods = customerId
+      ? await listSavedPaymentMethods({
+          stripe,
+          customerId,
+        })
+      : [];
 
     return NextResponse.json(
       {
         ok: true,
         remembered: Boolean(customerId),
+        methods,
       },
       {
         headers: NO_STORE_HEADERS,
@@ -112,6 +222,7 @@ export async function GET(req: Request) {
       {
         ok: true,
         remembered: false,
+        methods: [],
       },
       {
         headers: NO_STORE_HEADERS,

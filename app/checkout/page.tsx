@@ -1723,6 +1723,9 @@ export default function CheckoutPage() {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cash");
   const [rememberPaymentMethod, setRememberPaymentMethod] = useState(true);
   const [paymentProfileRemembered, setPaymentProfileRemembered] = useState(false);
+  const [paymentProfileMethods, setPaymentProfileMethods] = useState<
+    Array<{ id: string; type: string; label: string }>
+  >([]);
   const [activePaymentRecovery, setActivePaymentRecovery] =
     useState<ActivePaymentRecovery | null>(null);
   const [paymentRecoveryBusy, setPaymentRecoveryBusy] = useState(false);
@@ -1845,6 +1848,7 @@ export default function CheckoutPage() {
   useEffect(() => {
     if (!paymentSettings.online || !paymentSettings.rememberPaymentMethods) {
       setPaymentProfileRemembered(false);
+      setPaymentProfileMethods([]);
       return;
     }
 
@@ -1853,10 +1857,31 @@ export default function CheckoutPage() {
     void fetch("/api/payments/profile", { cache: "no-store" })
       .then((response) => response.json().catch(() => ({})))
       .then((payload) => {
-        if (active) setPaymentProfileRemembered(Boolean(payload?.remembered));
+        if (!active) return;
+
+        const remembered = Boolean(payload?.remembered);
+        const methods = Array.isArray(payload?.methods)
+          ? payload.methods
+              .filter(
+                (item: any) =>
+                  item &&
+                  typeof item.id === "string" &&
+                  typeof item.label === "string",
+              )
+              .slice(0, 6)
+          : [];
+
+        setPaymentProfileRemembered(remembered);
+        setPaymentProfileMethods(methods);
+
+        if (remembered) {
+          setRememberPaymentMethod(true);
+        }
       })
       .catch(() => {
-        if (active) setPaymentProfileRemembered(false);
+        if (!active) return;
+        setPaymentProfileRemembered(false);
+        setPaymentProfileMethods([]);
       });
 
     return () => {
@@ -3180,6 +3205,31 @@ export default function CheckoutPage() {
             )}
           </div>
 
+          {paymentMethod === "online" &&
+            paymentProfileRemembered &&
+            paymentProfileMethods.length > 0 && (
+              <div className="mt-4 rounded-xl border border-emerald-500/35 bg-emerald-500/10 p-3 sm:p-4">
+                <div className="text-sm font-bold text-emerald-100">
+                  Gespeicherte Zahlungsart
+                </div>
+                <div className="mt-1 text-xs leading-5 text-stone-400">
+                  Stripe zeigt diese Zahlungsart beim Bezahlen bevorzugt an.
+                  Je nach Bank oder Anbieter kann eine kurze Bestätigung nötig sein.
+                </div>
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {paymentProfileMethods.map((method) => (
+                    <span
+                      key={method.id}
+                      className="rounded-full border border-emerald-400/35 bg-stone-950/55 px-3 py-1.5 text-xs font-semibold text-emerald-100"
+                    >
+                      {method.label}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
           {paymentMethod === "online" && paymentSettings.rememberPaymentMethods && (
             <>
               <button
@@ -3232,6 +3282,7 @@ export default function CheckoutPage() {
                     } catch {}
 
                     setPaymentProfileRemembered(false);
+                    setPaymentProfileMethods([]);
                     setRememberPaymentMethod(false);
                   }}
                 >

@@ -34,25 +34,31 @@ export async function createBurgerCheckoutSession(params: {
     Math.min(requestedExpiry || nowSeconds + 23 * 60 * 60, nowSeconds + 23 * 60 * 60),
   );
 
+  /*
+   * Returning customers always keep their signed, device-bound Stripe
+   * Customer connection. This lets Stripe Checkout show already saved
+   * payment methods even when the customer does not want to save a new one
+   * during this order.
+   */
   const customerParams: Stripe.Checkout.SessionCreateParams =
-    params.rememberPayment && customerId
-    ? {
-        customer: customerId,
-        customer_update: {
-          address: "auto",
-          name: "auto",
-        },
-      }
-    : params.rememberPayment
+    customerId
       ? {
-          customer_creation: "always",
-          ...(customerEmail ? { customer_email: customerEmail } : {}),
+          customer: customerId,
+          customer_update: {
+            address: "auto",
+            name: "auto",
+          },
         }
-      : customerEmail
+      : params.rememberPayment
         ? {
-            customer_email: customerEmail,
+            customer_creation: "always",
+            ...(customerEmail ? { customer_email: customerEmail } : {}),
           }
-        : {};
+        : customerEmail
+          ? {
+              customer_email: customerEmail,
+            }
+          : {};
 
   const metadata = {
     burger_payment_session: params.paymentSessionId,

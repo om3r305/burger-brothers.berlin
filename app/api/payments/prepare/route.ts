@@ -640,13 +640,17 @@ export async function POST(req: Request) {
         cancelUrl.searchParams.set("recovery", recoveryToken);
         cancelUrl.searchParams.set("share", String(share.index));
 
-        const knownCustomerId = rememberPayment
-          ? await resolveKnownStripeCustomerId({
-              req,
-              stripe,
-              customer,
-            })
-          : "";
+        /*
+         * A previously remembered method may be used again even when the
+         * customer leaves "remember this payment method" disabled for the
+         * current order. The signed HttpOnly profile and phone hash still
+         * protect the Stripe Customer lookup.
+         */
+        const knownCustomerId = await resolveKnownStripeCustomerId({
+          req,
+          stripe,
+          customer,
+        });
 
         const checkout = await createBurgerCheckoutSession({
           stripe,
