@@ -43,6 +43,86 @@ function stripeCustomerIdFromSession(session: any) {
   return "";
 }
 
+function stripePaymentMethodIdFromSession(session: any) {
+  const paymentIntent = session?.payment_intent;
+
+  if (paymentIntent && typeof paymentIntent === "object") {
+    const paymentMethod = paymentIntent.payment_method;
+
+    if (typeof paymentMethod === "string") return paymentMethod;
+    if (paymentMethod && typeof paymentMethod === "object") {
+      return String(paymentMethod.id || "");
+    }
+  }
+
+  return "";
+}
+
+async function ensureReusablePaymentMethod(params: {
+  stripe: ReturnType<typeof getStripeClient>;
+  checkout: any;
+}) {
+  let customerId = stripeCustomerIdFromSession(params.checkout);
+  const paymentMethodId = stripePaymentMethodIdFromSession(params.checkout);
+
+  if (!paymentMethodId) {
+    throw new Error("STRIPE_PAYMENT_METHOD_MISSING");
+  }
+
+  if (!customerId) {
+    const details = ensureObj(params.checkout?.customer_details);
+    const customer = await params.stripe.customers.create({
+      ...(String(details?.email || "").trim()
+        ? { email: String(details.email).trim() }
+        : {}),
+      ...(String(details?.name || "").trim()
+        ? { name: String(details.name).trim() }
+        : {}),
+      metadata: {
+        burger_payment_session: String(
+          params.checkout?.metadata?.burger_payment_session || "",
+        ),
+      },
+    });
+
+    customerId = customer.id;
+  }
+
+  const paymentMethod = await params.stripe.paymentMethods.retrieve(
+    paymentMethodId,
+  );
+  const attachedCustomer =
+    typeof paymentMethod.customer === "string"
+      ? paymentMethod.customer
+      : paymentMethod.customer?.id || "";
+
+  if (!attachedCustomer) {
+    await params.stripe.paymentMethods.attach(paymentMethodId, {
+      customer: customerId,
+    });
+  } else if (attachedCustomer !== customerId) {
+    throw new Error("STRIPE_PAYMENT_METHOD_CUSTOMER_MISMATCH");
+  }
+
+  /*
+   * Kartlarda varsayılan yöntemi açıkça ayarlamak, sonraki Checkout
+   * oturumunda Stripe'ın kayıtlı kartı öne çıkarmasını sağlar. PayPal/Link
+   * için Stripe destekliyorsa bağlı yöntem yine Customer altında kalır.
+   */
+  if (String(paymentMethod.type || "") === "card") {
+    await params.stripe.customers.update(customerId, {
+      invoice_settings: {
+        default_payment_method: paymentMethodId,
+      },
+    });
+  }
+
+  return {
+    stripeCustomerId: customerId,
+    paymentMethodId,
+  };
+}
+
 
 function maskEmail(value: any) {
   const email = String(value || "").trim();
@@ -266,6 +346,9 @@ export async function POST(req: Request) {
     const stripe = getStripeClient();
     const checkout = await stripe.checkout.sessions.retrieve(
       checkoutSessionId,
+      {
+        expand: ["payment_intent.payment_method"],
+      },
     );
     const metadataPaymentSessionId = String(
       checkout?.metadata?.burger_payment_session || "",
@@ -358,20 +441,11 @@ export async function POST(req: Request) {
       }
     }
 
-    const stripeCustomerId = stripeCustomerIdFromSession(checkout);
-
-    if (!stripeCustomerId) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "STRIPE_CUSTOMER_MISSING",
-        },
-        {
-          status: 400,
-          headers: NO_STORE_HEADERS,
-        },
-      );
-    }
+    const reusableMethod = await ensureReusablePaymentMethod({
+      stripe,
+      checkout,
+    });
+    const stripeCustomerId = reusableMethod.stripeCustomerId;
 
     const phone = await paymentPhone({
       paymentSessionId,
@@ -382,6 +456,7 @@ export async function POST(req: Request) {
       {
         ok: true,
         remembered: true,
+        paymentMethodId: reusableMethod.paymentMethodId,
       },
       {
         headers: NO_STORE_HEADERS,

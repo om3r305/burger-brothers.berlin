@@ -118,6 +118,7 @@ function PaymentReturnContent() {
   });
   const [busyShare, setBusyShare] = useState<number | null>(null);
   const [profileSaved, setProfileSaved] = useState(false);
+  const [profileSaveFailed, setProfileSaveFailed] = useState(false);
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [resumeBusy, setResumeBusy] = useState(false);
   const [cancelBusy, setCancelBusy] = useState(false);
@@ -256,23 +257,51 @@ function PaymentReturnContent() {
     }
 
     profileAttempted.current = true;
+    let cancelled = false;
 
-    void fetch("/api/payments/profile", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        checkoutSessionId,
-        paymentSessionId,
-      }),
-      cache: "no-store",
-    })
-      .then((response) => response.json().catch(() => ({})))
-      .then((payload) => {
-        if (payload?.remembered) setProfileSaved(true);
-      })
-      .catch(() => null);
+    const saveProfile = async () => {
+      for (let attempt = 0; attempt < 4; attempt += 1) {
+        try {
+          const response = await fetch("/api/payments/profile", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              checkoutSessionId,
+              paymentSessionId,
+            }),
+            cache: "no-store",
+            credentials: "same-origin",
+          });
+          const payload = await response.json().catch(() => ({}));
+
+          if (cancelled) return;
+
+          if (payload?.remembered) {
+            setProfileSaved(true);
+            setProfileSaveFailed(false);
+            return;
+          }
+
+          if (payload?.skipped === "CONSENT_NOT_GIVEN") {
+            return;
+          }
+        } catch {}
+
+        await new Promise((resolve) =>
+          window.setTimeout(resolve, 700 * (attempt + 1)),
+        );
+      }
+
+      if (!cancelled) setProfileSaveFailed(true);
+    };
+
+    void saveProfile();
+
+    return () => {
+      cancelled = true;
+    };
   }, [checkoutSessionId, paymentSessionId]);
 
   const shares = Array.isArray(state.shares) ? state.shares : [];
@@ -413,6 +442,12 @@ function PaymentReturnContent() {
             {profileSaved && (
               <div className="mt-3 rounded-xl border border-sky-500/30 bg-sky-500/10 p-3 text-sm text-sky-100">
                 Deine Zahlungsart wurde auf diesem Gerät sicher gespeichert. Stripe zeigt sie beim nächsten Mal direkt an.
+              </div>
+            )}
+            {profileSaveFailed && (
+              <div className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-100">
+                Die Zahlung war erfolgreich, aber die Zahlungsart konnte auf
+                diesem Gerät nicht gespeichert werden.
               </div>
             )}
             <div className="mt-4 rounded-xl bg-black/35 p-4">
