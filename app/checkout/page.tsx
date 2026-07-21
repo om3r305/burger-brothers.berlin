@@ -48,6 +48,7 @@ import {
 } from "@/lib/pause";
 import PaymentTrustBadges from "@/components/PaymentTrustBadges";
 import { attachPfandToOrderItems, computePfand, resolvePfandUnit } from "@/lib/pfand";
+import { rememberCustomerTracking } from "@/lib/customer-tracking";
 
 /* ───────── helpers ───────── */
 
@@ -246,9 +247,6 @@ const LS_ACTIVE_COUPON = "bb_active_coupon_code";
 const LS_ACTIVE_COUPON_META = "bb_active_coupon_meta";
 const LS_PRODUCTS = "bb_products_v1";
 const PROFILE_KEY = "bb_checkout_profile_v2";
-const LS_LAST_TRACK_ID = "bb_last_track_order_id";
-const LS_LAST_TRACK_ID_LEGACY = "bb_last_tracking_order_id";
-const TRACK_EVENT = "bb:last-track-order-updated";
 
 const ORDER_RETRY_TOTAL_MS = 5 * 60 * 1000;
 const ORDER_RETRY_INTERVAL_MS = 30 * 1000;
@@ -446,26 +444,16 @@ function cleanTrackOrderId(value: any) {
     .replace(/[^a-zA-Z0-9_-]/g, "");
 }
 
-function rememberLastDeliveryTrackId(id: any) {
-  const clean = cleanTrackOrderId(id);
+function rememberLastDeliveryTrackId(trackingToken: any, orderId?: any) {
+  const cleanToken = cleanTrackOrderId(trackingToken);
+  const cleanOrderId = cleanTrackOrderId(orderId);
 
-  if (!clean) return;
+  if (!cleanToken) return;
 
-  try {
-    localStorage.setItem(LS_LAST_TRACK_ID, clean);
-    localStorage.setItem(LS_LAST_TRACK_ID_LEGACY, clean);
-  } catch {}
-
-  try {
-    window.dispatchEvent(
-      new CustomEvent(TRACK_EVENT, {
-        detail: {
-          id: clean,
-          orderId: clean,
-        },
-      }),
-    );
-  } catch {}
+  rememberCustomerTracking({
+    trackingToken: cleanToken,
+    orderId: cleanOrderId || undefined,
+  });
 }
 
 function isFilled(value: any) {
@@ -3703,14 +3691,14 @@ export default function CheckoutPage() {
                       </>
                     )}
                   </div>
-                  {orderMode === "delivery" ? (
+                  {confirm.trackingToken ? (
                     <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-2 text-xs text-emerald-200">
-                      Hinweis: Ihr persönlicher Tracking-Code wurde unten automatisch in die
-                      Sendungsverfolgung übernommen.
+                      Ihre Bestellnummer wurde unten automatisch in die
+                      Bestellverfolgung übernommen.
                     </div>
                   ) : (
                     <div className="text-stone-400">
-                      Bitte notieren Sie diese Nummer für die Abholung.
+                      Bitte notieren Sie diese Bestellnummer.
                     </div>
                   )}
                 </>
@@ -3726,7 +3714,7 @@ export default function CheckoutPage() {
                     window.location.href = `/track/${encodeURIComponent(confirm.trackingToken || "")}`;
                   }}
                 >
-                  Sendung verfolgen
+                  Bestellung verfolgen
                 </button>
               )}
 
@@ -4040,8 +4028,8 @@ export default function CheckoutPage() {
       const id = result?.id || String(Date.now());
       const trackingToken = String(result?.trackingToken || "").trim();
 
-      if (orderMode === "delivery" && !emergencyMode && trackingToken) {
-        rememberLastDeliveryTrackId(trackingToken);
+      if (!emergencyMode && trackingToken) {
+        rememberLastDeliveryTrackId(trackingToken, id);
       }
 
       if (activeCode) {

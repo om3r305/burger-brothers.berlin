@@ -9,6 +9,7 @@ import {
   buildPaymentManageUrl,
 } from "@/lib/server/payment-recovery-token";
 import { getStripeClient, resolveBaseUrl } from "@/lib/server/stripe-client";
+import { readOrderTrackingToken } from "@/lib/server/public-order";
 import {
   enforceRateLimit,
   forbiddenResponse,
@@ -75,9 +76,35 @@ async function loadRecoveryAccess(paymentSessionId: string, recoveryTokenRaw: st
   return { tenantId, pending, meta, paymentSession, recoveryToken, protectedSession, expired };
 }
 
+function numberOrNull(value: any) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
 function publicResult(result: any, paymentSession: Record<string, any>) {
+  const order = ensureObj(result?.order);
+  const orderMeta = ensureObj(order?.meta);
+  const trackingToken =
+    String(result?.trackingToken || "").trim() ||
+    readOrderTrackingToken(order) ||
+    "";
+  const mode = String(order?.mode || "").trim() || null;
+  const planned =
+    String(order?.planned ?? orderMeta?.planned ?? orderMeta?.plannedTime ?? "").trim() ||
+    null;
+  const etaMin = numberOrNull(
+    order?.etaMin ?? orderMeta?.etaMin ?? orderMeta?.suggestedEtaMin,
+  );
+  const etaAdjustMin =
+    numberOrNull(order?.etaAdjustMin ?? orderMeta?.etaAdjustMin) ?? 0;
+
   return {
     ...result,
+    trackingToken: trackingToken || null,
+    mode,
+    planned,
+    etaMin,
+    etaAdjustMin,
     order: undefined,
     whatsappShareEnabled: paymentSession?.whatsappShareEnabled !== false,
     recoveryExpiresAt: paymentSession?.recoveryExpiresAt || null,

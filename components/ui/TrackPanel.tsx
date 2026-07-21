@@ -1,44 +1,19 @@
-// components/ui/TrackPanel.tsx
 "use client";
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import {
+  CUSTOMER_TRACKING_EVENT,
+  cleanCustomerTrackingValue,
+  isPersonalTrackingToken,
+  readLastCustomerTracking,
+  rememberCustomerTracking,
+  resolveCustomerTrackingToken,
+} from "@/lib/customer-tracking";
 
 type TrackPanelProps = {
   variant?: "default" | "emphasized";
 };
-
-const LS_LAST_TRACK_ID = "bb_last_track_order_id";
-const LS_LAST_TRACK_ID_LEGACY = "bb_last_tracking_order_id";
-const TRACK_EVENT = "bb:last-track-order-updated";
-
-function cleanTrackingToken(value: string) {
-  return String(value || "")
-    .trim()
-    .replace(/^#+/, "")
-    .replace(/\s+/g, "")
-    .replace(/[^a-zA-Z0-9_-]/g, "");
-}
-
-function isTrackingToken(value: string) {
-  const clean = cleanTrackingToken(value);
-  return clean.length >= 32 && clean.length <= 160;
-}
-
-function readLastTrackId() {
-  try {
-    const current = cleanTrackingToken(localStorage.getItem(LS_LAST_TRACK_ID) || "");
-    if (isTrackingToken(current)) return current;
-
-    const legacy = cleanTrackingToken(localStorage.getItem(LS_LAST_TRACK_ID_LEGACY) || "");
-    if (isTrackingToken(legacy)) {
-      localStorage.setItem(LS_LAST_TRACK_ID, legacy);
-      return legacy;
-    }
-  } catch {}
-
-  return "";
-}
 
 export default function TrackPanel({ variant = "default" }: TrackPanelProps) {
   const router = useRouter();
@@ -49,98 +24,135 @@ export default function TrackPanel({ variant = "default" }: TrackPanelProps) {
   const [autoFilled, setAutoFilled] = useState(false);
 
   useEffect(() => {
-    const applyLastId = (nextId: string) => {
-      const clean = cleanTrackingToken(nextId);
+    const applyLastTracking = () => {
+      const last = readLastCustomerTracking();
 
-      if (!isTrackingToken(clean)) return;
+      if (!last.displayValue || !isPersonalTrackingToken(last.trackingToken)) {
+        return;
+      }
 
-      setVal(clean);
+      setVal(last.displayValue);
       setAutoFilled(true);
       setError("");
-
-      try {
-        localStorage.setItem(LS_LAST_TRACK_ID, clean);
-      } catch {}
     };
 
-    const initial = readLastTrackId();
-    if (initial) {
-      applyLastId(initial);
-    }
+    applyLastTracking();
 
-    const onStorage = (event: StorageEvent) => {
-      if (
-        !event.key ||
-        event.key === LS_LAST_TRACK_ID ||
-        event.key === LS_LAST_TRACK_ID_LEGACY
-      ) {
-        const next = readLastTrackId();
-        if (next) applyLastId(next);
-      }
+    const onStorage = () => {
+      applyLastTracking();
     };
 
     const onCustomTrackEvent = (event: Event) => {
-      const custom = event as CustomEvent<{ id?: string; orderId?: string }>;
-      const next = custom.detail?.id || custom.detail?.orderId || readLastTrackId();
+      const custom = event as CustomEvent<{
+        id?: string;
+        trackingToken?: string;
+        orderId?: string;
+      }>;
+      const trackingToken = cleanCustomerTrackingValue(
+        custom.detail?.trackingToken || custom.detail?.id || "",
+      );
+      const orderId = cleanCustomerTrackingValue(custom.detail?.orderId || "");
 
-      if (next) {
-        applyLastId(next);
+      if (isPersonalTrackingToken(trackingToken)) {
+        rememberCustomerTracking({
+          trackingToken,
+          orderId: orderId || undefined,
+          dispatch: false,
+        });
       }
+
+      applyLastTracking();
     };
 
     window.addEventListener("storage", onStorage);
-    window.addEventListener(TRACK_EVENT, onCustomTrackEvent as EventListener);
+    window.addEventListener(
+      CUSTOMER_TRACKING_EVENT,
+      onCustomTrackEvent as EventListener,
+    );
 
     return () => {
       window.removeEventListener("storage", onStorage);
-      window.removeEventListener(TRACK_EVENT, onCustomTrackEvent as EventListener);
+      window.removeEventListener(
+        CUSTOMER_TRACKING_EVENT,
+        onCustomTrackEvent as EventListener,
+      );
     };
   }, []);
 
   const go = async () => {
-    const clean = cleanTrackingToken(val);
+    const cleanInput = cleanCustomerTrackingValue(val);
+    const trackingToken = resolveCustomerTrackingToken(cleanInput);
 
     setError("");
 
-    if (!isTrackingToken(clean)) {
-      setError("Bitte einen gültigen persönlichen Tracking-Code eingeben.");
+    if (!trackingToken) {
+      setError(
+        cleanInput
+          ? "Diese Bestellnummer ist auf diesem Gerät nicht gespeichert. Bitte verwenden Sie den persönlichen Link aus der Bestellbestätigung."
+          : "Bitte eine Bestellnummer oder einen persönlichen Tracking-Code eingeben.",
+      );
       return;
     }
-
-    try {
-      localStorage.setItem(LS_LAST_TRACK_ID, clean);
-    } catch {}
 
     setBusy(true);
 
     try {
-      const res = await fetch(`/api/track/lookup?trackingToken=${encodeURIComponent(clean)}`, {
-        method: "GET",
-        cache: "no-store",
-        headers: {
-          accept: "application/json",
+      const res = await fetch(
+        `/api/track/lookup?trackingToken=${encodeURIComponent(trackingToken)}`,
+        {
+          method: "GET",
+          cache: "no-store",
+          headers: {
+            accept: "application/json",
+          },
         },
-      });
+      );
 
       if (res.ok) {
         const json = await res.json().catch(() => ({} as any));
 
         const found =
           json?.ok !== false &&
-          (json?.order || json?.item || json?.id || json?.orderId || json?.status);
+          (json?.order ||
+            json?.item ||
+            json?.id ||
+            json?.orderId ||
+            json?.status);
 
         if (found) {
-          router.push(`/track/${encodeURIComponent(clean)}`);
+          const orderId = cleanCustomerTrackingValue(
+            json?.orderId ||
+              json?.id ||
+              json?.order?.orderId ||
+              json?.order?.id ||
+              cleanInput,
+          );
+
+          rememberCustomerTracking({
+            trackingToken,
+            orderId:
+              orderId && !isPersonalTrackingToken(orderId)
+                ? orderId
+                : undefined,
+            dispatch: false,
+          });
+
+          router.push(`/track/${encodeURIComponent(trackingToken)}`);
           return;
         }
 
-        setError("Tracking-Code wurde nicht gefunden oder ist abgelaufen.");
+        setError("Bestellung wurde nicht gefunden oder der Zugriff ist abgelaufen.");
         return;
       }
 
-      router.push(`/track/${encodeURIComponent(clean)}`);
+      if (res.status === 401 || res.status === 403 || res.status === 410) {
+        setError("Der persönliche Tracking-Zugriff ist ungültig oder abgelaufen.");
+        return;
+      }
+
+      router.push(`/track/${encodeURIComponent(trackingToken)}`);
     } catch {
-      router.push(`/track/${encodeURIComponent(clean)}`);
+      router.push(`/track/${encodeURIComponent(trackingToken)}`);
     } finally {
       setBusy(false);
     }
@@ -157,7 +169,7 @@ export default function TrackPanel({ variant = "default" }: TrackPanelProps) {
       <form
         onSubmit={(event) => {
           event.preventDefault();
-          go();
+          void go();
         }}
         className="space-y-2"
       >
@@ -172,7 +184,7 @@ export default function TrackPanel({ variant = "default" }: TrackPanelProps) {
                 setError("");
               }
             }}
-            placeholder="Tracking-Code eingeben"
+            placeholder="Bestellnummer oder Tracking-Code"
             autoComplete="off"
             inputMode="text"
             className="flex-1 rounded-md bg-stone-800/60 px-3 py-2 outline-none"
@@ -194,12 +206,12 @@ export default function TrackPanel({ variant = "default" }: TrackPanelProps) {
         {variant === "emphasized" && (
           <div className="space-y-1 text-xs text-stone-400">
             <div>
-              Hier können Sie den Status Ihrer Bestellung mit Ihrem persönlichen Tracking-Code prüfen.
+              Hier können Sie den Status Ihrer Bestellung sicher prüfen.
             </div>
 
             {autoFilled && val && (
               <div className="text-emerald-300">
-                Hinweis: Dies ist der Tracking-Code Ihrer letzten Lieferung.
+                Ihre letzte Bestellnummer wurde automatisch übernommen.
               </div>
             )}
           </div>

@@ -12,6 +12,7 @@ import {
   verifyPaymentShareToken,
 } from "@/lib/server/payment-share-token";
 import { finalizePaymentSession } from "@/lib/server/payment-finalize";
+import { readOrderTrackingToken } from "@/lib/server/public-order";
 import {
   enforceRateLimit,
   forbiddenResponse,
@@ -140,6 +141,32 @@ function publicShare(share: any, fallbackUrl = "") {
   };
 }
 
+function numberOrNull(value: any) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function publicFinalOrderSummary(result: any) {
+  const order = ensureObj(result?.order);
+  const orderMeta = ensureObj(order?.meta);
+
+  return {
+    trackingToken:
+      String(result?.trackingToken || "").trim() ||
+      readOrderTrackingToken(order) ||
+      null,
+    mode: String(order?.mode || "").trim() || null,
+    planned:
+      String(order?.planned ?? orderMeta?.planned ?? orderMeta?.plannedTime ?? "").trim() ||
+      null,
+    etaMin: numberOrNull(
+      order?.etaMin ?? orderMeta?.etaMin ?? orderMeta?.suggestedEtaMin,
+    ),
+    etaAdjustMin:
+      numberOrNull(order?.etaAdjustMin ?? orderMeta?.etaAdjustMin) ?? 0,
+  };
+}
+
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const token = url.searchParams.get("token") || "";
@@ -168,6 +195,7 @@ export async function GET(req: Request) {
       sessionStatus: result.status,
       paidCount: result.paidCount,
       totalCount: result.totalCount,
+      ...publicFinalOrderSummary(result),
       share: publicShare(share, loaded.share?.shareUrl),
       message: result.message || null,
       error: result.error || null,

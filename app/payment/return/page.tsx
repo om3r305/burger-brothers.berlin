@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useCart } from "@/components/store";
 import PaymentTrustBadges from "@/components/PaymentTrustBadges";
+import { rememberCustomerTracking } from "@/lib/customer-tracking";
 
 type ShareItem = {
   key?: string;
@@ -27,7 +28,11 @@ type PaymentState = {
   status?: string;
   finalized?: boolean;
   finalOrderId?: string;
-  trackingToken?: string;
+  trackingToken?: string | null;
+  mode?: "pickup" | "delivery" | string | null;
+  planned?: string | null;
+  etaMin?: number | null;
+  etaAdjustMin?: number | null;
   paidCount?: number;
   totalCount?: number;
   nextUrl?: string | null;
@@ -95,6 +100,34 @@ function shareStatusClass(status: string) {
     return "text-rose-300";
   }
   return "text-amber-300";
+}
+
+function normalizedOrderMode(value: any) {
+  return String(value || "").toLowerCase() === "pickup"
+    ? "pickup"
+    : "delivery";
+}
+
+function plannedConfirmationLabel(mode: any) {
+  return normalizedOrderMode(mode) === "pickup"
+    ? "Geplante Abholung"
+    : "Geplante Lieferung";
+}
+
+function etaConfirmationLabel(mode: any) {
+  return normalizedOrderMode(mode) === "pickup"
+    ? "Vorbereitungszeit"
+    : "Voraussichtliche Lieferung";
+}
+
+function effectiveEtaMinutes(state: PaymentState) {
+  const base = Number(state.etaMin);
+  const adjust = Number(state.etaAdjustMin);
+  const safeBase = Number.isFinite(base) ? base : 0;
+  const safeAdjust = Number.isFinite(adjust) ? adjust : 0;
+  const value = Math.round(safeBase + safeAdjust);
+
+  return value > 0 ? value : null;
 }
 
 function PaymentReturnContent() {
@@ -169,18 +202,13 @@ function PaymentReturnContent() {
             localStorage.removeItem("bb_active_coupon_code");
             localStorage.removeItem("bb_active_coupon_meta");
             clearPaymentRecoveryStorage();
-            const trackingId = String(
-              payload.trackingToken || payload.finalOrderId,
-            );
-            localStorage.setItem("bb_last_track_order_id", trackingId);
-            localStorage.setItem("bb_last_tracking_order_id", trackingId);
-            window.dispatchEvent(
-              new CustomEvent("bb:last-track-order-updated", {
-                detail: {
-                  id: String(payload.trackingToken || payload.finalOrderId),
-                },
-              }),
-            );
+
+            if (payload?.trackingToken) {
+              rememberCustomerTracking({
+                trackingToken: payload.trackingToken,
+                orderId: payload.finalOrderId,
+              });
+            }
           } catch {}
 
           return;
@@ -310,6 +338,10 @@ function PaymentReturnContent() {
     state.status === "refunded" ||
     state.ok === false;
   const isSplit = Number(state.totalCount || shares.length) > 1;
+  const finalEtaMinutes = effectiveEtaMinutes(state);
+  const trackingHref = state.trackingToken
+    ? `/track/${encodeURIComponent(state.trackingToken)}`
+    : "/track";
   const remainingPaymentTime = paymentCountdown(
     state.recoveryExpiresAt,
     nowMs,
@@ -456,6 +488,23 @@ function PaymentReturnContent() {
                 #{state.finalOrderId}
               </div>
             </div>
+
+            {(state.planned || finalEtaMinutes) && (
+              <div className="mt-3 rounded-xl border border-amber-400/25 bg-amber-400/10 p-4 text-sm text-amber-50">
+                {state.planned ? (
+                  <>
+                    {plannedConfirmationLabel(state.mode)}:{" "}
+                    <b>{state.planned} Uhr</b>
+                  </>
+                ) : (
+                  <>
+                    {etaConfirmationLabel(state.mode)}:{" "}
+                    <b>{finalEtaMinutes} Min</b>
+                  </>
+                )}
+              </div>
+            )}
+
             <div className="mt-5 grid gap-3 sm:grid-cols-2">
               <Link
                 href="/menu"
@@ -464,11 +513,7 @@ function PaymentReturnContent() {
                 Zurück zur Speisekarte
               </Link>
               <Link
-                href={
-                  state.trackingToken
-                    ? `/track/${encodeURIComponent(state.trackingToken)}`
-                    : "/track"
-                }
+                href={trackingHref}
                 className="block rounded-xl border border-emerald-400/60 bg-emerald-500/10 px-4 py-3 text-center font-black text-emerald-100"
               >
                 Bestellung verfolgen

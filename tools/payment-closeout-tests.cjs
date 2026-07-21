@@ -55,6 +55,26 @@ assert(
   paymentReturn.includes("window.location.assign(String(state.nextUrl))"),
   "split next-share navigation must remain direct",
 );
+assert(
+  paymentReturn.includes("rememberCustomerTracking") &&
+    paymentReturn.includes("Bestellung verfolgen") &&
+    paymentReturn.includes("etaConfirmationLabel"),
+  "online payment success must save secure tracking access and show ETA/planned information",
+);
+
+const trackPanel = read("components/ui/TrackPanel.tsx");
+assert(
+  trackPanel.includes("resolveCustomerTrackingToken") &&
+    trackPanel.includes("Bestellnummer oder Tracking-Code"),
+  "tracking panel must resolve the visible order number through the device-bound token",
+);
+
+const trackIndex = read("app/track/page.tsx");
+assert(
+  trackIndex.includes("<TrackPanel") &&
+    trackIndex.includes("Bestellung verfolgen"),
+  "the /track index must render a usable tracking screen instead of a blank page",
+);
 
 const checkoutPage = read("app/checkout/page.tsx");
 assert(
@@ -73,6 +93,11 @@ assert(
 assert(
   !checkoutPage.includes("setOrderMode(saved.orderMode)"),
   "checkout must not overwrite the cart-selected pickup/delivery mode",
+);
+assert(
+  checkoutPage.includes("rememberLastDeliveryTrackId(trackingToken, id)") &&
+    !checkoutPage.includes('orderMode === "delivery" && !emergencyMode && trackingToken'),
+  "cash tracking must be remembered for pickup and delivery",
 );
 
 assert(

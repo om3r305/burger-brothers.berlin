@@ -4,11 +4,17 @@ import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import PaymentTrustBadges from "@/components/PaymentTrustBadges";
+import { rememberCustomerTracking } from "@/lib/customer-tracking";
 
 type ShareState = {
   ok?: boolean;
   paymentSessionId?: string;
   finalOrderId?: string | null;
+  trackingToken?: string | null;
+  mode?: "pickup" | "delivery" | string | null;
+  planned?: string | null;
+  etaMin?: number | null;
+  etaAdjustMin?: number | null;
   finalized?: boolean;
   sessionStatus?: string;
   paidCount?: number;
@@ -36,6 +42,34 @@ const fmt = (value: number) =>
 function cleanShareUrl() {
   if (typeof window === "undefined") return "";
   return `${window.location.origin}${window.location.pathname}`;
+}
+
+function normalizedOrderMode(value: any) {
+  return String(value || "").toLowerCase() === "pickup"
+    ? "pickup"
+    : "delivery";
+}
+
+function plannedConfirmationLabel(mode: any) {
+  return normalizedOrderMode(mode) === "pickup"
+    ? "Geplante Abholung"
+    : "Geplante Lieferung";
+}
+
+function etaConfirmationLabel(mode: any) {
+  return normalizedOrderMode(mode) === "pickup"
+    ? "Vorbereitungszeit"
+    : "Voraussichtliche Lieferung";
+}
+
+function effectiveEtaMinutes(state: ShareState) {
+  const base = Number(state.etaMin);
+  const adjust = Number(state.etaAdjustMin);
+  const safeBase = Number.isFinite(base) ? base : 0;
+  const safeAdjust = Number.isFinite(adjust) ? adjust : 0;
+  const value = Math.round(safeBase + safeAdjust);
+
+  return value > 0 ? value : null;
 }
 
 export default function SharedPaymentPage() {
@@ -160,6 +194,17 @@ export default function SharedPaymentPage() {
       .catch(() => null);
   }, [checkoutSessionId, state.paymentSessionId, token]);
 
+  useEffect(() => {
+    if (!state.finalized || !state.finalOrderId || !state.trackingToken) {
+      return;
+    }
+
+    rememberCustomerTracking({
+      trackingToken: state.trackingToken,
+      orderId: state.finalOrderId,
+    });
+  }, [state.finalized, state.finalOrderId, state.trackingToken]);
+
   const share = state.share;
   const paid = share?.status === "paid";
   const failed =
@@ -167,6 +212,10 @@ export default function SharedPaymentPage() {
     state.sessionStatus === "failed" ||
     state.sessionStatus === "expired" ||
     state.sessionStatus === "refunded";
+  const finalEtaMinutes = effectiveEtaMinutes(state);
+  const trackingHref = state.trackingToken
+    ? `/track/${encodeURIComponent(state.trackingToken)}`
+    : "/track";
 
   const startPayment = async () => {
     if (!token || busy) return;
@@ -279,6 +328,37 @@ export default function SharedPaymentPage() {
                 </div>
               </div>
             )}
+
+            {(state.planned || finalEtaMinutes) && (
+              <div className="mt-3 rounded-xl border border-amber-400/25 bg-amber-400/10 p-4 text-sm text-amber-50">
+                {state.planned ? (
+                  <>
+                    {plannedConfirmationLabel(state.mode)}:{" "}
+                    <b>{state.planned} Uhr</b>
+                  </>
+                ) : (
+                  <>
+                    {etaConfirmationLabel(state.mode)}:{" "}
+                    <b>{finalEtaMinutes} Min</b>
+                  </>
+                )}
+              </div>
+            )}
+
+            <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              <Link
+                href="/menu"
+                className="block rounded-xl bg-amber-400 px-4 py-3 text-center font-black text-black"
+              >
+                Zur Speisekarte
+              </Link>
+              <Link
+                href={trackingHref}
+                className="block rounded-xl border border-emerald-400/60 bg-emerald-500/10 px-4 py-3 text-center font-black text-emerald-100"
+              >
+                Bestellung verfolgen
+              </Link>
+            </div>
           </div>
         ) : paid ? (
           <div className="rounded-2xl border border-emerald-500/50 bg-emerald-500/10 p-5">
