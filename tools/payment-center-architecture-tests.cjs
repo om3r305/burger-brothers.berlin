@@ -20,6 +20,7 @@ const action = read("app/payment/action/page.tsx");
 const legacyReturn = read("app/payment/return/page.tsx");
 const checkout = read("app/checkout/page.tsx");
 const participant = read("app/pay/[token]/page.tsx");
+const trackingLookup = read("app/api/track/lookup/route.ts");
 
 assert(
   direct.includes("off_session: true") &&
@@ -121,6 +122,17 @@ assert(
   checkout.includes("selectedSavedPaymentMethodId") &&
     checkout.includes("savedPaymentMethodId"),
   "checkout saved-method selection is not sent to the server",
+);
+assert(
+  checkout.includes("Andere Zahlungsart wählen") &&
+    checkout.includes('setSelectedSavedPaymentMethodId("")'),
+  "checkout must let a returning customer choose PayPal or another hosted method",
+);
+assert(
+  trackingLookup.includes(`"meta" ->> 'trackingToken'`) &&
+    trackingLookup.includes(`"meta" ->> 'publicTrackingToken'`) &&
+    trackingLookup.includes("matchesTrackingToken(candidate, token)"),
+  "tracking token lookup must include the secure PostgreSQL JSON fallback",
 );
 assert(
   participant.includes("savedPaymentMethodId") &&

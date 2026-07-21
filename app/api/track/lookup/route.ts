@@ -522,15 +522,48 @@ async function findOrderByTrackingToken(tokenRaw: any): Promise<LookupResult> {
   }
 
   const tenantId = await getTenantId();
-  const order = await prisma.order.findFirst({
-    where: {
-      tenantId,
-      meta: {
-        path: ["trackingToken"],
-        equals: token,
-      } as any,
-    },
-  });
+
+  /*
+   * Prisma JSON path lookup normally works on PostgreSQL, but an exact,
+   * parameterized JSONB text lookup is kept as a compatibility fallback.
+   * This also supports older rows that used publicTrackingToken.
+   */
+  let order: any = null;
+
+  try {
+    order = await prisma.order.findFirst({
+      where: {
+        tenantId,
+        meta: {
+          path: ["trackingToken"],
+          equals: token,
+        } as any,
+      },
+    });
+  } catch {
+    /*
+     * Do not expose the token or Prisma error. The parameterized PostgreSQL
+     * fallback below remains authoritative for this lookup attempt.
+     */
+  }
+
+  if (!order) {
+    const rows = await prisma.$queryRaw<any[]>`
+      SELECT *
+      FROM "Order"
+      WHERE "tenantId" = ${tenantId}
+        AND (
+          "meta" ->> 'trackingToken' = ${token}
+          OR "meta" ->> 'publicTrackingToken' = ${token}
+        )
+      ORDER BY "ts" DESC
+      LIMIT 2;
+    `;
+
+    order =
+      rows.find((candidate: any) => matchesTrackingToken(candidate, token)) ||
+      null;
+  }
 
   if (!order || !matchesTrackingToken(order, token)) {
     return { code: "", order: null, error: "invalid_tracking_token", status: 401 };

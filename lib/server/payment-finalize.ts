@@ -442,6 +442,7 @@ export async function finalizePaymentSession(
       status: "finalized",
       finalized: true,
       finalOrderId,
+      trackingToken: readOrderTrackingToken(existing) || undefined,
       order: existing || undefined,
       paidCount: Number(paymentSession.shareCount || 1),
       totalCount: Number(paymentSession.shareCount || 1),

@@ -3209,8 +3209,9 @@ export default function CheckoutPage() {
                   Gespeicherte Zahlungsart
                 </div>
                 <div className="mt-1 text-xs leading-5 text-stone-400">
-                  Die ausgewählte Zahlungsart wird zuerst sicher direkt belastet.
-                  Nur wenn Bank oder Anbieter es verlangt, öffnet sich eine kurze Bestätigung.
+                  {selectedSavedPaymentMethodId
+                    ? "Die ausgewählte Zahlungsart wird zuerst sicher direkt belastet. Nur wenn Bank oder Anbieter es verlangt, öffnet sich eine kurze Bestätigung."
+                    : "Stripe wird geöffnet, damit du PayPal, Klarna, Apple Pay, Google Pay oder eine andere verfügbare Zahlungsart wählen kannst."}
                 </div>
 
                 <div className="mt-3 grid gap-2 sm:grid-cols-2">
@@ -3218,6 +3219,7 @@ export default function CheckoutPage() {
                     <button
                       key={method.id}
                       type="button"
+                      aria-pressed={selectedSavedPaymentMethodId === method.id}
                       onClick={() => setSelectedSavedPaymentMethodId(method.id)}
                       className={`rounded-xl border px-3 py-2 text-left text-xs font-semibold transition ${
                         selectedSavedPaymentMethodId === method.id
@@ -3228,6 +3230,22 @@ export default function CheckoutPage() {
                       {method.label}
                     </button>
                   ))}
+
+                  <button
+                    type="button"
+                    aria-pressed={selectedSavedPaymentMethodId === ""}
+                    onClick={() => setSelectedSavedPaymentMethodId("")}
+                    className={`rounded-xl border px-3 py-2 text-left text-xs font-semibold transition ${
+                      selectedSavedPaymentMethodId === ""
+                        ? "border-sky-300 bg-sky-400/15 text-sky-50"
+                        : "border-sky-400/25 bg-stone-950/55 text-sky-100"
+                    }`}
+                  >
+                    <span className="block">Andere Zahlungsart wählen</span>
+                    <span className="mt-1 block font-normal text-stone-400">
+                      PayPal, Klarna, Wallet oder neue Karte
+                    </span>
+                  </button>
                 </div>
               </div>
             )}
