@@ -181,6 +181,7 @@ export type FinalizePaymentResult = {
     | "refunded";
   finalized: boolean;
   finalOrderId?: string;
+  trackingToken?: string;
   order?: any;
   paidCount: number;
   totalCount: number;
