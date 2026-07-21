@@ -629,10 +629,10 @@ export async function POST(req: Request) {
         successUrl.searchParams.set("paymentSession", paymentSessionId);
         successUrl.searchParams.set("recovery", recoveryToken);
         successUrl.searchParams.set("share", String(share.index));
-        successUrl.searchParams.set(
-          "checkout_session_id",
-          "{CHECKOUT_SESSION_ID}",
-        );
+        // URLSearchParams encodes the braces in Stripe's reserved placeholder.
+        // Stripe only replaces the exact literal `{CHECKOUT_SESSION_ID}`.
+        const successUrlWithCheckoutSession =
+          `${successUrl.toString()}&checkout_session_id={CHECKOUT_SESSION_ID}`;
 
         const cancelUrl = new URL("/payment/return", baseUrl);
         cancelUrl.searchParams.set("payment", "cancelled");
@@ -663,7 +663,7 @@ export async function POST(req: Request) {
             amountCents: share.amountCents,
           },
           shareCount: 1,
-          successUrl: successUrl.toString(),
+          successUrl: successUrlWithCheckoutSession,
           cancelUrl: cancelUrl.toString(),
           rememberPayment,
           customerId: knownCustomerId || undefined,
