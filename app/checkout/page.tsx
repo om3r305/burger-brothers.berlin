@@ -4,7 +4,14 @@
 import Link from "next/link";
 import TrackPanel from "@/components/ui/TrackPanel";
 import CouponBox from "@/components/CouponBox";
-import { useEffect, useMemo, useState, useLayoutEffect, useRef } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useLayoutEffect,
+  useRef,
+} from "react";
 import { t } from "@/lib/i18n";
 
 import { useCart } from "@/components/store";
@@ -114,17 +121,43 @@ function readActivePaymentRecovery(): ActivePaymentRecovery | null {
     if (!parsed?.paymentSessionId || !parsed?.recoveryToken || !parsed?.manageUrl) {
       return null;
     }
-    if (parsed?.expiresAt) {
-      const expiresAt = Date.parse(String(parsed.expiresAt));
-      if (Number.isFinite(expiresAt) && expiresAt <= Date.now()) {
-        localStorage.removeItem(ACTIVE_PAYMENT_RECOVERY_KEY);
-        return null;
-      }
-    }
     return parsed as ActivePaymentRecovery;
   } catch {
     return null;
   }
+}
+
+function clearActivePaymentRecoveryStorage() {
+  try {
+    localStorage.removeItem(ACTIVE_PAYMENT_RECOVERY_KEY);
+    sessionStorage.removeItem("bb_active_payment_session");
+    window.dispatchEvent(new CustomEvent("bb:payment-recovery-changed"));
+  } catch {}
+}
+
+function paymentRecoveryIsTerminal(payload: any) {
+  const status = String(payload?.status || "").toLowerCase();
+  return (
+    payload?.finalized === true ||
+    [
+      "cancelled",
+      "expired",
+      "failed",
+      "refunded",
+      "finalized",
+    ].includes(status)
+  );
+}
+
+function formatPaymentRecoveryCountdown(expiresAt: any, nowMs: number) {
+  const endMs = Date.parse(String(expiresAt || ""));
+  if (!Number.isFinite(endMs)) return "";
+
+  const remainingSeconds = Math.max(0, Math.ceil((endMs - nowMs) / 1000));
+  const minutes = Math.floor(remainingSeconds / 60);
+  const seconds = remainingSeconds % 60;
+
+  return `${minutes}:${seconds < 10 ? `0${seconds}` : seconds}`;
 }
 
 type SplitUnit = {
@@ -1544,9 +1577,7 @@ export default function CheckoutPage() {
           mergeAddressForCheckoutZip(
             current,
             savedAddr,
-            saved?.orderMode === "pickup" || saved?.orderMode === "delivery"
-              ? saved.orderMode
-              : orderMode,
+            orderMode,
             preferredZip,
           ),
         );
@@ -1561,9 +1592,6 @@ export default function CheckoutPage() {
         });
       }
 
-      if (saved?.orderMode === "pickup" || saved?.orderMode === "delivery") {
-        setOrderMode(saved.orderMode);
-      }
     } catch {}
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -1697,6 +1725,10 @@ export default function CheckoutPage() {
   const [paymentProfileRemembered, setPaymentProfileRemembered] = useState(false);
   const [activePaymentRecovery, setActivePaymentRecovery] =
     useState<ActivePaymentRecovery | null>(null);
+  const [paymentRecoveryBusy, setPaymentRecoveryBusy] = useState(false);
+  const [paymentRecoveryMessage, setPaymentRecoveryMessage] = useState("");
+  const [paymentRecoveryNowMs, setPaymentRecoveryNowMs] = useState(() => Date.now());
+  const paymentExpirySyncRef = useRef(false);
   const [tipChoice, setTipChoice] = useState<TipChoice>("none");
   const [customTip, setCustomTip] = useState("");
   const [splitPeople, setSplitPeople] = useState(2);
@@ -1704,16 +1736,111 @@ export default function CheckoutPage() {
     Record<string, number>
   >({});
 
+  const syncActivePaymentRecovery = useCallback(
+    async (candidate?: ActivePaymentRecovery | null) => {
+      const recovery = candidate ?? readActivePaymentRecovery();
+
+      if (!recovery) {
+        setActivePaymentRecovery(null);
+        return;
+      }
+
+      setActivePaymentRecovery(recovery);
+
+      try {
+        const response = await fetch(
+          `/api/payments/session?id=${encodeURIComponent(
+            recovery.paymentSessionId,
+          )}&recovery=${encodeURIComponent(recovery.recoveryToken)}`,
+          { cache: "no-store" },
+        );
+        const payload = await response.json().catch(() => ({}));
+
+        if (paymentRecoveryIsTerminal(payload)) {
+          clearActivePaymentRecoveryStorage();
+          setActivePaymentRecovery(null);
+          setPaymentRecoveryMessage("");
+          return;
+        }
+
+        const nextRecovery: ActivePaymentRecovery = {
+          ...recovery,
+          expiresAt: payload?.recoveryExpiresAt || recovery.expiresAt || null,
+        };
+
+        try {
+          localStorage.setItem(
+            ACTIVE_PAYMENT_RECOVERY_KEY,
+            JSON.stringify(nextRecovery),
+          );
+        } catch {}
+
+        setActivePaymentRecovery(nextRecovery);
+      } catch {
+        // Keep the local recovery card visible during a temporary network error.
+      }
+    },
+    [],
+  );
+
   useEffect(() => {
-    const restore = () => setActivePaymentRecovery(readActivePaymentRecovery());
+    const restore = () => {
+      setPaymentRecoveryNowMs(Date.now());
+      void syncActivePaymentRecovery();
+    };
     restore();
     window.addEventListener("pageshow", restore);
     window.addEventListener("focus", restore);
+    window.addEventListener(
+      "bb:payment-recovery-changed",
+      restore as EventListener,
+    );
     return () => {
       window.removeEventListener("pageshow", restore);
       window.removeEventListener("focus", restore);
+      window.removeEventListener(
+        "bb:payment-recovery-changed",
+        restore as EventListener,
+      );
     };
-  }, []);
+  }, [syncActivePaymentRecovery]);
+
+  useEffect(() => {
+    if (!activePaymentRecovery) return;
+
+    const timer = window.setInterval(() => {
+      setPaymentRecoveryNowMs(Date.now());
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, [activePaymentRecovery]);
+
+  useEffect(() => {
+    if (
+      !activePaymentRecovery?.expiresAt ||
+      paymentRecoveryBusy ||
+      paymentExpirySyncRef.current
+    ) {
+      return;
+    }
+
+    const expiresAtMs = Date.parse(String(activePaymentRecovery.expiresAt));
+    if (!Number.isFinite(expiresAtMs) || expiresAtMs > paymentRecoveryNowMs) {
+      return;
+    }
+
+    paymentExpirySyncRef.current = true;
+    void syncActivePaymentRecovery(activePaymentRecovery).finally(() => {
+      window.setTimeout(() => {
+        paymentExpirySyncRef.current = false;
+      }, 5000);
+    });
+  }, [
+    activePaymentRecovery,
+    paymentRecoveryBusy,
+    paymentRecoveryNowMs,
+    syncActivePaymentRecovery,
+  ]);
 
   useEffect(() => {
     if (!paymentSettings.online || !paymentSettings.rememberPaymentMethods) {
@@ -2016,7 +2143,10 @@ export default function CheckoutPage() {
     (paymentMethod === "split_contactless" &&
       (!paymentSettings.online || !paymentSettings.split));
   const disablePaymentSubmit =
-    disableSend || paymentPlanBlocked || paymentMethodUnavailable;
+    Boolean(activePaymentRecovery) ||
+    disableSend ||
+    paymentPlanBlocked ||
+    paymentMethodUnavailable;
 
   const filteredStreets = useMemo(
     () => searchStreets(addr.zip, streetQuery, 50),
@@ -2253,6 +2383,58 @@ export default function CheckoutPage() {
     setDrawer(null);
   };
 
+  const paymentRecoveryCountdown = formatPaymentRecoveryCountdown(
+    activePaymentRecovery?.expiresAt,
+    paymentRecoveryNowMs,
+  );
+
+  const cancelActivePaymentRecovery = useCallback(async () => {
+    const recovery = activePaymentRecovery ?? readActivePaymentRecovery();
+    if (!recovery || paymentRecoveryBusy) return;
+
+    try {
+      setPaymentRecoveryBusy(true);
+      setPaymentRecoveryMessage("");
+
+      const response = await fetch("/api/payments/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "cancel",
+          paymentSessionId: recovery.paymentSessionId,
+          recoveryToken: recovery.recoveryToken,
+        }),
+        cache: "no-store",
+      });
+      const payload = await response.json().catch(() => ({}));
+
+      if (!response.ok || payload?.cancelled !== true) {
+        throw new Error(
+          payload?.message ||
+            payload?.error ||
+            "Die offene Zahlung konnte nicht storniert werden.",
+        );
+      }
+
+      clearActivePaymentRecoveryStorage();
+      setActivePaymentRecovery(null);
+      setPaymentRecoveryMessage("");
+    } catch (error: any) {
+      setPaymentRecoveryMessage(
+        error?.message ||
+          "Die offene Zahlung konnte nicht storniert werden. Bitte erneut versuchen.",
+      );
+    } finally {
+      setPaymentRecoveryBusy(false);
+    }
+  }, [activePaymentRecovery, paymentRecoveryBusy]);
+
+  const continueActivePayment = useCallback(() => {
+    const recovery = activePaymentRecovery ?? readActivePaymentRecovery();
+    if (!recovery?.manageUrl) return;
+    window.location.assign(recovery.manageUrl);
+  }, [activePaymentRecovery]);
+
   const clearActiveCoupon = () => {
     try {
       localStorage.removeItem(LS_ACTIVE_COUPON);
@@ -2266,6 +2448,64 @@ export default function CheckoutPage() {
 
   return (
     <main className="mx-auto max-w-5xl space-y-6 px-4 pb-6 sm:px-6">
+      {activePaymentRecovery && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/85 p-4 backdrop-blur-md">
+          <div className="w-full max-w-lg rounded-3xl border border-amber-400/50 bg-stone-950 p-5 shadow-2xl sm:p-6">
+            <div className="text-xs font-bold uppercase tracking-[0.18em] text-amber-300">
+              Offene Zahlung
+            </div>
+            <h2 className="mt-2 text-2xl font-black text-white">
+              Bitte zuerst die laufende Zahlung abschließen
+            </h2>
+            <p className="mt-2 text-sm leading-relaxed text-stone-300">
+              Solange diese Zahlung offen ist, bleibt der Checkout gesperrt.
+              Dadurch entstehen keine doppelte Bestellung und keine doppelte
+              Zahlung.
+            </p>
+
+            {paymentRecoveryCountdown && (
+              <div className="mt-4 rounded-2xl border border-stone-700 bg-stone-900/80 p-4 text-center">
+                <div className="text-xs uppercase tracking-wide text-stone-400">
+                  Verbleibende Zeit
+                </div>
+                <div className="mt-1 text-4xl font-black tabular-nums text-amber-300">
+                  {paymentRecoveryCountdown}
+                </div>
+                <div className="mt-1 text-xs text-stone-400">
+                  Danach wird die offene Zahlung automatisch geschlossen.
+                </div>
+              </div>
+            )}
+
+            {paymentRecoveryMessage && (
+              <div className="mt-4 rounded-xl border border-rose-500/40 bg-rose-500/10 p-3 text-sm text-rose-100">
+                {paymentRecoveryMessage}
+              </div>
+            )}
+
+            <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              <button
+                type="button"
+                disabled={paymentRecoveryBusy}
+                onClick={continueActivePayment}
+                className="rounded-xl bg-amber-400 px-4 py-3 font-black text-black disabled:opacity-50"
+              >
+                Zahlung fortsetzen
+              </button>
+              <button
+                type="button"
+                disabled={paymentRecoveryBusy}
+                onClick={() => void cancelActivePaymentRecovery()}
+                className="rounded-xl border border-rose-400/60 bg-rose-500/10 px-4 py-3 font-bold text-rose-100 disabled:opacity-50"
+              >
+                {paymentRecoveryBusy
+                  ? "Zahlung wird storniert …"
+                  : "Zahlung stornieren"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="sticky top-0 z-40 -mx-4 border-b border-stone-800/60 bg-stone-950/70 px-4 pb-3 pt-[max(0.5rem,env(safe-area-inset-top))] backdrop-blur sm:-mx-6 sm:px-6">
         <div className="flex items-center justify-between">
           <Link href="/menu" className="text-sm text-stone-300 hover:text-stone-100">
@@ -2840,43 +3080,17 @@ export default function CheckoutPage() {
                 <button
                   type="button"
                   className="rounded-lg bg-amber-400 px-3 py-2 font-bold text-black"
-                  onClick={() => window.location.assign(activePaymentRecovery.manageUrl)}
+                  onClick={continueActivePayment}
                 >
                   Zahlung fortsetzen
                 </button>
                 <button
                   type="button"
                   className="rounded-lg border border-stone-600 px-3 py-2 text-stone-200"
-                  onClick={async () => {
-                    try {
-                      const response = await fetch("/api/payments/session", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                          action: "cancel",
-                          paymentSessionId: activePaymentRecovery.paymentSessionId,
-                          recoveryToken: activePaymentRecovery.recoveryToken,
-                        }),
-                        cache: "no-store",
-                      });
-                      const payload = await response.json().catch(() => ({}));
-                      if (!response.ok || payload?.ok === false) {
-                        throw new Error(
-                          payload?.message ||
-                            "Die offene Zahlung konnte nicht verworfen werden.",
-                        );
-                      }
-                      localStorage.removeItem(ACTIVE_PAYMENT_RECOVERY_KEY);
-                      setActivePaymentRecovery(null);
-                    } catch (error: any) {
-                      alert(
-                        error?.message ||
-                          "Die offene Zahlung konnte nicht verworfen werden. Bitte erneut versuchen.",
-                      );
-                    }
-                  }}
+                  disabled={paymentRecoveryBusy}
+                  onClick={() => void cancelActivePaymentRecovery()}
                 >
-                  Offene Zahlung verwerfen
+                  Offene Zahlung stornieren
                 </button>
               </div>
             </div>
@@ -3751,6 +3965,14 @@ export default function CheckoutPage() {
     testMode: boolean;
   }) {
     try {
+      const existingRecovery = readActivePaymentRecovery();
+      if (existingRecovery) {
+        setActivePaymentRecovery(existingRecovery);
+        throw new Error(
+          "Bitte zuerst die offene Zahlung fortsetzen oder stornieren.",
+        );
+      }
+
       setSubmitBusy(true);
 
       const result: any = await handleLogBeforeNavigate(payment);

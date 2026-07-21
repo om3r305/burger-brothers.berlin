@@ -32,6 +32,8 @@ type PaymentState = {
   nextUrl?: string | null;
   nextShareIndex?: number | null;
   whatsappShareEnabled?: boolean;
+  recoveryExpiresAt?: string | null;
+  cancelled?: boolean;
   shares?: Share[];
   message?: string;
   error?: string;
@@ -42,6 +44,24 @@ const fmt = (value: number) =>
     style: "currency",
     currency: "EUR",
   }).format(Number(value || 0));
+
+function clearPaymentRecoveryStorage() {
+  try {
+    localStorage.removeItem("bb_active_payment_recovery_v1");
+    sessionStorage.removeItem("bb_active_payment_session");
+    window.dispatchEvent(new CustomEvent("bb:payment-recovery-changed"));
+  } catch {}
+}
+
+function paymentCountdown(expiresAt: any, nowMs: number) {
+  const endMs = Date.parse(String(expiresAt || ""));
+  if (!Number.isFinite(endMs)) return "";
+
+  const remainingSeconds = Math.max(0, Math.ceil((endMs - nowMs) / 1000));
+  const minutes = Math.floor(remainingSeconds / 60);
+  const seconds = remainingSeconds % 60;
+  return `${minutes}:${seconds < 10 ? `0${seconds}` : seconds}`;
+}
 
 function whatsappMessage(share: Share) {
   return [
@@ -100,6 +120,8 @@ function PaymentReturnContent() {
   const [profileSaved, setProfileSaved] = useState(false);
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [resumeBusy, setResumeBusy] = useState(false);
+  const [cancelBusy, setCancelBusy] = useState(false);
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const profileAttempted = useRef(false);
 
   useEffect(() => {
@@ -129,12 +151,22 @@ function PaymentReturnContent() {
 
         setState(payload);
 
+        if (
+          payload?.finalized === true ||
+          ["cancelled", "expired", "failed", "refunded"].includes(
+            String(payload?.status || "").toLowerCase(),
+          ) ||
+          payload?.error === "PAYMENT_CANCELLED"
+        ) {
+          clearPaymentRecoveryStorage();
+        }
+
         if (payload?.finalized && payload?.finalOrderId) {
           try {
             clear?.();
             localStorage.removeItem("bb_active_coupon_code");
             localStorage.removeItem("bb_active_coupon_meta");
-            localStorage.removeItem("bb_active_payment_recovery_v1");
+            clearPaymentRecoveryStorage();
             localStorage.setItem(
               "bb_last_track_order_id",
               String(payload.finalOrderId),
@@ -187,6 +219,8 @@ function PaymentReturnContent() {
       document.body.classList.remove("bb-route-pending");
       setBusyShare(null);
       setResumeBusy(false);
+      setCancelBusy(false);
+      setNowMs(Date.now());
       setRefreshVersion((value) => value + 1);
     };
     const onVisibility = () => {
@@ -200,6 +234,11 @@ function PaymentReturnContent() {
       window.removeEventListener("focus", resumeView);
       document.removeEventListener("visibilitychange", onVisibility);
     };
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(timer);
   }, []);
 
   /*
@@ -244,6 +283,10 @@ function PaymentReturnContent() {
     state.status === "refunded" ||
     state.ok === false;
   const isSplit = Number(state.totalCount || shares.length) > 1;
+  const remainingPaymentTime = paymentCountdown(
+    state.recoveryExpiresAt,
+    nowMs,
+  );
 
   const openShare = (share: Share) => {
     if (!share.shareUrl) return;
@@ -301,6 +344,45 @@ function PaymentReturnContent() {
       }));
     } finally {
       setResumeBusy(false);
+    }
+  };
+
+  const cancelPayment = async () => {
+    if (!paymentSessionId || !recoveryToken || cancelBusy) return;
+
+    try {
+      setCancelBusy(true);
+      const response = await fetch("/api/payments/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "cancel",
+          paymentSessionId,
+          recoveryToken,
+        }),
+        cache: "no-store",
+      });
+      const payload = await response.json().catch(() => ({}));
+
+      if (!response.ok || payload?.cancelled !== true) {
+        throw new Error(
+          payload?.message ||
+            payload?.error ||
+            "Die Zahlung konnte nicht storniert werden.",
+        );
+      }
+
+      clearPaymentRecoveryStorage();
+      window.location.assign("/checkout?payment=cancelled");
+    } catch (error: any) {
+      setState((current) => ({
+        ...current,
+        message:
+          error?.message ||
+          "Die Zahlung konnte nicht storniert werden. Bitte erneut versuchen.",
+      }));
+    } finally {
+      setCancelBusy(false);
     }
   };
 
@@ -369,18 +451,6 @@ function PaymentReturnContent() {
                 Die Zahlungssitzung ist abgelaufen. Es wurde nichts berechnet.
               </p>
             )}
-            {recoveryToken && state.status === "expired" && (
-              <button
-                type="button"
-                disabled={resumeBusy}
-                onClick={resumePayment}
-                className="mt-5 w-full rounded-xl bg-amber-400 px-4 py-3 font-black text-black disabled:opacity-50"
-              >
-                {resumeBusy
-                  ? "Zahlung wird vorbereitet …"
-                  : "Neue sichere Zahlungssitzung öffnen"}
-              </button>
-            )}
             <Link
               href="/checkout"
               className="mt-3 block rounded-xl border border-stone-600 px-4 py-3 text-center font-semibold"
@@ -407,6 +477,14 @@ function PaymentReturnContent() {
               {!!state.totalCount && (
                 <div className="mt-3 text-sm font-semibold">
                   {state.paidCount || 0} von {state.totalCount} Zahlungen abgeschlossen
+                </div>
+              )}
+              {remainingPaymentTime && (
+                <div className="mt-3 rounded-xl border border-sky-400/30 bg-black/20 px-3 py-2 text-sm">
+                  Verbleibende Zeit: {" "}
+                  <span className="font-black tabular-nums text-amber-300">
+                    {remainingPaymentTime}
+                  </span>
                 </div>
               )}
             </div>
@@ -497,7 +575,7 @@ function PaymentReturnContent() {
             {!isSplit && state.nextUrl ? (
               <button
                 type="button"
-                disabled={busyShare !== null}
+                disabled={busyShare !== null || cancelBusy}
                 onClick={() => {
                   setBusyShare(state.nextShareIndex ?? 0);
                   window.location.assign(String(state.nextUrl));
@@ -512,6 +590,25 @@ function PaymentReturnContent() {
                 Zahlungsstatus wird automatisch aktualisiert …
               </div>
             )}
+
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <Link
+                href="/checkout"
+                className="rounded-xl border border-stone-600 px-4 py-3 text-center font-semibold text-stone-100"
+              >
+                Zurück zum Checkout
+              </Link>
+              <button
+                type="button"
+                disabled={cancelBusy || finalized}
+                onClick={() => void cancelPayment()}
+                className="rounded-xl border border-rose-400/60 bg-rose-500/10 px-4 py-3 font-bold text-rose-100 disabled:opacity-50"
+              >
+                {cancelBusy
+                  ? "Zahlung wird storniert …"
+                  : "Bestellung und Zahlung stornieren"}
+              </button>
+            </div>
           </>
         )}
       </div>

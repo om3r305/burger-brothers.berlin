@@ -72,6 +72,21 @@ function sessionState(session: Stripe.Checkout.Session) {
   return "open";
 }
 
+async function expireStripeCheckoutIfOpen(
+  stripe: Stripe,
+  session: Stripe.Checkout.Session,
+) {
+  if (session.payment_status === "paid" || session.status !== "open") {
+    return session;
+  }
+
+  try {
+    return await stripe.checkout.sessions.expire(session.id);
+  } catch {
+    return session;
+  }
+}
+
 async function refundPaidIntents(params: {
   paymentSessionId: string;
   finalOrderId: string;
@@ -241,6 +256,12 @@ export async function finalizePaymentSession(
       ? "split_contactless"
       : "online";
   const finalOrderId = String(paymentSession.finalOrderId || "").trim();
+  const recoveryExpiresAtMs = Date.parse(
+    String(paymentSession.recoveryExpiresAt || ""),
+  );
+  const recoveryExpired =
+    Number.isFinite(recoveryExpiresAtMs) &&
+    recoveryExpiresAtMs <= Date.now();
 
   if (paymentSession.finalizedAt && finalOrderId) {
     const existing = await prisma.order.findFirst({
@@ -298,7 +319,8 @@ export async function finalizePaymentSession(
         ? Date.parse(String(stored.shareExpiresAt))
         : Number.NaN;
       const shareExpired =
-        Number.isFinite(shareExpiryMs) && shareExpiryMs <= Date.now();
+        recoveryExpired ||
+        (Number.isFinite(shareExpiryMs) && shareExpiryMs <= Date.now());
 
       shares.push({
         index: Number(stored?.index || 0),
@@ -321,21 +343,27 @@ export async function finalizePaymentSession(
     }
 
     try {
-      const checkout = await stripe.checkout.sessions.retrieve(
-        checkoutSessionId,
-        {
+      let checkout: Stripe.Checkout.Session =
+        await stripe.checkout.sessions.retrieve(checkoutSessionId, {
           expand: ["payment_intent"],
-        },
-      );
+        });
 
       const shareExpiryMs = stored?.shareExpiresAt
         ? Date.parse(String(stored.shareExpiresAt))
         : Number.NaN;
+      const initialCheckoutState = sessionState(checkout);
       const shareExpired =
-        Number.isFinite(shareExpiryMs) &&
-        shareExpiryMs <= Date.now() &&
-        !sessionPaid(checkout);
-      const checkoutState = shareExpired ? "expired" : sessionState(checkout);
+        initialCheckoutState === "open" &&
+        (recoveryExpired ||
+          (Number.isFinite(shareExpiryMs) && shareExpiryMs <= Date.now()));
+
+      if (shareExpired) {
+        checkout = await expireStripeCheckoutIfOpen(stripe, checkout);
+      }
+
+      const checkoutState = shareExpired
+        ? "expired"
+        : sessionState(checkout);
 
       shares.push({
         index: Number(stored?.index || 0),

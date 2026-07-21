@@ -21,6 +21,11 @@ assert(
 );
 assert(prepare.includes("recoveryTokenHash"), "recovery token must be hash-stored");
 assert(
+  prepare.includes("pendingExpiryMinutes") &&
+    prepare.includes("paymentRecoveryExpiresAtMinutes"),
+  "pending online/split payments must use a bounded minute expiry",
+);
+assert(
   prepare.includes("body?.rememberPayment === true"),
   "payment-method saving must require explicit opt-in",
 );
@@ -31,6 +36,11 @@ assert(
   "recovery access must verify an unpredictable token",
 );
 assert(session.includes('action === "cancel"'), "server cancellation missing");
+assert(
+  session.includes("expireOpenCheckoutSessions") &&
+    session.includes("cancelled: true"),
+  "cancellation must expire Stripe Checkout and return explicit success",
+);
 assert(session.includes("bb-checkout-resume-"), "secure same-session resume missing");
 
 
@@ -48,8 +58,27 @@ assert(
 
 const checkoutPage = read("app/checkout/page.tsx");
 assert(
-  checkoutPage.includes("Die offene Zahlung konnte nicht verworfen werden"),
+  checkoutPage.includes("Die offene Zahlung konnte nicht storniert werden"),
   "failed cancellation must keep recovery access visible",
+);
+assert(
+  checkoutPage.includes("Solange diese Zahlung offen ist, bleibt der Checkout gesperrt"),
+  "active payment must lock the whole checkout",
+);
+assert(
+  checkoutPage.includes("Boolean(activePaymentRecovery)") &&
+    checkoutPage.includes("Bitte zuerst die offene Zahlung fortsetzen oder stornieren"),
+  "cash and all other submit paths must respect the active-payment lock",
+);
+assert(
+  !checkoutPage.includes("setOrderMode(saved.orderMode)"),
+  "checkout must not overwrite the cart-selected pickup/delivery mode",
+);
+
+assert(
+  paymentReturn.includes("Bestellung und Zahlung stornieren") &&
+    paymentReturn.includes('window.location.assign("/checkout?payment=cancelled")'),
+  "payment return page must allow checkout return and real cancellation",
 );
 
 const checkout = read("lib/server/payment-checkout.ts");
@@ -58,6 +87,13 @@ assert(
   "saved customer must only be reused after opt-in",
 );
 assert(checkout.includes("setup_future_usage"), "future usage missing");
+
+const finalize = read("lib/server/payment-finalize.ts");
+assert(
+  finalize.includes("recoveryExpired") &&
+    finalize.includes("expireStripeCheckoutIfOpen"),
+  "lazy expiry must close unpaid Stripe Checkout sessions",
+);
 
 const transition = read("components/AppRouteTransition.tsx");
 assert(transition.includes('window.addEventListener("pageshow"'), "pageshow restore missing");

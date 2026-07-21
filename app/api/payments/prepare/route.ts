@@ -24,7 +24,7 @@ import {
   hashPaymentRecoveryValue,
   normalizePaymentRecoveryToken,
   normalizePaymentRequestId,
-  paymentRecoveryExpiresAt,
+  paymentRecoveryExpiresAtMinutes,
   paymentRecoveryValueMatches,
 } from "@/lib/server/payment-recovery-token";
 import {
@@ -332,10 +332,28 @@ export async function POST(req: Request) {
       rememberPaymentAllowed && body?.rememberPayment === true;
     const whatsappShareEnabled =
       settings?.payments?.split?.whatsappShareEnabled !== false;
-    const shareLinkHours = Math.max(
-      1,
-      Math.min(24, Math.round(toNumber(settings?.payments?.split?.linkValidityHours, 24))),
+    const onlinePendingMinutes = Math.max(
+      30,
+      Math.min(
+        24 * 60,
+        Math.round(
+          toNumber(settings?.payments?.online?.pendingExpiryMinutes, 30),
+        ),
+      ),
     );
+    const splitPendingMinutes = Math.max(
+      30,
+      Math.min(
+        24 * 60,
+        Math.round(
+          toNumber(settings?.payments?.split?.pendingExpiryMinutes, 30),
+        ),
+      ),
+    );
+    const pendingExpiryMinutes =
+      requestedKind === "split_contactless"
+        ? splitPendingMinutes
+        : onlinePendingMinutes;
 
     if (!onlineEnabled) {
       return json(
@@ -368,19 +386,8 @@ export async function POST(req: Request) {
       createPaymentRecoveryToken();
     const requestIdHash = hashPaymentRecoveryValue(paymentRequestId);
     const recoveryTokenHash = hashPaymentRecoveryValue(recoveryToken);
-    const recoveryHours = Math.max(
-      1,
-      Math.min(
-        72,
-        Math.round(
-          toNumber(
-            settings?.payments?.online?.recoveryValidityHours,
-            requestedKind === "split_contactless" ? shareLinkHours : 24,
-          ),
-        ),
-      ),
-    );
-    const recoveryExpiresAt = paymentRecoveryExpiresAt(recoveryHours);
+    const recoveryExpiresAt =
+      paymentRecoveryExpiresAtMinutes(pendingExpiryMinutes);
 
     const reusable = await findReusablePaymentRequest({
       tenantId,
@@ -472,7 +479,7 @@ export async function POST(req: Request) {
     const customer = ensureObj(order?.customer);
     const baseUrl = resolveBaseUrl(req.url);
     const shareExpiresAt =
-      Math.floor(now.getTime() / 1000) + shareLinkHours * 60 * 60;
+      Math.floor(recoveryExpiresAt.getTime() / 1000);
     const preparedShares = shares.map((share) => {
       if (requestedKind !== "split_contactless") return { ...share };
 
@@ -569,7 +576,7 @@ export async function POST(req: Request) {
             collectedTotal: fromCents(paidTotalCents),
             rememberPayment,
             whatsappShareEnabled,
-            shareLinkHours,
+            pendingExpiryMinutes,
             shares: preparedShares.map((share) => ({
               index: share.index,
               label: share.label,
@@ -736,7 +743,7 @@ export async function POST(req: Request) {
             collectedTotal: fromCents(paidTotalCents),
             rememberPayment,
             whatsappShareEnabled,
-            shareLinkHours,
+            pendingExpiryMinutes,
             manageUrl,
             shares: checkoutShares,
           },

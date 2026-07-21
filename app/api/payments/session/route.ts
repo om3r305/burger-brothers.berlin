@@ -94,6 +94,34 @@ function publicResult(result: any, paymentSession: Record<string, any>) {
   };
 }
 
+async function expireOpenCheckoutSessions(paymentSession: Record<string, any>) {
+  const shares = Array.isArray(paymentSession?.shares)
+    ? paymentSession.shares
+    : [];
+  const ids = Array.from(
+    new Set(
+      shares
+        .map((share: any) => String(share?.checkoutSessionId || "").trim())
+        .filter(Boolean),
+    ),
+  );
+
+  if (!ids.length) return;
+
+  const stripe = getStripeClient();
+
+  for (const checkoutSessionId of ids) {
+    try {
+      const checkout = await stripe.checkout.sessions.retrieve(checkoutSessionId);
+      if (checkout.payment_status !== "paid" && checkout.status === "open") {
+        await stripe.checkout.sessions.expire(checkoutSessionId);
+      }
+    } catch {
+      // Missing/already terminal Stripe sessions do not block cancellation.
+    }
+  }
+}
+
 export async function GET(req: Request) {
   const rateError = await enforceRateLimit(req, "payments:session", 30, 60_000);
   if (rateError) return rateError;
@@ -135,6 +163,21 @@ export async function POST(req: Request) {
     if (!loaded.protectedSession) throw new Error("PAYMENT_RECOVERY_TOKEN_REQUIRED");
 
     if (action === "cancel") {
+      const checkedBeforeCancel = await finalizePaymentSession(
+        paymentSessionId,
+        req.url,
+      );
+
+      if (checkedBeforeCancel.finalized) {
+        return json(
+          publicResult(checkedBeforeCancel, loaded.paymentSession),
+          409,
+        );
+      }
+
+      await expireOpenCheckoutSessions(loaded.paymentSession);
+
+      const cancelledAt = new Date().toISOString();
       await prisma.order.update({
         where: { id: loaded.pending.id },
         data: {
@@ -144,16 +187,23 @@ export async function POST(req: Request) {
             paymentSession: {
               ...loaded.paymentSession,
               state: "cancelled",
-              cancelledAt: new Date().toISOString(),
+              cancelledAt,
             },
           }),
         },
       });
+
       const result = await finalizePaymentSession(paymentSessionId, req.url);
-      return json(publicResult(result, {
-        ...loaded.paymentSession,
-        state: "cancelled",
-      }));
+      return json({
+        ...publicResult(result, {
+          ...loaded.paymentSession,
+          state: "cancelled",
+          cancelledAt,
+        }),
+        ok: true,
+        cancelled: true,
+        status: result.status === "refunded" ? "refunded" : "cancelled",
+      });
     }
 
     const checked = await finalizePaymentSession(paymentSessionId, req.url);
@@ -161,12 +211,20 @@ export async function POST(req: Request) {
       return json(publicResult(checked, loaded.paymentSession), checked.ok ? 200 : 409);
     }
     if (loaded.expired) {
-      return json({
-        ok: false,
-        status: "expired",
-        error: "PAYMENT_RECOVERY_EXPIRED",
-        message: "Die Frist zum Fortsetzen dieser Zahlung ist abgelaufen.",
-      }, 410);
+      await expireOpenCheckoutSessions(loaded.paymentSession);
+      const expired = await finalizePaymentSession(paymentSessionId, req.url);
+      return json(
+        {
+          ...publicResult(expired, loaded.paymentSession),
+          ok: false,
+          status: expired.status === "refunded" ? "refunded" : "expired",
+          error: "PAYMENT_RECOVERY_EXPIRED",
+          message:
+            expired.message ||
+            "Die Frist zum Fortsetzen dieser Zahlung ist abgelaufen.",
+        },
+        410,
+      );
     }
 
     if (String(loaded.paymentSession.kind || "online") === "split_contactless") {

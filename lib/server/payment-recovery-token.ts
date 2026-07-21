@@ -35,6 +35,17 @@ export function paymentRecoveryExpiresAt(hours: number) {
   return new Date(Date.now() + safeHours * 60 * 60 * 1000);
 }
 
+export function paymentRecoveryExpiresAtMinutes(minutes: number) {
+  // Stripe Checkout accepts a custom expires_at from 30 minutes onward.
+  // Keep the Burger Brothers recovery window on the same boundary so a
+  // customer never sees an active local payment after Stripe has expired.
+  const safeMinutes = Math.max(
+    30,
+    Math.min(24 * 60, Math.round(Number(minutes) || 30)),
+  );
+  return new Date(Date.now() + safeMinutes * 60 * 1000);
+}
+
 export function buildPaymentManageUrl(params: {
   baseUrl: string;
   paymentSessionId: string;
