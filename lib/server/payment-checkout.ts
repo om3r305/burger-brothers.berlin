@@ -24,6 +24,11 @@ export async function createBurgerCheckoutSession(params: {
   idempotencyKey: string;
   expiresAt?: number;
 }) {
+  const amountCents = Math.round(Number(params.share.amountCents) || 0);
+  if (amountCents < 50) {
+    throw new Error("PAYMENT_AMOUNT_TOO_LOW");
+  }
+
   const customerId = String(params.customerId || "").trim();
   const customerEmail = validEmail(params.customerEmail);
 
@@ -31,7 +36,10 @@ export async function createBurgerCheckoutSession(params: {
   const requestedExpiry = Math.floor(Number(params.expiresAt) || 0);
   const expiresAt = Math.max(
     nowSeconds + 30 * 60,
-    Math.min(requestedExpiry || nowSeconds + 23 * 60 * 60, nowSeconds + 23 * 60 * 60),
+    Math.min(
+      requestedExpiry || nowSeconds + 23 * 60 * 60,
+      nowSeconds + 23 * 60 * 60,
+    ),
   );
 
   /*
@@ -40,25 +48,24 @@ export async function createBurgerCheckoutSession(params: {
    * payment methods even when the customer does not want to save a new one
    * during this order.
    */
-  const customerParams: Stripe.Checkout.SessionCreateParams =
-    customerId
+  const customerParams: Stripe.Checkout.SessionCreateParams = customerId
+    ? {
+        customer: customerId,
+        customer_update: {
+          address: "auto",
+          name: "auto",
+        },
+      }
+    : params.rememberPayment
       ? {
-          customer: customerId,
-          customer_update: {
-            address: "auto",
-            name: "auto",
-          },
+          customer_creation: "always",
+          ...(customerEmail ? { customer_email: customerEmail } : {}),
         }
-      : params.rememberPayment
+      : customerEmail
         ? {
-            customer_creation: "always",
-            ...(customerEmail ? { customer_email: customerEmail } : {}),
+            customer_email: customerEmail,
           }
-        : customerEmail
-          ? {
-              customer_email: customerEmail,
-            }
-          : {};
+        : {};
 
   const metadata = {
     burger_payment_session: params.paymentSessionId,
@@ -80,7 +87,7 @@ export async function createBurgerCheckoutSession(params: {
           quantity: 1,
           price_data: {
             currency: "eur",
-            unit_amount: params.share.amountCents,
+            unit_amount: amountCents,
             product_data: {
               name:
                 params.paymentKind === "split_contactless"

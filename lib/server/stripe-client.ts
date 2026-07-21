@@ -44,7 +44,9 @@ export function resolveBaseUrl(requestUrl?: string) {
     } catch {}
   }
 
-  const vercelUrl = String(process.env.VERCEL_URL || "").trim().replace(/\/+$/, "");
+  const vercelUrl = String(process.env.VERCEL_URL || "")
+    .trim()
+    .replace(/\/+$/, "");
   if (vercelUrl) {
     return `https://${vercelUrl}`;
   }
@@ -55,4 +57,14 @@ export function resolveBaseUrl(requestUrl?: string) {
 export function stripeModeLabel() {
   const key = String(process.env.STRIPE_SECRET_KEY || "").trim();
   return key.startsWith("sk_live_") ? "live" : "test";
+}
+
+export function getStripePublishableKey() {
+  const key = String(
+    process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ||
+      process.env.STRIPE_PUBLISHABLE_KEY ||
+      "",
+  ).trim();
+  if (!key) throw new Error("STRIPE_PUBLISHABLE_KEY_MISSING");
+  return key;
 }

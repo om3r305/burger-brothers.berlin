@@ -1,0 +1,90 @@
+Burger Brothers Berlin — Payment Center teslimatı
+
+DEĞİŞTİRİLEN DOSYALAR
+
+1. app/api/payments/prepare/route.ts
+   - Kayıtlı PaymentMethod ile doğrudan PaymentIntent denemesi
+   - Deterministik request idempotency
+   - Split minimum pay kontrolü
+   - Stripe kaynağı/DB referansı güvenli oluşturma ve fallback
+
+2. app/api/payments/session/route.ts
+   - Payment Center durum, retry, başka yöntem, action_details ve iptal işlemleri
+   - Session mutation lock
+   - Stripe terminal durumu doğrulanmadan checkout kilidini açmama
+
+3. app/api/payments/share/route.ts
+   - Pay tokeni için doğrudan kayıtlı ödeme, action ve hosted fallback
+   - Ödenmiş payı tekrar başlatmama
+   - Diğer kişilerin özel ödeme URL’lerini gizleme
+
+4. app/api/stripe/webhook/route.ts
+   - PaymentIntent webhook olayları
+   - İmzalı event ile DB PaymentIntent referansı onarımı ve idempotent finalize
+
+5. app/checkout/page.tsx
+   - Kayıtlı ödeme yöntemi seçimi
+   - Seçili PaymentMethod ID’nin prepare route’a gönderilmesi
+   - Açık ödeme recovery kilidinin bütün yeni sipariş türlerini engellemesi
+
+6. app/pay/[token]/page.tsx
+   - Arkadaş payı için tek Split Center görünümü
+   - Kayıtlı yöntem, doğrulama ve hosted fallback
+   - Güncel tüm pay durumları, final tracking/ETA
+
+7. app/payment/return/page.tsx
+   - Eski karma ekran kaldırıldı; yalnız Payment Center/Split Center yönlendirmesi
+
+8. lib/server/payment-checkout.ts
+   - 0,50 € altı Stripe tutarını sessiz yükseltmek yerine reddetme
+
+9. lib/server/payment-finalize.ts
+   - Checkout + doğrudan PaymentIntent doğrulama/finalizasyonu
+   - Tutar/currency/metadata/customer bütünlük kontrolleri
+   - PaymentIntent webhook referans onarımı
+   - Split refund ve tek final sipariş güvenliği
+
+10. lib/server/payment-recovery-token.ts
+    - Normal ve split manage URL’lerini doğrudan doğru merkeze yönlendirme
+
+11. lib/server/stripe-client.ts
+    - Stripe publishable key güvenli sunucu getter’ı
+
+12. package.json
+    - Payment Center mimari testini security:test zincirine ekleme
+
+13. tools/payment-closeout-tests.cjs
+    - Ayrılmış ekranlar, doğrudan PaymentIntent ve yeni iptal/finalize kurallarına uyarlama
+
+YENİ DOSYALAR
+
+14. app/payment/action/page.tsx
+    - Yalnız gerektiğinde Stripe.js handleNextAction doğrulama ekranı
+
+15. app/payment/center/page.tsx
+    - Normal online ödeme başarı/açık/başarısız durum merkezi
+
+16. app/payment/split/page.tsx
+    - Organizatör için tek split ödeme ve paylaşım merkezi
+
+17. lib/server/payment-intent.ts
+    - Kayıtlı PaymentMethod sahiplik kontrolü ve doğrudan PaymentIntent yardımcıları
+
+18. lib/server/payment-mutation-lock.ts
+    - Eşzamanlı ödeme başlatma/double click kilidi
+
+19. tools/payment-center-architecture-tests.cjs
+    - Yeni mimari ve güvenlik kurallarının statik regresyon testi
+
+20. README-PAYMENT-CENTER.md
+21. CHANGED-FILES.txt
+22. VERIFY-PAYMENT-CENTER.txt
+23. PUSH-PAYMENT-CENTER-TO-GITHUB.ps1
+
+DEĞİŞTİRİLMEYEN KRİTİK ALANLAR
+
+- prisma/schema.prisma
+- Mevcut katalog/fiyatlama veri modeli
+- Kampanya, kupon, Pfand ve surcharge hesaplama kaynakları
+- TV/mutfak sipariş akışı
+- Cash sipariş oluşturma zinciri

@@ -19,7 +19,10 @@ assert(
   prepare.includes("collectedTotal: fromCents(paidTotalCents)"),
   "collected split total must stay separate",
 );
-assert(prepare.includes("recoveryTokenHash"), "recovery token must be hash-stored");
+assert(
+  prepare.includes("recoveryTokenHash"),
+  "recovery token must be hash-stored",
+);
 assert(
   prepare.includes("pendingExpiryMinutes") &&
     prepare.includes("paymentRecoveryExpiresAtMinutes"),
@@ -37,12 +40,15 @@ assert(
 );
 assert(session.includes('action === "cancel"'), "server cancellation missing");
 assert(
-  session.includes("expireOpenCheckoutSessions") &&
+  session.includes("expireOpenStripeResources") &&
+    session.includes("cancelPaymentIntentIfOpen") &&
     session.includes("cancelled: true"),
-  "cancellation must expire Stripe Checkout and return explicit success",
+  "cancellation must close Checkout/PaymentIntent resources and return explicit success",
 );
-assert(session.includes("bb-checkout-resume-"), "secure same-session resume missing");
-
+assert(
+  session.includes("bb-checkout-resume-"),
+  "secure same-session resume missing",
+);
 
 const share = read("app/api/payments/share/route.ts");
 assert(
@@ -51,15 +57,27 @@ assert(
 );
 
 const paymentReturn = read("app/payment/return/page.tsx");
+const paymentCenter = read("app/payment/center/page.tsx");
+const splitCenter = read("app/payment/split/page.tsx");
 assert(
-  paymentReturn.includes("window.location.assign(String(state.nextUrl))"),
-  "split next-share navigation must remain direct",
+  paymentReturn.includes('"/payment/split"') &&
+    paymentReturn.includes('"/payment/center"') &&
+    !paymentReturn.includes("WhatsApp"),
+  "legacy return page must only route to the dedicated payment centers",
 );
 assert(
-  paymentReturn.includes("rememberCustomerTracking") &&
-    paymentReturn.includes("Bestellung verfolgen") &&
-    paymentReturn.includes("etaConfirmationLabel"),
-  "online payment success must save secure tracking access and show ETA/planned information",
+  paymentCenter.includes("rememberCustomerTracking") &&
+    paymentCenter.includes("Bestellung verfolgen") &&
+    paymentCenter.includes("etaLabel") &&
+    !paymentCenter.includes("WhatsApp"),
+  "normal Payment Center must show secure tracking/ETA without split sharing",
+);
+assert(
+  splitCenter.includes("Link kopieren") &&
+    splitCenter.includes("WhatsApp") &&
+    splitCenter.includes("E-Mail") &&
+    splitCenter.includes("Alle Zahlungen abgeschlossen"),
+  "Split Center must keep payment and sharing status in one place",
 );
 
 const trackPanel = read("components/ui/TrackPanel.tsx");
@@ -82,12 +100,16 @@ assert(
   "failed cancellation must keep recovery access visible",
 );
 assert(
-  checkoutPage.includes("Solange diese Zahlung offen ist, bleibt der Checkout gesperrt"),
+  checkoutPage.includes(
+    "Solange diese Zahlung offen ist, bleibt der Checkout gesperrt",
+  ),
   "active payment must lock the whole checkout",
 );
 assert(
   checkoutPage.includes("Boolean(activePaymentRecovery)") &&
-    checkoutPage.includes("Bitte zuerst die offene Zahlung fortsetzen oder stornieren"),
+    checkoutPage.includes(
+      "Bitte zuerst die offene Zahlung fortsetzen oder stornieren",
+    ),
   "cash and all other submit paths must respect the active-payment lock",
 );
 assert(
@@ -96,14 +118,18 @@ assert(
 );
 assert(
   checkoutPage.includes("rememberLastDeliveryTrackId(trackingToken, id)") &&
-    !checkoutPage.includes('orderMode === "delivery" && !emergencyMode && trackingToken'),
+    !checkoutPage.includes(
+      'orderMode === "delivery" && !emergencyMode && trackingToken',
+    ),
   "cash tracking must be remembered for pickup and delivery",
 );
 
 assert(
-  paymentReturn.includes("Bestellung und Zahlung stornieren") &&
-    paymentReturn.includes('window.location.assign("/checkout?payment=cancelled")'),
-  "payment return page must allow checkout return and real cancellation",
+  paymentCenter.includes("Zahlung abbrechen") &&
+    paymentCenter.includes(
+      'window.location.assign("/checkout?payment=cancelled")',
+    ),
+  "Payment Center must allow real server-side cancellation",
 );
 
 const checkout = read("lib/server/payment-checkout.ts");
@@ -119,10 +145,11 @@ assert(checkout.includes("setup_future_usage"), "future usage missing");
 const finalize = read("lib/server/payment-finalize.ts");
 assert(
   finalize.includes("recoveryExpired") &&
-    finalize.includes("expireStripeCheckoutIfOpen"),
-  "lazy expiry must close unpaid Stripe Checkout sessions",
+    finalize.includes("expireStripeCheckoutIfOpen") &&
+    finalize.includes("paymentIntents.retrieve") &&
+    finalize.includes("paymentMetadataMatches"),
+  "finalization must verify both Checkout and direct PaymentIntent flows",
 );
-
 
 const publicOrder = read("lib/server/public-order.ts");
 assert(
@@ -133,7 +160,10 @@ assert(
 );
 
 const transition = read("components/AppRouteTransition.tsx");
-assert(transition.includes('window.addEventListener("pageshow"'), "pageshow restore missing");
+assert(
+  transition.includes('window.addEventListener("pageshow"'),
+  "pageshow restore missing",
+);
 assert(
   transition.includes('document.addEventListener("visibilitychange"'),
   "visibility restore missing",

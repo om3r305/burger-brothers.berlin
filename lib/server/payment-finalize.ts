@@ -48,6 +48,161 @@ function sessionCustomerId(session: Stripe.Checkout.Session) {
   return "";
 }
 
+function sessionPaymentMethod(session: Stripe.Checkout.Session) {
+  const intent =
+    session.payment_intent && typeof session.payment_intent === "object"
+      ? session.payment_intent
+      : null;
+  const paymentMethod = intent?.payment_method;
+
+  if (typeof paymentMethod === "string") {
+    return { id: paymentMethod, type: "" };
+  }
+  if (paymentMethod && typeof paymentMethod === "object") {
+    return {
+      id: String(paymentMethod.id || ""),
+      type: String(paymentMethod.type || ""),
+    };
+  }
+
+  return { id: "", type: "" };
+}
+
+function paymentIntentCustomerId(intent: Stripe.PaymentIntent) {
+  const customer = intent.customer;
+  if (typeof customer === "string") return customer;
+  if (customer && typeof customer === "object") return customer.id;
+  return "";
+}
+
+function paymentIntentState(intent: Stripe.PaymentIntent) {
+  if (intent.status === "succeeded") return "paid";
+  if (intent.status === "processing") return "processing";
+  if (intent.status === "requires_action") return "requires_action";
+  if (intent.status === "canceled") return "failed";
+  return "failed";
+}
+
+function paymentIntentPaymentMethod(intent: Stripe.PaymentIntent) {
+  const paymentMethod = intent.payment_method;
+  if (typeof paymentMethod === "string") {
+    return { id: paymentMethod, type: "" };
+  }
+  if (paymentMethod && typeof paymentMethod === "object") {
+    return {
+      id: String(paymentMethod.id || ""),
+      type: String(paymentMethod.type || ""),
+    };
+  }
+  return { id: "", type: "" };
+}
+
+function expectedAmountCents(value: any) {
+  return Math.max(0, Math.round(Number(value || 0) * 100));
+}
+
+function paymentMetadataMatches(params: {
+  metadata: Record<string, string> | null | undefined;
+  paymentSessionId: string;
+  finalOrderId: string;
+  shareIndex: number;
+}) {
+  const metadata = params.metadata || {};
+  return (
+    String(metadata.burger_payment_session || "") === params.paymentSessionId &&
+    String(metadata.burger_order_id || "") === params.finalOrderId &&
+    Number(metadata.share_index) === params.shareIndex
+  );
+}
+
+/*
+ * A signed Stripe webhook can repair the DB reference if the network failed
+ * immediately after Stripe created/confirmed a direct PaymentIntent. This
+ * prevents a successfully charged payment from becoming an orphan merely
+ * because the following Prisma update was interrupted.
+ */
+export async function recordPaymentIntentEvent(intent: Stripe.PaymentIntent) {
+  const paymentSessionId = String(
+    intent.metadata?.burger_payment_session || "",
+  ).trim();
+  const finalOrderId = String(intent.metadata?.burger_order_id || "").trim();
+  const shareIndex = Number(intent.metadata?.share_index);
+
+  if (
+    !paymentSessionId.startsWith("PAY-") ||
+    !finalOrderId ||
+    !Number.isInteger(shareIndex) ||
+    shareIndex < 0
+  ) {
+    return false;
+  }
+
+  const tenantId = await getTenantId();
+  const pending = await prisma.order.findFirst({
+    where: { tenantId, id: paymentSessionId },
+  });
+  if (!pending) return false;
+
+  const meta = ensureObj(pending.meta);
+  const paymentSession = ensureObj(meta.paymentSession);
+  if (String(paymentSession.finalOrderId || "") !== finalOrderId) return false;
+
+  const storedShares = Array.isArray(paymentSession.shares)
+    ? paymentSession.shares
+    : [];
+  const position = storedShares.findIndex(
+    (share: any) => Number(share?.index) === shareIndex,
+  );
+  if (position < 0) return false;
+
+  const stored = ensureObj(storedShares[position]);
+  const amountOk =
+    intent.currency === "eur" &&
+    Number(intent.amount) === expectedAmountCents(stored.amount);
+  if (!amountOk) return false;
+
+  const existingPaymentIntentId = String(stored.paymentIntentId || "").trim();
+  if (existingPaymentIntentId && existingPaymentIntentId !== intent.id) {
+    /* A delayed event from an older attempt must never replace a newer one. */
+    return false;
+  }
+
+  const method = paymentIntentPaymentMethod(intent);
+  const nextShares = [...storedShares];
+  nextShares[position] = {
+    ...stored,
+    flow: "saved_payment",
+    checkoutSessionId: "",
+    paymentIntentId: intent.id,
+    paymentMethodId: method.id || String(stored.paymentMethodId || ""),
+    paymentMethodType: method.type || String(stored.paymentMethodType || ""),
+    stripeCustomerId:
+      paymentIntentCustomerId(intent) || String(stored.stripeCustomerId || ""),
+    stripeStatus: intent.status,
+    status: paymentIntentState(intent),
+    errorCode: intent.last_payment_error?.code || stored.errorCode || null,
+    errorMessage: intent.last_payment_error
+      ? "Die Zahlung wurde vom Zahlungsanbieter nicht bestätigt."
+      : stored.errorMessage || null,
+  };
+
+  await prisma.order.update({
+    where: { id: pending.id },
+    data: {
+      meta: sanitizeJson({
+        ...meta,
+        paymentSession: {
+          ...paymentSession,
+          state: "waiting_payment",
+          shares: nextShares,
+          lastStripeEventAt: new Date().toISOString(),
+        },
+      }),
+    },
+  });
+  return true;
+}
+
 function sessionPaid(session: Stripe.Checkout.Session) {
   return session.payment_status === "paid";
 }
@@ -97,7 +252,9 @@ async function refundPaidIntents(params: {
   const stripe = getStripeClient();
   const results: any[] = [];
 
-  for (const paymentIntentId of Array.from(new Set(params.intents.filter(Boolean)))) {
+  for (const paymentIntentId of Array.from(
+    new Set(params.intents.filter(Boolean)),
+  )) {
     try {
       const refund = await stripe.refunds.create(
         {
@@ -195,7 +352,13 @@ export type FinalizePaymentResult = {
     serviceFee: number;
     checkoutSessionId: string;
     paymentIntentId: string;
+    paymentMethodId?: string;
+    paymentMethodType?: string;
     stripeCustomerId?: string;
+    flow?: "checkout" | "saved_payment" | string;
+    actionUrl?: string | null;
+    errorCode?: string | null;
+    errorMessage?: string | null;
     status: string;
     url?: string | null;
     shareUrl?: string | null;
@@ -262,8 +425,7 @@ export async function finalizePaymentSession(
     String(paymentSession.recoveryExpiresAt || ""),
   );
   const recoveryExpired =
-    Number.isFinite(recoveryExpiresAtMs) &&
-    recoveryExpiresAtMs <= Date.now();
+    Number.isFinite(recoveryExpiresAtMs) && recoveryExpiresAtMs <= Date.now();
 
   if (paymentSession.finalizedAt && finalOrderId) {
     const existing = await prisma.order.findFirst({
@@ -285,9 +447,7 @@ export async function finalizePaymentSession(
       totalCount: Number(paymentSession.shareCount || 1),
       nextUrl: null,
       nextShareIndex: null,
-      shares: Array.isArray(paymentSession.shares)
-        ? paymentSession.shares
-        : [],
+      shares: Array.isArray(paymentSession.shares) ? paymentSession.shares : [],
     };
   }
 
@@ -314,27 +474,133 @@ export async function finalizePaymentSession(
   const shares: FinalizePaymentResult["shares"] = [];
 
   for (const stored of storedShares) {
+    const shareIndex = Number(stored?.index || 0);
     const checkoutSessionId = String(stored?.checkoutSessionId || "").trim();
+    const storedPaymentIntentId = String(stored?.paymentIntentId || "").trim();
+    const shareExpiryMs = stored?.shareExpiresAt
+      ? Date.parse(String(stored.shareExpiresAt))
+      : Number.NaN;
+    const shareExpiredByTime =
+      recoveryExpired ||
+      (Number.isFinite(shareExpiryMs) && shareExpiryMs <= Date.now());
+
+    if (!checkoutSessionId && storedPaymentIntentId) {
+      try {
+        let intent = await stripe.paymentIntents.retrieve(
+          storedPaymentIntentId,
+        );
+        const metadataOk = paymentMetadataMatches({
+          metadata: intent.metadata,
+          paymentSessionId,
+          finalOrderId,
+          shareIndex,
+        });
+        const amountOk =
+          intent.currency === "eur" &&
+          Number(intent.amount) === expectedAmountCents(stored?.amount);
+        const expectedCustomerId = String(
+          stored?.stripeCustomerId || "",
+        ).trim();
+        const customerOk =
+          !expectedCustomerId ||
+          paymentIntentCustomerId(intent) === expectedCustomerId;
+        let state = paymentIntentState(intent);
+
+        if (
+          shareExpiredByTime &&
+          [
+            "requires_payment_method",
+            "requires_confirmation",
+            "requires_action",
+          ].includes(intent.status)
+        ) {
+          try {
+            intent = await stripe.paymentIntents.cancel(intent.id);
+          } catch {}
+          state =
+            intent.status === "canceled"
+              ? "expired"
+              : paymentIntentState(intent);
+        }
+        if (!metadataOk || !amountOk || !customerOk) state = "invalid";
+
+        shares.push({
+          index: shareIndex,
+          label: String(stored?.label || `Person ${shareIndex + 1}`),
+          amount: Number(stored?.amount || 0),
+          baseAmount: Number(stored?.baseAmount || 0),
+          serviceFee: Number(stored?.serviceFee || 0),
+          checkoutSessionId: "",
+          paymentIntentId: intent.id,
+          paymentMethodId: String(stored?.paymentMethodId || ""),
+          paymentMethodType: String(stored?.paymentMethodType || ""),
+          stripeCustomerId: paymentIntentCustomerId(intent),
+          flow: "saved_payment",
+          actionUrl: stored?.actionUrl || null,
+          errorCode:
+            stored?.errorCode || intent.last_payment_error?.code || null,
+          errorMessage:
+            stored?.errorMessage ||
+            (intent.last_payment_error
+              ? "Die Zahlung wurde vom Zahlungsanbieter nicht bestätigt."
+              : null),
+          status: state,
+          url:
+            state === "requires_action"
+              ? stored?.actionUrl || null
+              : stored?.shareUrl || null,
+          shareUrl: stored?.shareUrl || null,
+          shareTokenHash: stored?.shareTokenHash || null,
+          shareExpiresAt: stored?.shareExpiresAt || null,
+          attempt: Number(stored?.attempt || 0),
+          items: Array.isArray(stored?.items) ? stored.items : [],
+        });
+      } catch {
+        shares.push({
+          index: shareIndex,
+          label: String(stored?.label || ""),
+          amount: Number(stored?.amount || 0),
+          baseAmount: Number(stored?.baseAmount || 0),
+          serviceFee: Number(stored?.serviceFee || 0),
+          checkoutSessionId: "",
+          paymentIntentId: storedPaymentIntentId,
+          paymentMethodId: String(stored?.paymentMethodId || ""),
+          paymentMethodType: String(stored?.paymentMethodType || ""),
+          stripeCustomerId: String(stored?.stripeCustomerId || ""),
+          flow: "saved_payment",
+          actionUrl: stored?.actionUrl || null,
+          errorCode: stored?.errorCode || null,
+          errorMessage: stored?.errorMessage || null,
+          status: "error",
+          url: stored?.shareUrl || null,
+          shareUrl: stored?.shareUrl || null,
+          shareTokenHash: stored?.shareTokenHash || null,
+          shareExpiresAt: stored?.shareExpiresAt || null,
+          attempt: Number(stored?.attempt || 0),
+          items: Array.isArray(stored?.items) ? stored.items : [],
+        });
+      }
+      continue;
+    }
 
     if (!checkoutSessionId) {
-      const shareExpiryMs = stored?.shareExpiresAt
-        ? Date.parse(String(stored.shareExpiresAt))
-        : Number.NaN;
-      const shareExpired =
-        recoveryExpired ||
-        (Number.isFinite(shareExpiryMs) && shareExpiryMs <= Date.now());
-
       shares.push({
-        index: Number(stored?.index || 0),
+        index: shareIndex,
         label: String(stored?.label || ""),
         amount: Number(stored?.amount || 0),
         baseAmount: Number(stored?.baseAmount || 0),
         serviceFee: Number(stored?.serviceFee || 0),
         checkoutSessionId: "",
         paymentIntentId: "",
+        paymentMethodId: "",
+        paymentMethodType: "",
         stripeCustomerId: "",
-        status: shareExpired ? "expired" : "open",
-        url: shareExpired ? null : stored?.shareUrl || null,
+        flow: String(stored?.flow || ""),
+        actionUrl: stored?.actionUrl || null,
+        errorCode: stored?.errorCode || null,
+        errorMessage: stored?.errorMessage || null,
+        status: shareExpiredByTime ? "expired" : "open",
+        url: shareExpiredByTime ? null : stored?.shareUrl || null,
         shareUrl: stored?.shareUrl || null,
         shareTokenHash: stored?.shareTokenHash || null,
         shareExpiresAt: stored?.shareExpiresAt || null,
@@ -347,35 +613,60 @@ export async function finalizePaymentSession(
     try {
       let checkout: Stripe.Checkout.Session =
         await stripe.checkout.sessions.retrieve(checkoutSessionId, {
-          expand: ["payment_intent"],
+          expand: ["payment_intent.payment_method"],
         });
 
-      const shareExpiryMs = stored?.shareExpiresAt
-        ? Date.parse(String(stored.shareExpiresAt))
-        : Number.NaN;
       const initialCheckoutState = sessionState(checkout);
       const shareExpired =
-        initialCheckoutState === "open" &&
-        (recoveryExpired ||
-          (Number.isFinite(shareExpiryMs) && shareExpiryMs <= Date.now()));
+        initialCheckoutState === "open" && shareExpiredByTime;
 
       if (shareExpired) {
         checkout = await expireStripeCheckoutIfOpen(stripe, checkout);
       }
 
-      const checkoutState = shareExpired
-        ? "expired"
-        : sessionState(checkout);
+      let checkoutState = sessionState(checkout);
+      if (shareExpired && checkout.status === "expired") {
+        checkoutState = "expired";
+      }
+      const metadataOk = paymentMetadataMatches({
+        metadata: checkout.metadata,
+        paymentSessionId,
+        finalOrderId,
+        shareIndex,
+      });
+      const amountOk =
+        checkout.currency === "eur" &&
+        Number(checkout.amount_total) === expectedAmountCents(stored?.amount);
+      if (!metadataOk || !amountOk) checkoutState = "invalid";
+
+      const checkoutPaymentMethod = sessionPaymentMethod(checkout);
+      const checkoutIntent =
+        checkout.payment_intent && typeof checkout.payment_intent === "object"
+          ? checkout.payment_intent
+          : null;
 
       shares.push({
-        index: Number(stored?.index || 0),
-        label: String(stored?.label || `Person ${Number(stored?.index || 0) + 1}`),
+        index: shareIndex,
+        label: String(stored?.label || `Person ${shareIndex + 1}`),
         amount: Number(stored?.amount || 0),
         baseAmount: Number(stored?.baseAmount || 0),
         serviceFee: Number(stored?.serviceFee || 0),
         checkoutSessionId,
         paymentIntentId: sessionPaymentIntentId(checkout),
+        paymentMethodId:
+          String(stored?.paymentMethodId || "") || checkoutPaymentMethod.id,
+        paymentMethodType:
+          String(stored?.paymentMethodType || "") || checkoutPaymentMethod.type,
         stripeCustomerId: sessionCustomerId(checkout),
+        flow: "checkout",
+        actionUrl: null,
+        errorCode:
+          stored?.errorCode || checkoutIntent?.last_payment_error?.code || null,
+        errorMessage:
+          stored?.errorMessage ||
+          (checkoutIntent?.last_payment_error
+            ? "Die Zahlung wurde vom Zahlungsanbieter nicht bestätigt."
+            : null),
         status: checkoutState,
         url:
           checkoutState === "expired"
@@ -388,16 +679,22 @@ export async function finalizePaymentSession(
         attempt: Number(stored?.attempt || 0),
         items: Array.isArray(stored?.items) ? stored.items : [],
       });
-    } catch (error: any) {
+    } catch {
       shares.push({
-        index: Number(stored?.index || 0),
+        index: shareIndex,
         label: String(stored?.label || ""),
         amount: Number(stored?.amount || 0),
         baseAmount: Number(stored?.baseAmount || 0),
         serviceFee: Number(stored?.serviceFee || 0),
         checkoutSessionId,
-        paymentIntentId: String(stored?.paymentIntentId || ""),
+        paymentIntentId: storedPaymentIntentId,
+        paymentMethodId: String(stored?.paymentMethodId || ""),
+        paymentMethodType: String(stored?.paymentMethodType || ""),
         stripeCustomerId: String(stored?.stripeCustomerId || ""),
+        flow: "checkout",
+        actionUrl: null,
+        errorCode: stored?.errorCode || null,
+        errorMessage: stored?.errorMessage || null,
         status: "error",
         url: stored?.shareUrl || stored?.url || null,
         shareUrl: stored?.shareUrl || null,
@@ -416,11 +713,17 @@ export async function finalizePaymentSession(
     String(paymentSession.state || "") === "cancelled";
   const unpaidShares = shares.filter((share) => share.status !== "paid");
   const expired = unpaidShares.some((share) => share.status === "expired");
-  const processing = unpaidShares.some((share) => share.status === "processing");
+  const processing = unpaidShares.some(
+    (share) => share.status === "processing",
+  );
   const nextShare =
-    unpaidShares.find((share) => share.status === "open" && share.url) || null;
-  const failed = unpaidShares.some(
-    (share) => share.status === "failed" || share.status === "error" || share.status === "missing",
+    unpaidShares.find(
+      (share) =>
+        ["open", "requires_action", "failed", "error"].includes(share.status) &&
+        share.url,
+    ) || null;
+  const integrityInvalid = unpaidShares.some(
+    (share) => share.status === "invalid" || share.status === "missing",
   );
 
   const nextMeta = {
@@ -504,14 +807,12 @@ export async function finalizePaymentSession(
     };
   }
 
-  if ((expired || failed) && paidShares.length > 0) {
+  if ((expired || integrityInvalid) && paidShares.length > 0) {
     const refunds = await refundPaidIntents({
       paymentSessionId,
       finalOrderId: finalOrderId || paymentSessionId,
-      intents: paidShares
-        .map((share) => share.paymentIntentId)
-        .filter(Boolean),
-      reason: expired ? "split_payment_expired" : "split_payment_failed",
+      intents: paidShares.map((share) => share.paymentIntentId).filter(Boolean),
+      reason: expired ? "split_payment_expired" : "payment_integrity_invalid",
     });
     const refundFailed = refunds.some((refund) => refund?.error);
 
@@ -528,7 +829,7 @@ export async function finalizePaymentSession(
               ...ensureObj(nextMeta.paymentSession),
               state: refundFailed ? "refund_failed" : "refunded",
               terminalAt: new Date().toISOString(),
-              terminalReason: expired ? "expired" : "failed",
+              terminalReason: expired ? "expired" : "integrity_invalid",
               autoRefunds: refunds,
             },
           }),
@@ -555,7 +856,7 @@ export async function finalizePaymentSession(
     };
   }
 
-  if ((expired || failed) && paidShares.length === 0) {
+  if ((expired || integrityInvalid) && paidShares.length === 0) {
     await prisma.order
       .update({
         where: {
@@ -587,10 +888,10 @@ export async function finalizePaymentSession(
       nextUrl: null,
       nextShareIndex: null,
       shares,
-      error: expired ? "PAYMENT_SESSION_EXPIRED" : "PAYMENT_FAILED",
+      error: expired ? "PAYMENT_SESSION_EXPIRED" : "PAYMENT_INTEGRITY_INVALID",
       message: expired
         ? "Die Zahlungssitzung ist abgelaufen. Es wurde nichts berechnet."
-        : "Die Zahlung konnte nicht abgeschlossen werden.",
+        : "Die Zahlungsdaten konnten nicht sicher bestätigt werden.",
     };
   }
 
@@ -599,7 +900,13 @@ export async function finalizePaymentSession(
       ok: true,
       paymentSessionId,
       paymentKind,
-      status: expired ? "expired" : processing ? "processing" : "pending",
+      status: expired
+        ? "expired"
+        : processing
+          ? "processing"
+          : unpaidShares.some((share) => share.status === "requires_action")
+            ? "pending"
+            : "pending",
       finalized: false,
       finalOrderId: finalOrderId || undefined,
       paidCount: paidShares.length,
@@ -611,7 +918,11 @@ export async function finalizePaymentSession(
         ? "Mindestens eine Zahlungssitzung ist abgelaufen."
         : processing
           ? "Die Zahlung wird noch bestätigt."
-          : "Weitere Teilzahlung erforderlich.",
+          : unpaidShares.some((share) =>
+                ["failed", "error"].includes(share.status),
+              )
+            ? "Mindestens eine Zahlung wurde nicht abgeschlossen und kann erneut versucht werden."
+            : "Weitere Teilzahlung erforderlich.",
     };
   }
 
@@ -671,7 +982,13 @@ export async function finalizePaymentSession(
   );
   const stripeCustomerId = stripeCustomerIds[0] || "";
   const paidAt = new Date().toISOString();
-  const paymentId = paymentIntentIds[0] || checkoutSessionIds[0] || paymentSessionId;
+  const paymentId =
+    paymentIntentIds[0] || checkoutSessionIds[0] || paymentSessionId;
+  const paymentFlow = shares.some((share) => share.flow === "saved_payment")
+    ? checkoutSessionIds.length
+      ? "mixed"
+      : "saved_payment"
+    : "checkout";
 
   const finalOrder = {
     ...pendingOrder,
@@ -684,6 +1001,7 @@ export async function finalizePaymentSession(
       method: paymentKind,
       status: "paid",
       provider: "stripe_checkout",
+      flow: paymentFlow,
       id: paymentId,
       paymentIntentIds,
       checkoutSessionIds,
@@ -691,14 +1009,23 @@ export async function finalizePaymentSession(
       stripeCustomerIds,
       sessionId: paymentSessionId,
       orderTotal: Number(
-        paymentSession.orderTotal ?? paymentSession.baseTotal ?? pendingOrder.total ?? 0,
+        paymentSession.orderTotal ??
+          paymentSession.baseTotal ??
+          pendingOrder.total ??
+          0,
       ),
       serviceFeeTotal: Number(paymentSession.serviceFeeTotal || 0),
       collectedTotal: Number(
-        paymentSession.collectedTotal ?? paymentSession.total ?? pendingOrder.total ?? 0,
+        paymentSession.collectedTotal ??
+          paymentSession.total ??
+          pendingOrder.total ??
+          0,
       ),
       payableTotal: Number(
-        paymentSession.collectedTotal ?? paymentSession.total ?? pendingOrder.total ?? 0,
+        paymentSession.collectedTotal ??
+          paymentSession.total ??
+          pendingOrder.total ??
+          0,
       ),
       shares,
       paidAt,
@@ -714,6 +1041,7 @@ export async function finalizePaymentSession(
         method: paymentKind,
         status: "paid",
         provider: "stripe_checkout",
+        flow: paymentFlow,
         id: paymentId,
         paymentIntentIds,
         checkoutSessionIds,
@@ -721,14 +1049,23 @@ export async function finalizePaymentSession(
         stripeCustomerIds,
         sessionId: paymentSessionId,
         orderTotal: Number(
-          paymentSession.orderTotal ?? paymentSession.baseTotal ?? pendingOrder.total ?? 0,
+          paymentSession.orderTotal ??
+            paymentSession.baseTotal ??
+            pendingOrder.total ??
+            0,
         ),
         serviceFeeTotal: Number(paymentSession.serviceFeeTotal || 0),
         collectedTotal: Number(
-          paymentSession.collectedTotal ?? paymentSession.total ?? pendingOrder.total ?? 0,
+          paymentSession.collectedTotal ??
+            paymentSession.total ??
+            pendingOrder.total ??
+            0,
         ),
         payableTotal: Number(
-          paymentSession.collectedTotal ?? paymentSession.total ?? pendingOrder.total ?? 0,
+          paymentSession.collectedTotal ??
+            paymentSession.total ??
+            pendingOrder.total ??
+            0,
         ),
         shares,
         paidAt,
@@ -772,8 +1109,10 @@ export async function finalizePaymentSession(
      * kaybolsa veya benzersiz ID yarışı yaşansa bile sipariş DB'de oluştuysa
      * ödeme iade edilmez; mevcut sipariş başarılı kabul edilir.
      */
-    const racedExisting = await findExistingFinalOrder(tenantId, finalOrderId)
-      .catch(() => null);
+    const racedExisting = await findExistingFinalOrder(
+      tenantId,
+      finalOrderId,
+    ).catch(() => null);
 
     if (racedExisting) {
       await markPendingFinalized({
@@ -844,10 +1183,7 @@ export async function finalizePaymentSession(
   }
 
   const finalCreatedOrder =
-    created?.order ||
-    created?.item ||
-    created?.data ||
-    created;
+    created?.order || created?.item || created?.data || created;
 
   await markPendingFinalized({
     pendingId: pending.id,

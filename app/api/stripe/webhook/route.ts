@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { getStripeClient } from "@/lib/server/stripe-client";
-import { finalizePaymentSession } from "@/lib/server/payment-finalize";
+import {
+  finalizePaymentSession,
+  recordPaymentIntentEvent,
+} from "@/lib/server/payment-finalize";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,9 +18,7 @@ function paymentSessionIdFromObject(value: any) {
 }
 
 export async function POST(req: Request) {
-  const webhookSecret = String(
-    process.env.STRIPE_WEBHOOK_SECRET || "",
-  ).trim();
+  const webhookSecret = String(process.env.STRIPE_WEBHOOK_SECRET || "").trim();
 
   if (!webhookSecret) {
     return NextResponse.json(
@@ -45,6 +46,10 @@ export async function POST(req: Request) {
       "checkout.session.async_payment_succeeded",
       "checkout.session.async_payment_failed",
       "checkout.session.expired",
+      "payment_intent.succeeded",
+      "payment_intent.processing",
+      "payment_intent.payment_failed",
+      "payment_intent.canceled",
     ]);
 
     if (supported.has(event.type)) {
@@ -52,6 +57,9 @@ export async function POST(req: Request) {
       const paymentSessionId = paymentSessionIdFromObject(object);
 
       if (paymentSessionId) {
+        if (event.type.startsWith("payment_intent.")) {
+          await recordPaymentIntentEvent(object);
+        }
         await finalizePaymentSession(paymentSessionId, req.url);
       }
     }
@@ -61,7 +69,10 @@ export async function POST(req: Request) {
       type: event.type,
     });
   } catch (error: any) {
-    console.error("[stripe/webhook]", error);
+    console.error(
+      "[stripe/webhook]",
+      String(error?.code || error?.type || "STRIPE_WEBHOOK_FAILED").slice(0, 80),
+    );
 
     return NextResponse.json(
       {

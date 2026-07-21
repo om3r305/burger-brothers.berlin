@@ -1,7 +1,11 @@
-import { randomBytes, randomUUID } from "crypto";
+import { randomBytes } from "crypto";
 import { NextResponse } from "next/server";
 import { prisma, getTenantId } from "@/lib/db";
-import { enforceRateLimit, forbiddenResponse, hasTrustedMutationOrigin } from "@/lib/server/request-security";
+import {
+  enforceRateLimit,
+  forbiddenResponse,
+  hasTrustedMutationOrigin,
+} from "@/lib/server/request-security";
 import { getServerSettings } from "@/lib/server/settings";
 import {
   getStripeClient,
@@ -9,6 +13,10 @@ import {
   stripeModeLabel,
 } from "@/lib/server/stripe-client";
 import { createBurgerCheckoutSession } from "@/lib/server/payment-checkout";
+import {
+  cancelPaymentIntentIfOpen,
+  createAndConfirmSavedPayment,
+} from "@/lib/server/payment-intent";
 import { resolvePaymentProfileCustomerId } from "@/lib/server/payment-profile";
 import {
   OrderPricingError,
@@ -128,10 +136,10 @@ function readPaymentEnabled(
 
   const legacy =
     key === "online"
-      ? settings?.features?.payments?.onlinePayment ??
-        settings?.features?.onlinePayment?.enabled
-      : settings?.features?.payments?.splitPayment ??
-        settings?.features?.splitPayment?.enabled;
+      ? (settings?.features?.payments?.onlinePayment ??
+        settings?.features?.onlinePayment?.enabled)
+      : (settings?.features?.payments?.splitPayment ??
+        settings?.features?.splitPayment?.enabled);
 
   return typeof legacy === "boolean" ? legacy : fallback;
 }
@@ -154,8 +162,7 @@ function cleanSplitShares(
       0,
       Math.round(
         Number(
-          share?.baseAmountCents ??
-            toCents(share?.baseAmount ?? share?.amount),
+          share?.baseAmountCents ?? toCents(share?.baseAmount ?? share?.amount),
         ) || 0,
       ),
     );
@@ -175,10 +182,7 @@ function cleanSplitShares(
     };
   });
 
-  const baseSum = shares.reduce(
-    (sum, share) => sum + share.baseAmountCents,
-    0,
-  );
+  const baseSum = shares.reduce((sum, share) => sum + share.baseAmountCents, 0);
 
   if (baseSum !== payableCents) {
     throw new Error("SPLIT_TOTAL_MISMATCH");
@@ -186,6 +190,10 @@ function cleanSplitShares(
 
   if (shares.some((share) => share.baseAmountCents <= 0)) {
     throw new Error("SPLIT_EMPTY_PERSON");
+  }
+
+  if (shares.some((share) => share.amountCents < 50)) {
+    throw new Error("PAYMENT_AMOUNT_TOO_LOW");
   }
 
   return shares;
@@ -229,6 +237,7 @@ async function findReusablePaymentRequest(params: {
       status: {
         in: [
           "payment_pending",
+          "payment_starting",
           "payment_completed",
           "payment_failed",
           "payment_expired",
@@ -245,7 +254,8 @@ async function findReusablePaymentRequest(params: {
   for (const row of recent) {
     const meta = ensureObj(row.meta);
     const paymentSession = ensureObj(meta.paymentSession);
-    if (String(paymentSession.requestIdHash || "") !== params.requestIdHash) continue;
+    if (String(paymentSession.requestIdHash || "") !== params.requestIdHash)
+      continue;
     if (
       !paymentRecoveryValueMatches(
         params.recoveryToken,
@@ -255,7 +265,9 @@ async function findReusablePaymentRequest(params: {
       continue;
     }
 
-    const expiresAtMs = Date.parse(String(paymentSession.recoveryExpiresAt || ""));
+    const expiresAtMs = Date.parse(
+      String(paymentSession.recoveryExpiresAt || ""),
+    );
     if (Number.isFinite(expiresAtMs) && expiresAtMs <= Date.now()) continue;
 
     return { row, paymentSession };
@@ -273,7 +285,9 @@ function reusablePaymentResponse(params: {
   const shares = Array.isArray(session.shares) ? session.shares : [];
   const isSplit = String(session.kind || "online") === "split_contactless";
   const manageUrl = String(session.manageUrl || "");
-  const firstCheckoutUrl = String(shares[0]?.checkoutUrl || shares[0]?.url || "");
+  const firstCheckoutUrl = String(
+    shares[0]?.actionUrl || shares[0]?.checkoutUrl || shares[0]?.url || "",
+  );
 
   return {
     ok: true,
@@ -309,13 +323,43 @@ function json(payload: any, status = 200) {
   });
 }
 
-export async function POST(req: Request) {
-  if (!hasTrustedMutationOrigin(req)) return forbiddenResponse("origin_not_allowed");
+async function closeUnpersistedStripeResources(params: {
+  stripe: ReturnType<typeof getStripeClient>;
+  shares: any[];
+}) {
+  for (const raw of params.shares) {
+    const share = ensureObj(raw);
+    const checkoutSessionId = String(share.checkoutSessionId || "").trim();
+    if (checkoutSessionId) {
+      try {
+        const checkout =
+          await params.stripe.checkout.sessions.retrieve(checkoutSessionId);
+        if (checkout.payment_status !== "paid" && checkout.status === "open") {
+          await params.stripe.checkout.sessions.expire(checkoutSessionId);
+        }
+      } catch {}
+    }
 
-  const rateError = await enforceRateLimit(req, "payments:prepare", 10, 5 * 60_000);
+    await cancelPaymentIntentIfOpen(
+      params.stripe,
+      String(share.paymentIntentId || "").trim(),
+    );
+  }
+}
+
+export async function POST(req: Request) {
+  if (!hasTrustedMutationOrigin(req))
+    return forbiddenResponse("origin_not_allowed");
+
+  const rateError = await enforceRateLimit(
+    req,
+    "payments:prepare",
+    10,
+    5 * 60_000,
+  );
   if (rateError) return rateError;
 
-  const body = await req.json().catch(() => ({} as any));
+  const body = await req.json().catch(() => ({}) as any);
   const order = ensureObj(body?.order);
   const requestedKind =
     String(body?.paymentKind || body?.method || "online")
@@ -325,13 +369,16 @@ export async function POST(req: Request) {
       : "online";
 
   try {
-    const settings = await getServerSettings().catch(() => ({} as any));
+    const settings = await getServerSettings().catch(() => ({}) as any);
     const onlineEnabled = readPaymentEnabled(settings, "online", false);
     const splitEnabled = readPaymentEnabled(settings, "split", false);
     const rememberPaymentAllowed =
       settings?.payments?.online?.rememberPaymentMethods !== false;
     const rememberPayment =
       rememberPaymentAllowed && body?.rememberPayment === true;
+    const selectedPaymentMethodId = String(
+      body?.savedPaymentMethodId || body?.paymentMethodId || "",
+    ).trim();
     const whatsappShareEnabled =
       settings?.payments?.split?.whatsappShareEnabled !== false;
     const onlinePendingMinutes = Math.max(
@@ -475,13 +522,17 @@ export async function POST(req: Request) {
       Math.min(12, Math.round(toNumber(settings?.orders?.idLength, 6))),
     );
     const finalOrderId = await generateFinalOrderId(idLength);
-    const paymentSessionId = `PAY-${randomUUID()}`;
+    /*
+     * The browser request id is random and opaque. Deriving the pending row id
+     * from its SHA-256 hash makes network retries/concurrent double clicks hit
+     * the same DB row instead of creating two independent payment sessions.
+     */
+    const paymentSessionId = `PAY-${requestIdHash.slice(0, 32)}`;
     const now = new Date();
     const mode = rebuiltPricing.mode;
     const customer = ensureObj(order?.customer);
     const baseUrl = resolveBaseUrl(req.url);
-    const shareExpiresAt =
-      Math.floor(recoveryExpiresAt.getTime() / 1000);
+    const shareExpiresAt = Math.floor(recoveryExpiresAt.getTime() / 1000);
     const preparedShares = shares.map((share) => {
       if (requestedKind !== "split_contactless") return { ...share };
 
@@ -542,69 +593,105 @@ export async function POST(req: Request) {
       },
     });
 
-    await prisma.order.create({
-      data: {
-        id: paymentSessionId,
-        tenantId,
-        mode,
-        channel: "web",
-        status: "payment_pending",
-        merchandise: fromCents(rebuiltPricing.merchandiseCents),
-        discount: fromCents(rebuiltPricing.discountCents),
-        surcharges: fromCents(rebuiltPricing.surchargesCents),
-        total: fromCents(payableCents),
-        coupon: rebuiltPricing.couponCode,
-        couponDiscount: fromCents(rebuiltPricing.couponDiscountCents),
-        customer: sanitizeJson(customer),
-        items: sanitizeJson(rebuiltPricing.items),
-        meta: sanitizeJson({
-          pendingOrder: adjustedOrder,
-          paymentSession: {
-            id: paymentSessionId,
-            finalOrderId,
-            kind: requestedKind,
-            state: "creating_checkout",
-            stripeMode: stripeModeLabel(),
-            createdAt: now.toISOString(),
-            requestIdHash,
-            recoveryTokenHash,
-            recoveryExpiresAt: recoveryExpiresAt.toISOString(),
-            shareCount: shares.length,
-            paidCount: 0,
-            baseTotal: fromCents(payableCents),
-            orderTotal: fromCents(payableCents),
-            serviceFeeTotal: fromCents(feeTotalCents),
-            total: fromCents(paidTotalCents),
-            collectedTotal: fromCents(paidTotalCents),
-            rememberPayment,
-            whatsappShareEnabled,
-            pendingExpiryMinutes,
-            shares: preparedShares.map((share) => ({
-              index: share.index,
-              label: share.label,
-              baseAmount: fromCents(share.baseAmountCents),
-              serviceFee: fromCents(share.serviceFeeCents),
-              amount: fromCents(share.amountCents),
-              items: share.items,
-              shareTokenHash: (share as any).shareTokenHash || null,
-              shareUrl: (share as any).shareUrl || null,
-              shareExpiresAt: (share as any).shareExpiresAt || null,
-              status: "open",
-              attempt: 0,
-            })),
-          },
-        }),
-        ts: now,
-        planned: order?.planned ? String(order.planned) : null,
-        etaMin: null,
-        etaAdjustMin: 0,
-        archivedAt: now,
-      } as any,
+    const manageUrl = buildPaymentManageUrl({
+      baseUrl,
+      paymentSessionId,
+      recoveryToken,
+      split: requestedKind === "split_contactless",
     });
+
+    try {
+      await prisma.order.create({
+        data: {
+          id: paymentSessionId,
+          tenantId,
+          mode,
+          channel: "web",
+          status: "payment_pending",
+          merchandise: fromCents(rebuiltPricing.merchandiseCents),
+          discount: fromCents(rebuiltPricing.discountCents),
+          surcharges: fromCents(rebuiltPricing.surchargesCents),
+          total: fromCents(payableCents),
+          coupon: rebuiltPricing.couponCode,
+          couponDiscount: fromCents(rebuiltPricing.couponDiscountCents),
+          customer: sanitizeJson(customer),
+          items: sanitizeJson(rebuiltPricing.items),
+          meta: sanitizeJson({
+            pendingOrder: adjustedOrder,
+            paymentSession: {
+              id: paymentSessionId,
+              finalOrderId,
+              kind: requestedKind,
+              state: "creating_payment",
+              stripeMode: stripeModeLabel(),
+              createdAt: now.toISOString(),
+              requestIdHash,
+              recoveryTokenHash,
+              recoveryExpiresAt: recoveryExpiresAt.toISOString(),
+              shareCount: shares.length,
+              paidCount: 0,
+              baseTotal: fromCents(payableCents),
+              orderTotal: fromCents(payableCents),
+              serviceFeeTotal: fromCents(feeTotalCents),
+              total: fromCents(paidTotalCents),
+              collectedTotal: fromCents(paidTotalCents),
+              rememberPayment,
+              whatsappShareEnabled,
+              pendingExpiryMinutes,
+              manageUrl,
+              shares: preparedShares.map((share) => ({
+                index: share.index,
+                label: share.label,
+                baseAmount: fromCents(share.baseAmountCents),
+                serviceFee: fromCents(share.serviceFeeCents),
+                amount: fromCents(share.amountCents),
+                items: share.items,
+                shareTokenHash: (share as any).shareTokenHash || null,
+                shareUrl: (share as any).shareUrl || null,
+                shareExpiresAt: (share as any).shareExpiresAt || null,
+                status: "open",
+                attempt: 0,
+              })),
+            },
+          }),
+          ts: now,
+          planned: order?.planned ? String(order.planned) : null,
+          etaMin: null,
+          etaAdjustMin: 0,
+          archivedAt: now,
+        } as any,
+      });
+    } catch (createError) {
+      const concurrent = await prisma.order.findFirst({
+        where: { tenantId, id: paymentSessionId },
+        select: { id: true, meta: true },
+      });
+      const concurrentSession = ensureObj(
+        ensureObj(concurrent?.meta).paymentSession,
+      );
+      const sameRequest =
+        concurrent?.id === paymentSessionId &&
+        String(concurrentSession.requestIdHash || "") === requestIdHash &&
+        paymentRecoveryValueMatches(
+          recoveryToken,
+          String(concurrentSession.recoveryTokenHash || ""),
+        );
+
+      if (sameRequest) {
+        return json(
+          reusablePaymentResponse({
+            paymentSessionId,
+            paymentSession: concurrentSession,
+            recoveryToken,
+          }),
+        );
+      }
+
+      throw createError;
+    }
 
     const customerEmail = validEmail(customer?.email);
     const checkoutShares: any[] = [];
-
     try {
       if (requestedKind === "split_contactless") {
         for (const share of preparedShares) {
@@ -627,70 +714,129 @@ export async function POST(req: Request) {
         }
       } else {
         const share = preparedShares[0];
-        const successUrl = new URL("/payment/return", baseUrl);
+        const successUrl = new URL("/payment/center", baseUrl);
         successUrl.searchParams.set("paymentSession", paymentSessionId);
         successUrl.searchParams.set("recovery", recoveryToken);
         successUrl.searchParams.set("share", String(share.index));
-        // URLSearchParams encodes the braces in Stripe's reserved placeholder.
-        // Stripe only replaces the exact literal `{CHECKOUT_SESSION_ID}`.
-        const successUrlWithCheckoutSession =
-          `${successUrl.toString()}&checkout_session_id={CHECKOUT_SESSION_ID}`;
+        const successUrlWithCheckoutSession = `${successUrl.toString()}&checkout_session_id={CHECKOUT_SESSION_ID}`;
 
-        const cancelUrl = new URL("/payment/return", baseUrl);
+        const cancelUrl = new URL("/payment/center", baseUrl);
         cancelUrl.searchParams.set("payment", "cancelled");
         cancelUrl.searchParams.set("paymentSession", paymentSessionId);
         cancelUrl.searchParams.set("recovery", recoveryToken);
         cancelUrl.searchParams.set("share", String(share.index));
 
-        /*
-         * A previously remembered method may be used again even when the
-         * customer leaves "remember this payment method" disabled for the
-         * current order. The signed HttpOnly profile and phone hash still
-         * protect the Stripe Customer lookup.
-         */
         const knownCustomerId = await resolveKnownStripeCustomerId({
           req,
           stripe,
           customer,
         });
 
-        const checkout = await createBurgerCheckoutSession({
-          stripe,
-          paymentSessionId,
-          finalOrderId,
-          paymentKind: "online",
-          share: {
+        const createHostedCheckout = async () => {
+          const checkout = await createBurgerCheckoutSession({
+            stripe,
+            paymentSessionId,
+            finalOrderId,
+            paymentKind: "online",
+            share: {
+              index: share.index,
+              label: share.label,
+              amountCents: share.amountCents,
+            },
+            shareCount: 1,
+            successUrl: successUrlWithCheckoutSession,
+            cancelUrl: cancelUrl.toString(),
+            rememberPayment,
+            customerId: knownCustomerId || undefined,
+            customerEmail: knownCustomerId ? undefined : customerEmail,
+            idempotencyKey: `bb-checkout-${paymentSessionId}-${share.index}`,
+            expiresAt: Math.floor(recoveryExpiresAt.getTime() / 1000),
+          });
+
+          checkoutShares.push({
             index: share.index,
             label: share.label,
-            amountCents: share.amountCents,
-          },
-          shareCount: 1,
-          successUrl: successUrlWithCheckoutSession,
-          cancelUrl: cancelUrl.toString(),
-          rememberPayment,
-          customerId: knownCustomerId || undefined,
-          customerEmail: knownCustomerId ? undefined : customerEmail,
-          idempotencyKey: `bb-checkout-${paymentSessionId}-${share.index}`,
-          expiresAt: Math.floor(recoveryExpiresAt.getTime() / 1000),
-        });
+            baseAmount: fromCents(share.baseAmountCents),
+            serviceFee: fromCents(share.serviceFeeCents),
+            amount: fromCents(share.amountCents),
+            items: share.items,
+            checkoutSessionId: checkout.id,
+            paymentIntentId:
+              typeof checkout.payment_intent === "string"
+                ? checkout.payment_intent
+                : checkout.payment_intent?.id || "",
+            flow: "checkout",
+            status: checkout.payment_status === "paid" ? "paid" : "open",
+            url: checkout.url,
+            checkoutUrl: checkout.url,
+            rememberPayment,
+          });
+        };
 
-        checkoutShares.push({
-          index: share.index,
-          label: share.label,
-          baseAmount: fromCents(share.baseAmountCents),
-          serviceFee: fromCents(share.serviceFeeCents),
-          amount: fromCents(share.amountCents),
-          items: share.items,
-          checkoutSessionId: checkout.id,
-          paymentIntentId:
-            typeof checkout.payment_intent === "string"
-              ? checkout.payment_intent
-              : checkout.payment_intent?.id || "",
-          status: checkout.payment_status === "paid" ? "paid" : "open",
-          url: checkout.url,
-          checkoutUrl: checkout.url,
-          rememberPayment,
-        });
+        if (knownCustomerId && selectedPaymentMethodId) {
+          const actionUrl = new URL("/payment/action", baseUrl);
+          actionUrl.searchParams.set("paymentSession", paymentSessionId);
+          actionUrl.searchParams.set("recovery", recoveryToken);
+          actionUrl.searchParams.set("share", String(share.index));
+          actionUrl.searchParams.set("returnTo", "center");
+
+          try {
+            const direct = await createAndConfirmSavedPayment({
+              stripe,
+              paymentSessionId,
+              finalOrderId,
+              paymentKind: "online",
+              shareIndex: share.index,
+              shareCount: 1,
+              amountCents: share.amountCents,
+              customerId: knownCustomerId,
+              paymentMethodId: selectedPaymentMethodId,
+              returnUrl: actionUrl.toString(),
+              idempotencyKey: `bb-saved-payment-${paymentSessionId}-${share.index}-1`,
+            });
+
+            checkoutShares.push({
+              index: share.index,
+              label: share.label,
+              baseAmount: fromCents(share.baseAmountCents),
+              serviceFee: fromCents(share.serviceFeeCents),
+              amount: fromCents(share.amountCents),
+              items: share.items,
+              checkoutSessionId: "",
+              paymentIntentId: direct.paymentIntentId,
+              paymentMethodId: direct.paymentMethodId,
+              paymentMethodType: direct.paymentMethodType,
+              stripeCustomerId: direct.stripeCustomerId,
+              flow: "saved_payment",
+              status: direct.status,
+              stripeStatus: direct.stripeStatus,
+              actionUrl:
+                direct.status === "requires_action"
+                  ? actionUrl.toString()
+                  : null,
+              url:
+                direct.status === "requires_action"
+                  ? actionUrl.toString()
+                  : manageUrl,
+              errorCode: direct.errorCode || null,
+              errorMessage: direct.errorMessage || null,
+              rememberPayment,
+              attempt: 1,
+            });
+          } catch {
+            /*
+             * A stale/deleted saved method must never strand the order in a
+             * half-created state. Fall back to Stripe Checkout, where the
+             * customer can choose another method securely.
+             */
+            console.warn(
+              "[payments/prepare] saved method unavailable; hosted fallback",
+            );
+            await createHostedCheckout();
+          }
+        } else {
+          await createHostedCheckout();
+        }
       }
     } catch (error: any) {
       await prisma.order.update({
@@ -703,12 +849,12 @@ export async function POST(req: Request) {
               id: paymentSessionId,
               finalOrderId,
               kind: requestedKind,
-              state: "checkout_create_failed",
+              state: "payment_create_failed",
               createdAt: now.toISOString(),
               requestIdHash,
               recoveryTokenHash,
               recoveryExpiresAt: recoveryExpiresAt.toISOString(),
-              error: error?.message || "STRIPE_CHECKOUT_CREATE_FAILED",
+              error: error?.message || "STRIPE_PAYMENT_CREATE_FAILED",
               shares: checkoutShares,
             },
           }),
@@ -718,44 +864,77 @@ export async function POST(req: Request) {
       throw error;
     }
 
-    const manageUrl = buildPaymentManageUrl({
-      baseUrl,
-      paymentSessionId,
-      recoveryToken,
-      split: requestedKind === "split_contactless",
-    });
-
-    await prisma.order.update({
-      where: { id: paymentSessionId },
-      data: {
-        meta: sanitizeJson({
-          pendingOrder: adjustedOrder,
-          paymentSession: {
-            id: paymentSessionId,
-            finalOrderId,
-            kind: requestedKind,
-            state: "waiting_payment",
-            stripeMode: stripeModeLabel(),
-            createdAt: now.toISOString(),
-            requestIdHash,
-            recoveryTokenHash,
-            recoveryExpiresAt: recoveryExpiresAt.toISOString(),
-            shareCount: checkoutShares.length,
-            paidCount: 0,
-            baseTotal: fromCents(payableCents),
-            orderTotal: fromCents(payableCents),
-            serviceFeeTotal: fromCents(feeTotalCents),
-            total: fromCents(paidTotalCents),
-            collectedTotal: fromCents(paidTotalCents),
-            rememberPayment,
-            whatsappShareEnabled,
-            pendingExpiryMinutes,
-            manageUrl,
-            shares: checkoutShares,
-          },
-        }),
+    const completedSessionMeta = sanitizeJson({
+      pendingOrder: adjustedOrder,
+      paymentSession: {
+        id: paymentSessionId,
+        finalOrderId,
+        kind: requestedKind,
+        state: "waiting_payment",
+        stripeMode: stripeModeLabel(),
+        createdAt: now.toISOString(),
+        requestIdHash,
+        recoveryTokenHash,
+        recoveryExpiresAt: recoveryExpiresAt.toISOString(),
+        shareCount: checkoutShares.length,
+        paidCount: 0,
+        baseTotal: fromCents(payableCents),
+        orderTotal: fromCents(payableCents),
+        serviceFeeTotal: fromCents(feeTotalCents),
+        total: fromCents(paidTotalCents),
+        collectedTotal: fromCents(paidTotalCents),
+        rememberPayment,
+        whatsappShareEnabled,
+        pendingExpiryMinutes,
+        manageUrl,
+        shares: checkoutShares,
       },
     });
+
+    let persisted = false;
+    let persistError: any = null;
+    for (let attempt = 0; attempt < 3 && !persisted; attempt += 1) {
+      try {
+        await prisma.order.update({
+          where: { id: paymentSessionId },
+          data: { meta: completedSessionMeta },
+        });
+        persisted = true;
+      } catch (error) {
+        persistError = error;
+        if (attempt < 2) {
+          await new Promise((resolve) =>
+            setTimeout(resolve, 120 * (attempt + 1)),
+          );
+        }
+      }
+    }
+
+    if (!persisted) {
+      const directAlreadySubmitted = checkoutShares.some(
+        (share) =>
+          share?.flow === "saved_payment" &&
+          ["paid", "processing"].includes(String(share?.status || "")),
+      );
+
+      if (!directAlreadySubmitted) {
+        await closeUnpersistedStripeResources({
+          stripe,
+          shares: checkoutShares,
+        });
+        throw persistError || new Error("PAYMENT_SESSION_PERSIST_FAILED");
+      }
+
+      /*
+       * A direct charge may already be accepted by Stripe. The signed webhook
+       * repairs the missing PaymentIntent reference; returning the Center URL
+       * keeps the browser locked to this payment instead of creating a second
+       * order while that repair is in flight.
+       */
+      console.error(
+        "[payments/prepare] payment accepted before DB reference persisted",
+      );
+    }
 
     return json({
       ok: true,
@@ -770,7 +949,7 @@ export async function POST(req: Request) {
       url:
         requestedKind === "split_contactless"
           ? manageUrl
-          : checkoutShares[0]?.url || null,
+          : checkoutShares[0]?.url || manageUrl,
       manageUrl,
       recoveryToken,
       recoveryExpiresAt: recoveryExpiresAt.toISOString(),
@@ -786,7 +965,10 @@ export async function POST(req: Request) {
       })),
     });
   } catch (error: any) {
-    console.error("[payments/prepare]", error);
+    console.error(
+      "[payments/prepare]",
+      String(error?.code || error?.type || "PAYMENT_PREPARE_FAILED").slice(0, 80),
+    );
 
     if (error instanceof OrderPricingError) {
       return json(
@@ -819,9 +1001,12 @@ export async function POST(req: Request) {
           ? "Die Teilbeträge stimmen nicht mit dem Bestellbetrag überein."
           : error?.message === "SPLIT_EMPTY_PERSON"
             ? "Jede Person muss mindestens einen Artikel übernehmen."
-            : error?.message === "STRIPE_SECRET_KEY_MISSING"
-                  ? "Stripe ist auf dem Server noch nicht eingerichtet."
-                  : error?.message || "Online-Zahlung konnte nicht gestartet werden.";
+            : error?.message === "PAYMENT_AMOUNT_TOO_LOW"
+              ? "Jeder Zahlbetrag muss mindestens 0,50 € betragen."
+              : error?.message === "STRIPE_SECRET_KEY_MISSING"
+                ? "Stripe ist auf dem Server noch nicht eingerichtet."
+                : error?.message ||
+                  "Online-Zahlung konnte nicht gestartet werden.";
 
     const status =
       error?.message === "STRIPE_SECRET_KEY_MISSING"
@@ -830,6 +1015,7 @@ export async function POST(req: Request) {
               "SPLIT_PERSON_COUNT_INVALID",
               "SPLIT_TOTAL_MISMATCH",
               "SPLIT_EMPTY_PERSON",
+              "PAYMENT_AMOUNT_TOO_LOW",
             ].includes(String(error?.message || ""))
           ? 400
           : 500;

@@ -1714,6 +1714,8 @@ export default function CheckoutPage() {
   const [paymentProfileMethods, setPaymentProfileMethods] = useState<
     Array<{ id: string; type: string; label: string }>
   >([]);
+  const [selectedSavedPaymentMethodId, setSelectedSavedPaymentMethodId] =
+    useState("");
   const [activePaymentRecovery, setActivePaymentRecovery] =
     useState<ActivePaymentRecovery | null>(null);
   const [paymentRecoveryBusy, setPaymentRecoveryBusy] = useState(false);
@@ -1861,6 +1863,11 @@ export default function CheckoutPage() {
 
         setPaymentProfileRemembered(remembered);
         setPaymentProfileMethods(methods);
+        setSelectedSavedPaymentMethodId((current) =>
+          methods.some((item: any) => item.id === current)
+            ? current
+            : String(methods[0]?.id || ""),
+        );
 
         if (remembered) {
           setRememberPaymentMethod(true);
@@ -1870,6 +1877,7 @@ export default function CheckoutPage() {
         if (!active) return;
         setPaymentProfileRemembered(false);
         setPaymentProfileMethods([]);
+        setSelectedSavedPaymentMethodId("");
       });
 
     return () => {
@@ -3201,18 +3209,24 @@ export default function CheckoutPage() {
                   Gespeicherte Zahlungsart
                 </div>
                 <div className="mt-1 text-xs leading-5 text-stone-400">
-                  Stripe zeigt diese Zahlungsart beim Bezahlen bevorzugt an.
-                  Je nach Bank oder Anbieter kann eine kurze Bestätigung nötig sein.
+                  Die ausgewählte Zahlungsart wird zuerst sicher direkt belastet.
+                  Nur wenn Bank oder Anbieter es verlangt, öffnet sich eine kurze Bestätigung.
                 </div>
 
-                <div className="mt-3 flex flex-wrap gap-2">
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
                   {paymentProfileMethods.map((method) => (
-                    <span
+                    <button
                       key={method.id}
-                      className="rounded-full border border-emerald-400/35 bg-stone-950/55 px-3 py-1.5 text-xs font-semibold text-emerald-100"
+                      type="button"
+                      onClick={() => setSelectedSavedPaymentMethodId(method.id)}
+                      className={`rounded-xl border px-3 py-2 text-left text-xs font-semibold transition ${
+                        selectedSavedPaymentMethodId === method.id
+                          ? "border-emerald-300 bg-emerald-400/15 text-emerald-50"
+                          : "border-emerald-400/25 bg-stone-950/55 text-emerald-100"
+                      }`}
                     >
                       {method.label}
-                    </span>
+                    </button>
                   ))}
                 </div>
               </div>
@@ -3271,6 +3285,7 @@ export default function CheckoutPage() {
 
                     setPaymentProfileRemembered(false);
                     setPaymentProfileMethods([]);
+                    setSelectedSavedPaymentMethodId("");
                     setRememberPaymentMethod(false);
                   }}
                 >
@@ -3948,6 +3963,8 @@ export default function CheckoutPage() {
             method === "online"
               ? paymentSettings.rememberPaymentMethods && rememberPaymentMethod
               : paymentSettings.rememberPaymentMethods,
+          savedPaymentMethodId:
+            method === "online" ? selectedSavedPaymentMethodId : "",
         }),
         cache: "no-store",
       });

@@ -1,0 +1,81 @@
+BURGER BROTHERS BERLIN — PAYMENT CENTER DOĞRULAMA RAPORU
+
+PAKET İÇİ DOĞRULAMALAR
+
+[GEÇTİ] Değişen 16 TypeScript/TSX dosyası TypeScript transpileModule ile sözdizimi kontrolünden geçti.
+[GEÇTİ] tools/payment-center-architecture-tests.cjs
+[GEÇTİ] Normal Payment Center içinde WhatsApp/paylaşım kodu bulunmuyor.
+[GEÇTİ] Split Center link kopyalama, WhatsApp ve e-posta alanlarını tek ekranda tutuyor.
+[GEÇTİ] PaymentMethod -> Stripe Customer sahiplik kontrolü var.
+[GEÇTİ] Direct PaymentIntent confirm=true ve off_session=true akışı var.
+[GEÇTİ] requires_action için ayrı kısa doğrulama ekranı var.
+[GEÇTİ] Tutar, EUR, payment session, order ve share metadata doğrulaması var.
+[GEÇTİ] 0,50 € altı tutar sessizce yükseltilmiyor.
+[GEÇTİ] Ağ retry/double click için deterministik session id + DB mutation lock var.
+[GEÇTİ] Stripe terminal durumu doğrulanmadan manuel iptal checkout kilidini açmıyor.
+[GEÇTİ] PaymentIntent webhook event onarımı ve idempotent finalize var.
+[GEÇTİ] ZIP/GitHub teslimat listesinde .env, secret, node_modules, .next, tsconfig.tsbuildinfo veya DB dosyası yok.
+
+İNCELEME ZIP’İ KISITLARI
+
+İnceleme paketi tam proje değildir. Aşağıdaki dosyalar/üretimler pakette bulunmadığı için sandbox içinde bütün gerçek proje test zinciri çalıştırılamadı:
+
+- Prisma generated client ve indirilen Prisma engine binary
+- components/AppRouteTransition.tsx
+- lib/server/driver-order.ts
+- app/api/orders/claim/route.ts
+- security:test zincirinin diğer tam proje dosyaları
+
+Tam TypeScript kontrolünde inceleme paketinin orijinal hali ile düzenlenmiş hali aynı 56 eksik-modül/generated-client hata sınıfını verdi. Satır numarası farkları çıkarıldığında yeni hata sınıfı: 0.
+
+GERÇEK PROJEDE ZORUNLU KAPI
+
+PUSH-PAYMENT-CENTER-TO-GITHUB.ps1 aşağıdakilerin tamamı başarılı olmadan commit/push yapmaz:
+
+1. npx.cmd prisma generate
+2. npm.cmd run typecheck
+3. npm.cmd run security:test
+4. npm.cmd run build
+
+MANUEL TEST MATRİSİ
+
+NORMAL ONLINE
+[ ] İlk kart ödemesi ve kaydetme
+[ ] Aynı cihazda ikinci sipariş, dış Checkout açılmadan doğrudan ödeme
+[ ] requires_action banka doğrulaması ve Payment Center dönüşü
+[ ] Başarısız kayıtlı kart -> retry / andere Zahlungsart
+[ ] Hosted Checkout geri dönüşü
+[ ] İptal ve Stripe terminal kontrolü
+[ ] 30 dakika expiry
+[ ] Geri tuşu / sayfa yenileme / tarayıcı yeniden açma
+
+PAYPAL
+[ ] İlk PayPal test yetkilendirmesi
+[ ] Test AUTHORIZE
+[ ] Test FAIL
+[ ] PayPal yöntemini kaydetme
+[ ] İkinci siparişte doğrudan kullanım mümkünse hosted sayfa açılmaması
+[ ] Yeniden onay gerekiyorsa kısa action/PayPal yönlendirmesi
+[ ] Live mod PayPal recurring/future-use uygunluğu
+
+SPLIT
+[ ] 2 kişi
+[ ] 3 kişi
+[ ] Organizatörün kendi payını ödemesi
+[ ] WhatsApp linki
+[ ] E-posta linki
+[ ] Bir kişi paid, diğerleri open
+[ ] Sayfa yenileme ve Stripe dönüşü
+[ ] Expired hosted session sonrası yeni attempt
+[ ] Aynı paya çift ödeme engeli
+[ ] Tüm paylar sonrası yalnız bir final sipariş
+[ ] Tracking token ve ETA/geplante Zeit
+[ ] Süre dolan kısmi split için refund durumu
+
+CASH REGRESYON
+[ ] Abholung
+[ ] Lieferung
+[ ] Geplant
+[ ] Bestellnummer
+[ ] Tracking
+[ ] ETA
