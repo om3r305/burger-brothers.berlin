@@ -45,13 +45,15 @@ export function extractTrackingToken(req: Request, body?: any) {
     req.headers.get("x-tracking-token") ||
     "";
 
-  return cleanText(
-    body?.trackingToken ??
-      body?.token ??
-      body?.accessToken ??
-      header ??
-      query,
-  );
+  const candidates = [
+    body?.trackingToken,
+    body?.token,
+    body?.accessToken,
+    header,
+    query,
+  ];
+
+  return candidates.map((value) => cleanText(value)).find(Boolean) || "";
 }
 
 export function matchesTrackingToken(order: any, candidateRaw: any) {

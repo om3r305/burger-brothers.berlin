@@ -123,6 +123,15 @@ assert(
   "lazy expiry must close unpaid Stripe Checkout sessions",
 );
 
+
+const publicOrder = read("lib/server/public-order.ts");
+assert(
+  publicOrder.includes("const candidates = [") &&
+    publicOrder.includes(".find(Boolean)") &&
+    !publicOrder.includes("header ??\n      query"),
+  "tracking-token lookup must accept a non-empty query parameter when headers are absent",
+);
+
 const transition = read("components/AppRouteTransition.tsx");
 assert(transition.includes('window.addEventListener("pageshow"'), "pageshow restore missing");
 assert(
