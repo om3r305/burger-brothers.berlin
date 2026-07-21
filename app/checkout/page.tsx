@@ -3718,7 +3718,7 @@ export default function CheckoutPage() {
             </div>
 
             <div className="mt-4 flex flex-wrap items-center gap-2">
-              {confirm.mode === "delivery" && confirm.trackingToken && !confirm.emergencyMode && (
+              {confirm.trackingToken && !confirm.emergencyMode && (
                 <button
                   type="button"
                   className="card-cta"

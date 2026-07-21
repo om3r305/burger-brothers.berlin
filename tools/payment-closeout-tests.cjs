@@ -83,8 +83,11 @@ assert(
 
 const checkout = read("lib/server/payment-checkout.ts");
 assert(
-  checkout.includes("params.rememberPayment && customerId"),
-  "saved customer must only be reused after opt-in",
+  checkout.includes("customerId") &&
+    checkout.includes("customer: customerId") &&
+    checkout.includes("setup_future_usage") &&
+    checkout.includes("params.rememberPayment"),
+  "returning customer reuse must stay device-profile-bound while new saving requires opt-in",
 );
 assert(checkout.includes("setup_future_usage"), "future usage missing");
 

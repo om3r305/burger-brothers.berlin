@@ -1,5 +1,6 @@
 import type Stripe from "stripe";
 import { prisma, getTenantId } from "@/lib/db";
+import { readOrderTrackingToken } from "@/lib/server/public-order";
 import { getStripeClient, resolveBaseUrl } from "@/lib/server/stripe-client";
 import { signPaymentFinalize } from "@/lib/server/payment-signature";
 
@@ -629,6 +630,7 @@ export async function finalizePaymentSession(
       status: "finalized",
       finalized: true,
       finalOrderId,
+      trackingToken: readOrderTrackingToken(existing) || undefined,
       order: existing,
       paidCount: shares.length,
       totalCount: shares.length,
@@ -786,6 +788,7 @@ export async function finalizePaymentSession(
         status: "finalized",
         finalized: true,
         finalOrderId,
+        trackingToken: readOrderTrackingToken(racedExisting) || undefined,
         order: racedExisting,
         paidCount: shares.length,
         totalCount: shares.length,
@@ -858,6 +861,10 @@ export async function finalizePaymentSession(
     status: "finalized",
     finalized: true,
     finalOrderId,
+    trackingToken:
+      String(created?.trackingToken || "").trim() ||
+      readOrderTrackingToken(finalCreatedOrder) ||
+      undefined,
     order: finalCreatedOrder,
     paidCount: shares.length,
     totalCount: shares.length,

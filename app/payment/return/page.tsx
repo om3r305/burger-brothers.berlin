@@ -27,6 +27,7 @@ type PaymentState = {
   status?: string;
   finalized?: boolean;
   finalOrderId?: string;
+  trackingToken?: string;
   paidCount?: number;
   totalCount?: number;
   nextUrl?: string | null;
@@ -168,18 +169,15 @@ function PaymentReturnContent() {
             localStorage.removeItem("bb_active_coupon_code");
             localStorage.removeItem("bb_active_coupon_meta");
             clearPaymentRecoveryStorage();
-            localStorage.setItem(
-              "bb_last_track_order_id",
-              String(payload.finalOrderId),
+            const trackingId = String(
+              payload.trackingToken || payload.finalOrderId,
             );
-            localStorage.setItem(
-              "bb_last_tracking_order_id",
-              String(payload.finalOrderId),
-            );
+            localStorage.setItem("bb_last_track_order_id", trackingId);
+            localStorage.setItem("bb_last_tracking_order_id", trackingId);
             window.dispatchEvent(
               new CustomEvent("bb:last-track-order-updated", {
                 detail: {
-                  id: String(payload.finalOrderId),
+                  id: String(payload.trackingToken || payload.finalOrderId),
                 },
               }),
             );
@@ -458,12 +456,24 @@ function PaymentReturnContent() {
                 #{state.finalOrderId}
               </div>
             </div>
-            <Link
-              href="/menu"
-              className="mt-5 block rounded-xl bg-amber-400 px-4 py-3 text-center font-black text-black"
-            >
-              Zurück zur Speisekarte
-            </Link>
+            <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              <Link
+                href="/menu"
+                className="block rounded-xl bg-amber-400 px-4 py-3 text-center font-black text-black"
+              >
+                Zurück zur Speisekarte
+              </Link>
+              <Link
+                href={
+                  state.trackingToken
+                    ? `/track/${encodeURIComponent(state.trackingToken)}`
+                    : "/track"
+                }
+                className="block rounded-xl border border-emerald-400/60 bg-emerald-500/10 px-4 py-3 text-center font-black text-emerald-100"
+              >
+                Bestellung verfolgen
+              </Link>
+            </div>
           </div>
         ) : failed ? (
           <div className="rounded-2xl border border-rose-500/50 bg-rose-500/10 p-5">

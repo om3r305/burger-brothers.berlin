@@ -210,8 +210,10 @@ async function resolveKnownStripeCustomerId(params: {
   return resolvePaymentProfileCustomerId({
     req: params.req,
     stripe: params.stripe,
+    // The signed HttpOnly device profile is the authority. Pickup/delivery
+    // form differences must not hide methods already saved on this device.
     phone,
-    requirePhoneMatch: Boolean(phone),
+    requirePhoneMatch: false,
   });
 }
 

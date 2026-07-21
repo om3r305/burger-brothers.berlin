@@ -319,12 +319,12 @@ export async function POST(req: Request) {
       settings?.payments?.online?.rememberPaymentMethods !== false;
     const rememberPayment =
       rememberAllowed && body?.rememberPayment === true;
-    const profileCustomerId = rememberPayment
-      ? await resolvePaymentProfileCustomerId({
-          req,
-          stripe,
-        })
-      : "";
+    // A saved method belongs to the signed device profile and can be reused
+    // for every non-cash flow. rememberPayment only controls saving a new method.
+    const profileCustomerId = await resolvePaymentProfileCustomerId({
+      req,
+      stripe,
+    });
 
     const baseUrl = resolveBaseUrl(req.url);
     const successUrl = new URL(
@@ -332,10 +332,9 @@ export async function POST(req: Request) {
       baseUrl,
     );
     successUrl.searchParams.set("payment", "success");
-    successUrl.searchParams.set(
-      "checkout_session_id",
-      "{CHECKOUT_SESSION_ID}",
-    );
+    // Stripe replaces only the exact, unencoded placeholder literal.
+    const successUrlWithCheckoutSession =
+      `${successUrl.toString()}&checkout_session_id={CHECKOUT_SESSION_ID}`;
 
     const cancelUrl = new URL(
       `/pay/${encodeURIComponent(token)}`,
@@ -362,7 +361,7 @@ export async function POST(req: Request) {
         ),
       },
       shareCount: loaded.shares.length,
-      successUrl: successUrl.toString(),
+      successUrl: successUrlWithCheckoutSession,
       cancelUrl: cancelUrl.toString(),
       rememberPayment,
       customerId: profileCustomerId || undefined,

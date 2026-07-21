@@ -265,14 +265,18 @@ export async function POST(req: Request) {
     const pendingOrder = ensureObj(loaded.meta.pendingOrder);
     const customer = ensureObj(pendingOrder.customer);
     const rememberPayment = loaded.paymentSession.rememberPayment === true;
-    const profileCustomerId = rememberPayment
-      ? await resolvePaymentProfileCustomerId({ req, stripe, phone: String(customer.phone || "").replace(/\D/g, ""), requirePhoneMatch: Boolean(customer.phone) })
-      : "";
+    const profileCustomerId = await resolvePaymentProfileCustomerId({
+      req,
+      stripe,
+      phone: String(customer.phone || "").replace(/\D/g, ""),
+      requirePhoneMatch: false,
+    });
     const baseUrl = resolveBaseUrl(req.url);
     const successUrl = new URL("/payment/return", baseUrl);
     successUrl.searchParams.set("paymentSession", paymentSessionId);
     successUrl.searchParams.set("recovery", recoveryToken);
-    successUrl.searchParams.set("checkout_session_id", "{CHECKOUT_SESSION_ID}");
+    const successUrlWithCheckoutSession =
+      `${successUrl.toString()}&checkout_session_id={CHECKOUT_SESSION_ID}`;
     const cancelUrl = new URL("/payment/return", baseUrl);
     cancelUrl.searchParams.set("payment", "cancelled");
     cancelUrl.searchParams.set("paymentSession", paymentSessionId);
@@ -290,7 +294,7 @@ export async function POST(req: Request) {
         amountCents: Math.max(50, Math.round(Number(share.amount || loaded.paymentSession.total || 0) * 100)),
       },
       shareCount: 1,
-      successUrl: successUrl.toString(),
+      successUrl: successUrlWithCheckoutSession,
       cancelUrl: cancelUrl.toString(),
       rememberPayment,
       customerId: profileCustomerId || undefined,
