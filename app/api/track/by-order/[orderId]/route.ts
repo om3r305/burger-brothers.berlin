@@ -46,15 +46,62 @@ export async function GET(
     const tenantId = await getTenantId();
     const orderId = String(params?.orderId || "").trim();
     const privileged = await hasAnySessionRole(req, ["admin", "tv"]);
-    const driverSubject = privileged
+    const explicitToken = extractTrackingToken(req);
+    const token = explicitToken || (orderId.length >= 32 ? orderId : "");
+    const tokenLookup = Boolean(token);
+    const sessionDriverSubject = privileged
       ? ""
       : await getSessionSubject(req, "driver");
-    const operational = privileged || Boolean(driverSubject);
-    const token = extractTrackingToken(req) || (orderId.length >= 32 ? orderId : "");
+
+    /*
+     * Customer-token access stays public even when this browser also owns a
+     * TV/admin/driver cookie. The token branch must take precedence; otherwise
+     * the long token is incorrectly queried as Order.id and live tracking
+     * disappears in the same browser profile used by the kitchen TV.
+     */
+    const driverSubject = tokenLookup ? "" : sessionDriverSubject;
+    const operational = !tokenLookup && (privileged || Boolean(driverSubject));
 
     let order: any = null;
 
-    if (operational && orderId) {
+    if (tokenLookup) {
+      try {
+        order = await prisma.order.findFirst({
+          where: {
+            tenantId,
+            meta: {
+              path: ["trackingToken"],
+              equals: token,
+            } as any,
+          },
+          select: { id: true, meta: true },
+        });
+      } catch {
+        /* PostgreSQL JSONB fallback below handles older Prisma/runtime cases. */
+      }
+
+      if (!order) {
+        const rows = await prisma.$queryRaw<any[]>`
+          SELECT "id", "meta"
+          FROM "Order"
+          WHERE "tenantId" = ${tenantId}
+            AND (
+              "meta" ->> 'trackingToken' = ${token}
+              OR "meta" ->> 'publicTrackingToken' = ${token}
+            )
+          ORDER BY "ts" DESC
+          LIMIT 2;
+        `;
+
+        order =
+          rows.find((candidate: any) => matchesTrackingToken(candidate, token)) ||
+          null;
+      }
+
+      if (!order || !matchesTrackingToken(order, token)) {
+        return securityJson({ ok: false, error: "invalid_tracking_token" }, 401);
+      }
+    } else if (operational && orderId) {
       order = await prisma.order.findFirst({
         where: { tenantId, id: orderId },
         select: {
@@ -65,21 +112,6 @@ export async function GET(
           meta: true,
         },
       });
-    } else if (token) {
-      order = await prisma.order.findFirst({
-        where: {
-          tenantId,
-          meta: {
-            path: ["trackingToken"],
-            equals: token,
-          } as any,
-        },
-        select: { id: true, meta: true },
-      });
-
-      if (!order || !matchesTrackingToken(order, token)) {
-        return securityJson({ ok: false, error: "invalid_tracking_token" }, 401);
-      }
     }
 
     if (!order?.id) return json({ ok: false, error: "not_found" }, 404);

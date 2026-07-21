@@ -631,13 +631,26 @@ export async function GET(req: Request) {
 
   try {
     const isAdmin = await hasAnySessionRole(req, ["admin"]);
-    // Doğrudan sipariş koduyla tam operasyon görünümü yalnızca admin/TV içindir.
-    // Sürücü dahil diğer tüm istemciler imzalı takip token'ı kullanır.
-    const operational = isAdmin || (await hasAnySessionRole(req, ["tv"]));
-    const token = extractTrackingToken(req);
-    const result = operational
-      ? await findOrder(extractCodeFromRequestUrl(req))
-      : await findOrderByTrackingToken(token || extractCodeFromRequestUrl(req));
+    const hasTvSession = await hasAnySessionRole(req, ["tv"]);
+    const explicitToken = extractTrackingToken(req);
+    const code = extractCodeFromRequestUrl(req);
+    const trackingToken =
+      explicitToken || (code.length >= 32 && code.length <= 160 ? code : "");
+
+    /*
+     * A customer tracking token must always win over admin/TV cookies.
+     * Otherwise the same browser being logged into /tv makes this public
+     * request use the operational order-id branch and the long token is
+     * treated as an order id. Besides breaking tracking, returning the
+     * operational DTO here would expose more data than the public page needs.
+     */
+    const tokenLookup = Boolean(trackingToken);
+    const operational = !tokenLookup && (isAdmin || hasTvSession);
+    const result = tokenLookup
+      ? await findOrderByTrackingToken(trackingToken)
+      : operational
+        ? await findOrder(code)
+        : await findOrderByTrackingToken(code);
 
     if (!result.order) {
       return errorResponse(result.error || "not_found", result.status, result.code);
@@ -665,7 +678,7 @@ export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({} as any));
     const isAdmin = await hasAnySessionRole(req, ["admin"]);
-    const operational = isAdmin || (await hasAnySessionRole(req, ["tv"]));
+    const hasTvSession = await hasAnySessionRole(req, ["tv"]);
 
     const code =
       body?.id ||
@@ -679,10 +692,20 @@ export async function POST(req: Request) {
       body?.q ||
       "";
 
-    const token = extractTrackingToken(req, body) || code;
-    const result = operational
-      ? await findOrder(code)
-      : await findOrderByTrackingToken(token);
+    const explicitToken = extractTrackingToken(req, body);
+    const normalizedCode = cleanCode(code);
+    const trackingToken =
+      explicitToken ||
+      (normalizedCode.length >= 32 && normalizedCode.length <= 160
+        ? normalizedCode
+        : "");
+    const tokenLookup = Boolean(trackingToken);
+    const operational = !tokenLookup && (isAdmin || hasTvSession);
+    const result = tokenLookup
+      ? await findOrderByTrackingToken(trackingToken)
+      : operational
+        ? await findOrder(code)
+        : await findOrderByTrackingToken(code);
 
     if (!result.order) {
       return errorResponse(result.error || "not_found", result.status, result.code);
