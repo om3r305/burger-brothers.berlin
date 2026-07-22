@@ -15,6 +15,7 @@ type NavItem = {
 const NAV: NavItem[] = [
   { href: "/admin", label: "Produkte & Gruppen", icon: "🍔", match: (p) => p === "/admin" },
   { href: "/admin/campaigns", label: "Kampagnen", icon: "🏷️", match: (p) => p.startsWith("/admin/campaigns") },
+  { href: "/admin/showcase", label: "Vitrin Ekranı", icon: "📺", match: (p) => p.startsWith("/admin/showcase") },
   { href: "/admin/orders", label: "Bestellungen", icon: "🧾", match: (p) => p.startsWith("/admin/orders") },
   { href: "/admin/customers", label: "Kunden", icon: "👥", match: (p) => p.startsWith("/admin/customers") },
   { href: "/admin/stats", label: "Statistiken", icon: "📊", match: (p) => p.startsWith("/admin/stats") },

@@ -3117,12 +3117,12 @@ export default function CheckoutPage() {
             </div>
           )}
 
-          <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+          <div className="space-y-2">
             {paymentSettings.cash && (
               <button
                 type="button"
                 onClick={() => setPaymentMethod("cash")}
-                className={`rounded-xl border p-3 text-left transition ${
+                className={`w-full rounded-xl border p-3 text-left transition ${
                   paymentMethod === "cash"
                     ? "border-emerald-500/70 bg-emerald-500/10"
                     : "border-stone-700/60 bg-stone-900/60 hover:bg-stone-800/60"
@@ -3137,147 +3137,145 @@ export default function CheckoutPage() {
             )}
 
             {paymentSettings.online && (
-              <button
-                type="button"
-                onClick={() => setPaymentMethod("online")}
-                className={`rounded-xl border p-3 text-left transition ${
+              <div
+                className={`overflow-hidden rounded-xl border transition ${
                   paymentMethod === "online"
                     ? "border-sky-500/70 bg-sky-500/10"
-                    : "border-stone-700/60 bg-stone-900/60 hover:bg-stone-800/60"
+                    : "border-stone-700/60 bg-stone-900/60"
                 }`}
               >
-                <div className="flex items-center justify-between gap-2">
-                  <div className="font-medium">Online-Zahlung</div>
-                  {paymentProfileRemembered && (
-                    <span className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-bold text-emerald-200">
-                      ✓ Gespeichert
-                    </span>
-                  )}
-                </div>
-                <div className="mt-1 text-xs text-stone-400">
-                  Sichere Zahlung über Stripe. Karten, Apple Pay, Google Pay, Link, PayPal,
-                  Klarna und weitere aktivierte Methoden werden automatisch angezeigt.
-                </div>
-              </button>
-            )}
-
-          </div>
-
-          {paymentMethod === "online" &&
-            paymentProfileRemembered &&
-            paymentProfileMethods.length > 0 && (
-              <div className="mt-2 rounded-xl border border-emerald-500/35 bg-emerald-500/10 p-3 sm:p-4">
-                <div className="text-sm font-bold text-emerald-100">
-                  Gespeicherte Zahlungsart
-                </div>
-                <div className="mt-1 text-xs leading-5 text-stone-400">
-                  {selectedSavedPaymentMethodId
-                    ? "Die ausgewählte Zahlungsart wird zuerst sicher direkt belastet. Nur wenn Bank oder Anbieter es verlangt, öffnet sich eine kurze Bestätigung."
-                    : "Stripe wird geöffnet, damit du PayPal, Klarna, Apple Pay, Google Pay oder eine andere verfügbare Zahlungsart wählen kannst."}
-                </div>
-
-                <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                  {paymentProfileMethods.map((method) => (
-                    <button
-                      key={method.id}
-                      type="button"
-                      aria-pressed={selectedSavedPaymentMethodId === method.id}
-                      onClick={() => setSelectedSavedPaymentMethodId(method.id)}
-                      className={`rounded-xl border px-3 py-2 text-left text-xs font-semibold transition ${
-                        selectedSavedPaymentMethodId === method.id
-                          ? "border-emerald-300 bg-emerald-400/15 text-emerald-50"
-                          : "border-emerald-400/25 bg-stone-950/55 text-emerald-100"
-                      }`}
-                    >
-                      {method.label}
-                    </button>
-                  ))}
-
-                  <button
-                    type="button"
-                    aria-pressed={selectedSavedPaymentMethodId === ""}
-                    onClick={() => setSelectedSavedPaymentMethodId("")}
-                    className={`rounded-xl border px-3 py-2 text-left text-xs font-semibold transition ${
-                      selectedSavedPaymentMethodId === ""
-                        ? "border-sky-300 bg-sky-400/15 text-sky-50"
-                        : "border-sky-400/25 bg-stone-950/55 text-sky-100"
-                    }`}
-                  >
-                    <span className="block">Andere Zahlungsart wählen</span>
-                    <span className="mt-1 block font-normal text-stone-400">
-                      PayPal, Klarna, Wallet oder neue Karte
-                    </span>
-                  </button>
-                </div>
-              </div>
-            )}
-
-          {paymentMethod === "online" && paymentSettings.rememberPaymentMethods && (
-            <>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={rememberPaymentMethod}
-                aria-label="Zahlungsart für zukünftige Bestellungen merken"
-                onClick={() => setRememberPaymentMethod((current) => !current)}
-                className="mt-3 flex w-full cursor-pointer items-start gap-3 rounded-xl border border-sky-500/30 bg-sky-500/10 p-3 text-left transition hover:bg-sky-500/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70 focus-visible:ring-offset-2 focus-visible:ring-offset-stone-950 sm:p-4"
-              >
-                <span
-                  aria-hidden="true"
-                  className={`relative mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors ${
-                    rememberPaymentMethod
-                      ? "border-sky-400 bg-sky-500"
-                      : "border-stone-500 bg-stone-700"
-                  }`}
-                >
-                  <span
-                    className={`ml-0.5 inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
-                      rememberPaymentMethod ? "translate-x-5" : "translate-x-0"
-                    }`}
-                  />
-                </span>
-
-                <span className="min-w-0 flex-1">
-                  <span className="block break-words text-sm font-semibold leading-5 text-sky-100">
-                    Zahlungsart für zukünftige Bestellungen merken
-                  </span>
-                  <span className="mt-1 block break-words text-xs leading-5 text-stone-400">
-                    {paymentProfileRemembered
-                      ? "Deine gespeicherte Zahlungsart wird bei Stripe direkt angezeigt. "
-                      : "Stripe speichert kompatible Zahlungsarten sicher. "}
-                    Burger Brothers erhält keine Karten- oder PayPal-Zugangsdaten. Je nach
-                    Bank oder Anbieter kann später trotzdem eine kurze Bestätigung nötig sein.
-                  </span>
-                </span>
-              </button>
-
-              {paymentProfileRemembered && (
                 <button
                   type="button"
-                  className="mt-2 text-xs text-stone-400 underline decoration-stone-600 underline-offset-4"
-                  onClick={async () => {
-                    try {
-                      await fetch("/api/payments/profile", {
-                        method: "DELETE",
-                        cache: "no-store",
-                      });
-                    } catch {}
-
-                    setPaymentProfileRemembered(false);
-                    setPaymentProfileMethods([]);
-                    setSelectedSavedPaymentMethodId("");
-                    setRememberPaymentMethod(false);
-                  }}
+                  onClick={() => setPaymentMethod("online")}
+                  className={`w-full p-3 text-left transition ${
+                    paymentMethod === "online" ? "bg-sky-500/5" : "hover:bg-stone-800/60"
+                  }`}
                 >
-                  Gespeicherte Zahlungsart auf diesem Gerät entfernen
+                  <div className="font-medium">Online-Zahlung</div>
+                  <div className="mt-1 text-xs text-stone-400">
+                    Sichere Zahlung über Stripe. Karten, Apple Pay, Google Pay, Link, PayPal,
+                    Klarna und weitere aktivierte Methoden werden automatisch angezeigt.
+                  </div>
                 </button>
-              )}
-            </>
-          )}
 
-          {paymentMethod === "online" && (
-            <PaymentTrustBadges compact className="mt-3" />
-          )}
+                {paymentMethod === "online" && (
+                  <div className="border-t border-sky-500/25 px-3 pb-3 pt-3 sm:px-4 sm:pb-4">
+                    {paymentProfileRemembered && paymentProfileMethods.length > 0 && (
+                      <div className="rounded-xl border border-emerald-500/35 bg-emerald-500/10 p-3 sm:p-4">
+                        <div className="text-sm font-bold text-emerald-100">
+                          Gespeicherte Zahlungsart
+                        </div>
+                        <div className="mt-1 text-xs leading-5 text-stone-400">
+                          {selectedSavedPaymentMethodId
+                            ? "Die ausgewählte Zahlungsart wird zuerst sicher direkt belastet. Nur wenn Bank oder Anbieter es verlangt, öffnet sich eine kurze Bestätigung."
+                            : "Stripe wird geöffnet, damit du PayPal, Klarna, Apple Pay, Google Pay oder eine andere verfügbare Zahlungsart wählen kannst."}
+                        </div>
+
+                        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                          {paymentProfileMethods.map((method) => (
+                            <button
+                              key={method.id}
+                              type="button"
+                              aria-pressed={selectedSavedPaymentMethodId === method.id}
+                              onClick={() => setSelectedSavedPaymentMethodId(method.id)}
+                              className={`rounded-xl border px-3 py-2 text-left text-xs font-semibold transition ${
+                                selectedSavedPaymentMethodId === method.id
+                                  ? "border-emerald-300 bg-emerald-400/15 text-emerald-50"
+                                  : "border-emerald-400/25 bg-stone-950/55 text-emerald-100"
+                              }`}
+                            >
+                              {method.label}
+                            </button>
+                          ))}
+
+                          <button
+                            type="button"
+                            aria-pressed={selectedSavedPaymentMethodId === ""}
+                            onClick={() => setSelectedSavedPaymentMethodId("")}
+                            className={`rounded-xl border px-3 py-2 text-left text-xs font-semibold transition ${
+                              selectedSavedPaymentMethodId === ""
+                                ? "border-sky-300 bg-sky-400/15 text-sky-50"
+                                : "border-sky-400/25 bg-stone-950/55 text-sky-100"
+                            }`}
+                          >
+                            <span className="block">Andere Zahlungsart wählen</span>
+                            <span className="mt-1 block font-normal text-stone-400">
+                              PayPal, Klarna, Wallet oder neue Karte
+                            </span>
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {paymentSettings.rememberPaymentMethods && (
+                      <>
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={rememberPaymentMethod}
+                          aria-label="Zahlungsart für zukünftige Bestellungen merken"
+                          onClick={() => setRememberPaymentMethod((current) => !current)}
+                          className="mt-3 flex w-full cursor-pointer items-start gap-3 rounded-xl border border-sky-500/30 bg-stone-950/45 p-3 text-left transition hover:bg-sky-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70 focus-visible:ring-offset-2 focus-visible:ring-offset-stone-950 sm:p-4"
+                        >
+                          <span
+                            aria-hidden="true"
+                            className={`relative mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors ${
+                              rememberPaymentMethod
+                                ? "border-sky-400 bg-sky-500"
+                                : "border-stone-500 bg-stone-700"
+                            }`}
+                          >
+                            <span
+                              className={`ml-0.5 inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
+                                rememberPaymentMethod ? "translate-x-5" : "translate-x-0"
+                              }`}
+                            />
+                          </span>
+
+                          <span className="min-w-0 flex-1">
+                            <span className="block break-words text-sm font-semibold leading-5 text-sky-100">
+                              Zahlungsart für zukünftige Bestellungen merken
+                            </span>
+                            <span className="mt-1 block break-words text-xs leading-5 text-stone-400">
+                              {paymentProfileRemembered
+                                ? "Deine gespeicherte Zahlungsart wird bei Stripe direkt angezeigt. "
+                                : "Stripe speichert kompatible Zahlungsarten sicher. "}
+                              Burger Brothers erhält keine Karten- oder PayPal-Zugangsdaten. Je nach
+                              Bank oder Anbieter kann später trotzdem eine kurze Bestätigung nötig sein.
+                            </span>
+                          </span>
+                        </button>
+
+                        {paymentProfileRemembered && (
+                          <button
+                            type="button"
+                            className="mt-2 text-xs text-stone-400 underline decoration-stone-600 underline-offset-4"
+                            onClick={async () => {
+                              try {
+                                await fetch("/api/payments/profile", {
+                                  method: "DELETE",
+                                  cache: "no-store",
+                                });
+                              } catch {}
+
+                              setPaymentProfileRemembered(false);
+                              setPaymentProfileMethods([]);
+                              setSelectedSavedPaymentMethodId("");
+                              setRememberPaymentMethod(false);
+                            }}
+                          >
+                            Gespeicherte Zahlungsart auf diesem Gerät entfernen
+                          </button>
+                        )}
+                      </>
+                    )}
+
+                    <PaymentTrustBadges compact className="mt-3" />
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
 
           <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
             {paymentSettings.online && paymentSettings.split && (

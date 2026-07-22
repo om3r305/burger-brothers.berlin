@@ -1,0 +1,355 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  createDefaultShowcaseDocument,
+  normalizeShowcaseDocument,
+  sceneIsActive,
+} from "@/lib/showcase/config";
+import {
+  buildShowcaseMenuPages,
+  effectiveShowcaseSceneDuration,
+  selectedProductsForScene,
+} from "@/lib/showcase/runtime";
+import type { ShowcaseSnapshot } from "@/lib/showcase/types";
+import ShowcaseStage from "./ShowcaseStage";
+
+const CACHE_KEY = "bb_showcase_snapshot_v1";
+const LIVE_CHANNEL = "bb_showcase_live_v1";
+const LIVE_STORAGE_KEY = "bb_showcase_publish_ping";
+
+function defaultSnapshot(): ShowcaseSnapshot {
+  const siteUrl =
+    typeof window !== "undefined"
+      ? window.location.origin
+      : "https://www.burger-brothers.berlin";
+
+  return {
+    ok: true,
+    source: "default_fallback",
+    generatedAt: new Date().toISOString(),
+    document: createDefaultShowcaseDocument(siteUrl),
+    products: [],
+    campaigns: [],
+    branding: {
+      shopName: "Burger Brothers Berlin",
+      logoUrl: "/logo-burger-brothers.png",
+      themeId: "classic",
+      themeColor: "#0b0704",
+      themeVideoUrl: "/flames/flame-loop.mp4",
+      themeDecorationsEnabled: true,
+      themeMotionEnabled: true,
+      themeSnow: false,
+      themeCornerLeft: "🍔",
+      themeCornerRight: "🔥",
+      themeParticles: [],
+      locationLabel: "13507 Berlin Tegel",
+      siteUrl,
+    },
+  };
+}
+
+function readCachedSnapshot() {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as ShowcaseSnapshot;
+    if (!parsed?.document || !parsed?.branding) return null;
+    return {
+      ...parsed,
+      document: normalizeShowcaseDocument(parsed.document, parsed.branding.siteUrl),
+    } as ShowcaseSnapshot;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedSnapshot(snapshot: ShowcaseSnapshot) {
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify(snapshot));
+  } catch {}
+}
+
+async function fetchSnapshot(signal?: AbortSignal) {
+  const response = await fetch(`/api/showcase?t=${Date.now()}`, {
+    cache: "no-store",
+    signal,
+    headers: { Accept: "application/json" },
+  });
+  const data = await response.json().catch(() => null);
+  if (!response.ok || !data?.document) {
+    throw new Error(data?.error || `SHOWCASE_HTTP_${response.status}`);
+  }
+  return data as ShowcaseSnapshot;
+}
+
+export default function ShowcasePlayer() {
+  const [snapshot, setSnapshot] = useState<ShowcaseSnapshot | null>(null);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [online, setOnline] = useState(true);
+  const wakeLockRef = useRef<any>(null);
+  const loadingRef = useRef(false);
+
+  const activeScenes = useMemo(() => {
+    const scenes = snapshot?.document?.scenes || [];
+    const active = scenes.filter((scene) => sceneIsActive(scene));
+    return active.length
+      ? active
+      : createDefaultShowcaseDocument(snapshot?.branding?.siteUrl).scenes;
+  }, [snapshot?.document, snapshot?.branding?.siteUrl]);
+
+  const activeSceneCountRef = useRef(1);
+  const currentPlaybackKeyRef = useRef("");
+  const advancedPlaybackKeyRef = useRef("");
+
+  const scene = activeScenes[activeIndex] || activeScenes[0];
+  const playbackKey = snapshot
+    ? `${snapshot.document.version}:${scene.id}:${activeIndex}:${activeScenes.length}`
+    : "";
+
+  activeSceneCountRef.current = Math.max(1, activeScenes.length);
+  currentPlaybackKeyRef.current = playbackKey;
+
+  const advanceScene = useCallback((expectedPlaybackKey?: string) => {
+    const currentPlaybackKey = currentPlaybackKeyRef.current;
+
+    // Ignore stale video/timer callbacks that belong to the previous scene.
+    if (expectedPlaybackKey && expectedPlaybackKey !== currentPlaybackKey) return;
+    if (!currentPlaybackKey) return;
+
+    // Video onEnded and the hard scene timeout can fire at nearly the same time.
+    // Advance only once for the currently visible scene.
+    if (advancedPlaybackKeyRef.current === currentPlaybackKey) return;
+    advancedPlaybackKeyRef.current = currentPlaybackKey;
+
+    setActiveIndex((current) =>
+      (current + 1) % Math.max(1, activeSceneCountRef.current),
+    );
+  }, []);
+
+  const load = useCallback(async (quiet = false) => {
+    if (loadingRef.current) return;
+    loadingRef.current = true;
+
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 12_000);
+
+    try {
+      const fresh = await fetchSnapshot(controller.signal);
+      setOnline(true);
+      writeCachedSnapshot(fresh);
+      setSnapshot((current) => {
+        if (current?.document?.version === fresh.document.version) {
+          return { ...fresh, document: current.document };
+        }
+        setActiveIndex(0);
+        return fresh;
+      });
+    } catch (error) {
+      setOnline(false);
+      if (!quiet) {
+        setSnapshot((current) => current || readCachedSnapshot() || defaultSnapshot());
+      }
+    } finally {
+      loadingRef.current = false;
+      window.clearTimeout(timeout);
+    }
+  }, []);
+
+  useEffect(() => {
+    const cached = readCachedSnapshot();
+    setSnapshot(cached || defaultSnapshot());
+    void load(Boolean(cached));
+  }, [load]);
+
+  useEffect(() => {
+    if (!snapshot) return;
+    const seconds = Math.max(
+      2,
+      Math.min(5, Number(snapshot.document.settings.refreshSeconds || 3)),
+    );
+    const timer = window.setInterval(() => void load(true), seconds * 1_000);
+    return () => window.clearInterval(timer);
+  }, [load, snapshot?.document?.settings?.refreshSeconds]);
+
+  useEffect(() => {
+    const refreshNow = () => void load(true);
+    let channel: BroadcastChannel | null = null;
+
+    try {
+      channel = new BroadcastChannel(LIVE_CHANNEL);
+      channel.onmessage = refreshNow;
+    } catch {}
+
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === LIVE_STORAGE_KEY) refreshNow();
+    };
+    const onFocus = () => refreshNow();
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") refreshNow();
+    };
+
+    window.addEventListener("storage", onStorage);
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      channel?.close();
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [load]);
+
+  const sceneDurationSeconds = useMemo(() => {
+    if (!snapshot) return 0;
+
+    const isPortrait =
+      typeof window !== "undefined" &&
+      window.innerWidth / Math.max(1, window.innerHeight) < 1.15;
+    const menuPageSize =
+      scene.type === "menu" && isPortrait
+        ? Math.min(6, Number(scene.menuItemsPerPage || 8))
+        : undefined;
+
+    return effectiveShowcaseSceneDuration(scene, snapshot, menuPageSize);
+  }, [scene, snapshot?.products]);
+
+  useEffect(() => {
+    advancedPlaybackKeyRef.current = "";
+  }, [playbackKey]);
+
+  useEffect(() => {
+    if (!playbackKey || sceneDurationSeconds <= 0) return;
+
+    // This timer is intentionally keyed only by the published version + scene.
+    // The public API is polled every few seconds; those snapshot refreshes must
+    // never restart a 25/45 second scene timer.
+    const timer = window.setTimeout(
+      () => advanceScene(playbackKey),
+      sceneDurationSeconds * 1_000,
+    );
+
+    return () => window.clearTimeout(timer);
+  }, [advanceScene, playbackKey, sceneDurationSeconds]);
+
+  useEffect(() => {
+    if (activeIndex < activeScenes.length) return;
+    setActiveIndex(0);
+  }, [activeIndex, activeScenes.length]);
+
+  useEffect(() => {
+    if (!snapshot) return;
+    const nextScene = activeScenes[(activeIndex + 1) % Math.max(1, activeScenes.length)];
+    if (!nextScene) return;
+
+    const urls = new Set<string>();
+    if (nextScene.mediaUrl) urls.add(nextScene.mediaUrl);
+    if (nextScene.posterUrl) urls.add(nextScene.posterUrl);
+
+    if (nextScene.type === "product") {
+      selectedProductsForScene(nextScene, snapshot.products)
+        .slice(0, 8)
+        .forEach((product) => product.imageUrl && urls.add(product.imageUrl));
+    }
+
+    if (nextScene.type === "menu") {
+      buildShowcaseMenuPages(nextScene, snapshot.products)
+        .slice(0, 2)
+        .flatMap((page) => page.products)
+        .forEach((product) => product.imageUrl && urls.add(product.imageUrl));
+    }
+
+    const cleanups: Array<() => void> = [];
+    for (const url of urls) {
+      if (nextScene.type === "video" || /\.(mp4|webm)(?:\?|$)/i.test(url)) {
+        const video = document.createElement("video");
+        video.preload = "auto";
+        video.muted = true;
+        video.src = url;
+        video.load();
+        cleanups.push(() => {
+          video.removeAttribute("src");
+          video.load();
+        });
+      } else {
+        const image = new Image();
+        image.src = url;
+      }
+    }
+
+    return () => cleanups.forEach((cleanup) => cleanup());
+  }, [activeIndex, activeScenes, snapshot]);
+
+  useEffect(() => {
+    const updateOnline = () => setOnline(navigator.onLine);
+    window.addEventListener("online", updateOnline);
+    window.addEventListener("offline", updateOnline);
+    return () => {
+      window.removeEventListener("online", updateOnline);
+      window.removeEventListener("offline", updateOnline);
+    };
+  }, []);
+
+  useEffect(() => {
+    const requestWakeLock = async () => {
+      try {
+        if ("wakeLock" in navigator && document.visibilityState === "visible") {
+          wakeLockRef.current = await (navigator as any).wakeLock.request("screen");
+        }
+      } catch {}
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") void requestWakeLock();
+    };
+    void requestWakeLock();
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      wakeLockRef.current?.release?.().catch?.(() => {});
+    };
+  }, []);
+
+  if (!snapshot) {
+    return (
+      <div id="bb-showcase-root" className="fixed inset-0 z-[1200] grid place-items-center bg-black">
+        <img src="/logo-burger-brothers.png" alt="Burger Brothers Berlin" className="h-36 w-36 object-contain" />
+      </div>
+    );
+  }
+
+  if (!snapshot.document.enabled) {
+    const disabled = {
+      ...createDefaultShowcaseDocument(snapshot.branding.siteUrl).scenes[0],
+      title: snapshot.branding.shopName,
+      subtitle: "Das Schaufenster ist momentan pausiert.",
+      showQr: true,
+    };
+    return (
+      <div id="bb-showcase-root">
+        <ShowcaseStage
+          snapshot={snapshot}
+          scene={disabled}
+          sceneIndex={0}
+          sceneCount={1}
+          online={online}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div id="bb-showcase-root">
+      <ShowcaseStage
+        key={playbackKey}
+        snapshot={snapshot}
+        scene={scene}
+        sceneIndex={activeIndex}
+        sceneCount={activeScenes.length}
+        online={online}
+        onVideoEnded={() => advanceScene(playbackKey)}
+        onVideoError={() => advanceScene(playbackKey)}
+      />
+    </div>
+  );
+}

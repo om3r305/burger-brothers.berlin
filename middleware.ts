@@ -73,6 +73,7 @@ export function apiAccess(path: string, methodRaw: string): Access {
   if (PUBLIC_PATHS.has(path)) return "public";
 
   if (path === "/api/settings" && readOnly) return "public";
+  if (path === "/api/showcase" && readOnly) return "public";
   if (path === "/api/products" && readOnly) return "public";
   if (path === "/api/catalog" && readOnly) return "public";
   if (path === "/api/groups" && readOnly) return "public";
@@ -190,7 +191,7 @@ export function contentSecurityPolicy(
     "img-src 'self' data: blob: https:",
     "font-src 'self' data:",
     "media-src 'self' blob: https:",
-    `connect-src 'self' https://api.stripe.com https://*.stripe.com https://*.supabase.co wss://*.supabase.co${localPrintProxy}`,
+    `connect-src 'self' https://api.stripe.com https://*.stripe.com https://*.supabase.co wss://*.supabase.co https://*.r2.cloudflarestorage.com https://pub-*.r2.dev${localPrintProxy}`,
     "frame-src 'self' https://js.stripe.com https://hooks.stripe.com https://checkout.stripe.com https://www.openstreetmap.org",
     "worker-src 'self' blob:",
     "manifest-src 'self'",

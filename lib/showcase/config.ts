@@ -1,0 +1,263 @@
+import type {
+  ShowcaseDocument,
+  ShowcaseMediaItem,
+  ShowcaseScene,
+  ShowcaseSceneType,
+  ShowcaseTransition,
+} from "./types";
+import { normalizeShowcaseCategory } from "./runtime";
+
+const SCENE_TYPES = new Set<ShowcaseSceneType>([
+  "hero",
+  "video",
+  "product",
+  "menu",
+  "campaign",
+  "image",
+  "qr",
+  "message",
+]);
+
+const TRANSITIONS = new Set<ShowcaseTransition>([
+  "fade",
+  "slide",
+  "zoom",
+  "none",
+]);
+
+function cleanText(value: any, max = 300) {
+  return String(value ?? "").trim().slice(0, max);
+}
+
+function cleanStringList(value: any, maxItems: number, maxLength = 120) {
+  if (!Array.isArray(value)) return [];
+  return Array.from(
+    new Set(
+      value
+        .slice(0, maxItems)
+        .map((item) => cleanText(item, maxLength))
+        .filter(Boolean),
+    ),
+  );
+}
+
+function cleanUrl(value: any, max = 2_000) {
+  const text = cleanText(value, max);
+  if (!text) return "";
+  if (text.startsWith("/")) return text;
+
+  try {
+    const url = new URL(text);
+    return ["http:", "https:"].includes(url.protocol) ? url.toString() : "";
+  } catch {
+    return "";
+  }
+}
+
+function cleanDate(value: any) {
+  if (!value) return "";
+  const date = new Date(value);
+  return Number.isFinite(date.valueOf()) ? date.toISOString() : "";
+}
+
+function bool(value: any, fallback: boolean) {
+  return typeof value === "boolean" ? value : fallback;
+}
+
+function numberInRange(value: any, fallback: number, min: number, max: number) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.min(max, Math.max(min, number));
+}
+
+function id(value: any, prefix = "scene") {
+  const text = cleanText(value, 100).replace(/[^a-zA-Z0-9_-]/g, "");
+  if (text) return text;
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+export function createDefaultShowcaseDocument(siteUrl = "https://www.burger-brothers.berlin"): ShowcaseDocument {
+  const now = new Date().toISOString();
+
+  return {
+    schemaVersion: 1,
+    version: `initial-${Date.now().toString(36)}`,
+    enabled: true,
+    updatedAt: now,
+    settings: {
+      name: "Burger Brothers Vitrin Ekranı",
+      defaultDurationSeconds: 45,
+      refreshSeconds: 3,
+      showClock: true,
+      showProgress: true,
+      showConnectionState: false,
+      qrUrl: siteUrl,
+      qrLabel: "Jetzt online bestellen",
+      ticker: "Frisch gegrillt • Direkt online bestellen • Burger Brothers Berlin",
+      background: "theme",
+    },
+    scenes: [
+      {
+        id: "willkommen",
+        type: "hero",
+        name: "Karşılama",
+        enabled: true,
+        durationSeconds: 45,
+        transition: "fade",
+        title: "JETZT ONLINE BESTELLEN",
+        subtitle: "QR-Code scannen und direkt zur Speisekarte",
+        badge: "BERLIN-TEGEL",
+        showLogo: true,
+        showQr: true,
+        fit: "cover",
+        muted: true,
+      },
+      {
+        id: "online-bestellen",
+        type: "qr",
+        name: "Online sipariş",
+        enabled: true,
+        durationSeconds: 25,
+        transition: "zoom",
+        title: "JETZT ONLINE BESTELLEN",
+        subtitle: "QR-Code scannen und direkt zur Speisekarte",
+        qrUrl: siteUrl,
+        qrLabel: "burger-brothers.berlin",
+        showLogo: true,
+        showQr: true,
+        fit: "contain",
+        muted: true,
+      },
+    ],
+  };
+}
+
+export function normalizeShowcaseScene(value: any, fallbackDuration = 45): ShowcaseScene {
+  const type = SCENE_TYPES.has(value?.type) ? value.type : "message";
+  const transition = TRANSITIONS.has(value?.transition) ? value.transition : "fade";
+  const accent = /^#[0-9a-f]{6}$/i.test(String(value?.accent || ""))
+    ? String(value.accent)
+    : "#ff9d2e";
+  const legacyProductId = cleanText(value?.productId, 120);
+  const productIds = cleanStringList(value?.productIds, 50, 120);
+  const menuCategories = Array.from(
+    new Set(
+      cleanStringList(value?.menuCategories, 30, 80)
+        .map((category) => normalizeShowcaseCategory(category))
+        .filter(Boolean),
+    ),
+  );
+  const normalizedProductIds = productIds.length
+    ? productIds
+    : legacyProductId
+      ? [legacyProductId]
+      : [];
+  const showLogoFallback = type === "product" || type === "menu" ? false : true;
+
+  return {
+    id: id(value?.id),
+    type,
+    name: cleanText(value?.name || value?.title || "Sahne", 120),
+    enabled: bool(value?.enabled, true),
+    durationSeconds: numberInRange(value?.durationSeconds, fallbackDuration, 5, 3_600),
+    transition,
+    startAt: cleanDate(value?.startAt) || undefined,
+    endAt: cleanDate(value?.endAt) || undefined,
+    title: cleanText(value?.title, 180) || undefined,
+    subtitle: cleanText(value?.subtitle, 260) || undefined,
+    body: cleanText(value?.body, 1_200) || undefined,
+    badge: cleanText(value?.badge, 80) || undefined,
+    mediaUrl: cleanUrl(value?.mediaUrl) || undefined,
+    posterUrl: cleanUrl(value?.posterUrl) || undefined,
+    productId: normalizedProductIds[0] || undefined,
+    productIds: normalizedProductIds.length ? normalizedProductIds : undefined,
+    productSeconds: numberInRange(value?.productSeconds, 12, 6, 120),
+    productImageFit: value?.productImageFit === "cover" ? "cover" : "contain",
+    productImageScale: numberInRange(value?.productImageScale, 78, 35, 130),
+    productImageX: numberInRange(value?.productImageX, 0, -40, 40),
+    productImageY: numberInRange(value?.productImageY, 0, -40, 40),
+    menuCategories,
+    menuItemsPerPage: numberInRange(value?.menuItemsPerPage, 8, 4, 24),
+    menuPageSeconds: numberInRange(value?.menuPageSeconds, 12, 6, 120),
+    menuColumns: Number(value?.menuColumns) === 3 ? 3 : 2,
+    menuShowDescriptions: bool(value?.menuShowDescriptions, false),
+    menuShowImages: bool(value?.menuShowImages, true),
+    menuImageSize: numberInRange(value?.menuImageSize, 58, 36, 104),
+    campaignId: cleanText(value?.campaignId, 120) || undefined,
+    qrUrl: cleanUrl(value?.qrUrl) || undefined,
+    qrLabel: cleanText(value?.qrLabel, 120) || undefined,
+    accent,
+    fit: value?.fit === "contain" ? "contain" : "cover",
+    showLogo: bool(value?.showLogo, showLogoFallback),
+    showQr: bool(value?.showQr, false),
+    showPrice: bool(value?.showPrice, true),
+    muted: true,
+  };
+}
+
+export function normalizeShowcaseDocument(value: any, siteUrl = "https://www.burger-brothers.berlin"): ShowcaseDocument {
+  const defaults = createDefaultShowcaseDocument(siteUrl);
+  const defaultDuration = numberInRange(
+    value?.settings?.defaultDurationSeconds,
+    defaults.settings.defaultDurationSeconds,
+    5,
+    3_600,
+  );
+  const scenes = Array.isArray(value?.scenes)
+    ? value.scenes.slice(0, 100).map((scene: any) => normalizeShowcaseScene(scene, defaultDuration))
+    : defaults.scenes;
+
+  return {
+    schemaVersion: 1,
+    version: cleanText(value?.version, 120) || `draft-${Date.now().toString(36)}`,
+    enabled: bool(value?.enabled, true),
+    updatedAt: cleanDate(value?.updatedAt) || new Date().toISOString(),
+    publishedAt: cleanDate(value?.publishedAt) || undefined,
+    settings: {
+      name: cleanText(value?.settings?.name, 120) || defaults.settings.name,
+      defaultDurationSeconds: defaultDuration,
+      refreshSeconds: numberInRange(value?.settings?.refreshSeconds, 3, 2, 5),
+      showClock: bool(value?.settings?.showClock, true),
+      showProgress: bool(value?.settings?.showProgress, true),
+      showConnectionState: bool(value?.settings?.showConnectionState, false),
+      qrUrl: cleanUrl(value?.settings?.qrUrl) || siteUrl,
+      qrLabel: cleanText(value?.settings?.qrLabel, 120) || defaults.settings.qrLabel,
+      ticker: cleanText(value?.settings?.ticker, 500) || defaults.settings.ticker,
+      background: ["theme", "dark", "black"].includes(value?.settings?.background)
+        ? value.settings.background
+        : "theme",
+    },
+    scenes: scenes.length ? scenes : defaults.scenes,
+  };
+}
+
+export function normalizeShowcaseMediaList(value: any): ShowcaseMediaItem[] {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .slice(0, 500)
+    .map((item: any) => ({
+      id: id(item?.id, "media"),
+      key: cleanText(item?.key, 500),
+      name: cleanText(item?.name, 220) || "Dosya",
+      url: cleanUrl(item?.url),
+      mimeType: cleanText(item?.mimeType, 120),
+      size: numberInRange(item?.size, 0, 0, 2_000_000_000),
+      createdAt: cleanDate(item?.createdAt) || new Date().toISOString(),
+      width: item?.width ? numberInRange(item.width, 0, 0, 20_000) : undefined,
+      height: item?.height ? numberInRange(item.height, 0, 0, 20_000) : undefined,
+      durationSeconds: item?.durationSeconds
+        ? numberInRange(item.durationSeconds, 0, 0, 86_400)
+        : undefined,
+    }))
+    .filter((item) => item.key && item.url && item.mimeType);
+}
+
+export function sceneIsActive(scene: ShowcaseScene, now = Date.now()) {
+  if (!scene.enabled) return false;
+  const start = scene.startAt ? Date.parse(scene.startAt) : NaN;
+  const end = scene.endAt ? Date.parse(scene.endAt) : NaN;
+  if (Number.isFinite(start) && now < start) return false;
+  if (Number.isFinite(end) && now > end) return false;
+  return true;
+}
