@@ -22,11 +22,13 @@ const requiredFiles = [
   "app/driver/error.tsx",
   "components/DriverLiveTracker.tsx",
   "components/driver/DriverLogin.tsx",
+  "components/driver/DriverMapChooserDialog.tsx",
   "components/driver/OrderWithDetails.tsx",
   "components/driver/TimeBadge.tsx",
   "components/driver/DriverConfirmDialog.tsx",
   "components/driver/DriverToastViewport.tsx",
   "hooks/driver/use-driver-auth.ts",
+  "hooks/driver/use-driver-map-preference.ts",
   "hooks/driver/use-driver-orders.ts",
   "hooks/driver/use-driver-settings.ts",
   "hooks/driver/use-driver-route.ts",
@@ -129,26 +131,81 @@ assert(
 );
 
 const routeHook = read("hooks/driver/use-driver-route.ts");
-const routeBuilderMatch = domain.match(
-  /export function buildMultiStopMapsUrl\([\s\S]*?\n}\n\ntype StandaloneNavigator/,
+const mapPreferenceHook = read(
+  "hooks/driver/use-driver-map-preference.ts",
 );
-const routeBuilder = routeBuilderMatch?.[0] || "";
+const mapChooser = read(
+  "components/driver/DriverMapChooserDialog.tsx",
+);
+const routeBar = read("components/driver/DriverRouteBar.tsx");
 
 assert(
-  /params\.set\("dir_action",\s*"navigate"\)/.test(routeBuilder),
-  "Google Maps routes must request active navigation",
+  /useDriverMapPreference/.test(page) &&
+    /<DriverMapChooserDialog/.test(page),
+  "DriverPage must use the remembered map-app chooser",
 );
 assert(
-  !/params\.set\("origin"/.test(routeBuilder),
-  "Google Maps route origin must be omitted so the driver current location is used",
+  !/openExternalMap/.test(page),
+  "DriverPage must not bypass the selected map provider",
 );
 assert(
-  !/storeOrigin/.test(routeHook),
-  "useDriverRoute must not force the restaurant address as route origin",
+  /DRIVER_MAP_PREFERENCE_KEY/.test(domain) &&
+    /bb_driver_map_preference_v1/.test(domain),
+  "map preference must use a dedicated device-local key",
 );
 assert(
-  !/storeOrigin:\s*settings\.storeOrigin/.test(page),
-  "DriverPage must not pass a fixed store origin into route navigation",
+  /localStorage\.getItem\(DRIVER_MAP_PREFERENCE_KEY\)/.test(
+    mapPreferenceHook,
+  ) &&
+    /localStorage\.setItem\(DRIVER_MAP_PREFERENCE_KEY,\s*provider\)/.test(
+      mapPreferenceHook,
+    ),
+  "selected map provider must be loaded and saved on the device",
+);
+assert(
+  /buildGoogleMapsPreviewUrl/.test(domain) &&
+    /buildAppleMapsPreviewUrl/.test(domain) &&
+    /buildSystemMapPreviewUrl/.test(domain),
+  "Google, Apple, and Android system map preview builders must exist",
+);
+assert(
+  !/dir_action/.test(domain),
+  "map URLs must not auto-start navigation with dir_action",
+);
+assert(
+  !/google\.navigation:/.test(domain),
+  "Android Google navigation deep link must not auto-start navigation",
+);
+assert(
+  !/params\.set\("origin"/.test(domain),
+  "route origin must remain omitted so current device location is used",
+);
+assert(
+  /params\.append\("waypoint",\s*waypoint\)/.test(domain),
+  "Apple Maps multi-stop preview must preserve intermediate stops",
+);
+assert(
+  /params\.set\("waypoints",\s*waypoints\.join\("\|"\)\)/.test(
+    domain,
+  ),
+  "Google Maps multi-stop preview must preserve intermediate stops",
+);
+assert(
+  /openRoute:\s*\(/.test(routeHook) &&
+    /return openRoute\(selectedOrders,\s*routePlzPriority\)/.test(
+      routeHook,
+    ),
+  "useDriverRoute must delegate opening to the selected map provider",
+);
+assert(
+  /Die Route wird nur als Vorschau geöffnet/.test(mapChooser) &&
+    /Navigation startet/.test(mapChooser),
+  "map chooser must explain that navigation starts only after driver action",
+);
+assert(
+  /Karten-App:/.test(routeBar) &&
+    /Ausgewählte Route öffnen/.test(routeBar),
+  "route bar must allow changing the remembered map app and open a preview",
 );
 
 const tracker = read("components/DriverLiveTracker.tsx");

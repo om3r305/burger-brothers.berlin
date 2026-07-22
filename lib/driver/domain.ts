@@ -9,6 +9,8 @@ import type {
   DriverAssignment,
   DriverCustomer,
   DriverIdentity,
+  DriverMapPlatform,
+  DriverMapProvider,
   DriverOrder,
   DriverOrderExtra,
   DriverOrderItem,
@@ -800,70 +802,37 @@ export function uniqueRouteAddresses(
   return addresses;
 }
 
-export function mapsDirectionWebUrl(address: string) {
-  return address
-    ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
-        address,
-      )}&travelmode=driving&dir_action=navigate`
-    : "https://www.google.com/maps";
-}
-
-export function buildMultiStopMapsUrl(
-  orders: DriverOrder[],
-  priority: string[],
-) {
-  const stops = uniqueRouteAddresses(orders, priority);
-
-  if (!stops.length) return "";
-
-  if (stops.length === 1) {
-    return mapsDirectionWebUrl(stops[0]);
-  }
-
-  const destination = stops[stops.length - 1];
-  const waypoints = stops.slice(0, -1);
-  const params = new URLSearchParams();
-
-  params.set("api", "1");
-  params.set("destination", destination);
-  params.set("travelmode", "driving");
-  params.set("dir_action", "navigate");
-
-  if (waypoints.length) {
-    params.set("waypoints", waypoints.join("|"));
-  }
-
-  return `https://www.google.com/maps/dir/?${params.toString()}`;
-}
+export const DRIVER_MAP_PREFERENCE_KEY =
+  "bb_driver_map_preference_v1";
 
 type StandaloneNavigator = Navigator & {
   standalone?: boolean;
   maxTouchPoints?: number;
 };
 
-function isIOSDevice() {
-  if (typeof navigator === "undefined") return false;
+export function detectDriverMapPlatform(): DriverMapPlatform {
+  if (typeof navigator === "undefined") return "desktop";
 
   const extendedNavigator = navigator as StandaloneNavigator;
   const ua = navigator.userAgent || "";
   const platform = navigator.platform || "";
 
-  return (
+  if (
     /iPad|iPhone|iPod/i.test(ua) ||
     (platform === "MacIntel" &&
       Number(extendedNavigator.maxTouchPoints || 0) > 1)
-  );
+  ) {
+    return "ios";
+  }
+
+  if (/Android/i.test(ua)) return "android";
+  return "desktop";
 }
 
-function isAndroidDevice() {
-  return (
-    typeof navigator !== "undefined" &&
-    /Android/i.test(navigator.userAgent || "")
-  );
-}
-
-function isStandalonePwa() {
-  if (typeof window === "undefined") return false;
+export function isStandalonePwa() {
+  if (typeof window === "undefined" || typeof navigator === "undefined") {
+    return false;
+  }
 
   const extendedNavigator = navigator as StandaloneNavigator;
 
@@ -874,105 +843,218 @@ function isStandalonePwa() {
   );
 }
 
-function appleMapsUrl(address: string) {
-  return address
-    ? `https://maps.apple.com/?daddr=${encodeURIComponent(address)}&dirflg=d`
-    : "https://maps.apple.com/";
+export function mapProviderLabel(provider: DriverMapProvider | null) {
+  if (provider === "apple") return "Apple Karten";
+  if (provider === "system") return "Andere Karten-App";
+  if (provider === "google") return "Google Maps";
+  return "Noch nicht gewählt";
 }
 
-function androidGeoUrl(address: string) {
-  return address ? `geo:0,0?q=${encodeURIComponent(address)}` : "geo:0,0";
+export function mapProviderOptions(
+  platform: DriverMapPlatform,
+  multiStop: boolean,
+) {
+  if (platform === "ios") {
+    return [
+      {
+        id: "apple" as const,
+        label: "Apple Karten",
+        description: multiStop
+          ? "Mehrere Stopps als Routen-Vorschau öffnen."
+          : "Route in Apple Karten voranzeigen.",
+        icon: "",
+      },
+      {
+        id: "google" as const,
+        label: "Google Maps",
+        description: multiStop
+          ? "Mehrere Stopps als Google-Route voranzeigen."
+          : "Route in Google Maps voranzeigen.",
+        icon: "G",
+      },
+    ];
+  }
+
+  if (platform === "android") {
+    return [
+      {
+        id: "google" as const,
+        label: "Google Maps",
+        description: multiStop
+          ? "Mehrere Stopps als Google-Route voranzeigen."
+          : "Route in Google Maps voranzeigen.",
+        icon: "G",
+      },
+      ...(multiStop
+        ? []
+        : [
+            {
+              id: "system" as const,
+              label: "Andere Karten-App",
+              description:
+                "Android lässt eine installierte Karten-App wählen.",
+              icon: "🗺️",
+            },
+          ]),
+    ];
+  }
+
+  return [
+    {
+      id: "google" as const,
+      label: "Google Maps",
+      description: "Route im Browser voranzeigen.",
+      icon: "G",
+    },
+  ];
 }
 
-function googleNavigationUrl(address: string) {
-  return address
-    ? `google.navigation:q=${encodeURIComponent(address)}&mode=d`
-    : "google.navigation:q=";
+function cleanRouteAddresses(addresses: string[]) {
+  const seen = new Set<string>();
+
+  return addresses
+    .map((address) => String(address || "").trim())
+    .filter((address) => {
+      const key = address.toLowerCase().replace(/\s+/g, " ");
+
+      if (!key || seen.has(key)) return false;
+
+      seen.add(key);
+      return true;
+    });
+}
+
+export function buildGoogleMapsPreviewUrl(addresses: string[]) {
+  const stops = cleanRouteAddresses(addresses);
+  if (!stops.length) return "";
+
+  const destination = stops[stops.length - 1];
+  const waypoints = stops.slice(0, -1);
+  const params = new URLSearchParams();
+
+  params.set("api", "1");
+  params.set("destination", destination);
+  params.set("travelmode", "driving");
+
+  if (waypoints.length) {
+    params.set("waypoints", waypoints.join("|"));
+  }
+
+  return `https://www.google.com/maps/dir/?${params.toString()}`;
+}
+
+export function mapsDirectionWebUrl(address: string) {
+  return buildGoogleMapsPreviewUrl([address]) || "https://www.google.com/maps";
+}
+
+export function buildMultiStopMapsUrl(
+  orders: DriverOrder[],
+  priority: string[],
+) {
+  return buildGoogleMapsPreviewUrl(
+    uniqueRouteAddresses(orders, priority),
+  );
+}
+
+export function buildAppleMapsPreviewUrl(addresses: string[]) {
+  const stops = cleanRouteAddresses(addresses);
+  if (!stops.length) return "";
+
+  const destination = stops[stops.length - 1];
+  const waypoints = stops.slice(0, -1);
+  const params = new URLSearchParams();
+
+  params.set("destination", destination);
+  params.set("mode", "driving");
+
+  for (const waypoint of waypoints) {
+    params.append("waypoint", waypoint);
+  }
+
+  return `https://maps.apple.com/directions?${params.toString()}`;
+}
+
+export function buildSystemMapPreviewUrl(addresses: string[]) {
+  const stops = cleanRouteAddresses(addresses);
+
+  if (stops.length !== 1) return "";
+
+  return `geo:0,0?q=${encodeURIComponent(stops[0])}`;
+}
+
+function openMapUrl(url: string, platform: DriverMapPlatform) {
+  if (typeof window === "undefined") return false;
+
+  if (platform === "desktop") {
+    const opened = window.open(url, "_blank", "noopener,noreferrer");
+
+    if (!opened) {
+      window.location.href = url;
+    }
+
+    return true;
+  }
+
+  window.location.href = url;
+  return true;
+}
+
+export function openMapPreview({
+  provider,
+  addresses,
+  platform = detectDriverMapPlatform(),
+}: {
+  provider: DriverMapProvider;
+  addresses: string[];
+  platform?: DriverMapPlatform;
+}): { ok: boolean; message?: string } {
+  const stops = cleanRouteAddresses(addresses);
+
+  if (!stops.length) {
+    return { ok: false, message: "Keine Adresse gefunden." };
+  }
+
+  const url =
+    provider === "apple"
+      ? buildAppleMapsPreviewUrl(stops)
+      : provider === "system"
+        ? buildSystemMapPreviewUrl(stops)
+        : buildGoogleMapsPreviewUrl(stops);
+
+  if (!url) {
+    return {
+      ok: false,
+      message:
+        provider === "system" && stops.length > 1
+          ? "Mehrere Stopps werden mit dieser Karten-App nicht unterstützt."
+          : "Karte konnte nicht vorbereitet werden.",
+    };
+  }
+
+  openMapUrl(url, platform);
+  return { ok: true };
 }
 
 export function openExternalMap(address: string): {
   ok: boolean;
   message?: string;
 } {
-  const cleanAddress = String(address || "").trim();
-
-  if (!cleanAddress) {
-    return { ok: false, message: "Keine Adresse gefunden." };
-  }
-
-  if (isIOSDevice()) {
-    window.location.href = appleMapsUrl(cleanAddress);
-    return { ok: true };
-  }
-
-  if (isAndroidDevice()) {
-    const fallback = mapsDirectionWebUrl(cleanAddress);
-
-    try {
-      window.location.href = googleNavigationUrl(cleanAddress);
-
-      window.setTimeout(() => {
-        if (document.visibilityState === "visible") {
-          window.location.href = androidGeoUrl(cleanAddress);
-        }
-      }, 700);
-
-      window.setTimeout(() => {
-        if (document.visibilityState === "visible") {
-          window.location.href = fallback;
-        }
-      }, 1500);
-    } catch {
-      window.location.href = fallback;
-    }
-
-    return { ok: true };
-  }
-
-  const webUrl = mapsDirectionWebUrl(cleanAddress);
-
-  if (isStandalonePwa()) {
-    window.location.href = webUrl;
-    return { ok: true };
-  }
-
-  const opened = window.open(webUrl, "_blank", "noopener,noreferrer");
-  if (!opened) window.location.href = webUrl;
-
-  return { ok: true };
+  return openMapPreview({
+    provider: "google",
+    addresses: [address],
+  });
 }
 
 export function openMultiStopMapsRoute(
   orders: DriverOrder[],
   priority: string[],
 ): { ok: boolean; message?: string } {
-  const validOrders = orders.filter((order) => getOrderRouteAddress(order));
+  const addresses = uniqueRouteAddresses(orders, priority);
 
-  if (!validOrders.length) {
-    return {
-      ok: false,
-      message: "Keine Adresse für die Route gefunden.",
-    };
-  }
-
-  const url = buildMultiStopMapsUrl(validOrders, priority);
-
-  if (!url) {
-    return {
-      ok: false,
-      message: "Route konnte nicht erstellt werden.",
-    };
-  }
-
-  if (isStandalonePwa() || isIOSDevice() || isAndroidDevice()) {
-    window.location.href = url;
-    return { ok: true };
-  }
-
-  const opened = window.open(url, "_blank", "noopener,noreferrer");
-  if (!opened) window.location.href = url;
-
-  return { ok: true };
+  return openMapPreview({
+    provider: "google",
+    addresses,
+  });
 }
 
 export function sanitizePhone(phone?: string) {

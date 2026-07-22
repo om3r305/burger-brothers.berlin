@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import { openMultiStopMapsRoute } from "@/lib/driver/domain";
 import type {
   DriverOrder,
   DriverToastTone,
@@ -17,10 +16,15 @@ export function useDriverRoute({
   orders,
   routePlzPriority,
   notify,
+  openRoute,
 }: {
   orders: DriverOrder[];
   routePlzPriority: string[];
   notify: Notify;
+  openRoute: (
+    orders: DriverOrder[],
+    priority: string[],
+  ) => boolean;
 }) {
   const [selected, setSelected] = useState<Record<string, boolean>>({});
 
@@ -51,19 +55,10 @@ export function useDriverRoute({
       return false;
     }
 
-    const result = openMultiStopMapsRoute(
-      selectedOrders,
-      routePlzPriority,
-    );
-
-    if (!result.ok) {
-      notify(result.message || "Route konnte nicht erstellt werden.", "error");
-      return false;
-    }
-
-    return true;
+    return openRoute(selectedOrders, routePlzPriority);
   }, [
     notify,
+    openRoute,
     routePlzPriority,
     selectedOrders,
   ]);

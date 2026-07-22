@@ -9,6 +9,22 @@ export type DriverIdentity = {
 
 export type DriverTab = "new" | "mine";
 
+export type DriverMapPlatform = "ios" | "android" | "desktop";
+
+export type DriverMapProvider = "apple" | "google" | "system";
+
+export type DriverMapRequest = {
+  addresses: string[];
+  source: "single" | "route" | "settings";
+};
+
+export type DriverMapOption = {
+  id: DriverMapProvider;
+  label: string;
+  description: string;
+  icon: string;
+};
+
 export type DriverPosition = {
   lat: number;
   lng: number;

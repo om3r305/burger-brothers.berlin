@@ -7,6 +7,7 @@ import { DriverCompletionToast } from "@/components/driver/DriverCompletionToast
 import { DriverConfirmDialog } from "@/components/driver/DriverConfirmDialog";
 import { DriverHeader } from "@/components/driver/DriverHeader";
 import { DriverLogin } from "@/components/driver/DriverLogin";
+import { DriverMapChooserDialog } from "@/components/driver/DriverMapChooserDialog";
 import { DriverPullIndicator } from "@/components/driver/DriverPullIndicator";
 import { DriverRouteBar } from "@/components/driver/DriverRouteBar";
 import { DriverToastViewport } from "@/components/driver/DriverToastViewport";
@@ -15,13 +16,13 @@ import { PendingOrderCard } from "@/components/driver/PendingOrderCard";
 import { useDriverAuth } from "@/hooks/driver/use-driver-auth";
 import { useDriverClock } from "@/hooks/driver/use-driver-clock";
 import { useDriverFeedback } from "@/hooks/driver/use-driver-feedback";
+import { useDriverMapPreference } from "@/hooks/driver/use-driver-map-preference";
 import { useDriverOrders } from "@/hooks/driver/use-driver-orders";
 import { useDriverRoute } from "@/hooks/driver/use-driver-route";
 import { useDriverSettings } from "@/hooks/driver/use-driver-settings";
 import { usePullToRefresh } from "@/hooks/driver/use-pull-to-refresh";
 import {
   glass,
-  openExternalMap,
   plannedClaimDetails,
   prettyDeliveryLine,
   sanitizePhone,
@@ -47,6 +48,9 @@ export default function DriverPage() {
   const feedback = useDriverFeedback();
   const settings = useDriverSettings();
   const auth = useDriverAuth({ notify: feedback.notify });
+  const maps = useDriverMapPreference({
+    notify: feedback.notify,
+  });
   const nowMs = useDriverClock();
 
   const driverOrders = useDriverOrders({
@@ -61,6 +65,7 @@ export default function DriverPage() {
     orders: driverOrders.mine,
     routePlzPriority: settings.routePlzPriority,
     notify: feedback.notify,
+    openRoute: maps.openRoute,
   });
 
   const pull = usePullToRefresh({
@@ -216,21 +221,14 @@ export default function DriverPage() {
 
   const openMaps = useCallback(
     (order: DriverOrder) => {
-      const result = openExternalMap(
+      maps.openAddress(
         prettyDeliveryLine(order) ||
           order.customer.address ||
           order.customer.addressLine ||
           "",
       );
-
-      if (!result.ok) {
-        feedback.notify(
-          result.message || "Karte konnte nicht geöffnet werden.",
-          "error",
-        );
-      }
     },
-    [feedback],
+    [maps],
   );
 
   if (!auth.hydrated) {
@@ -303,6 +301,15 @@ export default function DriverPage() {
         busy={driverOrders.batchBusy || auth.authBusy}
         onConfirm={feedback.acceptConfirm}
         onCancel={feedback.cancelConfirm}
+      />
+
+      <DriverMapChooserDialog
+        open={maps.chooserOpen}
+        options={maps.options}
+        request={maps.chooserRequest}
+        currentPreference={maps.preference}
+        onSelect={maps.selectProvider}
+        onCancel={maps.cancelChooser}
       />
 
       <div className="pointer-events-none fixed inset-0 -z-10">
@@ -418,8 +425,10 @@ export default function DriverPage() {
             <>
               <DriverRouteBar
                 selectedCount={route.selectedOrders.length}
+                mapPreferenceLabel={maps.preferenceLabel}
                 onClear={route.clear}
                 onOpen={route.open}
+                onChangeMapPreference={maps.changePreference}
               />
 
               {driverOrders.mine.map((order) => (

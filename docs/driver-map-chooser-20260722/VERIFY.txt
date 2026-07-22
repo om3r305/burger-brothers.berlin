@@ -1,0 +1,33 @@
+DRIVER MAP CHOOSER VERIFICATION
+
+Başarılı:
+- Driver refactor regression tests passed
+- app/driver/page.tsx syntax OK
+- components/driver/DriverMapChooserDialog.tsx syntax OK
+- components/driver/DriverRouteBar.tsx syntax OK
+- hooks/driver/use-driver-map-preference.ts syntax OK
+- hooks/driver/use-driver-route.ts syntax OK
+- lib/driver/domain.ts syntax OK
+- types/driver.ts syntax OK
+- Driver refactor kapsamındaki explicit any: 0
+- Native alert/confirm: 0
+
+Regresyon kontrolü:
+- Harita tercihi localStorage'da saklanıyor.
+- Tek rota ve toplu rota aynı provider katmanından açılıyor.
+- dir_action=navigate bulunmuyor.
+- google.navigation: bulunmuyor.
+- Sabit origin bulunmuyor.
+- Google waypoints korunuyor.
+- Apple waypoint parametreleri korunuyor.
+- Driver rota panelinden harita tercihi değiştirilebiliyor.
+
+GitHub PowerShell gerçek projede ayrıca:
+- npx.cmd prisma generate
+- npm.cmd run typecheck
+- npm.cmd run driver:refactor:test
+- npm.cmd run security:test
+- npm.cmd run build
+- git diff --cached --check
+
+çalıştırır. Herhangi biri başarısızsa commit ve push yapılmaz.
