@@ -29,6 +29,10 @@ function cleanText(value: any, max = 300) {
   return String(value ?? "").trim().slice(0, max);
 }
 
+function hasOwn(value: any, key: string) {
+  return Boolean(value) && Object.prototype.hasOwnProperty.call(value, key);
+}
+
 function cleanStringList(value: any, maxItems: number, maxLength = 120) {
   if (!Array.isArray(value)) return [];
   return Array.from(
@@ -107,6 +111,7 @@ export function createDefaultShowcaseDocument(siteUrl = "https://www.burger-brot
         title: "JETZT ONLINE BESTELLEN",
         subtitle: "QR-Code scannen und direkt zur Speisekarte",
         badge: "BERLIN-TEGEL",
+        qrLabel: "Jetzt online bestellen",
         showLogo: true,
         showQr: true,
         fit: "cover",
@@ -163,10 +168,12 @@ export function normalizeShowcaseScene(value: any, fallbackDuration = 45): Showc
     transition,
     startAt: cleanDate(value?.startAt) || undefined,
     endAt: cleanDate(value?.endAt) || undefined,
-    title: cleanText(value?.title, 180) || undefined,
-    subtitle: cleanText(value?.subtitle, 260) || undefined,
-    body: cleanText(value?.body, 1_200) || undefined,
-    badge: cleanText(value?.badge, 80) || undefined,
+    // Ekranda düzenlenebilen metinler boş bırakıldığında boş kalmalıdır.
+    // Boş stringi undefined'a çevirmek, oynatıcıdaki fallback yazılarını yeniden gösteriyordu.
+    title: cleanText(value?.title, 180),
+    subtitle: cleanText(value?.subtitle, 260),
+    body: cleanText(value?.body, 1_200),
+    badge: cleanText(value?.badge, 80),
     mediaUrl: cleanUrl(value?.mediaUrl) || undefined,
     posterUrl: cleanUrl(value?.posterUrl) || undefined,
     productId: normalizedProductIds[0] || undefined,
@@ -185,7 +192,7 @@ export function normalizeShowcaseScene(value: any, fallbackDuration = 45): Showc
     menuImageSize: numberInRange(value?.menuImageSize, 58, 36, 104),
     campaignId: cleanText(value?.campaignId, 120) || undefined,
     qrUrl: cleanUrl(value?.qrUrl) || undefined,
-    qrLabel: cleanText(value?.qrLabel, 120) || undefined,
+    qrLabel: cleanText(value?.qrLabel, 120),
     accent,
     fit: value?.fit === "contain" ? "contain" : "cover",
     showLogo: bool(value?.showLogo, showLogoFallback),
@@ -221,8 +228,14 @@ export function normalizeShowcaseDocument(value: any, siteUrl = "https://www.bur
       showProgress: bool(value?.settings?.showProgress, true),
       showConnectionState: bool(value?.settings?.showConnectionState, false),
       qrUrl: cleanUrl(value?.settings?.qrUrl) || siteUrl,
-      qrLabel: cleanText(value?.settings?.qrLabel, 120) || defaults.settings.qrLabel,
-      ticker: cleanText(value?.settings?.ticker, 500) || defaults.settings.ticker,
+      // Ayar anahtarı hiç yoksa ilk kurulum varsayılanını kullan.
+      // Anahtar mevcut ve değer boşsa kullanıcının "gizle" tercihini koru.
+      qrLabel: hasOwn(value?.settings, "qrLabel")
+        ? cleanText(value?.settings?.qrLabel, 120)
+        : defaults.settings.qrLabel,
+      ticker: hasOwn(value?.settings, "ticker")
+        ? cleanText(value?.settings?.ticker, 500)
+        : defaults.settings.ticker,
       background: ["theme", "dark", "black"].includes(value?.settings?.background)
         ? value.settings.background
         : "theme",

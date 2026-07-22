@@ -34,6 +34,10 @@ function money(value: number) {
   }).format(Number(value || 0));
 }
 
+function visibleText(value?: string | null) {
+  return String(value ?? "").trim();
+}
+
 function productFor(scene: ShowcaseScene, products: ShowcaseProduct[]) {
   const selected = selectedProductsForScene(scene, products);
   return selected[0] || null;
@@ -45,25 +49,24 @@ function campaignFor(scene: ShowcaseScene, campaigns: ShowcaseCampaign[]) {
 }
 
 function campaignHeadline(campaign: ShowcaseCampaign | null) {
-  if (!campaign) return "AKTUELLE AKTION";
+  if (!campaign) return "";
   const payload = campaign.payload || {};
   const value = Number(payload?.value || 0);
   const kind = String(payload?.kind || "");
   if (kind === "percent" && value > 0) return `${value}% RABATT`;
   if (kind === "absolute" && value > 0) return `${money(value)} RABATT`;
   if (kind === "newPrice" && value > 0) return `NUR ${money(value)}`;
-  return campaign.badgeText || campaign.title || "AKTUELLE AKTION";
+  return visibleText(campaign.badgeText || campaign.title);
 }
 
 function campaignText(campaign: ShowcaseCampaign | null) {
   const payload = campaign?.payload || {};
-  return String(
+  return visibleText(
     payload?.customerNotice ||
       payload?.description ||
       payload?.text ||
       payload?.subtitle ||
-      campaign?.title ||
-      "Nur für kurze Zeit.",
+      campaign?.title,
   );
 }
 
@@ -123,7 +126,9 @@ function Clock() {
   );
 }
 
-function SharpQr({ value, label }: { value: string; label: string }) {
+function SharpQr({ value, label }: { value: string; label?: string }) {
+  const visibleLabel = visibleText(label);
+
   return (
     <div className={styles.qrCard}>
       <div className={styles.qrCode}>
@@ -136,7 +141,7 @@ function SharpQr({ value, label }: { value: string; label: string }) {
           style={{ width: "100%", height: "100%" }}
         />
       </div>
-      <div className={styles.qrLabel}>{label}</div>
+      {visibleLabel ? <div className={styles.qrLabel}>{visibleLabel}</div> : null}
     </div>
   );
 }
@@ -252,6 +257,10 @@ function Background({ scene, snapshot }: { scene: ShowcaseScene; snapshot: Showc
 function HeroScene({ scene, snapshot }: { scene: ShowcaseScene; snapshot: ShowcaseSnapshot }) {
   const qrUrl = scene.qrUrl || snapshot.document.settings.qrUrl || snapshot.branding.siteUrl;
   const siteAddress = snapshot.branding.siteUrl.replace(/^https?:\/\//, "");
+  const title = visibleText(scene.title);
+  const subtitle = visibleText(scene.subtitle);
+  const body = visibleText(scene.body);
+  const qrLabel = visibleText(scene.qrLabel);
 
   return (
     <div className={styles.landingHero}>
@@ -270,14 +279,13 @@ function HeroScene({ scene, snapshot }: { scene: ShowcaseScene; snapshot: Showca
 
       <div className={styles.landingOrderBlock}>
         <div className={styles.landingOrderCopy}>
-          <span className={styles.eyebrow}>BURGER BROTHERS BERLIN</span>
-          <h1>{scene.title || "JETZT ONLINE BESTELLEN"}</h1>
-          <p>{scene.subtitle || "QR-Code scannen und direkt zur Speisekarte"}</p>
-          {scene.body ? <div className={styles.bodyText}>{scene.body}</div> : null}
+          {title ? <h1>{title}</h1> : null}
+          {subtitle ? <p>{subtitle}</p> : null}
+          {body ? <div className={styles.bodyText}>{body}</div> : null}
           <div className={styles.siteAddress}>{siteAddress}</div>
         </div>
         {scene.showQr !== false ? (
-          <SharpQr value={qrUrl} label={scene.qrLabel || snapshot.document.settings.qrLabel} />
+          <SharpQr value={qrUrl} label={qrLabel} />
         ) : null}
       </div>
     </div>
@@ -297,6 +305,11 @@ function VideoScene({
   onEnded?: () => void;
   onError?: () => void;
 }) {
+  const title = visibleText(scene.title);
+  const subtitle = visibleText(scene.subtitle);
+  const body = visibleText(scene.body);
+  const qrLabel = visibleText(scene.qrLabel);
+
   return (
     <div className={styles.videoScene}>
       {scene.mediaUrl ? (
@@ -319,8 +332,8 @@ function VideoScene({
       <div className={styles.videoTop}>
         <div>
           {scene.badge ? <div className={styles.badge}>{scene.badge}</div> : null}
-          <h2>{scene.title || product?.name || "Frisch für Sie zubereitet"}</h2>
-          <p>{scene.subtitle || product?.description || "Burger Brothers Berlin"}</p>
+          {title ? <h2>{title}</h2> : null}
+          {subtitle ? <p>{subtitle}</p> : null}
         </div>
         {scene.showLogo !== false ? (
           <Logo url={snapshot.branding.logoUrl} name={snapshot.branding.shopName} />
@@ -328,7 +341,7 @@ function VideoScene({
       </div>
       <div className={styles.videoBottom}>
         <div className={styles.videoBottomText}>
-          <span>{scene.body || "Jetzt online bestellen"}</span>
+          {body ? <span>{body}</span> : null}
           <strong>{snapshot.branding.siteUrl.replace(/^https?:\/\//, "")}</strong>
         </div>
         {scene.showPrice !== false && product ? (
@@ -337,7 +350,7 @@ function VideoScene({
         {scene.showQr ? (
           <SharpQr
             value={scene.qrUrl || snapshot.document.settings.qrUrl}
-            label={scene.qrLabel || "Scannen & bestellen"}
+            label={qrLabel}
           />
         ) : null}
       </div>
@@ -427,9 +440,9 @@ function ProductFlowScene({
       </div>
 
       <div className={styles.productSpotlightInfo}>
-        <span className={styles.eyebrow}>
-          {scene.title || "BURGER BROTHERS EMPFIEHLT"}
-        </span>
+        {visibleText(scene.title) ? (
+          <span className={styles.eyebrow}>{visibleText(scene.title)}</span>
+        ) : null}
         <h2>{product.name}</h2>
 
         {ingredients.length ? (
@@ -439,12 +452,11 @@ function ProductFlowScene({
             ))}
           </div>
         ) : (
-          <p className={styles.productSpotlightSubtitle}>
-            {scene.subtitle ||
-              product.campaignTitle ||
-              product.description ||
-              "Frisch zubereitet und voller Geschmack."}
-          </p>
+          visibleText(scene.subtitle ?? product.campaignTitle ?? product.description) ? (
+            <p className={styles.productSpotlightSubtitle}>
+              {visibleText(scene.subtitle ?? product.campaignTitle ?? product.description)}
+            </p>
+          ) : null
         )}
 
         <div className={styles.productSpotlightMeta}>
@@ -534,9 +546,11 @@ function MenuScene({ scene, snapshot }: { scene: ShowcaseScene; snapshot: Showca
     >
       <header className={styles.menuBoardHeader}>
         <div>
-          <span className={styles.eyebrow}>{scene.title || "UNSERE SPEISEKARTE"}</span>
+          {visibleText(scene.title) ? (
+            <span className={styles.eyebrow}>{visibleText(scene.title)}</span>
+          ) : null}
           <h2>{page.groupLabel || page.categoryLabel}</h2>
-          <p>{scene.subtitle || "Frisch zubereitet. Direkt online bestellen."}</p>
+          {visibleText(scene.subtitle) ? <p>{visibleText(scene.subtitle)}</p> : null}
         </div>
         <div className={styles.menuCategoryRail}>
           {railGroups.map(([groupKey, groupLabel]) => (
@@ -583,7 +597,7 @@ function MenuScene({ scene, snapshot }: { scene: ShowcaseScene; snapshot: Showca
         {scene.showQr ? (
           <SharpQr
             value={scene.qrUrl || snapshot.document.settings.qrUrl}
-            label={scene.qrLabel || snapshot.document.settings.qrLabel}
+            label={visibleText(scene.qrLabel)}
           />
         ) : null}
       </footer>
@@ -600,13 +614,19 @@ function CampaignScene({
   snapshot: ShowcaseSnapshot;
   campaign: ShowcaseCampaign | null;
 }) {
+  const badge = visibleText(scene.badge ?? campaign?.badgeText);
+  const subtitle = visibleText(scene.subtitle ?? campaign?.title);
+  const title = visibleText(scene.title ?? campaignHeadline(campaign));
+  const body = visibleText(scene.body ?? campaignText(campaign));
+  const qrLabel = visibleText(scene.qrLabel);
+
   return (
     <div className={styles.campaignGrid}>
       <div className={styles.campaignCopy}>
-        <div className={styles.badge}>{scene.badge || campaign?.badgeText || "LIMITIERTE AKTION"}</div>
-        <span className={styles.eyebrow}>{scene.subtitle || campaign?.title || "Nur für kurze Zeit"}</span>
-        <h2>{scene.title || campaignHeadline(campaign)}</h2>
-        <p>{scene.body || campaignText(campaign)}</p>
+        {badge ? <div className={styles.badge}>{badge}</div> : null}
+        {subtitle ? <span className={styles.eyebrow}>{subtitle}</span> : null}
+        {title ? <h2>{title}</h2> : null}
+        {body ? <p>{body}</p> : null}
         <div className={styles.campaignSite}>{snapshot.branding.siteUrl.replace(/^https?:\/\//, "")}</div>
       </div>
       <div className={styles.campaignVisual}>
@@ -618,7 +638,7 @@ function CampaignScene({
         {scene.showQr !== false ? (
           <SharpQr
             value={scene.qrUrl || snapshot.document.settings.qrUrl}
-            label={scene.qrLabel || "Aktion online sichern"}
+            label={qrLabel}
           />
         ) : null}
       </div>
@@ -627,12 +647,16 @@ function CampaignScene({
 }
 
 function ImageScene({ scene, snapshot }: { scene: ShowcaseScene; snapshot: ShowcaseSnapshot }) {
+  const title = visibleText(scene.title);
+  const subtitle = visibleText(scene.subtitle);
+  const qrLabel = visibleText(scene.qrLabel);
+
   return (
     <div className={styles.imageScene}>
       {scene.mediaUrl ? (
         <img
           src={scene.mediaUrl}
-          alt={scene.title || "Burger Brothers"}
+          alt={title || "Burger Brothers"}
           className={scene.fit === "contain" ? styles.imageContain : styles.imageCover}
         />
       ) : (
@@ -641,14 +665,14 @@ function ImageScene({ scene, snapshot }: { scene: ShowcaseScene; snapshot: Showc
       <div className={styles.imageShade} />
       <div className={styles.imageCopy}>
         {scene.badge ? <div className={styles.badge}>{scene.badge}</div> : null}
-        <h2>{scene.title || snapshot.branding.shopName}</h2>
-        {scene.subtitle ? <p>{scene.subtitle}</p> : null}
+        {title ? <h2>{title}</h2> : null}
+        {subtitle ? <p>{subtitle}</p> : null}
       </div>
       {scene.showQr ? (
         <div className={styles.imageQr}>
           <SharpQr
             value={scene.qrUrl || snapshot.document.settings.qrUrl}
-            label={scene.qrLabel || snapshot.document.settings.qrLabel}
+            label={qrLabel}
           />
         </div>
       ) : null}
@@ -657,6 +681,11 @@ function ImageScene({ scene, snapshot }: { scene: ShowcaseScene; snapshot: Showc
 }
 
 function QrScene({ scene, snapshot }: { scene: ShowcaseScene; snapshot: ShowcaseSnapshot }) {
+  const title = visibleText(scene.title);
+  const subtitle = visibleText(scene.subtitle);
+  const body = visibleText(scene.body);
+  const qrLabel = visibleText(scene.qrLabel);
+
   return (
     <div className={styles.qrScene}>
       <div className={styles.qrSceneCopy}>
@@ -664,23 +693,23 @@ function QrScene({ scene, snapshot }: { scene: ShowcaseScene; snapshot: Showcase
           <Logo url={snapshot.branding.logoUrl} name={snapshot.branding.shopName} />
         ) : null}
         {scene.badge ? <div className={styles.badge}>{scene.badge}</div> : null}
-        <h2>{scene.title || "JETZT ONLINE BESTELLEN"}</h2>
-        <p>{scene.subtitle || "QR-Code scannen und direkt zur Speisekarte"}</p>
-        {scene.body ? <div className={styles.bodyText}>{scene.body}</div> : null}
+        {title ? <h2>{title}</h2> : null}
+        {subtitle ? <p>{subtitle}</p> : null}
+        {body ? <div className={styles.bodyText}>{body}</div> : null}
       </div>
       <SharpQr
         value={scene.qrUrl || snapshot.document.settings.qrUrl || snapshot.branding.siteUrl}
-        label={scene.qrLabel || snapshot.document.settings.qrLabel}
+        label={qrLabel}
       />
     </div>
   );
 }
 
 function MessageScene({ scene, snapshot }: { scene: ShowcaseScene; snapshot: ShowcaseSnapshot }) {
-  const title = scene.title?.trim();
-  const subtitle = scene.subtitle?.trim();
-  const body = scene.body?.trim();
-  const hasCustomCopy = Boolean(title || subtitle || body);
+  const title = visibleText(scene.title);
+  const subtitle = visibleText(scene.subtitle);
+  const body = visibleText(scene.body);
+  const qrLabel = visibleText(scene.qrLabel);
 
   return (
     <div className={styles.messageScene}>
@@ -689,16 +718,13 @@ function MessageScene({ scene, snapshot }: { scene: ShowcaseScene; snapshot: Sho
       ) : null}
       {scene.badge ? <div className={styles.badge}>{scene.badge}</div> : null}
       <div className={styles.messageDivider} aria-hidden="true" />
-      <h2>{title || (hasCustomCopy ? null : "WICHTIGE MITTEILUNG")}</h2>
+      {title ? <h2>{title}</h2> : null}
       {subtitle ? <p className={styles.messageSubtitle}>{subtitle}</p> : null}
       {body ? <div className={styles.messageBody}>{body}</div> : null}
-      {!hasCustomCopy ? (
-        <p className={styles.messageSubtitle}>Aktuelle Informationen von Burger Brothers Berlin.</p>
-      ) : null}
       {scene.showQr ? (
         <SharpQr
           value={scene.qrUrl || snapshot.document.settings.qrUrl}
-          label={scene.qrLabel || snapshot.document.settings.qrLabel}
+          label={qrLabel}
         />
       ) : null}
     </div>

@@ -106,6 +106,7 @@ function newScene(type: ShowcaseSceneType, document: ShowcaseDocument): Showcase
     fit: "cover" as const,
     showLogo: true,
     showQr: type !== "video",
+    qrLabel: document.settings.qrLabel,
     showPrice: true,
     muted: true,
   };
@@ -427,6 +428,7 @@ export default function ShowcaseAdminPage() {
       subtitle: defaults.subtitle,
       body: defaults.body,
       badge: defaults.badge,
+      qrLabel: defaults.qrLabel,
       showLogo: defaults.showLogo,
       showQr: defaults.showQr,
       showPrice: defaults.showPrice,
@@ -828,9 +830,9 @@ export default function ShowcaseAdminPage() {
                 {(Object.keys(TYPE_LABELS) as ShowcaseSceneType[]).map((type) => <option key={type} value={type}>{TYPE_LABELS[type]}</option>)}
               </select>
             </Field>
-            <Field label="Başlık"><input className={inputClass} value={selected.title || ""} onChange={(event) => updateScene({ title: event.target.value })} /></Field>
-            <Field label="Alt başlık"><input className={inputClass} value={selected.subtitle || ""} onChange={(event) => updateScene({ subtitle: event.target.value })} /></Field>
-            <Field label="Rozet / küçük başlık"><input className={inputClass} value={selected.badge || ""} onChange={(event) => updateScene({ badge: event.target.value })} /></Field>
+            <Field label="Başlık" hint="Boş bırakırsan ekranda başlık gösterilmez."><input className={inputClass} value={selected.title ?? ""} onChange={(event) => updateScene({ title: event.target.value })} /></Field>
+            <Field label="Alt başlık" hint="Boş bırakırsan ekranda alt başlık gösterilmez."><input className={inputClass} value={selected.subtitle ?? ""} onChange={(event) => updateScene({ subtitle: event.target.value })} /></Field>
+            <Field label="Rozet / küçük başlık" hint="Boş bırakırsan rozet gösterilmez."><input className={inputClass} value={selected.badge ?? ""} onChange={(event) => updateScene({ badge: event.target.value })} /></Field>
             {selected.type === "product" || selected.type === "menu" ? (
               <Field label="Toplam sahne süresi" hint="Seçilen ürün veya menü sayfalarına göre otomatik hesaplanır.">
                 <div className={`${inputClass} cursor-default text-stone-300`}>{selectedSceneDuration} saniye</div>
@@ -843,9 +845,11 @@ export default function ShowcaseAdminPage() {
             <div className="md:col-span-2">
               <Field
                 label={selected.type === "message" ? "Duyuru metni" : "Ek metin"}
-                hint={selected.type === "message" ? "Alt başlıktan bağımsız olarak ekranda görünür. Satır atlayarak birden fazla bilgi yazabilirsin." : undefined}
+                hint={selected.type === "message"
+                  ? "Alt başlıktan bağımsız görünür. Boş bırakırsan ek metin gösterilmez."
+                  : "Boş bırakırsan ek metin gösterilmez."}
               >
-                <textarea rows={selected.type === "message" ? 5 : 3} className={inputClass} value={selected.body || ""} onChange={(event) => updateScene({ body: event.target.value })} />
+                <textarea rows={selected.type === "message" ? 5 : 3} className={inputClass} value={selected.body ?? ""} onChange={(event) => updateScene({ body: event.target.value })} />
               </Field>
             </div>
             {selected.type === "message" ? (
@@ -910,7 +914,7 @@ export default function ShowcaseAdminPage() {
             </div>
 
             <Field label="QR hedefi (boş = varsayılan)"><input className={inputClass} value={selected.qrUrl || ""} placeholder={draft.settings.qrUrl} onChange={(event) => updateScene({ qrUrl: event.target.value })} /></Field>
-            <Field label="QR açıklaması"><input className={inputClass} value={selected.qrLabel || ""} placeholder={draft.settings.qrLabel} onChange={(event) => updateScene({ qrLabel: event.target.value })} /></Field>
+            <Field label="QR açıklaması" hint="Boş bırakırsan QR kodunun altında açıklama gösterilmez."><input className={inputClass} value={selected.qrLabel ?? ""} onChange={(event) => updateScene({ qrLabel: event.target.value })} /></Field>
           </div>
 
           {selected.type === "product" ? (
@@ -1271,8 +1275,8 @@ export default function ShowcaseAdminPage() {
               </Field>
               <Field label="Arka plan"><select className={inputClass} value={draft.settings.background} onChange={(event) => updateSettings({ background: event.target.value as ShowcaseDocument["settings"]["background"] })}><option value="theme">Aktif web sitesi teması</option><option value="dark">Koyu</option><option value="black">Siyah</option></select></Field>
               <div className="sm:col-span-2"><Field label="Varsayılan QR hedefi"><input className={inputClass} value={draft.settings.qrUrl} onChange={(event) => updateSettings({ qrUrl: event.target.value })} /></Field></div>
-              <Field label="QR açıklaması"><input className={inputClass} value={draft.settings.qrLabel} onChange={(event) => updateSettings({ qrLabel: event.target.value })} /></Field>
-              <div className="sm:col-span-2"><Field label="Kayan yazı"><input className={inputClass} value={draft.settings.ticker} onChange={(event) => updateSettings({ ticker: event.target.value })} /></Field></div>
+              <Field label="Yeni sahneler için QR açıklaması" hint="Boş bırakırsan yeni sahnelerde QR açıklaması eklenmez."><input className={inputClass} value={draft.settings.qrLabel} onChange={(event) => updateSettings({ qrLabel: event.target.value })} /></Field>
+              <div className="sm:col-span-2"><Field label="Kayan yazı" hint="Boş bırakırsan kayan yazı tamamen gizlenir."><input className={inputClass} value={draft.settings.ticker} onChange={(event) => updateSettings({ ticker: event.target.value })} /></Field></div>
             </div>
             <div className="mt-4 grid gap-2 rounded-xl border border-stone-800 bg-stone-950/60 p-3 sm:grid-cols-3">
               <label className="flex items-center justify-between gap-2 text-sm">Saati göster<input type="checkbox" checked={draft.settings.showClock} onChange={(event) => updateSettings({ showClock: event.target.checked })} /></label>
