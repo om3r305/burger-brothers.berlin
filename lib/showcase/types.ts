@@ -158,6 +158,12 @@ export type ShowcaseSnapshot = {
 export type ShowcaseMediaItem = {
   id: string;
   key: string;
+  provider?: "cloudinary" | "r2" | "external";
+  publicId?: string;
+  resourceType?: "image" | "video";
+  assetId?: string;
+  version?: number;
+  format?: string;
   name: string;
   url: string;
   mimeType: string;

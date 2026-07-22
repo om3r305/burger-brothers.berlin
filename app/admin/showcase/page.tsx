@@ -49,8 +49,8 @@ const TYPE_ICONS: Record<ShowcaseSceneType, string> = {
 
 type StorageState = {
   configured: boolean;
-  bucket: string;
-  publicBaseUrl: string;
+  provider: "cloudinary";
+  cloudName: string;
   maxUploadBytes: number;
 };
 
@@ -254,22 +254,36 @@ async function inspectFile(file: File): Promise<{ width?: number; height?: numbe
   return {};
 }
 
-function uploadWithProgress(url: string, file: File, onProgress: (value: number) => void) {
-  return new Promise<void>((resolve, reject) => {
+function uploadCloudinaryWithProgress(
+  url: string,
+  fields: Record<string, string | number>,
+  file: File,
+  onProgress: (value: number) => void,
+) {
+  return new Promise<Record<string, any>>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open("PUT", url);
-    xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
-    xhr.setRequestHeader("Cache-Control", "public, max-age=31536000, immutable");
+    const form = new FormData();
+    Object.entries(fields).forEach(([key, value]) => form.append(key, String(value)));
+    form.append("file", file);
+
+    xhr.open("POST", url);
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable) onProgress(Math.round((event.loaded / event.total) * 100));
     };
     xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) resolve();
-      else reject(new Error(`R2_UPLOAD_HTTP_${xhr.status}`));
+      const response = (() => {
+        try {
+          return JSON.parse(xhr.responseText || "{}");
+        } catch {
+          return {};
+        }
+      })();
+      if (xhr.status >= 200 && xhr.status < 300 && response?.secure_url) resolve(response);
+      else reject(new Error(response?.error?.message || `CLOUDINARY_UPLOAD_HTTP_${xhr.status}`));
     };
-    xhr.onerror = () => reject(new Error("R2_UPLOAD_NETWORK_ERROR"));
-    xhr.onabort = () => reject(new Error("R2_UPLOAD_ABORTED"));
-    xhr.send(file);
+    xhr.onerror = () => reject(new Error("CLOUDINARY_UPLOAD_NETWORK_ERROR"));
+    xhr.onabort = () => reject(new Error("CLOUDINARY_UPLOAD_ABORTED"));
+    xhr.send(form);
   });
 }
 
@@ -606,7 +620,11 @@ export default function ShowcaseAdminPage() {
     const currentScene = selected;
     if (!currentScene) return;
     if (!data?.storage?.configured) {
-      setError("Cloudflare R2 henüz Vercel üzerinde ayarlanmadı.");
+      setError("Cloudinary henüz Vercel üzerinde ayarlanmadı.");
+      return;
+    }
+    if (file.size > data.storage.maxUploadBytes) {
+      setError(`Dosya çok büyük. En fazla ${formatBytes(data.storage.maxUploadBytes)} yükleyebilirsin.`);
       return;
     }
     setUploadProgress(0);
@@ -614,25 +632,30 @@ export default function ShowcaseAdminPage() {
     setMessage("");
 
     try {
-      const presigned = await jsonFetch("/api/admin/showcase/media", {
+      const signed = await jsonFetch("/api/admin/showcase/media", {
         method: "POST",
         body: JSON.stringify({
-          action: "presign",
+          action: "sign",
           name: file.name,
           mimeType: file.type,
           size: file.size,
         }),
       });
-      await uploadWithProgress(presigned.uploadUrl, file, setUploadProgress);
+      const upload = await uploadCloudinaryWithProgress(
+        signed.uploadUrl,
+        signed.fields,
+        file,
+        setUploadProgress,
+      );
       const metadata = await inspectFile(file);
       const registered = await jsonFetch("/api/admin/showcase/media", {
         method: "POST",
         body: JSON.stringify({
           action: "register",
-          key: presigned.key,
           name: file.name,
           mimeType: file.type,
           size: file.size,
+          upload,
           ...metadata,
         }),
       });
@@ -646,8 +669,8 @@ export default function ShowcaseAdminPage() {
       setMessage(`${file.name} yüklendi ve seçili sahneye atandı.`);
     } catch (uploadError: any) {
       setError(
-        uploadError?.message === "R2_UPLOAD_NETWORK_ERROR"
-          ? "Yükleme başarısız oldu. R2 CORS ayarını ve internet bağlantısını kontrol et."
+        uploadError?.message === "CLOUDINARY_UPLOAD_NETWORK_ERROR"
+          ? "Yükleme başarısız oldu. İnternet bağlantısını kontrol edip yeniden dene."
           : uploadError?.message || "Yükleme başarısız oldu.",
       );
     } finally {
@@ -657,7 +680,7 @@ export default function ShowcaseAdminPage() {
   };
 
   const deleteMedia = async (item: ShowcaseMediaItem) => {
-    if (!window.confirm(`${item.name} Cloudflare R2 üzerinden kalıcı olarak silinsin mi?`)) return;
+    if (!window.confirm(`${item.name} Cloudinary üzerinden kalıcı olarak silinsin mi?`)) return;
     try {
       const response = await jsonFetch("/api/admin/showcase/media", {
         method: "DELETE",
@@ -1156,7 +1179,7 @@ export default function ShowcaseAdminPage() {
             <div className="flex flex-wrap items-center gap-3">
               <div>
                 <h3 className="font-black">Video ve görseller</h3>
-                <p className="text-xs text-stone-500">Dosyalar GitHub veya Supabase Storage yerine doğrudan Cloudflare R2 alanına yüklenir.</p>
+                <p className="text-xs text-stone-500">Dosyalar GitHub veya Supabase Storage yerine doğrudan Cloudinary alanına yüklenir.</p>
               </div>
               <button onClick={() => fileRef.current?.click()} disabled={!data.storage.configured || uploadProgress !== null} className="ml-auto rounded-xl bg-stone-100 px-4 py-2 text-sm font-black text-black disabled:cursor-not-allowed disabled:opacity-40">
                 Dosya yükle
@@ -1175,7 +1198,7 @@ export default function ShowcaseAdminPage() {
 
             {!data.storage.configured ? (
               <div className="mt-3 rounded-xl border border-amber-700/50 bg-amber-950/30 p-3 text-sm text-amber-200">
-                Cloudflare R2 henüz ayarlanmadı. Daha sonra Vercel içine <code>R2_ACCOUNT_ID</code>, <code>R2_ACCESS_KEY_ID</code>, <code>R2_SECRET_ACCESS_KEY</code>, <code>R2_BUCKET</code> ve <code>R2_PUBLIC_BASE_URL</code> değişkenleri eklenecek.
+                Cloudinary henüz ayarlanmadı. Vercel içinde <code>CLOUDINARY_CLOUD_NAME</code>, <code>CLOUDINARY_API_KEY</code> ve <code>CLOUDINARY_API_SECRET</code> değişkenleri bulunmalı.
               </div>
             ) : null}
 
@@ -1265,7 +1288,7 @@ export default function ShowcaseAdminPage() {
               <dt className="text-stone-500">Sürüm</dt><dd className="truncate text-right font-mono text-stone-300">{data.published.version}</dd>
               <dt className="text-stone-500">Ürünler</dt><dd className="text-right font-semibold">{data.products.length}</dd>
               <dt className="text-stone-500">Kampanyalar</dt><dd className="text-right font-semibold">{data.campaigns.length}</dd>
-              <dt className="text-stone-500">Medya alanı</dt><dd className={`text-right font-semibold ${data.storage.configured ? "text-emerald-400" : "text-amber-400"}`}>{data.storage.configured ? `R2 · ${data.storage.bucket}` : "Ayarlanmadı"}</dd>
+              <dt className="text-stone-500">Medya alanı</dt><dd className={`text-right font-semibold ${data.storage.configured ? "text-emerald-400" : "text-amber-400"}`}>{data.storage.configured ? `Cloudinary · ${data.storage.cloudName}` : "Ayarlanmadı"}</dd>
               {data.storage.maxUploadBytes ? <><dt className="text-stone-500">En büyük dosya</dt><dd className="text-right font-semibold">{formatBytes(data.storage.maxUploadBytes)}</dd></> : null}
             </dl>
           </section>

@@ -46,6 +46,7 @@ export type Features = {
   donuts: { enabled: boolean; [key: string]: any };
   liveTracking?: { enabled: boolean; [key: string]: any };
   tracking?: { enabled: boolean; showEtaClock?: boolean; [key: string]: any };
+  payments?: Record<string, boolean>;
   [key: string]: any;
 };
 
@@ -293,10 +294,30 @@ export type SecuritySettings = {
   [key: string]: any;
 };
 
+
+export type PaymentSettings = {
+  cash?: { enabled?: boolean; [key: string]: unknown };
+  online?: {
+    enabled?: boolean;
+    rememberPaymentMethods?: boolean;
+    [key: string]: unknown;
+  };
+  contactless?: { enabled?: boolean; [key: string]: unknown };
+  split?: {
+    enabled?: boolean;
+    serviceFee?: number;
+    maxPeople?: number;
+    whatsappShareEnabled?: boolean;
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+};
+
 export type SettingsV6 = {
   features: Features;
   tracking: Tracking;
   hours: Hours;
+  payments?: PaymentSettings;
 
   statusColors: StatusColors;
   modeColors?: { pickup: string; delivery: string };

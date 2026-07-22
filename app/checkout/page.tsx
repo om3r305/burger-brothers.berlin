@@ -15,12 +15,14 @@ import {
 import { t } from "@/lib/i18n";
 
 import { useCart } from "@/components/store";
+import type { CartItemFixed, OrderMode } from "@/components/store";
 import {
   LS_SETTINGS,
   readSettings,
   getPricingOverrides,
   fetchAndApplyRemoteSettings,
 } from "@/lib/settings";
+import type { SettingsV6 } from "@/lib/settings";
 import {
   evaluateFreebieRules,
   freebieCategoryLabel,
@@ -49,6 +51,35 @@ import {
 import PaymentTrustBadges from "@/components/PaymentTrustBadges";
 import { attachPfandToOrderItems, computePfand, resolvePfandUnit } from "@/lib/pfand";
 import { rememberCustomerTracking } from "@/lib/customer-tracking";
+import CheckoutToastViewport from "@/components/checkout/CheckoutToastViewport";
+import type {
+  ActivePaymentRecovery,
+  CheckoutAddress,
+  CheckoutOrderDraft,
+  CheckoutOrderItem,
+  CheckoutPaymentMethod,
+  CheckoutPaymentStatus,
+  CheckoutToast,
+  CheckoutToastTone,
+  OrderCreateResult,
+  PaymentSessionResponse,
+  SavedPaymentMethod,
+} from "@/types/checkout";
+import {
+  arrayValue,
+  errorMessage,
+  isActivePaymentRecovery,
+  isAllowedNavigationUrl,
+  isRecord,
+  numberValue,
+  parseJsonUnknown,
+  parseOrderCreateEnvelope,
+  parsePaymentPrepareResponse,
+  parsePaymentProfileResponse,
+  parsePaymentSessionResponse,
+  recordValue,
+  stringValue,
+} from "@/lib/checkout/runtime";
 
 /* ───────── helpers ───────── */
 
@@ -58,28 +89,19 @@ const fmt = (n: number) =>
     currency: "EUR",
   }).format(n);
 
-function roundToNearest10Cents(value: any) {
+function reportCheckoutError(scope: string, error: unknown) {
+  console.error(`[checkout/${scope}]`, error);
+}
+
+function roundToNearest10Cents(value: unknown) {
   const n = Number(value);
   if (!Number.isFinite(n)) return 0;
 
   return +(Math.round((n + Number.EPSILON) * 10) / 10).toFixed(2);
 }
 
-type Mode = "pickup" | "delivery";
-
-type Address = {
-  name: string;
-  phone: string;
-  email?: string;
-  emailOptIn?: boolean;
-  street: string;
-  house: string;
-  zip: string;
-  city: string;
-  floor?: string;
-  entrance?: string;
-  note?: string;
-};
+type Mode = OrderMode;
+type Address = CheckoutAddress;
 
 type Planned = {
   enabledPickup: boolean;
@@ -88,15 +110,56 @@ type Planned = {
   timeDelivery: string;
 };
 
-type PaymentMethod = "cash" | "online" | "split_contactless";
+function normalizeAddress(value: unknown): Partial<Address> | null {
+  if (!isRecord(value)) return null;
 
-type ActivePaymentRecovery = {
-  paymentSessionId: string;
-  recoveryToken: string;
-  manageUrl: string;
-  paymentKind: "online" | "split_contactless";
-  expiresAt?: string | null;
-};
+  return {
+    name: stringValue(value.name),
+    phone: stringValue(value.phone),
+    email: typeof value.email === "string" ? value.email : undefined,
+    emailOptIn: value.emailOptIn === true,
+    street: stringValue(value.street),
+    house: stringValue(value.house),
+    zip: stringValue(value.zip),
+    city: stringValue(value.city),
+    floor: typeof value.floor === "string" ? value.floor : undefined,
+    entrance:
+      typeof value.entrance === "string" ? value.entrance : undefined,
+    note: typeof value.note === "string" ? value.note : undefined,
+  };
+}
+
+function normalizePlanned(value: unknown): Planned | null {
+  if (!isRecord(value)) return null;
+
+  return {
+    enabledPickup: value.enabledPickup === true,
+    timePickup: stringValue(value.timePickup),
+    enabledDelivery: value.enabledDelivery === true,
+    timeDelivery: stringValue(value.timeDelivery),
+  };
+}
+
+function normalizeSavedCheckout(value: unknown): {
+  addr: Partial<Address> | null;
+  planned: Planned | null;
+  orderMode: Mode | null;
+} {
+  if (!isRecord(value)) {
+    return { addr: null, planned: null, orderMode: null };
+  }
+
+  return {
+    addr: normalizeAddress(value.addr),
+    planned: normalizePlanned(value.planned),
+    orderMode:
+      value.orderMode === "pickup" || value.orderMode === "delivery"
+        ? value.orderMode
+        : null,
+  };
+}
+
+type PaymentMethod = CheckoutPaymentMethod;
 
 const ACTIVE_PAYMENT_RECOVERY_KEY = "bb_active_payment_recovery_v1";
 
@@ -115,17 +178,10 @@ function browserOpaqueToken(bytesLength = 32) {
 }
 
 function readActivePaymentRecovery(): ActivePaymentRecovery | null {
-  try {
-    const parsed = JSON.parse(
-      localStorage.getItem(ACTIVE_PAYMENT_RECOVERY_KEY) || "null",
-    );
-    if (!parsed?.paymentSessionId || !parsed?.recoveryToken || !parsed?.manageUrl) {
-      return null;
-    }
-    return parsed as ActivePaymentRecovery;
-  } catch {
-    return null;
-  }
+  const parsed = parseJsonUnknown(
+    localStorage.getItem(ACTIVE_PAYMENT_RECOVERY_KEY),
+  );
+  return isActivePaymentRecovery(parsed) ? parsed : null;
 }
 
 function clearActivePaymentRecoveryStorage() {
@@ -133,11 +189,13 @@ function clearActivePaymentRecoveryStorage() {
     localStorage.removeItem(ACTIVE_PAYMENT_RECOVERY_KEY);
     sessionStorage.removeItem("bb_active_payment_session");
     window.dispatchEvent(new CustomEvent("bb:payment-recovery-changed"));
-  } catch {}
+  } catch {
+    // Storage cleanup is best-effort; server state remains authoritative.
+  }
 }
 
-function paymentRecoveryIsTerminal(payload: any) {
-  const status = String(payload?.status || "").toLowerCase();
+function paymentRecoveryIsTerminal(payload: PaymentSessionResponse) {
+  const status = payload.status;
   return (
     payload?.finalized === true ||
     [
@@ -150,7 +208,7 @@ function paymentRecoveryIsTerminal(payload: any) {
   );
 }
 
-function formatPaymentRecoveryCountdown(expiresAt: any, nowMs: number) {
+function formatPaymentRecoveryCountdown(expiresAt: unknown, nowMs: number) {
   const endMs = Date.parse(String(expiresAt || ""));
   if (!Number.isFinite(endMs)) return "";
 
@@ -180,10 +238,10 @@ type TipChoice = "none" | "1" | "2" | "3" | "custom";
 type FreebieTier = {
   minTotal: number;
   freeSauces: number;
-  [key: string]: any;
+  [key: string]: unknown;
 };
 
-type FreebiesCfg = Record<string, any> | null;
+type FreebiesCfg = Record<string, unknown> | null;
 
 type RouteDealReward = {
   type?: "percent" | "fixed" | "free_delivery" | "free_sauce" | "free_drink" | string;
@@ -192,7 +250,7 @@ type RouteDealReward = {
   maxDiscount?: number;
   freeItemName?: string;
   freeItemCategory?: string;
-  [key: string]: any;
+  [key: string]: unknown;
 };
 
 type ActiveRouteDeal = {
@@ -210,7 +268,7 @@ type ActiveRouteDeal = {
   minTotal?: number;
   reward?: RouteDealReward;
   message?: string;
-  [key: string]: any;
+  [key: string]: unknown;
 };
 
 type RouteDealBenefit = {
@@ -281,7 +339,7 @@ function todayAt(hhmm: string, tz: string) {
   return new Date(new Date(`${iso} GMT`).toLocaleString("en-US", { timeZone: tz }));
 }
 
-function normalizePlannedHHMM(value: any): string {
+function normalizePlannedHHMM(value: unknown): string {
   const match = String(value || "")
     .trim()
     .match(/^(\d{1,2}):(\d{2})$/);
@@ -302,8 +360,12 @@ function plannedEtaLabel(mode: Mode) {
   return mode === "pickup" ? "Vorbereitungszeit" : "Voraussichtliche Lieferung";
 }
 
-function getMinTotal(tier: any) {
-  return Number(tier?.minTotal ?? tier?.MinTotal ?? tier?.["Min.Total"] ?? 0);
+function getMinTotal(tier: unknown) {
+  const record = recordValue(tier);
+  return toNum(
+    record.minTotal ?? record.MinTotal ?? record["Min.Total"],
+    0,
+  );
 }
 
 function calcFreeSauces(merchandise: number, tiers?: FreebieTier[]) {
@@ -311,13 +373,13 @@ function calcFreeSauces(merchandise: number, tiers?: FreebieTier[]) {
 
   const sorted = tiers
     .slice()
-    .sort((a: any, b: any) => getMinTotal(a) - getMinTotal(b));
+    .sort((a, b) => getMinTotal(a) - getMinTotal(b));
 
   let free = 0;
 
   for (const tier of sorted) {
     if (merchandise >= getMinTotal(tier)) {
-      free = Number((tier as any).freeSauces ?? 0);
+      free = toNum(tier.freeSauces, 0);
     }
   }
 
@@ -335,9 +397,9 @@ function sortedFreebieTiers(tiers?: FreebieTier[]) {
   if (!tiers?.length) return [];
 
   return tiers
-    .map((tier: any) => ({
+    .map((tier) => ({
       minTotal: getMinTotal(tier),
-      freeSauces: Number(tier?.freeSauces ?? 0),
+      freeSauces: toNum(tier.freeSauces, 0),
     }))
     .filter((tier) => tier.minTotal > 0 && tier.freeSauces > 0)
     .sort((a, b) => a.minTotal - b.minTotal);
@@ -394,15 +456,13 @@ function Toggle({
   );
 }
 
-const toNum = (value: any, fallback = 0) => {
-  const n = Number(String(value ?? "").replace(",", "."));
-  return Number.isFinite(n) ? n : fallback;
-};
+const toNum = (value: unknown, fallback = 0) =>
+  numberValue(value, fallback);
 
 const normName = (value: string) =>
   value ? value.charAt(0).toLocaleUpperCase("de-DE") + value.slice(1) : value;
 
-function normalizeStreetChoice(value: any) {
+function normalizeStreetChoice(value: unknown) {
   return String(value ?? "")
     .toLowerCase()
     .normalize("NFKD")
@@ -412,7 +472,7 @@ function normalizeStreetChoice(value: any) {
     .trim();
 }
 
-function findOfficialStreet(streets: string[], value: any) {
+function findOfficialStreet(streets: string[], value: unknown) {
   const target = normalizeStreetChoice(value);
 
   if (!target) return "";
@@ -420,14 +480,8 @@ function findOfficialStreet(streets: string[], value: any) {
   return streets.find((street) => normalizeStreetChoice(street) === target) || "";
 }
 
-function safeJsonParse(value: string | null) {
-  if (!value) return null;
-
-  try {
-    return JSON.parse(value);
-  } catch {
-    return null;
-  }
+function safeJsonParse(value: string | null): unknown {
+  return parseJsonUnknown(value);
 }
 
 function sleep(ms: number) {
@@ -436,7 +490,7 @@ function sleep(ms: number) {
   });
 }
 
-function cleanTrackOrderId(value: any) {
+function cleanTrackOrderId(value: unknown) {
   return String(value || "")
     .trim()
     .replace(/^#+/, "")
@@ -444,7 +498,7 @@ function cleanTrackOrderId(value: any) {
     .replace(/[^a-zA-Z0-9_-]/g, "");
 }
 
-function rememberLastDeliveryTrackId(trackingToken: any, orderId?: any) {
+function rememberLastDeliveryTrackId(trackingToken: unknown, orderId?: unknown) {
   const cleanToken = cleanTrackOrderId(trackingToken);
   const cleanOrderId = cleanTrackOrderId(orderId);
 
@@ -456,15 +510,15 @@ function rememberLastDeliveryTrackId(trackingToken: any, orderId?: any) {
   });
 }
 
-function isFilled(value: any) {
+function isFilled(value: unknown) {
   return String(value ?? "").trim().length > 0;
 }
 
-function digitsOnly(value: any) {
+function digitsOnly(value: unknown) {
   return String(value ?? "").replace(/\D/g, "");
 }
 
-function normalizeCheckoutZip(value: any) {
+function normalizeCheckoutZip(value: unknown) {
   return String(value ?? "").replace(/\D/g, "").slice(0, 5);
 }
 
@@ -497,7 +551,7 @@ function mergeAddressForCheckoutZip(
   current: Address,
   saved: Partial<Address> | null | undefined,
   mode: Mode,
-  preferredZip?: any,
+  preferredZip?: unknown,
 ): Address {
   if (!saved || typeof saved !== "object") return current;
 
@@ -531,47 +585,44 @@ function mergeAddressForCheckoutZip(
   };
 }
 
-function checkoutProfileKey(mode: Mode, zip?: any) {
+function checkoutProfileKey(mode: Mode, zip?: unknown) {
   if (mode !== "delivery") return `${PROFILE_KEY}:pickup`;
 
   const cleanZip = normalizeCheckoutZip(zip);
   return cleanZip ? `${PROFILE_KEY}:delivery:${cleanZip}` : `${PROFILE_KEY}:delivery`;
 }
 
-function readCheckoutProfile(mode: Mode, zip?: any): Partial<Address> | null {
+function readCheckoutProfile(
+  mode: Mode,
+  zip?: unknown,
+): Partial<Address> | null {
   if (typeof window === "undefined") return null;
 
   const keys =
     mode === "delivery"
-      ? [
-          checkoutProfileKey("delivery", zip),
-          `${PROFILE_KEY}:delivery`,
-        ]
+      ? [checkoutProfileKey("delivery", zip), `${PROFILE_KEY}:delivery`]
       : [`${PROFILE_KEY}:pickup`];
 
   for (const key of keys) {
-    try {
-      const raw = localStorage.getItem(key);
-      if (!raw) continue;
+    const parsed = parseJsonUnknown(localStorage.getItem(key));
+    const profile = normalizeAddress(parsed);
+    if (!profile) continue;
 
-      const parsed = JSON.parse(raw);
-
-      if (parsed && typeof parsed === "object") {
-        if (mode === "delivery" && key === `${PROFILE_KEY}:delivery`) {
-          const profileZip = normalizeCheckoutZip((parsed as Partial<Address>)?.zip);
-          if (profileZip) {
-            try {
-              localStorage.setItem(
-                checkoutProfileKey("delivery", profileZip),
-                JSON.stringify(parsed),
-              );
-            } catch {}
-          }
+    if (mode === "delivery" && key === `${PROFILE_KEY}:delivery`) {
+      const profileZip = normalizeCheckoutZip(profile.zip);
+      if (profileZip) {
+        try {
+          localStorage.setItem(
+            checkoutProfileKey("delivery", profileZip),
+            JSON.stringify(profile),
+          );
+        } catch {
+          // Best-effort migration only.
         }
-
-        return parsed as Partial<Address>;
       }
-    } catch {}
+    }
+
+    return profile;
   }
 
   return null;
@@ -592,7 +643,9 @@ function saveCheckoutProfile(mode: Mode, addr: Partial<Address>) {
     }
 
     localStorage.setItem(`${PROFILE_KEY}:pickup`, JSON.stringify(addr));
-  } catch {}
+  } catch {
+    // Checkout profile persistence is an optional convenience.
+  }
 }
 
 function checkoutInputClass(valid: boolean, extra = "") {
@@ -630,29 +683,27 @@ function FieldHint({
 }
 
 
-function buildSplitUnits(items: any[]): SplitUnit[] {
+function buildSplitUnits(items: CartItemFixed[]): SplitUnit[] {
   const units: SplitUnit[] = [];
 
-  (Array.isArray(items) ? items : []).forEach((cartItem: any, cartIndex: number) => {
-    const qty = Math.max(1, Math.round(toNum(cartItem?.qty, 1)));
-    const basePrice = toNum(cartItem?.item?.price ?? cartItem?.price, 0);
-    const extras = (Array.isArray(cartItem?.add) ? cartItem.add : []).reduce(
-      (sum: number, extra: any) => sum + toNum(extra?.price, 0),
+  items.forEach((cartItem, cartIndex) => {
+    const qty = Math.max(1, Math.round(toNum(cartItem.qty, 1)));
+    const basePrice = toNum(cartItem.item.price, 0);
+    const extras = (cartItem.add ?? []).reduce(
+      (sum, extra) => sum + toNum(extra.price, 0),
       0,
     );
     const pfandUnit = resolvePfandUnit(cartItem).amount;
+
+    // This is only a split-distribution weight. The actual payable amount is
+    // always allocated from the server-verifiable payableCents total.
     const unitPrice = Math.max(0.01, basePrice + extras + pfandUnit);
-    const name = String(
-      cartItem?.item?.name ??
-        cartItem?.name ??
-        cartItem?.item?.sku ??
-        "Artikel",
-    );
+    const name = String(cartItem.item.name || cartItem.item.sku || "Artikel");
 
     for (let unitIndex = 0; unitIndex < qty; unitIndex += 1) {
       units.push({
         key: `${cartIndex}:${String(
-          cartItem?.id ?? cartItem?.item?.id ?? cartItem?.item?.sku ?? name,
+          cartItem.id || cartItem.item.id || cartItem.item.sku || name,
         )}:${unitIndex}`,
         label: qty > 1 ? `${name} (${unitIndex + 1}/${qty})` : name,
         weightCents: Math.max(1, Math.round(unitPrice * 100)),
@@ -725,9 +776,17 @@ function buildSplitShares(params: {
   });
 }
 
-function readPaymentEnabled(settings: any, key: "cash" | "online" | "contactless" | "split", fallback: boolean) {
-  const direct = settings?.payments?.[key]?.enabled;
-  const features = settings?.features?.payments;
+function readPaymentEnabled(
+  settings: SettingsV6,
+  key: "cash" | "online" | "contactless" | "split",
+  fallback: boolean,
+) {
+  const payments = isRecord(settings.payments) ? settings.payments : {};
+  const selectedValue: unknown = payments[key];
+  const direct = isRecord(selectedValue) ? selectedValue.enabled : undefined;
+  const featurePayments = isRecord(settings.features?.payments)
+    ? settings.features.payments
+    : {};
 
   if (typeof direct === "boolean") return direct;
 
@@ -739,15 +798,14 @@ function readPaymentEnabled(settings: any, key: "cash" | "online" | "contactless
   };
 
   for (const featureKey of map[key]) {
-    if (typeof features?.[featureKey] === "boolean") {
-      return features[featureKey];
-    }
+    const value = featurePayments[featureKey];
+    if (typeof value === "boolean") return value;
   }
 
   return fallback;
 }
 
-function routeDealStreetKey(value: any) {
+function routeDealStreetKey(value: unknown) {
   return normalizeStreetChoice(value)
     .replace(/straße/g, "strasse")
     .replace(/\bstr\.?\b/g, "strasse")
@@ -755,7 +813,7 @@ function routeDealStreetKey(value: any) {
     .trim();
 }
 
-function routeDealList(value: any): string[] {
+function routeDealList(value: unknown): string[] {
   if (Array.isArray(value)) {
     return value.map((item) => String(item ?? "").trim()).filter(Boolean);
   }
@@ -770,7 +828,7 @@ function routeDealList(value: any): string[] {
   return [];
 }
 
-function routeDealExpiresMs(deal: any) {
+function routeDealExpiresMs(deal: ActiveRouteDeal | null | undefined) {
   const ms = Date.parse(String(deal?.expiresAt || ""));
   return Number.isFinite(ms) ? ms : 0;
 }
@@ -783,60 +841,109 @@ function formatRouteDealLeft(expiresMs: number, nowMs: number) {
   return `${pad2(minutes)}:${pad2(seconds)}`;
 }
 
-function routeDealRewardLabel(reward: any) {
+function routeDealRewardLabel(reward: RouteDealReward | null | undefined) {
   const type = String(reward?.type || "percent");
 
   if (type === "fixed") return `${fmt(toNum(reward?.amount, 0))} Rabatt`;
   if (type === "free_delivery") return "Lieferaufschlag geschenkt";
-  if (type === "free_sauce") return reward?.freeItemName ? `${reward.freeItemName} gratis` : "Gratis Soße";
-  if (type === "free_drink") return reward?.freeItemName ? `${reward.freeItemName} gratis` : "Gratis Getränk";
+  if (type === "free_sauce") {
+    return reward?.freeItemName ? `${reward.freeItemName} gratis` : "Gratis Soße";
+  }
+  if (type === "free_drink") {
+    return reward?.freeItemName ? `${reward.freeItemName} gratis` : "Gratis Getränk";
+  }
 
   return `${Math.round(toNum(reward?.percent, 15))}% Rabatt`;
 }
 
+function normalizeRouteDeal(value: unknown): ActiveRouteDeal | null {
+  if (!isRecord(value)) return null;
+
+  const rewardRecord = isRecord(value.reward) ? value.reward : {};
+  const reward: RouteDealReward = {
+    type: typeof rewardRecord.type === "string" ? rewardRecord.type : "percent",
+    percent: toNum(rewardRecord.percent, 0),
+    amount: toNum(rewardRecord.amount, 0),
+    maxDiscount: toNum(rewardRecord.maxDiscount, 0),
+    freeItemName:
+      typeof rewardRecord.freeItemName === "string"
+        ? rewardRecord.freeItemName
+        : undefined,
+    freeItemCategory:
+      typeof rewardRecord.freeItemCategory === "string"
+        ? rewardRecord.freeItemCategory
+        : undefined,
+  };
+
+  return {
+    id: typeof value.id === "string" ? value.id : undefined,
+    ruleId: typeof value.ruleId === "string" ? value.ruleId : undefined,
+    name: typeof value.name === "string" ? value.name : undefined,
+    plz: typeof value.plz === "string" ? value.plz : undefined,
+    street: typeof value.street === "string" ? value.street : undefined,
+    streets: Array.isArray(value.streets) ? value.streets.map(String) : undefined,
+    matchMode: typeof value.matchMode === "string" ? value.matchMode : undefined,
+    orderId: typeof value.orderId === "string" ? value.orderId : undefined,
+    startedAt: typeof value.startedAt === "string" ? value.startedAt : undefined,
+    expiresAt: typeof value.expiresAt === "string" ? value.expiresAt : undefined,
+    durationMinutes: toNum(value.durationMinutes, 0),
+    minTotal: toNum(value.minTotal, 0),
+    reward,
+    message: typeof value.message === "string" ? value.message : undefined,
+    requireStreet: value.requireStreet === true,
+  };
+}
+
 function findActiveRouteDealForCheckout(params: {
-  routeDeals: any;
+  routeDeals: unknown;
   mode: Mode;
   zip: string;
   street: string;
   nowMs: number;
 }): ActiveRouteDeal | null {
   const { routeDeals, mode, zip, street, nowMs } = params;
+  const config = recordValue(routeDeals);
 
-  if (mode !== "delivery") return null;
-  if (routeDeals?.enabled !== true) return null;
+  if (mode !== "delivery" || config.enabled !== true) return null;
 
   const code = normalizePlz(zip);
   if (!code) return null;
 
   const streetKey = routeDealStreetKey(street);
+  const active = Array.isArray(config.active) ? config.active : [];
 
-  const active = Array.isArray(routeDeals?.active) ? routeDeals.active : [];
-
-  const matches = active
-    .filter((deal: any) => {
+  return active
+    .map(normalizeRouteDeal)
+    .filter((deal): deal is ActiveRouteDeal => deal !== null)
+    .filter((deal) => {
       const expiresMs = routeDealExpiresMs(deal);
       if (!expiresMs || expiresMs <= nowMs) return false;
 
-      const dealPlz = normalizePlz(deal?.plz);
+      const dealPlz = normalizePlz(deal.plz);
       if (!dealPlz || dealPlz !== code) return false;
 
-      const explicitStreets = routeDealList(deal?.streets);
+      const explicitStreets = routeDealList(deal.streets);
       const mustMatchStreet =
-        deal?.matchMode === "street" || deal?.requireStreet === true || explicitStreets.length > 0;
+        deal.matchMode === "street" ||
+        deal.requireStreet === true ||
+        explicitStreets.length > 0;
 
       if (!mustMatchStreet) return true;
 
-      const allowed = explicitStreets.length > 0 ? explicitStreets : [deal?.street].filter(Boolean);
+      const allowed = explicitStreets.length
+        ? explicitStreets
+        : deal.street
+          ? [deal.street]
+          : [];
 
       if (!allowed.length) return true;
       if (!streetKey) return false;
 
-      return allowed.some((candidate) => routeDealStreetKey(candidate) === streetKey);
+      return allowed.some(
+        (candidate) => routeDealStreetKey(candidate) === streetKey,
+      );
     })
-    .sort((a: any, b: any) => routeDealExpiresMs(a) - routeDealExpiresMs(b));
-
-  return (matches[0] || null) as ActiveRouteDeal | null;
+    .sort((a, b) => routeDealExpiresMs(a) - routeDealExpiresMs(b))[0] ?? null;
 }
 
 function computeRouteDealBenefit(params: {
@@ -902,173 +1009,155 @@ function computeRouteDealBenefit(params: {
 function collectCatalog(): FlatItem[] {
   const out: FlatItem[] = [];
 
-  const safeArray = (value: any) => (Array.isArray(value) ? value : []);
-
-  const readPrice = (obj: any) => {
-    const candidate = [obj?.price, obj?.amount, obj?.preis, obj?.value].find((x) =>
-      Number.isFinite(Number(x)),
-    );
-
-    return Number(candidate ?? 0);
+  const readPrice = (value: unknown) => {
+    const record = recordValue(value);
+    return [record.price, record.amount, record.preis, record.value]
+      .map((candidate) => toNum(candidate, Number.NaN))
+      .find(Number.isFinite) ?? 0;
   };
 
-  const readName = (obj: any) =>
-    String(obj?.name ?? obj?.label ?? obj?.title ?? obj?.sku ?? "Artikel");
+  const readName = (value: unknown) => {
+    const record = recordValue(value);
+    return String(
+      record.name ?? record.label ?? record.title ?? record.sku ?? "Artikel",
+    );
+  };
 
-  const isAvailable = (obj: any) => {
-    if (obj?.active === false) return false;
+  const isAvailable = (value: unknown) => {
+    const record = recordValue(value);
+    if (record.active === false) return false;
 
     const now = Date.now();
-    const from = obj?.activeFrom ?? obj?.startAt;
-    const to = obj?.activeTo ?? obj?.endAt;
+    const from = record.activeFrom ?? record.startAt;
+    const to = record.activeTo ?? record.endAt;
+    const fromMs = from ? Date.parse(String(from)) : Number.NaN;
+    const toMs = to ? Date.parse(String(to)) : Number.NaN;
 
-    const fromMs = from ? Date.parse(from) : NaN;
-    const toMs = to ? Date.parse(to) : NaN;
-
-    if (Number.isFinite(fromMs) && now < fromMs) return false;
-    if (Number.isFinite(toMs) && now > toMs) return false;
-
-    return true;
+    return !(
+      (Number.isFinite(fromMs) && now < fromMs) ||
+      (Number.isFinite(toMs) && now > toMs)
+    );
   };
 
-  const pushProduct = (obj: any, category?: string) => {
-    if (!isAvailable(obj)) return;
+  const pushProduct = (value: unknown, category?: string) => {
+    const record = recordValue(value);
+    if (!isAvailable(record)) return;
 
     out.push({
-      id: obj?.id || obj?._id || obj?.sku,
-      sku: obj?.sku,
-      name: readName(obj),
-      price: readPrice(obj),
-      category: category ?? obj?.category,
-      tags: safeArray(obj?.tags),
+      id: stringValue(record.id || record._id || record.sku) || undefined,
+      sku: stringValue(record.sku) || undefined,
+      name: readName(record),
+      price: readPrice(record),
+      category: category ?? (stringValue(record.category) || undefined),
+      tags: Array.isArray(record.tags) ? record.tags.map(String) : undefined,
     });
   };
 
-  const pushGroupWithVariants = (obj: any, category?: string) => {
-    if (!isAvailable(obj)) return;
+  const pushGroupWithVariants = (value: unknown, category?: string) => {
+    const record = recordValue(value);
+    if (!isAvailable(record)) return;
 
-    const pools = [obj?.variants, obj?.options, obj?.choices, obj?.items, obj?.children];
+    const pools = [
+      record.variants,
+      record.options,
+      record.choices,
+      record.items,
+      record.children,
+    ];
 
-    const variants: Variant[] = pools
-      .flatMap((pool) =>
-        safeArray(pool).map((v: any) => ({
-          id: v?.id || v?._id || v?.sku || v?.name,
-          name: readName(v),
-          price: readPrice(v),
-          active: v?.active !== false,
-        })),
-      )
-      .filter((variant) => variant.active !== false);
+    const variants: Variant[] = pools.flatMap((pool) =>
+      arrayValue(pool).flatMap((variantValue): Variant[] => {
+        const variant = recordValue(variantValue);
+        if (variant.active === false) return [];
 
-    if (variants.length) {
-      out.push({
-        id: obj?.id || obj?._id || obj?.sku,
-        sku: obj?.sku,
-        name: readName(obj),
-        category: category ?? obj?.category,
-        tags: safeArray(obj?.tags),
-        variants,
-      });
-    }
+        const id = String(
+          variant.id ?? variant._id ?? variant.sku ?? variant.name ?? "",
+        ).trim();
+        if (!id) return [];
+
+        return [{
+          id,
+          name: readName(variant),
+          price: readPrice(variant),
+          active: true,
+        }];
+      }),
+    );
+
+    if (!variants.length) return;
+
+    out.push({
+      id: stringValue(record.id || record._id || record.sku) || undefined,
+      sku: stringValue(record.sku) || undefined,
+      name: readName(record),
+      category: category ?? (stringValue(record.category) || undefined),
+      tags: Array.isArray(record.tags) ? record.tags.map(String) : undefined,
+      variants,
+    });
   };
 
-  try {
-    const arr = safeJsonParse(localStorage.getItem(LS_DRINK_GROUPS)) || [];
+  const drinkGroups = parseJsonUnknown(localStorage.getItem(LS_DRINK_GROUPS));
+  if (Array.isArray(drinkGroups)) {
+    for (const groupValue of drinkGroups) {
+      const group = recordValue(groupValue);
+      pushGroupWithVariants(
+        { ...group, variants: group.variants },
+        "drinks",
+      );
+    }
+  }
 
-    if (Array.isArray(arr)) {
-      for (const groupRaw of arr) {
-        const group = {
-          id: groupRaw?.id || groupRaw?._id || groupRaw?.sku,
-          sku: groupRaw?.sku,
-          name: readName(groupRaw),
-          category: "drinks",
-          variants: (Array.isArray(groupRaw?.variants) ? groupRaw.variants : []).map(
-            (variant: any) => ({
-              id: variant?.id || variant?.name,
-              name: readName(variant),
-              price: readPrice(variant),
-              active: variant?.active !== false,
-            }),
-          ),
-        };
+  const globalConfig = recordValue((globalThis as typeof globalThis & {
+    siteConfig?: unknown;
+  }).siteConfig);
+  const menu = globalConfig.menu;
 
-        if ((group as any).variants?.length) {
-          out.push(group as FlatItem);
-        }
+  const walk = (node: unknown, category?: string) => {
+    if (Array.isArray(node)) {
+      node.forEach((item) => walk(item, category));
+      return;
+    }
+    if (!isRecord(node)) return;
+
+    const nextCategory =
+      stringValue(node.category) ||
+      stringValue(node.cat) ||
+      stringValue(node.name) ||
+      category;
+
+    const hasVariants = [node.variants, node.options, node.choices].some(
+      (value) => Array.isArray(value) && value.length > 0,
+    );
+    const looksLikeProduct = [node.name, node.title, node.label].some(
+      (value) => typeof value === "string",
+    );
+
+    if (looksLikeProduct) {
+      if (hasVariants) pushGroupWithVariants(node, nextCategory);
+      else if (node.price != null || node.amount != null || node.preis != null) {
+        pushProduct(node, nextCategory);
       }
     }
-  } catch {}
 
-  try {
-    const maybe = (globalThis as any)?.siteConfig?.menu;
+    [node.children, node.items, node.groups, node.sections, node.list, node.data]
+      .filter((branch) => branch != null)
+      .forEach((branch) => walk(branch, nextCategory));
+  };
 
-    if (maybe) {
-      const walk = (node: any, category?: string) => {
-        if (!node || typeof node !== "object") return;
+  if (menu) walk(menu);
 
-        if (Array.isArray(node)) {
-          node.forEach((item) => walk(item, category));
-          return;
-        }
+  const products = parseJsonUnknown(localStorage.getItem(LS_PRODUCTS));
+  if (Array.isArray(products)) {
+    for (const productValue of products) {
+      const product = recordValue(productValue);
+      const hasVariants = [product.variants, product.options, product.choices].some(
+        (value) => Array.isArray(value) && value.length > 0,
+      );
 
-        const nextCategory =
-          node?.category ||
-          node?.cat ||
-          (typeof node?.name === "string" ? node.name : category) ||
-          category;
-
-        const hasVariants =
-          (Array.isArray(node?.variants) && node.variants.length > 0) ||
-          (Array.isArray(node?.options) && node.options.length > 0) ||
-          (Array.isArray(node?.choices) && node.choices.length > 0);
-
-        const looksLikeProduct =
-          typeof node?.name === "string" ||
-          typeof node?.title === "string" ||
-          typeof node?.label === "string";
-
-        if (looksLikeProduct) {
-          if (hasVariants) {
-            pushGroupWithVariants(node, nextCategory);
-          } else if (node?.price != null || node?.amount != null || node?.preis != null) {
-            pushProduct(node, nextCategory);
-          }
-        }
-
-        for (const branch of [
-          node?.children,
-          node?.items,
-          node?.groups,
-          node?.sections,
-          node?.list,
-          node?.data,
-        ]) {
-          if (branch) walk(branch, nextCategory);
-        }
-      };
-
-      walk(maybe, undefined);
+      if (hasVariants) pushGroupWithVariants(product, stringValue(product.category));
+      else pushProduct(product, stringValue(product.category));
     }
-  } catch {}
-
-  try {
-    const arr = safeJsonParse(localStorage.getItem(LS_PRODUCTS)) || [];
-
-    if (Array.isArray(arr)) {
-      for (const product of arr) {
-        const hasVariants =
-          (Array.isArray(product?.variants) && product.variants.length > 0) ||
-          (Array.isArray(product?.options) && product.options.length > 0) ||
-          (Array.isArray(product?.choices) && product.choices.length > 0);
-
-        if (hasVariants) {
-          pushGroupWithVariants(product, product?.category);
-        } else {
-          pushProduct(product, product?.category);
-        }
-      }
-    }
-  } catch {}
+  }
 
   return out.filter(Boolean);
 }
@@ -1113,38 +1202,38 @@ function pickByCategory(catalog: FlatItem[], type: "drink" | "donut" | "sauce") 
   return catalog.filter((item) => catKey(item.category || item.name) === key);
 }
 
-function sumCartMerchandise(items: any[]) {
+function sumCartMerchandise(items: CartItemFixed[]) {
   let sum = 0;
 
-  for (const ci of items) {
-    const base = toNum(ci?.item?.price, 0);
-    const addSum = (Array.isArray(ci?.add) ? ci.add : []).reduce(
-      (total: number, extra: any) => total + toNum(extra?.price, 0),
+  for (const cartItem of items) {
+    const base = toNum(cartItem.item.price, 0);
+    const addSum = (cartItem.add ?? []).reduce(
+      (total, extra) => total + toNum(extra.price, 0),
       0,
     );
 
-    sum += (base + addSum) * toNum(ci?.qty, 1);
+    sum += (base + addSum) * toNum(cartItem.qty, 1);
   }
 
   return +sum.toFixed(2);
 }
 
-function collectFreebieUnitsCheckout(items: any[]): FreebieUnit[] {
+function collectFreebieUnitsCheckout(items: CartItemFixed[]): FreebieUnit[] {
   const units: FreebieUnit[] = [];
 
-  for (const ci of items || []) {
-    const qty = Math.max(1, toNum(ci?.qty, 1));
-    const unitIds = Array.isArray(ci?.__unitIds) ? ci.__unitIds : [];
-    const price = Math.max(0, toNum(ci?.item?.price, 0));
+  for (const cartItem of items) {
+    const qty = Math.max(1, toNum(cartItem.qty, 1));
+    const unitIds = Array.isArray(cartItem.__unitIds) ? cartItem.__unitIds : [];
+    const price = Math.max(0, toNum(cartItem.item.price, 0));
     const category = parseFreebieCategory(
-      ci?.category ?? ci?.item?.category ?? ci?.item?.name,
+      cartItem.category ?? cartItem.item.category ?? cartItem.item.name,
     );
 
     if (!category) continue;
 
     for (let index = 0; index < qty; index += 1) {
       units.push({
-        unitId: String(unitIds[index] || `${ci?.id || ci?.item?.id || "item"}-${index}`),
+        unitId: String(unitIds[index] || `${cartItem.id}-${index}`),
         category,
         price,
       });
@@ -1155,7 +1244,7 @@ function collectFreebieUnitsCheckout(items: any[]): FreebieUnit[] {
 }
 
 function computePricingV6(
-  items: any[],
+  items: CartItemFixed[],
   mode: Mode,
   plz: string | null | undefined,
 ) {
@@ -1197,7 +1286,7 @@ function computePricingV6(
   if (mode === "delivery" && overrides.surcharges) {
     for (const ci of items) {
       const key = catKey(ci?.item?.category || ci?.item?.name || "");
-      const surcharge = toNum((overrides.surcharges as any)[key], 0);
+      const surcharge = toNum(overrides.surcharges?.[key], 0);
 
       if (surcharge > 0) {
         surcharges += surcharge * toNum(ci?.qty, 1);
@@ -1227,10 +1316,10 @@ function computePricingV6(
 
 /* ───────── coupon helpers ───────── */
 
-function mapCartToCouponItems(items: any[]): Coupons.CartItemForCoupon[] {
-  return (items || []).map((ci: any) => {
-    const addSum = (Array.isArray(ci?.add) ? ci.add : []).reduce(
-      (total: number, extra: any) => total + toNum(extra?.price, 0),
+function mapCartToCouponItems(items: CartItemFixed[]): Coupons.CartItemForCoupon[] {
+  return items.map((ci) => {
+    const addSum = (ci.add ?? []).reduce(
+      (total, extra) => total + toNum(extra.price, 0),
       0,
     );
 
@@ -1248,7 +1337,7 @@ function mapCartToCouponItems(items: any[]): Coupons.CartItemForCoupon[] {
 
 function computeCouponDiscount(
   code: string | null,
-  items: any[],
+  items: CartItemFixed[],
   cartAfterOverride: number,
   customerPhone?: string | null,
 ): { amount: number; message: string; code?: string; error?: string } {
@@ -1297,16 +1386,47 @@ function computeCouponDiscount(
 /* ───────── component ───────── */
 
 export default function CheckoutPage() {
-  const add = useCart((state: any) =>
-    state.add ?? state.addItem ?? state.addCartItem ?? state.addToCart ?? state.push,
-  ) as ((ci: any) => void) | undefined;
+  const addToCart = useCart((state) => state.addToCart);
+  const items = useCart((state) => state.items);
+  const clear = useCart((state) => state.clear);
+  const orderMode = useCart((state) => state.orderMode);
+  const setOrderMode = useCart((state) => state.setOrderMode);
+  const plzStore = useCart((state) => state.plz);
+  const setPLZ = useCart((state) => state.setPLZ);
 
-  const items = useCart((state: any) => state.items);
-  const clear = useCart((state: any) => state.clear);
-  const orderMode: Mode = useCart((state: any) => state.orderMode);
-  const setOrderMode = useCart((state: any) => state.setOrderMode);
-  const plzStore = useCart((state: any) => state.plz);
-  const setPLZ = useCart((state: any) => state.setPLZ);
+  const [checkoutToasts, setCheckoutToasts] = useState<CheckoutToast[]>([]);
+  const toastTimersRef = useRef<Map<string, number>>(new Map());
+
+  const dismissCheckoutToast = useCallback((id: string) => {
+    const timer = toastTimersRef.current.get(id);
+    if (timer) window.clearTimeout(timer);
+    toastTimersRef.current.delete(id);
+    setCheckoutToasts((current) => current.filter((toast) => toast.id !== id));
+  }, []);
+
+  const showCheckoutToast = useCallback(
+    (message: string, tone: CheckoutToastTone = "info") => {
+      const id = browserOpaqueToken(12);
+      setCheckoutToasts((current) => [
+        ...current.filter((toast) => toast.message !== message),
+        { id, message, tone },
+      ].slice(-3));
+
+      const timer = window.setTimeout(() => {
+        dismissCheckoutToast(id);
+      }, tone === "error" ? 7000 : 4500);
+      toastTimersRef.current.set(id, timer);
+    },
+    [dismissCheckoutToast],
+  );
+
+  useEffect(() => {
+    const timers = toastTimersRef.current;
+    return () => {
+      timers.forEach((timer) => window.clearTimeout(timer));
+      timers.clear();
+    };
+  }, []);
 
   const [pause, setPause] = useState<PauseState>({
     delivery: false,
@@ -1320,7 +1440,9 @@ export default function CheckoutPage() {
       try {
         const state = await syncPauseFromServer();
         if (active && state) setPause(state);
-      } catch {}
+      } catch (error: unknown) {
+        reportCheckoutError("pause-sync", error);
+      }
     })();
 
     const unsubscribe = onPauseChange((state) => {
@@ -1342,7 +1464,8 @@ export default function CheckoutPage() {
       try {
         await fetchAndApplyRemoteSettings();
         if (!stop) setCfgTick((tick) => tick + 1);
-      } catch {
+      } catch (error: unknown) {
+        reportCheckoutError("settings-sync", error);
         if (!stop) setCfgTick((tick) => tick + 1);
       }
     };
@@ -1385,7 +1508,7 @@ export default function CheckoutPage() {
     };
   }, []);
 
-  const settingsRaw = useMemo(() => readSettings() as any, [cfgTick]);
+  const settingsRaw: SettingsV6 = useMemo(() => readSettings(), [cfgTick]);
 
   const avgPickupMinutes = Math.max(
     1,
@@ -1468,22 +1591,33 @@ export default function CheckoutPage() {
     planCfg.tz,
   ).open;
 
-  const buildSlotConfig = () => ({
-    plan: planCfg.plan,
-    tz: planCfg.tz,
-    slotMinutes: plannedSlotMinutes,
-    leadPickupMin: avgPickupMinutes,
-    leadDeliveryMin: avgDeliveryMinutes,
-    lastOrderBufferMin: 15,
-    allowPreorder: settingsRaw?.hours?.allowPreorder !== false,
-    daysAhead: planCfg.daysAhead ?? 0,
-  });
+  const slotConfig = useMemo(
+    () => ({
+      plan: planCfg.plan,
+      tz: planCfg.tz,
+      slotMinutes: plannedSlotMinutes,
+      leadPickupMin: avgPickupMinutes,
+      leadDeliveryMin: avgDeliveryMinutes,
+      lastOrderBufferMin: 15,
+      allowPreorder: settingsRaw.hours?.allowPreorder !== false,
+      daysAhead: planCfg.daysAhead ?? 0,
+    }),
+    [
+      planCfg.plan,
+      planCfg.tz,
+      planCfg.daysAhead,
+      plannedSlotMinutes,
+      avgPickupMinutes,
+      avgDeliveryMinutes,
+      settingsRaw.hours?.allowPreorder,
+    ],
+  );
 
   useLayoutEffect(() => {
     if (!mustPlanNow) return;
 
     const today = nowInTZ(planCfg.tz);
-    const first = buildSlotsForDate(orderMode, today, buildSlotConfig())[0];
+    const first = buildSlotsForDate(orderMode, today, slotConfig)[0];
     const hhmm = first ? hhmmInTZ(first, planCfg.tz) : "";
 
     setPlanned((current) =>
@@ -1499,7 +1633,6 @@ export default function CheckoutPage() {
             timeDelivery: current.timeDelivery || hhmm,
           },
     );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     mustPlanNow,
     orderMode,
@@ -1508,13 +1641,13 @@ export default function CheckoutPage() {
     plannedSlotMinutes,
     avgPickupMinutes,
     avgDeliveryMinutes,
+    slotConfig,
   ]);
 
   const slotOptions: string[] = useMemo(() => {
     const today = nowInTZ(planCfg.tz);
-    const list = buildSlotsForDate(orderMode, today, buildSlotConfig());
+    const list = buildSlotsForDate(orderMode, today, slotConfig);
     return list.map((date) => hhmmInTZ(date, planCfg.tz));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     orderMode,
     planCfg.plan,
@@ -1524,6 +1657,7 @@ export default function CheckoutPage() {
     avgPickupMinutes,
     avgDeliveryMinutes,
     cfgTick,
+    slotConfig,
   ]);
 
   useEffect(() => {
@@ -1547,46 +1681,33 @@ export default function CheckoutPage() {
   }, [mustPlanNow, slotOptions, orderMode]);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(LS_CHECKOUT);
-      if (!raw) return;
+    const saved = normalizeSavedCheckout(
+      parseJsonUnknown(localStorage.getItem(LS_CHECKOUT)),
+    );
+    const preferredZip = normalizeCheckoutZip(plzStore);
 
-      const saved = JSON.parse(raw) as {
-        addr?: Address;
-        planned?: Planned;
-        orderMode?: Mode;
-      };
+    if (saved.addr) {
+      setAddr((current) =>
+        mergeAddressForCheckoutZip(
+          current,
+          saved.addr,
+          orderMode,
+          preferredZip,
+        ),
+      );
+    }
 
-      const savedAddr = saved?.addr ?? null;
-      const preferredZip = normalizeCheckoutZip(plzStore);
-
-      if (savedAddr) {
-        setAddr((current) =>
-          mergeAddressForCheckoutZip(
-            current,
-            savedAddr,
-            orderMode,
-            preferredZip,
-          ),
-        );
-      }
-
-      if (saved?.planned) {
-        setPlanned({
-          enabledPickup: !!saved.planned?.enabledPickup,
-          timePickup: saved.planned?.timePickup || "",
-          enabledDelivery: !!saved.planned?.enabledDelivery,
-          timeDelivery: saved.planned?.timeDelivery || "",
-        });
-      }
-
-    } catch {}
+    if (saved.planned) {
+      setPlanned(saved.planned);
+    }
+    // This hydration intentionally runs once; later updates use dedicated
+    // storage/settings listeners.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     const preferredZip = normalizeCheckoutZip(plzStore);
-    const profile = readCheckoutProfile(orderMode, preferredZip || addr.zip);
+    const profile = readCheckoutProfile(orderMode, preferredZip);
     if (!profile) return;
 
     setAddr((current) =>
@@ -1597,7 +1718,6 @@ export default function CheckoutPage() {
         preferredZip || current.zip,
       ),
     );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orderMode, plzStore]);
 
   useEffect(() => {
@@ -1610,7 +1730,9 @@ export default function CheckoutPage() {
           orderMode,
         }),
       );
-    } catch {}
+    } catch {
+      // Checkout form persistence must never block ordering.
+    }
   }, [addr, planned, orderMode]);
 
   const profileTimer = useRef<number | null>(null);
@@ -1658,7 +1780,9 @@ export default function CheckoutPage() {
         };
 
         saveCheckoutProfile(orderMode, toSave);
-      } catch {}
+      } catch (error: unknown) {
+        reportCheckoutError("profile-save", error);
+      }
     }, 400);
 
     return () => {
@@ -1712,7 +1836,7 @@ export default function CheckoutPage() {
   const [rememberPaymentMethod, setRememberPaymentMethod] = useState(true);
   const [paymentProfileRemembered, setPaymentProfileRemembered] = useState(false);
   const [paymentProfileMethods, setPaymentProfileMethods] = useState<
-    Array<{ id: string; type: string; label: string }>
+    SavedPaymentMethod[]
   >([]);
   const [selectedSavedPaymentMethodId, setSelectedSavedPaymentMethodId] =
     useState("");
@@ -1747,7 +1871,8 @@ export default function CheckoutPage() {
           )}&recovery=${encodeURIComponent(recovery.recoveryToken)}`,
           { cache: "no-store" },
         );
-        const payload = await response.json().catch(() => ({}));
+        const raw: unknown = await response.json().catch(() => null);
+        const payload = parsePaymentSessionResponse(raw);
 
         if (paymentRecoveryIsTerminal(payload)) {
           clearActivePaymentRecoveryStorage();
@@ -1766,11 +1891,14 @@ export default function CheckoutPage() {
             ACTIVE_PAYMENT_RECOVERY_KEY,
             JSON.stringify(nextRecovery),
           );
-        } catch {}
+        } catch (error: unknown) {
+          reportCheckoutError("payment-recovery-storage", error);
+        }
 
         setActivePaymentRecovery(nextRecovery);
-      } catch {
+      } catch (error: unknown) {
         // Keep the local recovery card visible during a temporary network error.
+        reportCheckoutError("payment-recovery-sync", error);
       }
     },
     [],
@@ -1845,35 +1973,27 @@ export default function CheckoutPage() {
     let active = true;
 
     void fetch("/api/payments/profile", { cache: "no-store" })
-      .then((response) => response.json().catch(() => ({})))
-      .then((payload) => {
+      .then(async (response) => {
+        const raw: unknown = await response.json().catch(() => null);
+        return parsePaymentProfileResponse(raw);
+      })
+      .then((profile) => {
         if (!active) return;
 
-        const remembered = Boolean(payload?.remembered);
-        const methods = Array.isArray(payload?.methods)
-          ? payload.methods
-              .filter(
-                (item: any) =>
-                  item &&
-                  typeof item.id === "string" &&
-                  typeof item.label === "string",
-              )
-              .slice(0, 6)
-          : [];
-
-        setPaymentProfileRemembered(remembered);
-        setPaymentProfileMethods(methods);
+        setPaymentProfileRemembered(profile.remembered);
+        setPaymentProfileMethods(profile.methods);
         setSelectedSavedPaymentMethodId((current) =>
-          methods.some((item: any) => item.id === current)
+          profile.methods.some((item) => item.id === current)
             ? current
-            : String(methods[0]?.id || ""),
+            : profile.methods[0]?.id || "",
         );
 
-        if (remembered) {
+        if (profile.remembered) {
           setRememberPaymentMethod(true);
         }
       })
-      .catch(() => {
+      .catch((error: unknown) => {
+        reportCheckoutError("payment-profile", error);
         if (!active) return;
         setPaymentProfileRemembered(false);
         setPaymentProfileMethods([]);
@@ -2217,12 +2337,11 @@ export default function CheckoutPage() {
       const match = findOfficialStreet(list, addr.street);
       setStreetQuery(match || "");
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [addr.zip]);
+  }, [addr.zip, addr.street, streetQuery]);
 
   const enablePlanned = (enable: boolean) => {
     const today = nowInTZ(planCfg.tz);
-    const first = buildSlotsForDate(orderMode, today, buildSlotConfig())[0];
+    const first = buildSlotsForDate(orderMode, today, slotConfig)[0];
     const hhmm = first ? hhmmInTZ(first, planCfg.tz) : "";
 
     if (orderMode === "pickup") {
@@ -2287,29 +2406,29 @@ export default function CheckoutPage() {
 
   const catalog = useMemo(() => collectCatalog(), [cfgTick]);
 
-  const hasBurger = (items || []).some((ci: any) =>
+  const hasBurger = items.some((ci) =>
     String(ci?.item?.category || "").toLowerCase().includes("burger"),
   );
 
-  const hasPommes = (items || []).some((ci: any) =>
+  const hasPommes = items.some((ci) =>
     ["pommes", "fries", "patates", "friet", "kartoffel"].some((key) =>
       String(ci?.item?.name || "").toLowerCase().includes(key),
     ),
   );
 
-  const hasDrink = (items || []).some((ci: any) =>
+  const hasDrink = items.some((ci) =>
     ["drink", "getränk", "cola", "fanta", "sprite", "wasser", "fritz"].some((key) =>
       (ci?.item?.category || ci?.item?.name || "").toLowerCase().includes(key),
     ),
   );
 
-  const hasSauce = (items || []).some((ci: any) =>
+  const hasSauce = items.some((ci) =>
     ["sauce", "soße", "soßen", "sos", "ketchup", "mayo"].some((key) =>
       (ci?.item?.category || ci?.item?.name || "").toLowerCase().includes(key),
     ),
   );
 
-  const hasDonut = (items || []).some((ci: any) =>
+  const hasDonut = items.some((ci) =>
     ["donut", "dessert", "süß", "suess"].some((key) =>
       (ci?.item?.category || ci?.item?.name || "").toLowerCase().includes(key),
     ),
@@ -2361,7 +2480,6 @@ export default function CheckoutPage() {
   }, [drawerList, drawerSel]);
 
   const applyDrawer = () => {
-    if (!add) return;
 
     for (const item of drawerList) {
       if (item.variants?.length) {
@@ -2370,8 +2488,7 @@ export default function CheckoutPage() {
           const qty = drawerSel[key] || 0;
 
           if (qty > 0) {
-            add({
-              id: key,
+            addToCart({
               item: {
                 id: key,
                 name: `${item.name} • ${variant.name}`,
@@ -2387,8 +2504,7 @@ export default function CheckoutPage() {
         const qty = drawerSel[key] || 0;
 
         if (qty > 0) {
-          add({
-            id: key,
+          addToCart({
             item: {
               id: key,
               name: item.name,
@@ -2427,12 +2543,13 @@ export default function CheckoutPage() {
         }),
         cache: "no-store",
       });
-      const payload = await response.json().catch(() => ({}));
+      const raw: unknown = await response.json().catch(() => null);
+      const payload = parsePaymentSessionResponse(raw);
 
-      if (!response.ok || payload?.cancelled !== true) {
+      if (!response.ok || payload.cancelled !== true) {
         throw new Error(
-          payload?.message ||
-            payload?.error ||
+          payload.message ||
+            payload.error ||
             "Die offene Zahlung konnte nicht storniert werden.",
         );
       }
@@ -2440,10 +2557,13 @@ export default function CheckoutPage() {
       clearActivePaymentRecoveryStorage();
       setActivePaymentRecovery(null);
       setPaymentRecoveryMessage("");
-    } catch (error: any) {
+    } catch (error: unknown) {
+      reportCheckoutError("payment-recovery-cancel", error);
       setPaymentRecoveryMessage(
-        error?.message ||
+        errorMessage(
+          error,
           "Die offene Zahlung konnte nicht storniert werden. Bitte erneut versuchen.",
+        ),
       );
     } finally {
       setPaymentRecoveryBusy(false);
@@ -2462,13 +2582,20 @@ export default function CheckoutPage() {
       localStorage.removeItem(LS_ACTIVE_COUPON_META);
       window.dispatchEvent(new CustomEvent("bb_coupon_changed"));
       window.dispatchEvent(new CustomEvent("bb:coupon-sync"));
-    } catch {}
+    } catch {
+      // Coupon storage cleanup is best-effort.
+    }
 
     setLsTick((tick) => tick + 1);
   };
 
   return (
     <main className="mx-auto max-w-5xl space-y-6 px-4 pb-6 sm:px-6">
+      <CheckoutToastViewport
+        toasts={checkoutToasts}
+        onDismiss={dismissCheckoutToast}
+      />
+
       {activePaymentRecovery && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/85 p-4 backdrop-blur-md">
           <div className="w-full max-w-lg rounded-3xl border border-amber-400/50 bg-stone-950 p-5 shadow-2xl sm:p-6">
@@ -2825,9 +2952,11 @@ export default function CheckoutPage() {
             onClick={() => {
               try {
                 localStorage.removeItem(`${PROFILE_KEY}:${orderMode}`);
-              } catch {}
+              } catch (error: unknown) {
+                reportCheckoutError("profile-delete", error);
+              }
 
-              alert("Gespeicherte Daten wurden entfernt.");
+              showCheckoutToast("Gespeicherte Daten wurden entfernt.", "success");
             }}
           >
             Daten löschen
@@ -2835,8 +2964,10 @@ export default function CheckoutPage() {
         </p>
 
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <Field label="Vollständiger Name *">
+          <Field label="Vollständiger Name *" htmlFor="checkout-name">
             <input
+              id="checkout-name"
+              autoComplete="name"
               value={addr.name}
               onChange={(event) =>
                 setAddr({
@@ -2857,8 +2988,10 @@ export default function CheckoutPage() {
             />
           </Field>
 
-          <Field label={`Telefon * (${phoneDigits} Ziffern)`}>
+          <Field label={`Telefon * (${phoneDigits} Ziffern)`} htmlFor="checkout-phone">
             <input
+              id="checkout-phone"
+              autoComplete="tel"
               inputMode="tel"
               pattern="[\d+\s()-]+"
               value={addr.phone}
@@ -2879,8 +3012,10 @@ export default function CheckoutPage() {
           {orderMode === "delivery" && (
             <>
               <div className="grid grid-cols-2 gap-3 md:col-span-2">
-                <Field label="PLZ *">
+                <Field label="PLZ *" htmlFor="checkout-zip">
                   <input
+                    id="checkout-zip"
+                    autoComplete="postal-code"
                     placeholder="z. B. 13507"
                     inputMode="numeric"
                     value={addr.zip}
@@ -2899,9 +3034,11 @@ export default function CheckoutPage() {
                   />
                 </Field>
 
-                <Field label="Straße *">
+                <Field label="Straße *" htmlFor="checkout-street">
                   <div className="relative">
                     <input
+                      id="checkout-street"
+                      autoComplete="street-address"
                       value={streetQuery || addr.street}
                       onChange={(event) => {
                         const value = event.target.value;
@@ -2983,8 +3120,9 @@ export default function CheckoutPage() {
               </div>
 
               <div className="grid grid-cols-2 gap-3 md:col-span-2">
-                <Field label="Hausnummer *">
+                <Field label="Hausnummer *" htmlFor="checkout-house">
                   <input
+                    id="checkout-house"
                     placeholder="z. B. 12A"
                     value={addr.house}
                     onChange={(event) => setAddr({ ...addr, house: event.target.value })}
@@ -2998,8 +3136,9 @@ export default function CheckoutPage() {
                   />
                 </Field>
 
-                <Field label="Etage/Stockwerk">
+                <Field label="Etage/Stockwerk" htmlFor="checkout-floor">
                   <input
+                    id="checkout-floor"
                     placeholder="z. B. 3. OG"
                     value={addr.floor}
                     onChange={(event) => setAddr({ ...addr, floor: event.target.value })}
@@ -3009,8 +3148,9 @@ export default function CheckoutPage() {
               </div>
 
               <div className="grid grid-cols-2 gap-3 md:col-span-2">
-                <Field label="Aufgang/Block">
+                <Field label="Aufgang/Block" htmlFor="checkout-entrance">
                   <input
+                    id="checkout-entrance"
                     placeholder="z. B. Block B / Aufgang 2"
                     value={addr.entrance}
                     onChange={(event) =>
@@ -3020,8 +3160,10 @@ export default function CheckoutPage() {
                   />
                 </Field>
 
-                <Field label="Stadt/Ort">
+                <Field label="Stadt/Ort" htmlFor="checkout-city">
                   <input
+                    id="checkout-city"
+                    autoComplete="address-level2"
                     value={addr.city}
                     onChange={(event) => setAddr({ ...addr, city: event.target.value })}
                     className="w-full rounded-md bg-stone-800/60 p-2 outline-none"
@@ -3031,8 +3173,10 @@ export default function CheckoutPage() {
             </>
           )}
 
-          <Field label="E-Mail (optional)">
+          <Field label="E-Mail (optional)" htmlFor="checkout-email">
             <input
+              id="checkout-email"
+              autoComplete="email"
               type="email"
               placeholder="z. B. name@example.com"
               value={addr.email ?? ""}
@@ -3044,13 +3188,16 @@ export default function CheckoutPage() {
 
             <div className="mt-2 flex items-center gap-2 text-xs text-stone-300/80">
               <input
+                id="checkout-email-opt-in"
                 type="checkbox"
                 checked={!!addr.emailOptIn}
                 onChange={(event) =>
                   setAddr({ ...addr, emailOptIn: event.target.checked })
                 }
               />
-              <span>Ja, ich möchte Angebote & Neuigkeiten per E-Mail erhalten.</span>
+              <label htmlFor="checkout-email-opt-in">
+                Ja, ich möchte Angebote & Neuigkeiten per E-Mail erhalten.
+              </label>
             </div>
 
             {addr.email && !emailValid && (
@@ -3065,8 +3212,10 @@ export default function CheckoutPage() {
               label={
                 orderMode === "pickup" ? "Hinweis zur Abholung" : "Lieferhinweis"
               }
+              htmlFor="checkout-note"
             >
               <textarea
+                id="checkout-note"
                 rows={3}
                 placeholder={
                   orderMode === "pickup"
@@ -3252,16 +3401,34 @@ export default function CheckoutPage() {
                             className="mt-2 text-xs text-stone-400 underline decoration-stone-600 underline-offset-4"
                             onClick={async () => {
                               try {
-                                await fetch("/api/payments/profile", {
+                                const response = await fetch("/api/payments/profile", {
                                   method: "DELETE",
                                   cache: "no-store",
                                 });
-                              } catch {}
+                                if (!response.ok) {
+                                  throw new Error(
+                                    "Gespeicherte Zahlungsart konnte nicht entfernt werden.",
+                                  );
+                                }
 
-                              setPaymentProfileRemembered(false);
-                              setPaymentProfileMethods([]);
-                              setSelectedSavedPaymentMethodId("");
-                              setRememberPaymentMethod(false);
+                                setPaymentProfileRemembered(false);
+                                setPaymentProfileMethods([]);
+                                setSelectedSavedPaymentMethodId("");
+                                setRememberPaymentMethod(false);
+                                showCheckoutToast(
+                                  "Gespeicherte Zahlungsart wurde entfernt.",
+                                  "success",
+                                );
+                              } catch (error: unknown) {
+                                reportCheckoutError("payment-profile-delete", error);
+                                showCheckoutToast(
+                                  errorMessage(
+                                    error,
+                                    "Gespeicherte Zahlungsart konnte nicht entfernt werden.",
+                                  ),
+                                  "error",
+                                );
+                              }
                             }}
                           >
                             Gespeicherte Zahlungsart auf diesem Gerät entfernen
@@ -3496,7 +3663,7 @@ export default function CheckoutPage() {
 
         <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
           {orderMode === "pickup" ? (
-            <Field label="Geplant optional / wenn geschlossen erforderlich">
+            <FieldGroup legend="Geplant optional / wenn geschlossen erforderlich">
               <div className="flex items-center gap-3">
                 <div className="flex items-center gap-2 text-sm">
                   <Toggle
@@ -3512,6 +3679,8 @@ export default function CheckoutPage() {
                 </div>
 
                 <select
+                  id="checkout-planned-pickup"
+                  aria-label="Geplante Abholzeit auswählen"
                   disabled={!plannedEnabledVirtual}
                   value={planned.timePickup}
                   onChange={(event) =>
@@ -3534,9 +3703,9 @@ export default function CheckoutPage() {
                   ))}
                 </select>
               </div>
-            </Field>
+            </FieldGroup>
           ) : (
-            <Field label="Geplant optional / wenn geschlossen erforderlich">
+            <FieldGroup legend="Geplant optional / wenn geschlossen erforderlich">
               <div className="flex items-center gap-3">
                 <div className="flex items-center gap-2 text-sm">
                   <Toggle
@@ -3552,6 +3721,8 @@ export default function CheckoutPage() {
                 </div>
 
                 <select
+                  id="checkout-planned-delivery"
+                  aria-label="Geplante Lieferzeit auswählen"
                   disabled={!plannedEnabledVirtual}
                   value={planned.timeDelivery}
                   onChange={(event) =>
@@ -3574,7 +3745,7 @@ export default function CheckoutPage() {
                   ))}
                 </select>
               </div>
-            </Field>
+            </FieldGroup>
           )}
 
           <button
@@ -3759,15 +3930,9 @@ export default function CheckoutPage() {
                 type="button"
                 className="card-cta"
                 onClick={() => {
-                  try {
-                    clear();
-                  } catch {}
-
+                  clear();
                   setShowConfirm(false);
-
-                  try {
-                    window.location.href = "/menu";
-                  } catch {}
+                  window.location.assign("/menu");
                 }}
               >
                 Zum Menü
@@ -3947,16 +4112,11 @@ export default function CheckoutPage() {
       const paymentRequestId = browserOpaqueToken();
       const recoveryToken = browserOpaqueToken();
 
-      const orderBase = await handleLogBeforeNavigate(
-        {
-          method,
-          status: "pending",
-          testMode: false,
-        },
-        {
-          prepareOnly: true,
-        },
-      );
+      const orderBase = await buildCheckoutOrderDraft({
+        method,
+        status: "pending",
+        testMode: false,
+      });
 
       const shares =
         method === "split_contactless"
@@ -3991,27 +4151,37 @@ export default function CheckoutPage() {
         cache: "no-store",
       });
 
-      const payload = await response.json().catch(() => ({} as any));
-
+      const raw: unknown = await response.json().catch(() => null);
+      const payload = parsePaymentPrepareResponse(raw, recoveryToken);
       const destination =
         method === "split_contactless"
-          ? payload?.manageUrl || payload?.url
-          : payload?.url;
+          ? payload.manageUrl || payload.url
+          : payload.url;
 
-      if (!response.ok || payload?.ok === false || !destination) {
+      if (
+        !response.ok ||
+        !payload.ok ||
+        !payload.paymentSessionId ||
+        !isAllowedNavigationUrl(destination)
+      ) {
         throw new Error(
-          payload?.message ||
-            payload?.error ||
+          payload.message ||
+            payload.error ||
             "Online-Zahlung konnte nicht gestartet werden.",
         );
       }
 
+      const manageUrl = payload.manageUrl || destination;
+      if (!isAllowedNavigationUrl(manageUrl)) {
+        throw new Error("Ungültige Zahlungsadresse empfangen.");
+      }
+
       const recovery: ActivePaymentRecovery = {
-        paymentSessionId: String(payload.paymentSessionId || ""),
-        recoveryToken: String(payload.recoveryToken || recoveryToken),
-        manageUrl: String(payload.manageUrl || destination),
+        paymentSessionId: payload.paymentSessionId,
+        recoveryToken: payload.recoveryToken,
+        manageUrl,
         paymentKind: method,
-        expiresAt: payload.recoveryExpiresAt || null,
+        expiresAt: payload.recoveryExpiresAt,
       };
 
       try {
@@ -4023,15 +4193,20 @@ export default function CheckoutPage() {
           ACTIVE_PAYMENT_RECOVERY_KEY,
           JSON.stringify(recovery),
         );
-      } catch {}
+      } catch (error: unknown) {
+        reportCheckoutError("payment-recovery-storage", error);
+      }
       setActivePaymentRecovery(recovery);
 
-      window.location.assign(String(destination));
-    } catch (error: any) {
-      console.error("[checkout/stripe]", error);
-      alert(
-        error?.message ||
+      window.location.assign(destination);
+    } catch (error: unknown) {
+      reportCheckoutError("stripe-start", error);
+      showCheckoutToast(
+        errorMessage(
+          error,
           "Online-Zahlung konnte nicht gestartet werden. Bitte erneut versuchen.",
+        ),
+        "error",
       );
       setSubmitBusy(false);
     }
@@ -4053,7 +4228,8 @@ export default function CheckoutPage() {
 
       setSubmitBusy(true);
 
-      const result: any = await handleLogBeforeNavigate(payment);
+      const orderBase = await buildCheckoutOrderDraft(payment);
+      const result = await createOrderWithRetryAndEmergency(orderBase);
       const emergencyMode = Boolean(result?.emergencyMode);
       const etaMin = emergencyMode
         ? undefined
@@ -4091,54 +4267,53 @@ export default function CheckoutPage() {
       });
       setSubmitted(true);
       setShowConfirm(true);
-    } catch (error: any) {
-      console.error(error);
-      alert(error?.message || "Es ist ein Fehler aufgetreten. Bitte erneut versuchen.");
+    } catch (error: unknown) {
+      reportCheckoutError("order-submit", error);
+      showCheckoutToast(
+        errorMessage(
+          error,
+          "Es ist ein Fehler aufgetreten. Bitte erneut versuchen.",
+        ),
+        "error",
+      );
     } finally {
       setOrderRetryState(null);
       setSubmitBusy(false);
     }
   }
 
-  function mapCartToOrderItems() {
-    return (items || []).map((ci: any) => {
-      const addSum =
-        (Array.isArray(ci?.add) ? ci.add : []).reduce(
-          (total: number, extra: any) => total + toNum(extra?.price, 0),
-          0,
-        ) || 0;
+  function mapCartToOrderItems(): CheckoutOrderItem[] {
+    return items.map((cartItem) => {
+      const addSum = (cartItem.add ?? []).reduce(
+        (total, extra) => total + toNum(extra.price, 0),
+        0,
+      );
 
       return {
-        id: ci?.item?.id || ci?.id,
-        sku: ci?.item?.sku || ci?.item?.id || ci?.id,
-        name: ci?.item?.name || "Artikel",
-        description: ci?.item?.description || ci?.item?.desc || undefined,
-        category: ci?.item?.category || undefined,
-        price: toNum(ci?.item?.price, 0) + addSum,
-        qty: toNum(ci?.qty, 1),
-        add: Array.isArray(ci?.add)
-          ? ci.add.map((extra: any) => ({
-              label: extra?.label || extra?.name,
-              name: extra?.name,
-              price: toNum(extra?.price, 0),
-            }))
-          : undefined,
-        note: ci?.note != null ? String(ci.note) : undefined,
-        rm: Array.isArray(ci?.rm) ? ci.rm : undefined,
+        id: cartItem.item.id || cartItem.id,
+        sku: cartItem.item.sku || cartItem.item.id || cartItem.id,
+        name: cartItem.item.name || "Artikel",
+        description:
+          cartItem.item.description || cartItem.item.desc || undefined,
+        category: cartItem.item.category || undefined,
+        price: toNum(cartItem.item.price, 0) + addSum,
+        qty: toNum(cartItem.qty, 1),
+        add: (cartItem.add ?? []).map((extra) => ({
+          label: extra.label || extra.name,
+          name: extra.name,
+          price: toNum(extra.price, 0),
+        })),
+        note: cartItem.note != null ? String(cartItem.note) : undefined,
+        rm: Array.isArray(cartItem.rm) ? cartItem.rm : undefined,
       };
     });
   }
 
-  async function handleLogBeforeNavigate(
-    payment: {
-      method: PaymentMethod;
-      status: "pending" | "paid" | "failed";
-      testMode: boolean;
-    },
-    options?: {
-      prepareOnly?: boolean;
-    },
-  ): Promise<any> {
+  async function buildCheckoutOrderDraft(payment: {
+    method: PaymentMethod;
+    status: CheckoutPaymentStatus;
+    testMode: boolean;
+  }): Promise<CheckoutOrderDraft> {
     const ts = Date.now();
     const officialStreetForOrder =
       orderMode === "delivery"
@@ -4165,7 +4340,9 @@ export default function CheckoutPage() {
     if (activeCode) {
       try {
         await Coupons.syncCouponsFromServer();
-      } catch {}
+      } catch (error: unknown) {
+        reportCheckoutError("coupon-sync", error);
+      }
     }
 
     const latestCoupon = computeCouponDiscount(
@@ -4215,14 +4392,16 @@ export default function CheckoutPage() {
         : null,
     );
 
-    const orderBase = {
+    const orderBase: CheckoutOrderDraft = {
       ts,
       mode: orderMode,
       source: "web",
       channel: "web",
       orderChannel: orderMode === "pickup" ? "abholung" : "lieferung",
       plz: orderMode === "delivery" ? addr.zip || null : null,
-      items: attachPfandToOrderItems(mapCartToOrderItems()),
+      items: attachPfandToOrderItems(
+        mapCartToOrderItems(),
+      ) as CheckoutOrderItem[],
       merchandise,
       discount: +(discount + latestRouteDealDiscount).toFixed(2),
       surcharges: +(surcharges + latestPfand).toFixed(2),
@@ -4318,56 +4497,66 @@ export default function CheckoutPage() {
       },
     };
 
-    if (options?.prepareOnly) {
-      return orderBase;
-    }
-
-    return await createOrderWithRetryAndEmergency(orderBase);
+    return orderBase;
   }
 
 
-  async function createOrderWithRetryAndEmergency(orderBase: any) {
+  async function createOrderWithRetryAndEmergency(
+    orderBase: CheckoutOrderDraft,
+  ): Promise<OrderCreateResult> {
     const startedAt = Date.now();
     let attempt = 1;
-    let lastError: any = null;
+    let lastError: unknown = null;
 
-    const parseOrderCreateResponse = async (response: Response) => {
-      const created = (await response.json().catch(() => ({} as any))) as any;
+    const parseOrderCreateResponse = async (
+      response: Response,
+    ): Promise<OrderCreateResult> => {
+      const raw: unknown = await response.json().catch(() => null);
+      const created = parseOrderCreateEnvelope(raw);
 
-      if (!response.ok || created?.ok === false) {
-        console.error("Order create failed", response.status, created);
+      if (!response.ok || !created.ok) {
+        reportCheckoutError("order-create-response", {
+          status: response.status,
+          payload: created,
+        });
 
-        if (created?.couponError) {
+        if (created.couponError) {
           clearActiveCoupon();
           const couponError = new Error(
-            created?.message || created?.error || "COUPON_ERROR",
-          ) as Error & { couponError?: boolean };
+            created.message || created.error || "COUPON_ERROR",
+          ) as Error & { couponError: true };
           couponError.couponError = true;
           throw couponError;
         }
 
-        throw new Error(created?.message || created?.error || "ORDER_CREATE_FAILED");
+        throw new Error(
+          created.message || created.error || "ORDER_CREATE_FAILED",
+        );
       }
 
+      const order = created.order ?? {};
+      const data = created.data ?? {};
+      const orderMeta = recordValue(order.meta);
+      const dataMeta = recordValue(data.meta);
       const id =
-        created?.orderId ||
-        created?.id ||
-        created?.order?.id ||
-        created?.data?.id ||
+        created.orderId ||
+        created.id ||
+        stringValue(order.id) ||
+        stringValue(data.id) ||
         String(Date.now());
       const etaMin = toNum(
-        created?.etaMin ?? created?.order?.etaMin ?? created?.data?.etaMin,
+        created.etaMin ?? order.etaMin ?? data.etaMin,
         orderMode === "pickup" ? avgPickupMinutes : avgDeliveryMinutes,
       );
       const plannedFromResponse = normalizePlannedHHMM(
-        created?.planned ?? created?.order?.planned ?? created?.data?.planned,
+        created.planned ?? order.planned ?? data.planned,
       );
       const trackingToken = String(
-        created?.trackingToken ??
-          created?.order?.trackingToken ??
-          created?.data?.trackingToken ??
-          created?.order?.meta?.trackingToken ??
-          created?.data?.meta?.trackingToken ??
+        created.trackingToken ??
+          order.trackingToken ??
+          data.trackingToken ??
+          orderMeta.trackingToken ??
+          dataMeta.trackingToken ??
           "",
       ).trim();
 
@@ -4376,7 +4565,7 @@ export default function CheckoutPage() {
         etaMin,
         planned: plannedFromResponse,
         trackingToken,
-        emergencyMode: Boolean(created?.emergencyMode),
+        emergencyMode: created.emergencyMode === true,
       };
     };
 
@@ -4393,8 +4582,12 @@ export default function CheckoutPage() {
         });
 
         return await parseOrderCreateResponse(response);
-      } catch (error: any) {
-        if (error?.couponError) {
+      } catch (error: unknown) {
+        if (
+          error instanceof Error &&
+          "couponError" in error &&
+          error.couponError === true
+        ) {
           throw error;
         }
 
@@ -4435,7 +4628,7 @@ export default function CheckoutPage() {
             emergencyMode: true,
             emergencyStartedAt: new Date(startedAt).toISOString(),
             emergencySubmittedAt: new Date().toISOString(),
-            emergencyLastError: lastError?.message || String(lastError || "unknown"),
+            emergencyLastError: errorMessage(lastError, "unknown"),
           },
         },
         notify: true,
@@ -4450,11 +4643,39 @@ export default function CheckoutPage() {
   }
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({
+  label,
+  htmlFor,
+  children,
+}: {
+  label: string;
+  htmlFor: string;
+  children: React.ReactNode;
+}) {
   return (
-    <label className="block text-sm">
-      <span className="mb-1 block text-stone-300/80">{label}</span>
+    <div className="block text-sm">
+      <label
+        htmlFor={htmlFor}
+        className="mb-1 block text-stone-300/80"
+      >
+        {label}
+      </label>
       {children}
-    </label>
+    </div>
+  );
+}
+
+function FieldGroup({
+  legend,
+  children,
+}: {
+  legend: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <fieldset className="block min-w-0 text-sm">
+      <legend className="mb-1 block text-stone-300/80">{legend}</legend>
+      {children}
+    </fieldset>
   );
 }

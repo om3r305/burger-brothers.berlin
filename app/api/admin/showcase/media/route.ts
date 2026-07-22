@@ -5,12 +5,15 @@ import {
   requireSessionRole,
 } from "@/lib/server/request-security";
 import {
-  createR2ObjectKey,
-  createR2PresignedPutUrl,
-  deleteR2Object,
-  publicR2Url,
-  readR2Config,
-} from "@/lib/server/r2";
+  createCloudinaryPublicId,
+  createCloudinaryUploadSignature,
+  deleteCloudinaryAsset,
+  isAllowedCloudinaryPublicId,
+  isCloudinaryDeliveryUrl,
+  readCloudinaryConfig,
+  verifyCloudinaryUploadResponse,
+  type CloudinaryResourceType,
+} from "@/lib/server/cloudinary";
 import {
   readShowcaseAdminState,
   requestOrigin,
@@ -57,23 +60,31 @@ function isUsed(document: any, media: ShowcaseMediaItem) {
   );
 }
 
+function resourceType(value: any, mimeType = ""): CloudinaryResourceType | null {
+  const normalized = text(value, 30).toLowerCase();
+  if (normalized === "image" || normalized === "video") return normalized;
+  if (mimeType.startsWith("image/")) return "image";
+  if (mimeType.startsWith("video/")) return "video";
+  return null;
+}
+
+function storagePayload() {
+  const config = readCloudinaryConfig();
+  return {
+    configured: Boolean(config),
+    provider: "cloudinary" as const,
+    cloudName: config?.cloudName || "",
+    maxUploadBytes: config?.maxUploadBytes || 0,
+  };
+}
+
 export async function GET(req: Request) {
   const authError = await requireSessionRole(req, "admin");
   if (authError) return authError;
 
   try {
     const state = await readShowcaseAdminState(requestOrigin(req));
-    const config = readR2Config();
-    return json({
-      ok: true,
-      media: state.media,
-      storage: {
-        configured: Boolean(config),
-        bucket: config?.bucket || "",
-        publicBaseUrl: config?.publicBaseUrl || "",
-        maxUploadBytes: config?.maxUploadBytes || 0,
-      },
-    });
+    return json({ ok: true, media: state.media, storage: storagePayload() });
   } catch (error: any) {
     return json({ ok: false, error: error?.message || "SHOWCASE_MEDIA_GET_FAILED" }, 500);
   }
@@ -88,13 +99,13 @@ export async function POST(req: Request) {
   try {
     const payload = await body(req);
     const action = text(payload?.action, 40);
-    const config = readR2Config();
+    const config = readCloudinaryConfig();
 
     if (!config) {
-      return json({ ok: false, error: "R2_NOT_CONFIGURED" }, 503);
+      return json({ ok: false, error: "CLOUDINARY_NOT_CONFIGURED" }, 503);
     }
 
-    if (action === "presign") {
+    if (action === "sign") {
       const name = text(payload?.name, 220);
       const mimeType = text(payload?.mimeType, 120).toLowerCase();
       const size = Number(payload?.size || 0);
@@ -106,45 +117,77 @@ export async function POST(req: Request) {
         return json({ ok: false, error: "MEDIA_SIZE_NOT_ALLOWED" }, 400);
       }
 
-      const key = createR2ObjectKey(name);
+      const publicId = createCloudinaryPublicId(config, name);
+      const signed = createCloudinaryUploadSignature(config, publicId);
       return json({
         ok: true,
-        key,
-        uploadUrl: createR2PresignedPutUrl(config, key, 900),
-        publicUrl: publicR2Url(config, key),
-        expiresIn: 900,
+        provider: "cloudinary",
+        ...signed,
+        maxUploadBytes: config.maxUploadBytes,
       });
     }
 
     if (action === "register") {
       const state = await readShowcaseAdminState(requestOrigin(req));
-      const key = text(payload?.key, 500);
-      const expectedUrl = key ? publicR2Url(config, key) : "";
+      const upload = payload?.upload && typeof payload.upload === "object"
+        ? payload.upload
+        : payload;
+      const publicId = text(upload?.public_id ?? upload?.publicId, 500);
+      const secureUrl = text(upload?.secure_url ?? upload?.secureUrl, 2_000);
       const mimeType = text(payload?.mimeType, 120).toLowerCase();
-      const size = Number(payload?.size || 0);
+      const cloudResourceType = resourceType(upload?.resource_type, mimeType);
+      const size = Number(upload?.bytes ?? payload?.size ?? 0);
+      const version = Number(upload?.version || 0);
+      const responseSignature = text(upload?.signature, 200);
 
-      if (!key.startsWith("showcase/") || !ALLOWED_TYPES.has(mimeType)) {
+      if (
+        !publicId ||
+        !secureUrl ||
+        !cloudResourceType ||
+        !ALLOWED_TYPES.has(mimeType) ||
+        !isAllowedCloudinaryPublicId(config, publicId) ||
+        !isCloudinaryDeliveryUrl(config, secureUrl)
+      ) {
         return json({ ok: false, error: "INVALID_MEDIA_RECORD" }, 400);
       }
       if (!Number.isFinite(size) || size <= 0 || size > config.maxUploadBytes) {
         return json({ ok: false, error: "MEDIA_SIZE_NOT_ALLOWED" }, 400);
       }
+      if (
+        !Number.isFinite(version) ||
+        version <= 0 ||
+        !verifyCloudinaryUploadResponse(config, {
+          publicId,
+          version,
+          signature: responseSignature,
+        })
+      ) {
+        return json({ ok: false, error: "CLOUDINARY_RESPONSE_SIGNATURE_INVALID" }, 400);
+      }
 
       const item: ShowcaseMediaItem = {
-        id: text(payload?.id, 120) || `media-${Date.now().toString(36)}`,
-        key,
-        name: text(payload?.name, 220) || key.split("/").pop() || "Datei",
-        url: expectedUrl,
+        id: text(upload?.asset_id, 160) || `media-${Date.now().toString(36)}`,
+        key: publicId,
+        provider: "cloudinary",
+        publicId,
+        resourceType: cloudResourceType,
+        assetId: text(upload?.asset_id, 160) || undefined,
+        version,
+        format: text(upload?.format, 30) || undefined,
+        name: text(payload?.name, 220) || publicId.split("/").pop() || "Dosya",
+        url: secureUrl,
         mimeType,
         size,
         createdAt: new Date().toISOString(),
-        width: Number(payload?.width) || undefined,
-        height: Number(payload?.height) || undefined,
-        durationSeconds: Number(payload?.durationSeconds) || undefined,
+        width: Number(upload?.width ?? payload?.width) || undefined,
+        height: Number(upload?.height ?? payload?.height) || undefined,
+        durationSeconds: Number(upload?.duration ?? payload?.durationSeconds) || undefined,
       };
       const media = normalizeShowcaseMediaList([
         item,
-        ...state.media.filter((entry) => entry.key !== key),
+        ...state.media.filter(
+          (entry) => entry.publicId !== publicId && entry.key !== publicId,
+        ),
       ]);
       await saveShowcaseSetting(state.tenantId, SHOWCASE_MEDIA_KEY, media);
       return json({ ok: true, item, media });
@@ -165,11 +208,13 @@ export async function DELETE(req: Request) {
 
   try {
     const payload = await body(req);
-    const config = readR2Config();
-    if (!config) return json({ ok: false, error: "R2_NOT_CONFIGURED" }, 503);
+    const config = readCloudinaryConfig();
+    if (!config) {
+      return json({ ok: false, error: "CLOUDINARY_NOT_CONFIGURED" }, 503);
+    }
 
     const state = await readShowcaseAdminState(requestOrigin(req));
-    const id = text(payload?.id, 120);
+    const id = text(payload?.id, 160);
     const media = state.media.find((entry) => entry.id === id);
     if (!media) return json({ ok: false, error: "MEDIA_NOT_FOUND" }, 404);
 
@@ -182,7 +227,18 @@ export async function DELETE(req: Request) {
       return json({ ok: false, error: "MEDIA_IS_IN_USE", usage }, 409);
     }
 
-    await deleteR2Object(config, media.key);
+    const publicId = media.publicId || media.key;
+    const cloudResourceType = resourceType(media.resourceType, media.mimeType);
+    if (
+      media.provider !== "cloudinary" ||
+      !publicId ||
+      !cloudResourceType ||
+      !isCloudinaryDeliveryUrl(config, media.url)
+    ) {
+      return json({ ok: false, error: "LEGACY_MEDIA_DELETE_UNAVAILABLE" }, 409);
+    }
+
+    await deleteCloudinaryAsset(config, publicId, cloudResourceType);
     const next = state.media.filter((entry) => entry.id !== media.id);
     await saveShowcaseSetting(state.tenantId, SHOWCASE_MEDIA_KEY, next);
     return json({ ok: true, media: next });

@@ -238,7 +238,19 @@ export function normalizeShowcaseMediaList(value: any): ShowcaseMediaItem[] {
     .slice(0, 500)
     .map((item: any) => ({
       id: id(item?.id, "media"),
-      key: cleanText(item?.key, 500),
+      key: cleanText(item?.key || item?.publicId, 500),
+      provider: ["cloudinary", "r2", "external"].includes(item?.provider)
+        ? item.provider
+        : undefined,
+      publicId: cleanText(item?.publicId, 500) || undefined,
+      resourceType: ["image", "video"].includes(item?.resourceType)
+        ? item.resourceType
+        : undefined,
+      assetId: cleanText(item?.assetId, 160) || undefined,
+      version: item?.version
+        ? numberInRange(item.version, 0, 0, Number.MAX_SAFE_INTEGER)
+        : undefined,
+      format: cleanText(item?.format, 30) || undefined,
       name: cleanText(item?.name, 220) || "Dosya",
       url: cleanUrl(item?.url),
       mimeType: cleanText(item?.mimeType, 120),

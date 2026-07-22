@@ -7,21 +7,21 @@ import { priceWithCampaign } from "@/lib/catalog";
 import type { Campaign, Category } from "@/lib/catalog";
 import { getPricingOverrides, readSettings } from "@/lib/settings";
 import { evaluateFreebieRules, parseFreebieCategory } from "@/lib/freebies";
-import type { FreebieCategory, FreebieEvaluation, FreebieUnit } from "@/lib/freebies";
+import type { FreebieEvaluation, FreebieUnit } from "@/lib/freebies";
 import { evaluateConditionalCartCampaign } from "@/lib/conditional-campaign";
 import { computePfand } from "@/lib/pfand";
 
 /* =========================================
    Tipler
 ========================================= */
-type CartItemFixed = CartItem & {
+export type CartItemFixed = CartItem & {
   category?: "burger" | "drinks" | "extras" | "sauces" | "vegan" | "hotdogs" | string;
   add?: ExtraOption[];
   rm?: string[];
   note?: string;
   __unitIds?: string[]; // freebie için birim izleme
 };
-type AddPayload = {
+export type AddPayload = {
   category?: CartItemFixed["category"];
   item: MenuItem;
   add?: ExtraOption[];
@@ -29,9 +29,9 @@ type AddPayload = {
   qty?: number;
   note?: string;
 };
-type OrderMode = "pickup" | "delivery";
+export type OrderMode = "pickup" | "delivery";
 
-type Pricing = {
+export type CartPricing = {
   merchandise: number;
   surcharges: number;
   subtotal: number;
@@ -46,7 +46,7 @@ type Pricing = {
   conditionalCampaign?: ReturnType<typeof evaluateConditionalCartCampaign>;
 };
 
-type State = {
+export type CartState = {
   items: CartItemFixed[];
   orderMode: OrderMode;
   plz: string | null;
@@ -59,7 +59,7 @@ type State = {
   setOrderMode: (mode: OrderMode) => void;
   setPLZ: (plz: string | null) => void;
 
-  computePricing: () => Pricing;
+  computePricing: () => CartPricing;
 
   getFreebies?: () => FreebieEvaluation;
 };
@@ -71,40 +71,137 @@ const LS_CART = "bb_cart_items_v1";
 const LS_PREF = "bb_cart_prefs_v1";
 const LS_PRODUCTS = "bb_products_v1";
 
-function loadItems(): CartItemFixed[] {
+type UnknownRecord = Record<string, unknown>;
+
+function isRecord(value: unknown): value is UnknownRecord {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parseJsonUnknown(value: string | null): unknown {
+  if (!value) return null;
   try {
-    if (typeof window === "undefined") return [];
-    const raw = localStorage.getItem(LS_CART);
-    return raw ? JSON.parse(raw) : [];
+    return JSON.parse(value) as unknown;
   } catch {
-    return [];
+    return null;
   }
+}
+
+function numberValue(value: unknown, fallback = 0): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function normalizeExtraOption(value: unknown): ExtraOption | null {
+  if (!isRecord(value)) return null;
+
+  const idSource = value.id ?? value.name ?? value.label ?? value.price;
+  const id = String(idSource ?? "").trim();
+  if (!id) return null;
+
+  return {
+    id,
+    name: typeof value.name === "string" ? value.name : undefined,
+    label: typeof value.label === "string" ? value.label : undefined,
+    price: numberValue(value.price, 0),
+  };
+}
+
+function normalizeMenuItem(value: unknown): MenuItem | null {
+  if (!isRecord(value)) return null;
+
+  const id = String(value.id ?? value.sku ?? value.name ?? "").trim();
+  const name = String(value.name ?? "").trim();
+  if (!id || !name) return null;
+
+  return {
+    id,
+    name,
+    price: numberValue(value.price, 0),
+    category: String(value.category ?? "burger"),
+    desc: typeof value.desc === "string" ? value.desc : undefined,
+    description:
+      typeof value.description === "string" ? value.description : undefined,
+    imageUrl: typeof value.imageUrl === "string" ? value.imageUrl : undefined,
+    videoUrl: typeof value.videoUrl === "string" ? value.videoUrl : undefined,
+    tags: Array.isArray(value.tags) ? value.tags.map(String) : undefined,
+    removable: Array.isArray(value.removable)
+      ? value.removable.map(String)
+      : undefined,
+    addable: Array.isArray(value.addable)
+      ? value.addable
+          .map(normalizeExtraOption)
+          .filter((item): item is ExtraOption => item !== null)
+      : undefined,
+    sku: typeof value.sku === "string" ? value.sku : undefined,
+  };
+}
+
+function normalizeCartItem(value: unknown): CartItemFixed | null {
+  if (!isRecord(value)) return null;
+
+  const item = normalizeMenuItem(value.item);
+  if (!item) return null;
+
+  const id = String(value.id ?? "").trim();
+  if (!id) return null;
+
+  return {
+    id,
+    item,
+    qty: Math.max(1, Math.round(numberValue(value.qty, 1))),
+    category:
+      typeof value.category === "string" ? value.category : item.category,
+    add: Array.isArray(value.add)
+      ? value.add
+          .map(normalizeExtraOption)
+          .filter((extra): extra is ExtraOption => extra !== null)
+      : [],
+    rm: Array.isArray(value.rm) ? value.rm.map(String) : [],
+    note: typeof value.note === "string" ? value.note : undefined,
+    __unitIds: Array.isArray(value.__unitIds)
+      ? value.__unitIds.map(String).filter(Boolean)
+      : undefined,
+  };
+}
+
+function loadItems(): CartItemFixed[] {
+  if (typeof window === "undefined") return [];
+
+  const parsed = parseJsonUnknown(localStorage.getItem(LS_CART));
+  if (!Array.isArray(parsed)) return [];
+
+  return parsed
+    .map(normalizeCartItem)
+    .filter((item): item is CartItemFixed => item !== null);
 }
 function saveItems(items: CartItemFixed[]) {
   try {
     if (typeof window === "undefined") return;
     localStorage.setItem(LS_CART, JSON.stringify(items));
-  } catch {}
+  } catch {
+    // Cart persistence is optional; the in-memory cart remains usable.
+  }
 }
 function loadPrefs(): { orderMode: OrderMode; plz: string | null } {
-  try {
-    if (typeof window === "undefined") return { orderMode: "pickup", plz: null };
-    const raw = localStorage.getItem(LS_PREF);
-    if (!raw) return { orderMode: "pickup", plz: null };
-    const obj = JSON.parse(raw) || {};
-    return {
-      orderMode: obj.orderMode === "delivery" ? "delivery" : "pickup",
-      plz: obj.plz ?? null,
-    };
-  } catch {
+  if (typeof window === "undefined") {
     return { orderMode: "pickup", plz: null };
   }
+
+  const parsed = parseJsonUnknown(localStorage.getItem(LS_PREF));
+  if (!isRecord(parsed)) return { orderMode: "pickup", plz: null };
+
+  return {
+    orderMode: parsed.orderMode === "delivery" ? "delivery" : "pickup",
+    plz: typeof parsed.plz === "string" ? parsed.plz : null,
+  };
 }
 function savePrefs(orderMode: OrderMode, plz: string | null) {
   try {
     if (typeof window === "undefined") return;
     localStorage.setItem(LS_PREF, JSON.stringify({ orderMode, plz }));
-  } catch {}
+  } catch {
+    // Preference persistence must never block cart interaction.
+  }
 }
 
 /* =========================================
@@ -112,14 +209,18 @@ function savePrefs(orderMode: OrderMode, plz: string | null) {
 ========================================= */
 function rid() {
   try {
-    return (crypto as any).randomUUID();
+    if (typeof crypto.randomUUID === "function") {
+      return crypto.randomUUID();
+    }
   } catch {
-    return String(Date.now() + Math.random());
+    // Extremely old browsers may not expose randomUUID.
   }
+
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 function normAdd(add?: ExtraOption[]) {
   const arr =
-    add?.map((a: any) => ({
+    add?.map((a) => ({
       id: String(a?.id ?? a?.name ?? a?.label ?? String(a?.price ?? "")),
       label: String(a?.label ?? a?.name ?? a?.id ?? ""),
       price: Number(a?.price ?? 0),
@@ -130,7 +231,7 @@ function normRm(rm?: string[]) {
   return [...(rm ?? [])].map(String).sort((a, b) => a.localeCompare(b));
 }
 
-function roundToNearest10Cents(value: any) {
+function roundToNearest10Cents(value: unknown) {
   const n = Number(value);
   if (!Number.isFinite(n)) return 0;
 
@@ -144,7 +245,7 @@ function keyOf(p: {
   note?: string;
 }) {
   const cat = (p.category ?? "burger").toLowerCase();
-  const sku = String((p as any).item?.sku ?? p.item?.name ?? "").toLowerCase();
+  const sku = String(p.item.sku ?? p.item.name ?? "").toLowerCase();
   const addSig = normAdd(p.add)
     .map((x) => `${x.id}:${x.price}`)
     .join(",");
@@ -158,34 +259,38 @@ function keyOf(p: {
 ========================================= */
 type CatalogProduct = { id: string; name: string; price: number; category: Category };
 function readCatalog(): CatalogProduct[] {
-  try {
-    if (typeof window === "undefined") return [];
-    const raw = localStorage.getItem(LS_PRODUCTS);
-    const arr = raw ? JSON.parse(raw) : [];
-    if (!Array.isArray(arr)) return [];
-    return arr
-      .filter((p: any) => p && (p.id || p.name))
-      .map((p: any) => ({
-        id: String(p.id ?? p.sku ?? p.code ?? p.name ?? ""),
-        name: String(p.name ?? ""),
-        price: Number(p.price) || 0,
-        category: String(p.category ?? "burger") as Category,
-      }));
-  } catch {
-    return [];
-  }
+  if (typeof window === "undefined") return [];
+
+  const parsed = parseJsonUnknown(localStorage.getItem(LS_PRODUCTS));
+  if (!Array.isArray(parsed)) return [];
+
+  return parsed.flatMap((value): CatalogProduct[] => {
+    if (!isRecord(value)) return [];
+
+    const id = String(value.id ?? value.sku ?? value.code ?? value.name ?? "").trim();
+    const name = String(value.name ?? "").trim();
+    if (!id || !name) return [];
+
+    return [{
+      id,
+      name,
+      price: numberValue(value.price, 0),
+      category: String(value.category ?? "burger") as Category,
+    }];
+  });
 }
+
 function resolveProductLike(ci: CartItemFixed, catalog: CatalogProduct[]) {
-  const sku = String((ci as any)?.item?.sku ?? ci?.id ?? ci?.item?.name ?? "");
+  const sku = String(ci.item.sku ?? ci.id ?? ci.item.name ?? "");
   const byId = catalog.find((p) => p.id === sku);
   if (byId) return byId;
-  const byName = catalog.find((p) => p.name === (ci?.item as any)?.name);
+  const byName = catalog.find((p) => p.name === ci.item.name);
   if (byName) return byName;
-  const cat = (ci?.category ?? (ci?.item as any)?.category ?? "burger") as Category;
-  const base = Number((ci?.item as any)?.price ?? 0);
+  const cat = (ci.category ?? ci.item.category ?? "burger") as Category;
+  const base = Number(ci.item.price ?? 0);
   return {
-    id: sku || String((ci?.item as any)?.name ?? ""),
-    name: String((ci?.item as any)?.name ?? sku ?? "Produkt"),
+    id: sku || String(ci.item.name ?? ""),
+    name: String(ci.item.name ?? sku ?? "Produkt"),
     price: base,
     category: cat,
   };
@@ -202,7 +307,7 @@ function lineTotalWithCampaign(
 ) {
   const base = resolveProductLike(ci, catalog);
   const applied = priceWithCampaign(base, campaigns, mode);
-  const extras = (ci?.add ?? []).reduce((s: number, e: any) => s + Number(e?.price ?? 0), 0);
+  const extras = (ci.add ?? []).reduce((s, e) => s + Number(e?.price ?? 0), 0);
   const qty = Number(ci?.qty ?? 1);
   const line = (applied.final + extras) * qty;
   return { line, unitFinal: applied.final, unitOriginal: base.price };
@@ -221,7 +326,7 @@ const EXTRA_SURCHARGE_MATCHERS = [
 const EXTRA_SURCHARGE_AMOUNT = 0.5;
 function extraSurchargeForItem(ci: CartItemFixed, mode: OrderMode) {
   if (mode !== "delivery") return 0;
-  const cat = (ci?.category ?? (ci?.item as any)?.category ?? "burger")
+  const cat = (ci.category ?? ci.item.category ?? "burger")
     .toString()
     .toLowerCase();
   if (cat !== "burger" && cat !== "vegan") return 0;
@@ -229,7 +334,7 @@ function extraSurchargeForItem(ci: CartItemFixed, mode: OrderMode) {
   const adds = ci?.add ?? [];
   let matches = 0;
   for (const a of adds) {
-    const label = String((a as any)?.label ?? (a as any)?.name ?? (a as any)?.id ?? "").toLowerCase();
+    const label = String(a.label ?? a.name ?? a.id ?? "").toLowerCase();
     if (EXTRA_SURCHARGE_MATCHERS.some((re) => re.test(label))) matches += 1;
   }
   return matches > 0 ? matches * EXTRA_SURCHARGE_AMOUNT * qty : 0;
@@ -248,7 +353,7 @@ function collectFreebieUnits(
 
   for (const ci of items) {
     const category = parseFreebieCategory(
-      ci?.category ?? (ci?.item as any)?.category ?? "",
+      ci.category ?? ci.item.category ?? "",
     );
 
     if (!category) continue;
@@ -274,7 +379,7 @@ function collectFreebieUnits(
 /* =========================================
    Fiyat hesaplama
 ========================================= */
-function computePricingRaw(items: CartItemFixed[], mode: OrderMode, plz: string | null): Pricing {
+function computePricingRaw(items: CartItemFixed[], mode: OrderMode, plz: string | null): CartPricing {
   const campaigns = loadNormalizedCampaigns();
   const catalog = readCatalog();
 
@@ -292,10 +397,10 @@ function computePricingRaw(items: CartItemFixed[], mode: OrderMode, plz: string 
     // --- SURCHARGE sadece DELIVERY’de!
     if (mode === "delivery") {
       const qty = Number(ci?.qty ?? 1);
-      const cat = (ci?.category ?? (ci?.item as any)?.category ?? "burger")
+      const cat = (ci.category ?? ci.item.category ?? "burger")
         .toString()
         .toLowerCase();
-      const surchargePerUnit = Number((SUR as any)[cat] ?? 0);
+      const surchargePerUnit = Number(SUR[cat] ?? 0);
       surcharges += surchargePerUnit * qty;
       surcharges += extraSurchargeForItem(ci, mode);
     }
@@ -342,7 +447,7 @@ function computePricingRaw(items: CartItemFixed[], mode: OrderMode, plz: string 
   if (mode === "delivery") {
     const key = (plz || "").replace(/\D/g, "");
     if (key.length >= 5) {
-      const min = (plzMin as any)?.[key];
+      const min = plzMin?.[key];
       if (typeof min === "number") {
         plzKnown = true;
         requiredMin = min;
@@ -379,7 +484,7 @@ function computePricingRaw(items: CartItemFixed[], mode: OrderMode, plz: string 
 const initialItems = loadItems();
 const initialPrefs = loadPrefs();
 
-export const useCart = create<State>((set, get) => ({
+export const useCart = create<CartState>((set, get) => ({
   items: initialItems,
   orderMode: initialPrefs.orderMode,
   plz: initialPrefs.plz,

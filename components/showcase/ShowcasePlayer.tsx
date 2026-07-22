@@ -17,6 +17,64 @@ import ShowcaseStage from "./ShowcaseStage";
 const CACHE_KEY = "bb_showcase_snapshot_v1";
 const LIVE_CHANNEL = "bb_showcase_live_v1";
 const LIVE_STORAGE_KEY = "bb_showcase_publish_ping";
+const MEDIA_CACHE_NAME = "bb-showcase-cloudinary-media-v1";
+
+function isCloudinaryMediaUrl(value?: string) {
+  if (!value) return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && url.hostname === "res.cloudinary.com";
+  } catch {
+    return false;
+  }
+}
+
+async function readCachedMediaObjectUrl(value?: string) {
+  if (!value || !isCloudinaryMediaUrl(value) || typeof caches === "undefined") {
+    return null;
+  }
+  try {
+    const cache = await caches.open(MEDIA_CACHE_NAME);
+    const response = await cache.match(value);
+    if (!response?.ok) return null;
+    return URL.createObjectURL(await response.blob());
+  } catch {
+    return null;
+  }
+}
+
+async function persistCloudinaryMedia(value?: string) {
+  if (!value || !isCloudinaryMediaUrl(value) || typeof caches === "undefined") {
+    return;
+  }
+  try {
+    const cache = await caches.open(MEDIA_CACHE_NAME);
+    if (await cache.match(value)) return;
+    const response = await fetch(value, {
+      cache: "force-cache",
+      credentials: "omit",
+      mode: "cors",
+    });
+    if (response.ok) await cache.put(value, response.clone());
+  } catch {
+    // The normal Cloudinary URL remains the fallback when a Smart TV browser
+    // does not support Cache Storage or cross-origin cache writes.
+  }
+}
+
+async function pruneCloudinaryMediaCache(keepUrls: string[]) {
+  if (typeof caches === "undefined") return;
+  try {
+    const cache = await caches.open(MEDIA_CACHE_NAME);
+    const keep = new Set(keepUrls.filter(isCloudinaryMediaUrl));
+    const requests = await cache.keys();
+    await Promise.all(
+      requests.map((request) =>
+        keep.has(request.url) ? Promise.resolve(false) : cache.delete(request),
+      ),
+    );
+  } catch {}
+}
 
 function defaultSnapshot(): ShowcaseSnapshot {
   const siteUrl =
@@ -87,8 +145,14 @@ export default function ShowcasePlayer() {
   const [snapshot, setSnapshot] = useState<ShowcaseSnapshot | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [online, setOnline] = useState(true);
+  const [resolvedMedia, setResolvedMedia] = useState<{
+    playbackKey: string;
+    mediaUrl?: string;
+    posterUrl?: string;
+  }>({ playbackKey: "" });
   const wakeLockRef = useRef<any>(null);
   const loadingRef = useRef(false);
+  const persistVisibleMediaRef = useRef<() => void>(() => {});
 
   const activeScenes = useMemo(() => {
     const scenes = snapshot?.document?.scenes || [];
@@ -109,6 +173,61 @@ export default function ShowcasePlayer() {
 
   activeSceneCountRef.current = Math.max(1, activeScenes.length);
   currentPlaybackKeyRef.current = playbackKey;
+
+  const displayScene = useMemo(() => {
+    if (resolvedMedia.playbackKey !== playbackKey) return scene;
+    return {
+      ...scene,
+      mediaUrl: resolvedMedia.mediaUrl || scene.mediaUrl,
+      posterUrl: resolvedMedia.posterUrl || scene.posterUrl,
+    };
+  }, [playbackKey, resolvedMedia, scene]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const objectUrls: string[] = [];
+
+    const resolve = async () => {
+      const [mediaUrl, posterUrl] = await Promise.all([
+        readCachedMediaObjectUrl(scene?.mediaUrl),
+        readCachedMediaObjectUrl(scene?.posterUrl),
+      ]);
+      if (cancelled) {
+        [mediaUrl, posterUrl].forEach((value) => value && URL.revokeObjectURL(value));
+        return;
+      }
+      if (mediaUrl) objectUrls.push(mediaUrl);
+      if (posterUrl) objectUrls.push(posterUrl);
+      setResolvedMedia({
+        playbackKey,
+        mediaUrl: mediaUrl || undefined,
+        posterUrl: posterUrl || undefined,
+      });
+    };
+
+    void resolve();
+    return () => {
+      cancelled = true;
+      objectUrls.forEach((value) => URL.revokeObjectURL(value));
+    };
+  }, [playbackKey, scene?.mediaUrl, scene?.posterUrl]);
+
+  useEffect(() => {
+    if (!snapshot) return;
+    const keepUrls = snapshot.document.scenes.flatMap((entry) =>
+      [entry.mediaUrl, entry.posterUrl].filter((value): value is string => Boolean(value)),
+    );
+    void pruneCloudinaryMediaCache(keepUrls);
+    try {
+      void navigator.storage?.persist?.();
+    } catch {}
+  }, [snapshot?.document?.version]);
+
+  const persistVisibleMedia = useCallback(() => {
+    void persistCloudinaryMedia(scene?.mediaUrl);
+    void persistCloudinaryMedia(scene?.posterUrl);
+  }, [scene?.mediaUrl, scene?.posterUrl]);
+  persistVisibleMediaRef.current = persistVisibleMedia;
 
   const advanceScene = useCallback((expectedPlaybackKey?: string) => {
     const currentPlaybackKey = currentPlaybackKeyRef.current;
@@ -225,10 +344,10 @@ export default function ShowcasePlayer() {
     // This timer is intentionally keyed only by the published version + scene.
     // The public API is polled every few seconds; those snapshot refreshes must
     // never restart a 25/45 second scene timer.
-    const timer = window.setTimeout(
-      () => advanceScene(playbackKey),
-      sceneDurationSeconds * 1_000,
-    );
+    const timer = window.setTimeout(() => {
+      persistVisibleMediaRef.current();
+      advanceScene(playbackKey);
+    }, sceneDurationSeconds * 1_000);
 
     return () => window.clearTimeout(timer);
   }, [advanceScene, playbackKey, sceneDurationSeconds]);
@@ -343,11 +462,14 @@ export default function ShowcasePlayer() {
       <ShowcaseStage
         key={playbackKey}
         snapshot={snapshot}
-        scene={scene}
+        scene={displayScene}
         sceneIndex={activeIndex}
         sceneCount={activeScenes.length}
         online={online}
-        onVideoEnded={() => advanceScene(playbackKey)}
+        onVideoEnded={() => {
+          persistVisibleMedia();
+          advanceScene(playbackKey);
+        }}
         onVideoError={() => advanceScene(playbackKey)}
       />
     </div>

@@ -16,7 +16,7 @@ import {
   createDefaultShowcaseDocument,
   normalizeShowcaseDocument,
 } from "@/lib/showcase/config";
-import { readR2Config } from "@/lib/server/r2";
+import { readCloudinaryConfig } from "@/lib/server/cloudinary";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -46,7 +46,7 @@ export async function GET(req: Request) {
       readShowcaseAdminState(siteUrl),
       buildShowcaseSnapshot(req),
     ]);
-    const r2 = readR2Config();
+    const cloudinary = readCloudinaryConfig();
 
     return json({
       ok: true,
@@ -58,10 +58,10 @@ export async function GET(req: Request) {
       campaigns: snapshot.campaigns,
       branding: snapshot.branding,
       storage: {
-        configured: Boolean(r2),
-        bucket: r2?.bucket || "",
-        publicBaseUrl: r2?.publicBaseUrl || "",
-        maxUploadBytes: r2?.maxUploadBytes || 0,
+        configured: Boolean(cloudinary),
+        provider: "cloudinary",
+        cloudName: cloudinary?.cloudName || "",
+        maxUploadBytes: cloudinary?.maxUploadBytes || 0,
       },
     });
   } catch (error: any) {

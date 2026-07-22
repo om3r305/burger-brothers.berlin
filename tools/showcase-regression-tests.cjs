@@ -21,7 +21,7 @@ const required = [
   "lib/showcase/types.ts",
   "lib/showcase/config.ts",
   "lib/showcase/server.ts",
-  "lib/server/r2.ts",
+  "lib/server/cloudinary.ts",
 ];
 
 for (const file of required) assert(exists(file), `Missing showcase file: ${file}`);
@@ -80,16 +80,43 @@ assert(
   "Showcase admin must explain automatic landing theme synchronization",
 );
 
-const r2 = read("lib/server/r2.ts");
+const cloudinary = read("lib/server/cloudinary.ts");
 for (const variable of [
-  "R2_ACCOUNT_ID",
-  "R2_ACCESS_KEY_ID",
-  "R2_SECRET_ACCESS_KEY",
-  "R2_BUCKET",
-  "R2_PUBLIC_BASE_URL",
+  "CLOUDINARY_CLOUD_NAME",
+  "CLOUDINARY_API_KEY",
+  "CLOUDINARY_API_SECRET",
 ]) {
-  assert(r2.includes(`process.env.${variable}`), `Missing R2 env integration: ${variable}`);
+  assert(
+    cloudinary.includes(`process.env.${variable}`),
+    `Missing Cloudinary env integration: ${variable}`,
+  );
 }
-assert(!/R2_SECRET_ACCESS_KEY\s*=\s*["'][^"']+["']/.test(r2), "R2 secret must not be hard-coded");
+assert(
+  !/CLOUDINARY_API_SECRET\s*=\s*["'][^"']+["']/.test(cloudinary),
+  "Cloudinary secret must not be hard-coded",
+);
+assert(
+  cloudinary.includes("verifyCloudinaryUploadResponse"),
+  "Cloudinary upload response signature must be verified server-side",
+);
+assert(
+  cloudinary.includes("deleteCloudinaryAsset"),
+  "Cloudinary asset deletion helper is missing",
+);
+
+const mediaRoute = read("app/api/admin/showcase/media/route.ts");
+assert(mediaRoute.includes('action === "sign"'), "Signed Cloudinary upload action is missing");
+assert(mediaRoute.includes('action === "register"'), "Cloudinary register action is missing");
+assert(
+  mediaRoute.includes("CLOUDINARY_RESPONSE_SIGNATURE_INVALID"),
+  "Cloudinary response verification guard is missing",
+);
+
+const player = read("components/showcase/ShowcasePlayer.tsx");
+assert(
+  player.includes("bb-showcase-cloudinary-media-v1") &&
+    player.includes("persistCloudinaryMedia"),
+  "Showcase Cloudinary media cache is missing",
+);
 
 console.log("Showcase regression checks passed.");
