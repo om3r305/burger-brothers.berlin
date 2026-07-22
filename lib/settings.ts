@@ -272,6 +272,18 @@ export type TVSettings = {
   [key: string]: any;
 };
 
+export type DriverUiSettings = {
+  routePlzPriority?: string[];
+  routePriority?: string[];
+  storeOrigin?: string;
+  storeAddress?: string;
+  refreshSeconds?: number;
+  autoRefreshSeconds?: number;
+  activeUnknownGraceHours?: number;
+  unknownOrderGraceHours?: number;
+  [key: string]: any;
+};
+
 export type SecuritySettings = {
   requirePinForQR: boolean;
   driverPin?: string;
@@ -308,6 +320,7 @@ export type SettingsV6 = {
   productAvailability?: ProductAvailabilityMap;
   printing?: Printing;
   tv?: TVSettings;
+  driver?: DriverUiSettings;
   security?: SecuritySettings;
   pfand?: {
     enabled: boolean;
@@ -560,6 +573,24 @@ const defaultSettings: SettingsV6 = {
     durationMaxMinutes: 60,
     allowCancel: true,
     confirmCancel: true,
+  },
+
+  driver: {
+    routePlzPriority: [
+      "13403",
+      "13405",
+      "13407",
+      "13409",
+      "13437",
+      "13469",
+      "13467",
+      "13505",
+      "13503",
+      "13507",
+    ],
+    storeOrigin: "Burger Brothers Berlin, Berlin Tegel",
+    refreshSeconds: 6.5,
+    activeUnknownGraceHours: 6,
   },
 
   security: {

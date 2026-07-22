@@ -1,0 +1,35 @@
+BURGER BROTHERS BERLIN – DRIVER SAFE REFACTOR
+
+Toplam GitHub teslimat dosyası: 31
+
+- app\driver\error.tsx
+- app\driver\page.tsx
+- components\DriverLiveTracker.tsx
+- components\driver\DrinkOrderNotice.tsx
+- components\driver\DriverCompletionToast.tsx
+- components\driver\DriverConfirmDialog.tsx
+- components\driver\DriverHeader.tsx
+- components\driver\DriverLogin.tsx
+- components\driver\DriverPaymentBadge.tsx
+- components\driver\DriverPullIndicator.tsx
+- components\driver\DriverRouteBar.tsx
+- components\driver\DriverStatCard.tsx
+- components\driver\DriverToastViewport.tsx
+- components\driver\OrderWithDetails.tsx
+- components\driver\PendingOrderCard.tsx
+- components\driver\TimeBadge.tsx
+- hooks\driver\use-driver-auth.ts
+- hooks\driver\use-driver-clock.ts
+- hooks\driver\use-driver-feedback.ts
+- hooks\driver\use-driver-orders.ts
+- hooks\driver\use-driver-route.ts
+- hooks\driver\use-driver-settings.ts
+- hooks\driver\use-pull-to-refresh.ts
+- lib\driver\domain.ts
+- lib\settings.ts
+- package.json
+- tools\driver-refactor-regression-tests.cjs
+- types\driver.ts
+- docs\driver-refactor-20260722\README.md
+- docs\driver-refactor-20260722\CHANGED-FILES.txt
+- docs\driver-refactor-20260722\VERIFY.txt

@@ -1,0 +1,37 @@
+BURGER BROTHERS BERLIN – DRIVER SAFE REFACTOR VERIFY
+
+BAŞARILI:
+- Driver refactor regression tests passed.
+- TV refactor regression tests passed.
+- Payment Center architecture tests passed.
+- Order pricing tests passed.
+- 26 TypeScript/TSX dosyası transpile syntax kontrolünden geçti.
+- Driver refactor için izole strict TypeScript semantic check geçti.
+- Driver refactor scope explicit `any`: 0
+- Driver refactor scope native alert(): 0
+- Driver refactor scope native window.confirm(): 0
+- app/driver/page.tsx: 2676 satırdan 457 satıra indi.
+- package.json JSON doğrulaması geçti.
+- Whitespace/final-newline kontrolü geçti.
+
+KAYNAK PAKET SINIRI:
+İnceleme ZIP'i node_modules ve gerçek build ortamını içermediği için tam
+Next.js production build ve Next runtime kullanan tüm security testleri bu
+çalışma alanında tamamlanmadı.
+
+GITHUB POWERSHELL KORUMASI:
+Gerçek C:\Web\burger-github repository içinde aşağıdakiler başarılı olmadan
+commit veya push yapılmaz:
+1. npm ci (node_modules yoksa)
+2. npx.cmd prisma generate
+3. npm.cmd run typecheck
+4. npm.cmd run driver:refactor:test
+5. npm.cmd run security:test
+6. npm.cmd run build
+7. git diff --cached --check
+
+DB / API:
+- prisma/schema.prisma değiştirilmedi.
+- prisma/migrations değiştirilmedi.
+- Sipariş create/list/status/claim route'ları değiştirilmedi.
+- Ödeme ve Stripe route'ları değiştirilmedi.
