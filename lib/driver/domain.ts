@@ -1677,11 +1677,11 @@ export function actionButtonClass(
   kind: "ghost" | "map" | "finish" | "danger" = "ghost",
 ) {
   const base =
-    "rounded-xl px-3 py-2.5 text-sm font-bold transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50";
+    "rounded-xl px-3 py-2.5 text-sm font-bold transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60";
 
   const variants = {
     finish:
-      "border border-emerald-300/60 bg-gradient-to-b from-emerald-300 to-emerald-500 text-black shadow-[0_0_20px_rgba(52,211,153,.24)] hover:from-emerald-200 hover:to-emerald-400",
+      "border border-emerald-300/70 bg-gradient-to-b from-emerald-600 to-emerald-800 text-white shadow-[0_0_24px_rgba(16,185,129,.30)] hover:from-emerald-500 hover:to-emerald-700 disabled:text-white",
     map:
       "border border-sky-300/45 bg-sky-400/15 text-sky-100 shadow-[0_0_16px_rgba(56,189,248,.10)] hover:bg-sky-400/25",
     danger:
@@ -1698,13 +1698,16 @@ export function tabButtonClass(
   tone: "new" | "mine",
 ) {
   const base =
-    "rounded-2xl py-2 text-sm font-extrabold tracking-wide transition active:scale-[0.99]";
+    "relative rounded-2xl border-2 py-3 text-base font-black tracking-wide transition active:scale-[0.99]";
 
   if (!active) {
-    return `${base} border border-transparent text-stone-300/90 hover:border-white/10 hover:bg-white/[0.06]`;
+    return `${base} border-white/10 bg-black/20 text-stone-400 opacity-75 hover:border-white/20 hover:bg-white/[0.06] hover:text-stone-200`;
   }
 
+  const activeMarker =
+    "ring-2 ring-offset-2 ring-offset-stone-950 after:absolute after:inset-x-7 after:bottom-1 after:h-1 after:rounded-full after:bg-white/95";
+
   return tone === "new"
-    ? `${base} border border-amber-300/45 bg-gradient-to-b from-amber-400/35 to-orange-500/25 text-amber-50 shadow-[0_0_18px_rgba(251,146,60,.18)]`
-    : `${base} border border-emerald-300/45 bg-gradient-to-b from-emerald-400/30 to-sky-500/20 text-emerald-50 shadow-[0_0_18px_rgba(52,211,153,.16)]`;
+    ? `${base} ${activeMarker} border-amber-200/90 bg-gradient-to-b from-amber-500/85 to-orange-600/75 text-white shadow-[0_0_26px_rgba(251,146,60,.34)] ring-amber-300/55`
+    : `${base} ${activeMarker} border-emerald-200/90 bg-gradient-to-b from-emerald-500/80 to-cyan-700/70 text-white shadow-[0_0_26px_rgba(52,211,153,.30)] ring-emerald-300/55`;
 }

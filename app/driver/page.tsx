@@ -23,6 +23,8 @@ import { useDriverSettings } from "@/hooks/driver/use-driver-settings";
 import { usePullToRefresh } from "@/hooks/driver/use-pull-to-refresh";
 import {
   glass,
+  normalizeStatus,
+  orderDriver,
   plannedClaimDetails,
   prettyDeliveryLine,
   sanitizePhone,
@@ -76,10 +78,21 @@ export default function DriverPage() {
     onRefresh: driverOrders.manualRefresh,
   });
 
-  const liveOrderIds = useMemo(
-    () => driverOrders.mine.map((order) => String(order.id)),
-    [driverOrders.mine],
-  );
+  const liveOrderIds = useMemo(() => {
+    if (!auth.current) return [];
+
+    return driverOrders.mine
+      .filter((order) => {
+        const assignment = orderDriver(order);
+
+        return (
+          String(assignment?.id || "") === String(auth.current?.id || "") &&
+          normalizeStatus(order.status) === "out_for_delivery"
+        );
+      })
+      .map((order) => String(order.id));
+  }, [auth.current, driverOrders.mine]);
+
   const liveTrackingActive =
     Boolean(auth.current) && liveOrderIds.length > 0;
 
@@ -352,6 +365,7 @@ export default function DriverPage() {
             <button
               type="button"
               onClick={() => setTab("new")}
+              aria-pressed={tab === "new"}
               className={tabButtonClass(tab === "new", "new")}
             >
               Neu ({driverOrders.pending.length})
@@ -360,6 +374,7 @@ export default function DriverPage() {
             <button
               type="button"
               onClick={() => setTab("mine")}
+              aria-pressed={tab === "mine"}
               className={tabButtonClass(tab === "mine", "mine")}
             >
               Meine ({driverOrders.mine.length})

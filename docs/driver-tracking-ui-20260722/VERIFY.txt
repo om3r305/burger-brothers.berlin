@@ -1,0 +1,23 @@
+DRIVER TRACKING + UI VERIFICATION
+
+Yerel doğrulamalar:
+- Driver refactor regression tests passed.
+- app/driver/page.tsx syntax OK.
+- components/DriverLiveTracker.tsx syntax OK.
+- lib/driver/domain.ts syntax OK.
+- components/driver/OrderWithDetails.tsx syntax OK.
+
+Kısıt:
+İnceleme ZIP'inde node_modules bulunmadığı için Next runtime isteyen
+order-claim/security testleri ve production build burada çalıştırılamadı.
+
+GitHub PowerShell gerçek C:\Web\burger-github projesinde şunların tamamı
+geçmeden commit veya push yapmaz:
+
+1. npm ci (yalnız node_modules yoksa)
+2. npx.cmd prisma generate
+3. npm.cmd run typecheck
+4. node tools/driver-refactor-regression-tests.cjs
+5. npm.cmd run security:test
+6. npm.cmd run build
+7. git diff --cached --check

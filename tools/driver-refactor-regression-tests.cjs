@@ -113,6 +113,10 @@ assert(
   "DriverIdentity must never contain password",
 );
 
+const orderDetails = read(
+  "components/driver/OrderWithDetails.tsx",
+);
+
 const domain = read("lib/driver/domain.ts");
 assert(
   /return\s+\{\s*id,\s*name:\s*driverName\s*\}/.test(domain),
@@ -128,6 +132,21 @@ assert(
   /routePriorityFromSettings/.test(domain) &&
     /storeOriginFromSettings/.test(domain),
   "route priority and store origin must be settings-first",
+);
+assert(
+  /finish:[\s\S]{0,260}text-white/.test(domain) &&
+    !/finish:[\s\S]{0,260}text-black/.test(domain),
+  "Fertig button must use a high-contrast light label",
+);
+assert(
+  /after:absolute/.test(domain) &&
+    /ring-offset-stone-950/.test(domain) &&
+    /opacity-75/.test(domain),
+  "active and inactive driver tabs must be visually distinct",
+);
+assert(
+  /actionButtonClass\("finish"\)/.test(orderDetails),
+  "OrderWithDetails must keep the shared finish-button variant",
 );
 
 const routeHook = read("hooks/driver/use-driver-route.ts");
@@ -218,6 +237,27 @@ assert(
 assert(
   !/fetchOrdersFromDb/.test(tracker),
   "DriverLiveTracker must not start a second order polling loop",
+);
+assert(
+  /orderDriver\(order\)/.test(page) &&
+    /normalizeStatus\(order\.status\)\s*===\s*"out_for_delivery"/.test(
+      page,
+    ),
+  "live tracking must start only for exact server-confirmed driver assignments",
+);
+assert(
+  /ASSIGNMENT_RETRY_DELAYS_MS/.test(tracker) &&
+    /ASSIGNMENT_WARNING_AFTER_MS/.test(tracker),
+  "temporary assignment propagation errors must use bounded silent retries",
+);
+assert(
+  /requestLifecycle\s*!==\s*lifecycleRef\.current/.test(tracker) &&
+    /!activeRef\.current/.test(tracker),
+  "stale tracking requests must not surface errors after tracking is disabled",
+);
+assert(
+  !/Trackingfehler:\s*\$\{/.test(tracker),
+  "raw tracking error codes must not be shown directly to drivers",
 );
 assert(
   /clearWatch/.test(tracker) &&
