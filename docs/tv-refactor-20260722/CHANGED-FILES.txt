@@ -1,0 +1,34 @@
+BURGER BROTHERS BERLIN — TV REFACTOR
+
+TOPLAM GITHUB DOSYASI: 30
+
+app/tv/page.tsx
+app/tv/error.tsx
+app/tv/tv.css
+components/tv/AcceptOrderOverlay.tsx
+components/tv/OrderCard.tsx
+components/tv/OrderDetailsModal.tsx
+components/tv/PauseBlock.tsx
+components/tv/ProductAvailabilityBlock.tsx
+components/tv/SummaryGrid.tsx
+components/tv/TvConfirmDialog.tsx
+components/tv/TvHeader.tsx
+components/tv/TvSidebar.tsx
+components/tv/TvSoundControls.tsx
+components/tv/TvToastViewport.tsx
+hooks/tv/use-tv-brian.ts
+hooks/tv/use-tv-clock.ts
+hooks/tv/use-tv-feedback.ts
+hooks/tv/use-tv-orders.ts
+hooks/tv/use-tv-pause.ts
+hooks/tv/use-tv-print.ts
+hooks/tv/use-tv-products.ts
+hooks/tv/use-tv-settings.ts
+hooks/tv/use-tv-sound.ts
+lib/tv/domain.ts
+types/tv.ts
+tools/tv-refactor-regression-tests.cjs
+package.json
+docs/tv-refactor-20260722/README.md
+docs/tv-refactor-20260722/CHANGED-FILES.txt
+docs/tv-refactor-20260722/VERIFY.txt

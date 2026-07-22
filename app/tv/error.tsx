@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 
-export default function OperationalRouteError({
+export default function TvRouteError({
   error,
   reset,
 }: {
@@ -10,49 +10,54 @@ export default function OperationalRouteError({
   reset: () => void;
 }) {
   useEffect(() => {
-    console.error("OPERATIONAL_ROUTE_ERROR", error);
-  }, [error]);
+    console.error("TV_ROUTE_ERROR", {
+      message: error.message,
+      digest: error.digest || null,
+    });
+  }, [error.digest, error.message]);
 
   return (
-    <main
-      style={{
-        minHeight: "100svh",
-        padding: 20,
-        background: "#020617",
-        color: "#f8fafc",
-        fontFamily:
-          "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-      }}
-    >
-      <h1 style={{ color: "#f87171" }}>ROUTE HATASI</h1>
-      <p>Bu ekranın fotoğrafını gönder.</p>
-      <pre
-        style={{
-          whiteSpace: "pre-wrap",
-          overflowWrap: "anywhere",
-          padding: 12,
-          borderRadius: 12,
-          background: "#1f0a0a",
-          border: "1px solid #7f1d1d",
-        }}
-      >
-        {`${error?.message || "Bilinmeyen hata"}\n\n${error?.stack || ""}\n\nDigest: ${error?.digest || "-"}`}
-      </pre>
-      <button
-        type="button"
-        onClick={reset}
-        style={{
-          minHeight: 46,
-          padding: "0 18px",
-          borderRadius: 12,
-          border: 0,
-          background: "#0284c7",
-          color: "#fff",
-          fontWeight: 800,
-        }}
-      >
-        TEKRAR DENE
-      </button>
+    <main className="flex min-h-[100dvh] items-center justify-center bg-slate-950 p-5 text-slate-100">
+      <section className="w-full max-w-xl rounded-3xl border border-rose-400/30 bg-slate-900/90 p-6 text-center shadow-2xl">
+        <img
+          src="/logo-burger-brothers.png"
+          alt="Burger Brothers"
+          className="mx-auto h-16 w-16"
+        />
+
+        <h1 className="mt-4 text-2xl font-black text-rose-200">
+          TV konnte nicht geladen werden
+        </h1>
+
+        <p className="mt-3 text-sm leading-relaxed text-slate-300">
+          Die Bestellseite hatte einen unerwarteten Fehler. Bitte zuerst
+          erneut versuchen. Falls das Problem bleibt, die Seite neu laden.
+        </p>
+
+        <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <button
+            type="button"
+            onClick={reset}
+            className="rounded-2xl border border-sky-300/50 bg-sky-600 px-4 py-3 font-black text-white hover:bg-sky-500"
+          >
+            Erneut versuchen
+          </button>
+
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="rounded-2xl border border-white/15 bg-white/5 px-4 py-3 font-black text-slate-100 hover:bg-white/10"
+          >
+            Seite neu laden
+          </button>
+        </div>
+
+        {error.digest ? (
+          <div className="mt-4 text-xs text-slate-500">
+            Fehlerreferenz: {error.digest}
+          </div>
+        ) : null}
+      </section>
     </main>
   );
 }

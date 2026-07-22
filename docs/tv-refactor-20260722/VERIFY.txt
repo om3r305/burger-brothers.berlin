@@ -1,0 +1,32 @@
+BURGER BROTHERS BERLIN — TV REFACTOR DOĞRULAMA
+
+BAŞARILI:
+- TV refactor regression tests
+- TV custom semantic typecheck: 0 diagnostic
+- 24 refactor TS/TSX dosyası syntax kontrolü
+- TV refactor alanında any kullanımı: 0
+- Native alert/confirm: 0
+- styled-jsx: 0
+- Payment Center architecture test
+- Order pricing tests
+- package.json parse
+- ZIP secret/name policy scan
+
+ÖLÇÜMLER:
+- Önceki app/tv/page.tsx: 4.662 satır
+- Yeni app/tv/page.tsx: 796 satır
+- Yeni page useState: 4
+- useTvOrders: per-order ETA lock + stale refresh guard
+
+BU İNCELEME ORTAMINDA TAM PRODUCTION BUILD:
+Kaynak ZIP node_modules ve .env içermedi. Paket indirme işlemi bu çalışma
+ortamında tamamlanamadığı için gerçek Next.js production build burada
+sonlandırılamadı.
+
+PUSH-TV-REFACTOR-TO-GITHUB.ps1, gerçek C:\Web\burger-github projesinde:
+1. npx.cmd prisma generate
+2. npm.cmd run typecheck
+3. npm.cmd run tv:refactor:test
+4. npm.cmd run security:test
+5. npm.cmd run build
+başarılı olmadan commit veya push yapmaz.
