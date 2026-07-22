@@ -1,0 +1,18 @@
+CHECKOUT ONLINE DETAILS INLINE — DOĞRULAMA
+
+Yerel doğrulamalar:
+- TypeScript/TSX syntax kontrolü geçti.
+- Kayıtlı ödeme alanı Online-Zahlung seçeneğinden sonra geliyor.
+- Güvenli ödeme logoları Online-Zahlung seçiliyken gösteriliyor.
+- Getrennt zahlen seçeneği online ödeme ayrıntılarından sonra geliyor.
+- PaymentTrustBadges component'i değiştirilmedi.
+- Zustand store değiştirilmedi.
+- Stripe, ödeme session ve sipariş fonksiyonları değiştirilmedi.
+
+GitHub PowerShell gerçek projede aşağıdakiler başarılı olmadan commit/push yapmaz:
+1. Prisma generate
+2. TypeScript typecheck
+3. Payment Center mimari testi (dosya mevcutsa)
+4. Security regression testleri
+5. Production build
+6. git diff --cached --check

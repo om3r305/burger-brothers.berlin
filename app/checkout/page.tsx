@@ -3158,53 +3158,15 @@ export default function CheckoutPage() {
                   Sichere Zahlung über Stripe. Karten, Apple Pay, Google Pay, Link, PayPal,
                   Klarna und weitere aktivierte Methoden werden automatisch angezeigt.
                 </div>
-                <PaymentTrustBadges compact className="mt-3" />
               </button>
             )}
 
-            {paymentSettings.online && paymentSettings.split && (
-              <button
-                type="button"
-                onClick={() => setPaymentMethod("split_contactless")}
-                className={`rounded-xl border p-3 text-left transition ${
-                  paymentMethod === "split_contactless"
-                    ? "border-amber-500/70 bg-amber-500/10"
-                    : "border-stone-700/60 bg-stone-900/60 hover:bg-stone-800/60"
-                }`}
-              >
-                <div className="font-medium">Getrennt zahlen</div>
-                <div className="mt-1 text-xs text-stone-400">
-                  Produkte verteilen und jeder Person einen eigenen sicheren Zahlungslink
-                  {paymentSettings.whatsappShareEnabled ? " per WhatsApp" : ""} senden.
-                  Servicegebühr: {fmt(paymentSettings.splitServiceFee)} pro Person.
-                </div>
-              </button>
-            )}
-
-            {paymentSettings.contactless && (
-              <div className="rounded-xl border border-stone-700/60 bg-stone-900/60 p-3 text-left opacity-70">
-                <div className="font-medium">Kartenzahlung bei Lieferung</div>
-                <div className="mt-1 text-xs text-stone-400">
-                  Vorbereitung für später: Wird aktiv, sobald ein POS-Gerät vorhanden ist.
-                </div>
-              </div>
-            )}
-
-            {!paymentSettings.cash &&
-              !paymentSettings.online &&
-              !paymentSettings.contactless &&
-              !paymentSettings.split && (
-              <div className="rounded-xl border border-rose-500/50 bg-rose-500/10 p-3 text-sm text-rose-200 md:col-span-2">
-                Es ist aktuell keine Zahlungsart aktiv. Bitte im Adminbereich mindestens
-                Barzahlung aktivieren.
-              </div>
-            )}
           </div>
 
           {paymentMethod === "online" &&
             paymentProfileRemembered &&
             paymentProfileMethods.length > 0 && (
-              <div className="mt-4 rounded-xl border border-emerald-500/35 bg-emerald-500/10 p-3 sm:p-4">
+              <div className="mt-2 rounded-xl border border-emerald-500/35 bg-emerald-500/10 p-3 sm:p-4">
                 <div className="text-sm font-bold text-emerald-100">
                   Gespeicherte Zahlungsart
                 </div>
@@ -3258,7 +3220,7 @@ export default function CheckoutPage() {
                 aria-checked={rememberPaymentMethod}
                 aria-label="Zahlungsart für zukünftige Bestellungen merken"
                 onClick={() => setRememberPaymentMethod((current) => !current)}
-                className="mt-4 flex w-full cursor-pointer items-start gap-3 rounded-xl border border-sky-500/30 bg-sky-500/10 p-3 text-left transition hover:bg-sky-500/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70 focus-visible:ring-offset-2 focus-visible:ring-offset-stone-950 sm:p-4"
+                className="mt-3 flex w-full cursor-pointer items-start gap-3 rounded-xl border border-sky-500/30 bg-sky-500/10 p-3 text-left transition hover:bg-sky-500/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70 focus-visible:ring-offset-2 focus-visible:ring-offset-stone-950 sm:p-4"
               >
                 <span
                   aria-hidden="true"
@@ -3312,6 +3274,50 @@ export default function CheckoutPage() {
               )}
             </>
           )}
+
+          {paymentMethod === "online" && (
+            <PaymentTrustBadges compact className="mt-3" />
+          )}
+
+          <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
+            {paymentSettings.online && paymentSettings.split && (
+              <button
+                type="button"
+                onClick={() => setPaymentMethod("split_contactless")}
+                className={`rounded-xl border p-3 text-left transition ${
+                  paymentMethod === "split_contactless"
+                    ? "border-amber-500/70 bg-amber-500/10"
+                    : "border-stone-700/60 bg-stone-900/60 hover:bg-stone-800/60"
+                }`}
+              >
+                <div className="font-medium">Getrennt zahlen</div>
+                <div className="mt-1 text-xs text-stone-400">
+                  Produkte verteilen und jeder Person einen eigenen sicheren Zahlungslink
+                  {paymentSettings.whatsappShareEnabled ? " per WhatsApp" : ""} senden.
+                  Servicegebühr: {fmt(paymentSettings.splitServiceFee)} pro Person.
+                </div>
+              </button>
+            )}
+
+            {paymentSettings.contactless && (
+              <div className="rounded-xl border border-stone-700/60 bg-stone-900/60 p-3 text-left opacity-70">
+                <div className="font-medium">Kartenzahlung bei Lieferung</div>
+                <div className="mt-1 text-xs text-stone-400">
+                  Vorbereitung für später: Wird aktiv, sobald ein POS-Gerät vorhanden ist.
+                </div>
+              </div>
+            )}
+
+            {!paymentSettings.cash &&
+              !paymentSettings.online &&
+              !paymentSettings.contactless &&
+              !paymentSettings.split && (
+              <div className="rounded-xl border border-rose-500/50 bg-rose-500/10 p-3 text-sm text-rose-200 md:col-span-2">
+                Es ist aktuell keine Zahlungsart aktiv. Bitte im Adminbereich mindestens
+                Barzahlung aktivieren.
+              </div>
+            )}
+          </div>
 
           {paymentMethod === "split_contactless" && (
             <div className="mt-4 rounded-2xl border border-amber-500/40 bg-amber-500/5 p-4">
