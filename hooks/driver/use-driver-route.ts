@@ -16,12 +16,10 @@ type Notify = (
 export function useDriverRoute({
   orders,
   routePlzPriority,
-  storeOrigin,
   notify,
 }: {
   orders: DriverOrder[];
   routePlzPriority: string[];
-  storeOrigin: string;
   notify: Notify;
 }) {
   const [selected, setSelected] = useState<Record<string, boolean>>({});
@@ -56,7 +54,6 @@ export function useDriverRoute({
     const result = openMultiStopMapsRoute(
       selectedOrders,
       routePlzPriority,
-      storeOrigin,
     );
 
     if (!result.ok) {
@@ -69,7 +66,6 @@ export function useDriverRoute({
     notify,
     routePlzPriority,
     selectedOrders,
-    storeOrigin,
   ]);
 
   return {

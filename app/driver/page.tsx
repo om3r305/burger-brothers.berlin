@@ -60,7 +60,6 @@ export default function DriverPage() {
   const route = useDriverRoute({
     orders: driverOrders.mine,
     routePlzPriority: settings.routePlzPriority,
-    storeOrigin: settings.storeOrigin,
     notify: feedback.notify,
   });
 

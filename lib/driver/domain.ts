@@ -804,14 +804,13 @@ export function mapsDirectionWebUrl(address: string) {
   return address
     ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
         address,
-      )}&travelmode=driving`
+      )}&travelmode=driving&dir_action=navigate`
     : "https://www.google.com/maps";
 }
 
 export function buildMultiStopMapsUrl(
   orders: DriverOrder[],
   priority: string[],
-  origin: string,
 ) {
   const stops = uniqueRouteAddresses(orders, priority);
 
@@ -826,9 +825,9 @@ export function buildMultiStopMapsUrl(
   const params = new URLSearchParams();
 
   params.set("api", "1");
-  params.set("origin", origin);
   params.set("destination", destination);
   params.set("travelmode", "driving");
+  params.set("dir_action", "navigate");
 
   if (waypoints.length) {
     params.set("waypoints", waypoints.join("|"));
@@ -946,7 +945,6 @@ export function openExternalMap(address: string): {
 export function openMultiStopMapsRoute(
   orders: DriverOrder[],
   priority: string[],
-  origin: string,
 ): { ok: boolean; message?: string } {
   const validOrders = orders.filter((order) => getOrderRouteAddress(order));
 
@@ -957,7 +955,7 @@ export function openMultiStopMapsRoute(
     };
   }
 
-  const url = buildMultiStopMapsUrl(validOrders, priority, origin);
+  const url = buildMultiStopMapsUrl(validOrders, priority);
 
   if (!url) {
     return {

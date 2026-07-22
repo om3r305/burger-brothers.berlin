@@ -128,6 +128,29 @@ assert(
   "route priority and store origin must be settings-first",
 );
 
+const routeHook = read("hooks/driver/use-driver-route.ts");
+const routeBuilderMatch = domain.match(
+  /export function buildMultiStopMapsUrl\([\s\S]*?\n}\n\ntype StandaloneNavigator/,
+);
+const routeBuilder = routeBuilderMatch?.[0] || "";
+
+assert(
+  /params\.set\("dir_action",\s*"navigate"\)/.test(routeBuilder),
+  "Google Maps routes must request active navigation",
+);
+assert(
+  !/params\.set\("origin"/.test(routeBuilder),
+  "Google Maps route origin must be omitted so the driver current location is used",
+);
+assert(
+  !/storeOrigin/.test(routeHook),
+  "useDriverRoute must not force the restaurant address as route origin",
+);
+assert(
+  !/storeOrigin:\s*settings\.storeOrigin/.test(page),
+  "DriverPage must not pass a fixed store origin into route navigation",
+);
+
 const tracker = read("components/DriverLiveTracker.tsx");
 assert(
   /active:\s*boolean/.test(tracker) &&

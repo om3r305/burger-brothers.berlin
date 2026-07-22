@@ -1,0 +1,23 @@
+DRIVER CURRENT-LOCATION ROUTE VERIFICATION
+
+Başarılı yerel kontroller:
+- Driver refactor regression tests passed
+- app/driver/page.tsx syntax OK
+- hooks/driver/use-driver-route.ts syntax OK
+- lib/driver/domain.ts syntax OK
+
+Regresyon testi şu şartları doğrular:
+- Çok duraklı Maps URL'sinde origin parametresi yoktur.
+- dir_action=navigate eklenmiştir.
+- DriverPage sabit storeOrigin göndermez.
+- useDriverRoute sabit mağaza başlangıcını kabul etmez.
+
+GitHub PowerShell gerçek projede ayrıca:
+- prisma generate
+- typecheck
+- driver:refactor:test
+- security:test
+- production build
+- git diff --cached --check
+
+çalıştırır. Bunlardan biri başarısızsa commit veya push yapılmaz.
