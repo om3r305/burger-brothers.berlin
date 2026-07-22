@@ -1,0 +1,32 @@
+CHECKOUT SAFETY REFACTOR — DOĞRULAMA
+
+Başarılı yerel kontroller:
+- V2 düzeltmesi: SettingsV6.payments içindeki opsiyonel ödeme ayarı
+  `unknown` değişken üzerinden daraltıldı; TS18048 (`selected` possibly undefined)
+  giderildi.
+- Odaklı strict TypeScript semantic kontrolü V2 sonrasında geçti.
+- Checkout safety regression tests passed
+- Order pricing tests passed
+- Order access and checkout validation tests passed
+- 6 değişen TypeScript/TSX dosyasında syntax kontrolü geçti
+- İzole TypeScript semantic kontrolünde değişen dosyalara ait hata bulunmadı
+- app/checkout/page.tsx explicit any: 0
+- components/store.ts explicit any: 0
+- Native alert: 0
+- Checkout boş catch blokları: 0
+- exhaustive-deps disable: 1 (yalnız ilk localStorage hydration; kasıtlı ve belgeli)
+
+Kaynak paketin kapsamı nedeniyle burada çalıştırılamayanlar:
+- Payment Center mimari testi: app/api/stripe/webhook/route.ts kaynak ZIP'de yoktu
+- Payment closeout testi: app/track/page.tsx kaynak ZIP'de yoktu
+- Tam Next.js production build: node_modules ve tam proje kaynak ağacı ZIP'de yoktu
+
+GitHub PowerShell gerçek C:\Web\burger-github projesinde aşağıdakilerin
+tamamı başarılı olmadan commit veya push yapmaz:
+1. npm ci (yalnız node_modules yoksa)
+2. npx.cmd prisma generate
+3. npm.cmd run typecheck
+4. npm.cmd run checkout:safety:test
+5. npm.cmd run security:test
+6. npm.cmd run build
+7. git diff --cached --check
