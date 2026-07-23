@@ -1,0 +1,47 @@
+CANONICAL PRICING DOĞRULAMA RAPORU
+
+Başarılı yerel kontroller:
+- Order pricing tests passed.
+- Canonical pricing regression tests passed.
+- Checkout safety regression tests passed.
+- Değişen 7 TypeScript/TSX dosyasının syntax transpile kontrolü geçti.
+- ORDER_PRICE_CHANGED / eski Warenkorbpreis blok mesajı çalışma kodundan kaldırıldı.
+
+Doğrulanan senaryolar:
+- Final toplam aynı, merchandise/discount dağılımı farklı: sipariş devam eder.
+- Client düşük/sahte toplam gönderir: server canonical DB toplamını kullanır.
+- Geçersiz extra: hâlâ CATALOG_EXTRA_NOT_FOUND ile reddedilir.
+- Split toplamı stale ise paylar canonical toplamla oransal dengelenir.
+- Boş split payı ve Stripe minimum tutarı kontrolleri korunur.
+- Ödenmiş sipariş server-signed payment snapshot fiyatıyla finalize edilir.
+- İmzalı snapshot ile payment total uyuşmazsa PAYMENT_TOTAL_MISMATCH oluşur.
+
+Kaynak inceleme ZIP'i tam proje ağacını, public/data dosyalarını ve node_modules'u
+içermediği için tam Next.js production build ve tüm security suite burada
+çalıştırılmadı.
+
+GitHub PowerShell gerçek C:\Web\burger-github projesinde aşağıdakiler geçmeden
+commit veya push yapmaz:
+1. npm ci (node_modules yoksa)
+2. npx.cmd prisma generate
+3. npm.cmd run typecheck
+4. npm.cmd run pricing:test
+5. npm.cmd run canonical:pricing:test
+6. npm.cmd run checkout:safety:test
+7. npm.cmd run security:test
+8. npm.cmd run build
+9. git diff --cached --check
+
+V2 ek doğrulamaları:
+- OrderCreateEnvelope pricingAdjustment alanı PricingAdjustment tipinde.
+- OrderCreateEnvelope canonicalPricing alanı CanonicalPricingSnapshot tipinde.
+- Eski unknown alan sözleşmesine karşı regresyon kontrolü eklendi.
+- Canonical pricing regression tests passed.
+- types/checkout.ts, runtime.ts ve checkout page syntax kontrolleri geçti.
+
+V3 ek doğrulamaları:
+- Eski `ORDER_PRICE_CHANGED`-zorunlu security assertion hedefli olarak kaldırılır.
+- Canonical DB source-of-truth kontrolleri security testine eklenir.
+- Security test dosyasının diğer bütün kontrolleri korunur.
+- Canonical regression testi eski assertion'ın geri dönmesini engeller.
+- Script, beklenen eski satırı bulamazsa dosyayı değiştirmeden durur.

@@ -4198,6 +4198,16 @@ export default function CheckoutPage() {
       }
       setActivePaymentRecovery(recovery);
 
+      if (payload.pricingAdjustment?.payableChanged && payload.canonicalPricing) {
+        showCheckoutToast(
+          `Der Gesamtbetrag wurde sicher auf ${fmt(
+            payload.canonicalPricing.total,
+          )} aktualisiert.`,
+          "info",
+        );
+        await sleep(650);
+      }
+
       window.location.assign(destination);
     } catch (error: unknown) {
       reportCheckoutError("stripe-start", error);
@@ -4230,6 +4240,14 @@ export default function CheckoutPage() {
 
       const orderBase = await buildCheckoutOrderDraft(payment);
       const result = await createOrderWithRetryAndEmergency(orderBase);
+      if (result.pricingAdjustment?.payableChanged && result.canonicalPricing) {
+        showCheckoutToast(
+          `Der Gesamtbetrag wurde sicher auf ${fmt(
+            result.canonicalPricing.total,
+          )} aktualisiert.`,
+          "info",
+        );
+      }
       const emergencyMode = Boolean(result?.emergencyMode);
       const etaMin = emergencyMode
         ? undefined
@@ -4566,6 +4584,9 @@ export default function CheckoutPage() {
         planned: plannedFromResponse,
         trackingToken,
         emergencyMode: created.emergencyMode === true,
+        pricingAdjusted: created.pricingAdjusted === true,
+        pricingAdjustment: created.pricingAdjustment,
+        canonicalPricing: created.canonicalPricing,
       };
     };
 

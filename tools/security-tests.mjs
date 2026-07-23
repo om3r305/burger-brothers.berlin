@@ -145,7 +145,16 @@ if (/const\s+payableCents\s*=\s*toCents\(order\?\.total\)/.test(paymentPrepare))
 if (!paymentPrepare.includes("items: rebuiltPricing.items")) failures.push("Stripe pending order does not persist canonical DB items");
 if (!orderPricing.includes("prisma.product.findMany")) failures.push("DB catalog product lookup missing");
 if (!orderPricing.includes("CATALOG_EXTRA_NOT_FOUND")) failures.push("DB extra validation missing");
-if (!orderPricing.includes("ORDER_PRICE_CHANGED")) failures.push("submitted/canonical price mismatch protection missing");
+/*
+ * CANONICAL_PRICE_SOURCE_OF_TRUTH_V3
+ * The browser total is never trusted. Security comes from rebuilding the
+ * order against the DB catalog and persisting only canonical items/totals.
+ */
+if (!orderPricing.includes("compareSubmittedPricing")) failures.push("canonical price adjustment audit missing");
+if (!orderPricing.includes('"canonical_reprice"')) failures.push("canonical reprice classification missing");
+if (!paymentPrepare.includes("const payableCents = rebuiltPricing.payableCents")) failures.push("Stripe amount is not sourced from canonical DB pricing");
+if (!paymentPrepare.includes("total: fromCents(payableCents)")) failures.push("pending payment order does not persist canonical total");
+if (!paymentPrepare.includes("canonicalPricing")) failures.push("canonical pricing snapshot is not persisted");
 
 if (failures.length) {
   console.error("SECURITY TESTS FAILED\n- " + failures.join("\n- "));

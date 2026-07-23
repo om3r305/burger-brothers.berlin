@@ -119,6 +119,30 @@ export type PaymentProfileResponse = {
   methods: SavedPaymentMethod[];
 };
 
+export type CanonicalPricingSnapshot = {
+  merchandise: number;
+  discount: number;
+  surcharges: number;
+  couponDiscount: number;
+  total: number;
+};
+
+export type PricingAdjustmentReason =
+  | "none"
+  | "breakdown_only"
+  | "rounding"
+  | "canonical_reprice";
+
+export type PricingAdjustment = {
+  changed: boolean;
+  payableChanged: boolean;
+  breakdownChanged: boolean;
+  reason: PricingAdjustmentReason;
+  differenceCents: number;
+  submitted: CanonicalPricingSnapshot;
+  canonical: CanonicalPricingSnapshot;
+};
+
 export type PaymentPrepareResponse = {
   ok: boolean;
   paymentSessionId: string;
@@ -128,6 +152,10 @@ export type PaymentPrepareResponse = {
   manageUrl: string;
   message?: string;
   error?: string;
+  pricingAdjusted: boolean;
+  pricingAdjustment?: PricingAdjustment;
+  canonicalPricing?: CanonicalPricingSnapshot;
+  splitAdjusted: boolean;
 };
 
 export type PaymentSessionResponse = {
@@ -146,6 +174,9 @@ export type OrderCreateResult = {
   planned: string;
   trackingToken: string;
   emergencyMode: boolean;
+  pricingAdjusted: boolean;
+  pricingAdjustment?: PricingAdjustment;
+  canonicalPricing?: CanonicalPricingSnapshot;
 };
 
 export type OrderCreateEnvelope = {
@@ -159,6 +190,9 @@ export type OrderCreateEnvelope = {
   planned?: unknown;
   trackingToken?: unknown;
   emergencyMode?: boolean;
+  pricingAdjusted?: boolean;
+  pricingAdjustment?: PricingAdjustment;
+  canonicalPricing?: CanonicalPricingSnapshot;
   order?: Record<string, unknown>;
   data?: Record<string, unknown>;
 };

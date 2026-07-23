@@ -8,6 +8,30 @@ import { prisma } from "@/lib/db";
 
 type OrderMode = "pickup" | "delivery";
 
+export type CanonicalPricingSnapshot = {
+  merchandise: number;
+  discount: number;
+  surcharges: number;
+  couponDiscount: number;
+  total: number;
+};
+
+export type PricingAdjustmentReason =
+  | "none"
+  | "breakdown_only"
+  | "rounding"
+  | "canonical_reprice";
+
+export type PricingAdjustment = {
+  changed: boolean;
+  payableChanged: boolean;
+  breakdownChanged: boolean;
+  reason: PricingAdjustmentReason;
+  differenceCents: number;
+  submitted: CanonicalPricingSnapshot;
+  canonical: CanonicalPricingSnapshot;
+};
+
 type CanonicalExtra = {
   id: string;
   sku: string;
@@ -1267,44 +1291,68 @@ function calculateRouteDeal(params: {
   };
 }
 
-function compareSubmittedTotal(params: {
+function compareSubmittedPricing(params: {
   order: any;
   canonicalPayableCents: number;
   canonicalMerchandiseCents: number;
   canonicalDiscountCents: number;
   canonicalSurchargesCents: number;
   canonicalCouponCents: number;
-}) {
-  const submittedPayableCents = toCents(params.order?.total);
-  const submittedMerchandiseCents = toCents(params.order?.merchandise);
+}): PricingAdjustment {
+  const submitted = {
+    merchandise: fromCents(toCents(params.order?.merchandise)),
+    discount: fromCents(toCents(params.order?.discount)),
+    surcharges: fromCents(toCents(params.order?.surcharges)),
+    couponDiscount: fromCents(toCents(params.order?.couponDiscount)),
+    total: fromCents(toCents(params.order?.total)),
+  };
+  const canonical = {
+    merchandise: fromCents(params.canonicalMerchandiseCents),
+    discount: fromCents(params.canonicalDiscountCents),
+    surcharges: fromCents(params.canonicalSurchargesCents),
+    couponDiscount: fromCents(params.canonicalCouponCents),
+    total: fromCents(params.canonicalPayableCents),
+  };
 
-  // Katalog değiştiyse veya istek manipüle edildiyse ödeme başlamaz.
-  if (
-    Math.abs(submittedPayableCents - params.canonicalPayableCents) > 1 ||
-    Math.abs(submittedMerchandiseCents - params.canonicalMerchandiseCents) > 1
-  ) {
-    throw new OrderPricingError(
-      "ORDER_PRICE_CHANGED",
-      "Der Warenkorbpreis hat sich geändert. Bitte Warenkorb aktualisieren und erneut versuchen.",
-      409,
-      {
-        submitted: {
-          merchandise: fromCents(submittedMerchandiseCents),
-          discount: fromCents(toCents(params.order?.discount)),
-          surcharges: fromCents(toCents(params.order?.surcharges)),
-          couponDiscount: fromCents(toCents(params.order?.couponDiscount)),
-          total: fromCents(submittedPayableCents),
-        },
-        canonical: {
-          merchandise: fromCents(params.canonicalMerchandiseCents),
-          discount: fromCents(params.canonicalDiscountCents),
-          surcharges: fromCents(params.canonicalSurchargesCents),
-          couponDiscount: fromCents(params.canonicalCouponCents),
-          total: fromCents(params.canonicalPayableCents),
-        },
-      },
-    );
-  }
+  const submittedPayableCents = toCents(submitted.total);
+  const payableDifferenceCents =
+    params.canonicalPayableCents - submittedPayableCents;
+  const payableChanged = Math.abs(payableDifferenceCents) > 1;
+  const breakdownChanged = [
+    Math.abs(
+      toCents(submitted.merchandise) - params.canonicalMerchandiseCents,
+    ),
+    Math.abs(toCents(submitted.discount) - params.canonicalDiscountCents),
+    Math.abs(toCents(submitted.surcharges) - params.canonicalSurchargesCents),
+    Math.abs(
+      toCents(submitted.couponDiscount) - params.canonicalCouponCents,
+    ),
+  ].some((difference) => difference > 1);
+  const changed = payableChanged || breakdownChanged;
+  const reason: PricingAdjustmentReason = !changed
+    ? "none"
+    : !payableChanged
+      ? "breakdown_only"
+      : Math.abs(payableDifferenceCents) <= 10
+        ? "rounding"
+        : "canonical_reprice";
+
+  /*
+   * Güvenlik client toplamını reddetmeye değil, tamamen yok sayıp DB'den
+   * canonical fiyatı yeniden kurmaya dayanır. Geçersiz ürün/extra/kupon hâlâ
+   * yukarıdaki doğrulamalarda hata verir. Burada stale cache, kampanya
+   * muhasebesi veya yuvarlama farkı siparişi kilitlemez; ödeme ve DB kaydı
+   * yalnız canonical değerlerle devam eder.
+   */
+  return {
+    changed,
+    payableChanged,
+    breakdownChanged,
+    reason,
+    differenceCents: payableDifferenceCents,
+    submitted,
+    canonical,
+  };
 }
 
 export async function rebuildOrderPricingFromDatabase(params: {
@@ -1399,7 +1447,7 @@ export async function rebuildOrderPricingFromDatabase(params: {
   const surchargeCents =
     itemResult.deliverySurchargeCents + itemResult.pfandCents;
 
-  compareSubmittedTotal({
+  const pricingAdjustment = compareSubmittedPricing({
     order,
     canonicalPayableCents: payableCents,
     canonicalMerchandiseCents: itemResult.merchandiseCents,
@@ -1419,8 +1467,11 @@ export async function rebuildOrderPricingFromDatabase(params: {
     tipCents,
     orderBeforeTipCents,
     payableCents,
+    pricingAdjustment,
     pricingMeta: {
       source: "db",
+      pricingAdjusted: pricingAdjustment.changed,
+      pricingAdjustment,
       calculatedAt: now.toISOString(),
       catalogItems: itemResult.canonicalItems.length,
       merchandise: fromCents(itemResult.merchandiseCents),
@@ -1457,6 +1508,126 @@ export async function rebuildOrderPricingFromDatabase(params: {
       tip: fromCents(tipCents),
       orderBeforeTip: fromCents(orderBeforeTipCents),
       payable: fromCents(payableCents),
+    },
+  };
+}
+
+/**
+ * Uses the canonical order snapshot persisted by the payment prepare route.
+ * This path is only valid after the internal payment-finalize HMAC has been
+ * verified by /api/orders/create.
+ *
+ * Repricing a paid order against a newer catalog/campaign could make the DB
+ * total diverge from the amount Stripe already collected. The signed pending
+ * snapshot is therefore the immutable pricing authority for finalization.
+ */
+export function rebuildOrderPricingFromVerifiedPayment(orderInput: any) {
+  const order = ensureObj(orderInput);
+  const mode = normalizeMode(order?.mode);
+  const items = ensureArr(order?.items);
+
+  if (!items.length) {
+    throw new OrderPricingError(
+      "ORDER_ITEMS_EMPTY",
+      "Der Warenkorb ist leer.",
+      400,
+    );
+  }
+
+  const meta = ensureObj(order?.meta);
+  const payment = ensureObj(meta?.payment ?? order?.payment);
+  const merchandiseCents = toCents(order?.merchandise);
+  const discountCents = toCents(order?.discount);
+  const surchargesCents = toCents(order?.surcharges);
+  const couponDiscountCents = toCents(order?.couponDiscount);
+  const payableCents = toCents(order?.total);
+  const tipCents = Math.min(50_000, toCents(payment?.tip ?? meta?.tip));
+  const orderBeforeTipCents = Math.max(0, payableCents - tipCents);
+  const paidOrderTotalCents = toCents(
+    payment?.orderTotal ?? payment?.baseTotal ?? order?.total,
+  );
+
+  if (
+    payableCents <= 0 ||
+    paidOrderTotalCents <= 0 ||
+    Math.abs(paidOrderTotalCents - payableCents) > 1
+  ) {
+    throw new OrderPricingError(
+      "PAYMENT_TOTAL_MISMATCH",
+      "Der bestätigte Zahlbetrag stimmt nicht mit der Bestellung überein.",
+      409,
+    );
+  }
+
+  const canonical: CanonicalPricingSnapshot = {
+    merchandise: fromCents(merchandiseCents),
+    discount: fromCents(discountCents),
+    surcharges: fromCents(surchargesCents),
+    couponDiscount: fromCents(couponDiscountCents),
+    total: fromCents(payableCents),
+  };
+  const pricingMeta = ensureObj(payment?.pricing ?? meta?.pricing);
+  const storedAdjustment = ensureObj(
+    payment?.pricingAdjustment ?? pricingMeta?.pricingAdjustment,
+  );
+  const submitted = ensureObj(storedAdjustment?.submitted);
+  const storedCanonical = ensureObj(storedAdjustment?.canonical);
+  const pricingAdjustment: PricingAdjustment = {
+    changed: storedAdjustment?.changed === true,
+    payableChanged: storedAdjustment?.payableChanged === true,
+    breakdownChanged: storedAdjustment?.breakdownChanged === true,
+    reason: [
+      "breakdown_only",
+      "rounding",
+      "canonical_reprice",
+    ].includes(String(storedAdjustment?.reason || ""))
+      ? (String(storedAdjustment.reason) as PricingAdjustmentReason)
+      : "none",
+    differenceCents: Math.round(toNumber(storedAdjustment?.differenceCents, 0)),
+    submitted: {
+      merchandise: fromCents(toCents(submitted?.merchandise ?? canonical.merchandise)),
+      discount: fromCents(toCents(submitted?.discount ?? canonical.discount)),
+      surcharges: fromCents(toCents(submitted?.surcharges ?? canonical.surcharges)),
+      couponDiscount: fromCents(
+        toCents(submitted?.couponDiscount ?? canonical.couponDiscount),
+      ),
+      total: fromCents(toCents(submitted?.total ?? canonical.total)),
+    },
+    canonical: {
+      merchandise: fromCents(
+        toCents(storedCanonical?.merchandise ?? canonical.merchandise),
+      ),
+      discount: fromCents(
+        toCents(storedCanonical?.discount ?? canonical.discount),
+      ),
+      surcharges: fromCents(
+        toCents(storedCanonical?.surcharges ?? canonical.surcharges),
+      ),
+      couponDiscount: fromCents(
+        toCents(storedCanonical?.couponDiscount ?? canonical.couponDiscount),
+      ),
+      total: fromCents(toCents(storedCanonical?.total ?? canonical.total)),
+    },
+  };
+
+  return {
+    mode,
+    items,
+    merchandiseCents,
+    discountCents,
+    surchargesCents,
+    couponCode: order?.coupon ? String(order.coupon).trim() : null,
+    couponDiscountCents,
+    tipCents,
+    orderBeforeTipCents,
+    payableCents,
+    pricingAdjustment,
+    pricingMeta: {
+      ...pricingMeta,
+      source: "payment_locked",
+      pricingLocked: true,
+      pricingAdjusted: pricingAdjustment.changed,
+      pricingAdjustment,
     },
   };
 }

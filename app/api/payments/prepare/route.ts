@@ -26,6 +26,7 @@ import {
   OrderValidationError,
   validateOrderForCheckout,
 } from "@/lib/server/order-validation";
+import { canonicalizeSplitShares } from "@/lib/server/split-pricing";
 import {
   buildPaymentManageUrl,
   createPaymentRecoveryToken,
@@ -145,58 +146,17 @@ function readPaymentEnabled(
 }
 
 function cleanSplitShares(
-  raw: any,
+  raw: unknown,
   payableCents: number,
   serviceFeeCents: number,
   maxPeople: number,
 ) {
-  const input = Array.isArray(raw) ? raw : [];
-  const count = input.length;
-
-  if (count < 2 || count > maxPeople) {
-    throw new Error("SPLIT_PERSON_COUNT_INVALID");
-  }
-
-  const shares = input.map((share: any, index: number) => {
-    const baseAmountCents = Math.max(
-      0,
-      Math.round(
-        Number(
-          share?.baseAmountCents ?? toCents(share?.baseAmount ?? share?.amount),
-        ) || 0,
-      ),
-    );
-
-    return {
-      index,
-      label: String(share?.label || `Person ${index + 1}`).slice(0, 80),
-      baseAmountCents,
-      serviceFeeCents,
-      amountCents: baseAmountCents + serviceFeeCents,
-      items: Array.isArray(share?.items)
-        ? share.items.slice(0, 200).map((item: any) => ({
-            key: String(item?.key || "").slice(0, 120),
-            label: String(item?.label || "").slice(0, 160),
-          }))
-        : [],
-    };
+  return canonicalizeSplitShares({
+    raw,
+    payableCents,
+    serviceFeeCents,
+    maxPeople,
   });
-
-  const baseSum = shares.reduce((sum, share) => sum + share.baseAmountCents, 0);
-
-  if (baseSum !== payableCents) {
-    throw new Error("SPLIT_TOTAL_MISMATCH");
-  }
-
-  if (shares.some((share) => share.baseAmountCents <= 0)) {
-    throw new Error("SPLIT_EMPTY_PERSON");
-  }
-
-  if (shares.some((share) => share.amountCents < 50)) {
-    throw new Error("PAYMENT_AMOUNT_TOO_LOW");
-  }
-
-  return shares;
 }
 
 function normalizePhone(value: any) {
@@ -304,6 +264,10 @@ function reusablePaymentResponse(params: {
     recoveryToken: params.recoveryToken,
     recoveryExpiresAt: session.recoveryExpiresAt || null,
     whatsappShareEnabled: session.whatsappShareEnabled !== false,
+    pricingAdjusted: session.pricingAdjusted === true,
+    pricingAdjustment: ensureObj(session.pricingAdjustment),
+    canonicalPricing: ensureObj(session.canonicalPricing),
+    splitAdjusted: session.splitAdjusted === true,
     shares: shares.map((share: any) => ({
       index: Number(share?.index || 0),
       label: String(share?.label || "Person"),
@@ -488,7 +452,7 @@ export async function POST(req: Request) {
       Math.max(2, Math.round(toNumber(splitSettings?.maxPeople, 8))),
     );
 
-    const shares =
+    const splitPlan =
       requestedKind === "split_contactless"
         ? cleanSplitShares(
             body?.shares,
@@ -496,16 +460,26 @@ export async function POST(req: Request) {
             serviceFeeCents,
             maxPeople,
           )
-        : [
-            {
-              index: 0,
-              label: "Online-Zahlung",
-              baseAmountCents: payableCents,
-              serviceFeeCents: 0,
-              amountCents: payableCents,
-              items: [],
-            },
-          ];
+        : {
+            shares: [
+              {
+                index: 0,
+                label: "Online-Zahlung",
+                baseAmountCents: payableCents,
+                serviceFeeCents: 0,
+                amountCents: payableCents,
+                items: [],
+              },
+            ],
+            adjusted: false,
+            submittedBaseTotalCents: payableCents,
+            canonicalBaseTotalCents: payableCents,
+            differenceCents: 0,
+          };
+    const shares = splitPlan.shares;
+    const canonicalPricing = rebuiltPricing.pricingAdjustment.canonical;
+    const pricingAdjusted =
+      rebuiltPricing.pricingAdjustment.changed || splitPlan.adjusted;
 
     const feeTotalCents = shares.reduce(
       (sum, share) => sum + share.serviceFeeCents,
@@ -580,6 +554,10 @@ export async function POST(req: Request) {
           collectedTotal: fromCents(paidTotalCents),
           pricingSource: "db",
           pricing: rebuiltPricing.pricingMeta,
+          pricingAdjusted,
+          pricingAdjustment: rebuiltPricing.pricingAdjustment,
+          canonicalPricing,
+          splitAdjusted: splitPlan.adjusted,
           shares: preparedShares.map((share) => ({
             index: share.index,
             label: share.label,
@@ -635,6 +613,19 @@ export async function POST(req: Request) {
               serviceFeeTotal: fromCents(feeTotalCents),
               total: fromCents(paidTotalCents),
               collectedTotal: fromCents(paidTotalCents),
+              pricingAdjusted,
+              pricingAdjustment: rebuiltPricing.pricingAdjustment,
+              canonicalPricing,
+              splitAdjusted: splitPlan.adjusted,
+              splitAdjustment: {
+                submittedBaseTotal: fromCents(
+                  splitPlan.submittedBaseTotalCents,
+                ),
+                canonicalBaseTotal: fromCents(
+                  splitPlan.canonicalBaseTotalCents,
+                ),
+                difference: fromCents(Math.abs(splitPlan.differenceCents)),
+              },
               rememberPayment,
               whatsappShareEnabled,
               pendingExpiryMinutes,
@@ -883,6 +874,15 @@ export async function POST(req: Request) {
         serviceFeeTotal: fromCents(feeTotalCents),
         total: fromCents(paidTotalCents),
         collectedTotal: fromCents(paidTotalCents),
+        pricingAdjusted,
+        pricingAdjustment: rebuiltPricing.pricingAdjustment,
+        canonicalPricing,
+        splitAdjusted: splitPlan.adjusted,
+        splitAdjustment: {
+          submittedBaseTotal: fromCents(splitPlan.submittedBaseTotalCents),
+          canonicalBaseTotal: fromCents(splitPlan.canonicalBaseTotalCents),
+          difference: fromCents(Math.abs(splitPlan.differenceCents)),
+        },
         rememberPayment,
         whatsappShareEnabled,
         pendingExpiryMinutes,
@@ -954,6 +954,10 @@ export async function POST(req: Request) {
       recoveryToken,
       recoveryExpiresAt: recoveryExpiresAt.toISOString(),
       whatsappShareEnabled,
+      pricingAdjusted,
+      pricingAdjustment: rebuiltPricing.pricingAdjustment,
+      canonicalPricing,
+      splitAdjusted: splitPlan.adjusted,
       shares: checkoutShares.map((share) => ({
         index: share.index,
         label: share.label,

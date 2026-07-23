@@ -137,9 +137,10 @@ async function expectPricingError(promise, code) {
 }
 
 async function main() {
-  const { rebuildOrderPricingFromDatabase } = require(
-    path.join(root, "lib/server/order-pricing.ts"),
-  );
+  const {
+    rebuildOrderPricingFromDatabase,
+    rebuildOrderPricingFromVerifiedPayment,
+  } = require(path.join(root, "lib/server/order-pricing.ts"));
 
   resetState();
   state.products.push(
@@ -215,6 +216,41 @@ async function main() {
   assert.equal(normal.items[0].canonicalExtrasTotal, 2);
   assert.equal(normal.items[0].price, 11);
   assert.equal(normal.items[0].add[0].price, 2);
+
+  assert.equal(normal.pricingAdjustment.changed, false);
+  assert.equal(normal.pricingAdjustment.reason, "none");
+
+  const breakdownOnly = await rebuildOrderPricingFromDatabase({
+    tenantId: "tenant-1",
+    settings: deliverySettings,
+    now: new Date("2026-07-17T10:00:00.000Z"),
+    order: {
+      mode: "delivery",
+      items: [
+        {
+          id: "product-1",
+          sku: "BB-1",
+          qty: 2,
+          add: [{ id: "cheese", label: "Käse" }],
+        },
+      ],
+      // Client muhasebesi kampanyayı indirim satırında gösterebilir.
+      // Canonical server ise kampanyalı ürün fiyatını merchandise'a yazar.
+      merchandise: 24,
+      discount: 6.4,
+      surcharges: 2,
+      couponDiscount: 0,
+      total: 20.6,
+      customer: { phone: "03012345678", zip: "13505" },
+      meta: { payment: { tip: 1 } },
+    },
+  });
+
+  assert.equal(breakdownOnly.payableCents, 2060);
+  assert.equal(breakdownOnly.pricingAdjustment.changed, true);
+  assert.equal(breakdownOnly.pricingAdjustment.payableChanged, false);
+  assert.equal(breakdownOnly.pricingAdjustment.breakdownChanged, true);
+  assert.equal(breakdownOnly.pricingAdjustment.reason, "breakdown_only");
 
   await expectPricingError(
     rebuildOrderPricingFromDatabase({
@@ -372,20 +408,70 @@ async function main() {
   assert.equal(drink.payableCents, 280);
   assert.equal(drink.items[0].pfandAmount, 0.25);
 
-  await expectPricingError(
-    rebuildOrderPricingFromDatabase({
-      tenantId: "tenant-1",
-      settings: drinkSettings,
-      order: {
-        mode: "pickup",
-        items: [{ sku: "COLA-033", qty: 1 }],
-        merchandise: 0.01,
-        discount: 0,
-        surcharges: 0,
-        total: 0.1,
+  const manipulatedSubmittedPrice = await rebuildOrderPricingFromDatabase({
+    tenantId: "tenant-1",
+    settings: drinkSettings,
+    order: {
+      mode: "pickup",
+      items: [{ sku: "COLA-033", qty: 1 }],
+      merchandise: 0.01,
+      discount: 0,
+      surcharges: 0,
+      total: 0.1,
+    },
+  });
+
+  // Client fiyatı hiçbir zaman ödeme yetkisi değildir. Düşük gönderilen
+  // fiyat reddedilmek yerine DB canonical toplamıyla güvenli şekilde ezilir.
+  assert.equal(manipulatedSubmittedPrice.payableCents, 280);
+  assert.equal(manipulatedSubmittedPrice.pricingAdjustment.changed, true);
+  assert.equal(
+    manipulatedSubmittedPrice.pricingAdjustment.payableChanged,
+    true,
+  );
+  assert.equal(
+    manipulatedSubmittedPrice.pricingAdjustment.reason,
+    "canonical_reprice",
+  );
+  assert.equal(
+    manipulatedSubmittedPrice.pricingAdjustment.canonical.total,
+    2.8,
+  );
+
+  const paymentLocked = rebuildOrderPricingFromVerifiedPayment({
+    mode: "delivery",
+    items: manipulatedSubmittedPrice.items,
+    merchandise: 2.5,
+    discount: 0,
+    surcharges: 0.25,
+    couponDiscount: 0,
+    total: 2.8,
+    meta: {
+      payment: {
+        status: "paid",
+        orderTotal: 2.8,
+        tip: 0,
+        pricing: manipulatedSubmittedPrice.pricingMeta,
+        pricingAdjustment: manipulatedSubmittedPrice.pricingAdjustment,
       },
-    }),
-    "ORDER_PRICE_CHANGED",
+    },
+  });
+
+  assert.equal(paymentLocked.payableCents, 280);
+  assert.equal(paymentLocked.pricingMeta.source, "payment_locked");
+  assert.equal(paymentLocked.pricingMeta.pricingLocked, true);
+
+  assert.throws(
+    () =>
+      rebuildOrderPricingFromVerifiedPayment({
+        mode: "pickup",
+        items: [{ id: "product-1", qty: 1 }],
+        merchandise: 2.5,
+        surcharges: 0.25,
+        total: 2.8,
+        meta: { payment: { orderTotal: 2.7 } },
+      }),
+    (error) => error && error.code === "PAYMENT_TOTAL_MISMATCH",
   );
 
   console.log("Order pricing tests passed.");

@@ -3,7 +3,11 @@ import { NextResponse } from "next/server";
 import { prisma, getTenantId } from "@/lib/db";
 import { enforceRateLimit, forbiddenResponse, hasTrustedMutationOrigin } from "@/lib/server/request-security";
 import { createTrackingToken, readOrderTrackingToken } from "@/lib/server/public-order";
-import { OrderPricingError, rebuildOrderPricingFromDatabase } from "@/lib/server/order-pricing";
+import {
+  OrderPricingError,
+  rebuildOrderPricingFromDatabase,
+  rebuildOrderPricingFromVerifiedPayment,
+} from "@/lib/server/order-pricing";
 import {
   OrderValidationError,
   validateOrderForCheckout,
@@ -1767,12 +1771,14 @@ export async function POST(req: Request) {
     const nowMs = Date.now();
 
     const customer = normalizeCustomer(order);
-    const rebuiltPricing = await rebuildOrderPricingFromDatabase({
-      tenantId,
-      order,
-      settings,
-      now: new Date(nowMs),
-    });
+    const rebuiltPricing = verifiedPaymentFinalize
+      ? rebuildOrderPricingFromVerifiedPayment(order)
+      : await rebuildOrderPricingFromDatabase({
+          tenantId,
+          order,
+          settings,
+          now: new Date(nowMs),
+        });
     await validateOrderForCheckout({
       tenantId,
       order,
@@ -2038,6 +2044,9 @@ export async function POST(req: Request) {
         trackingToken: readOrderTrackingToken(created),
         notifySent,
         routeDealActivated,
+        pricingAdjusted: rebuiltPricing.pricingAdjustment.changed,
+        pricingAdjustment: rebuiltPricing.pricingAdjustment,
+        canonicalPricing: rebuiltPricing.pricingAdjustment.canonical,
         order: serialized,
         item: serialized,
         data: serialized,

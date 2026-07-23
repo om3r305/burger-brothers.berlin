@@ -1,8 +1,11 @@
 import type {
   ActivePaymentRecovery,
+  CanonicalPricingSnapshot,
   OrderCreateEnvelope,
   PaymentPrepareResponse,
   PaymentProfileResponse,
+  PricingAdjustment,
+  PricingAdjustmentReason,
   PaymentSessionResponse,
   SavedPaymentMethod,
 } from "@/types/checkout";
@@ -69,6 +72,64 @@ export function isActivePaymentRecovery(
   );
 }
 
+function parseCanonicalPricingSnapshot(
+  value: unknown,
+): CanonicalPricingSnapshot | undefined {
+  if (!isRecord(value)) return undefined;
+
+  const merchandise = numberValue(value.merchandise, Number.NaN);
+  const discount = numberValue(value.discount, Number.NaN);
+  const surcharges = numberValue(value.surcharges, Number.NaN);
+  const couponDiscount = numberValue(value.couponDiscount, Number.NaN);
+  const total = numberValue(value.total, Number.NaN);
+
+  if (
+    ![merchandise, discount, surcharges, couponDiscount, total].every(
+      Number.isFinite,
+    )
+  ) {
+    return undefined;
+  }
+
+  return {
+    merchandise,
+    discount,
+    surcharges,
+    couponDiscount,
+    total,
+  };
+}
+
+function parsePricingAdjustmentReason(
+  value: unknown,
+): PricingAdjustmentReason {
+  return value === "breakdown_only" ||
+    value === "rounding" ||
+    value === "canonical_reprice"
+    ? value
+    : "none";
+}
+
+function parsePricingAdjustment(
+  value: unknown,
+): PricingAdjustment | undefined {
+  if (!isRecord(value)) return undefined;
+
+  const submitted = parseCanonicalPricingSnapshot(value.submitted);
+  const canonical = parseCanonicalPricingSnapshot(value.canonical);
+  if (!submitted || !canonical) return undefined;
+
+  return {
+    changed: value.changed === true,
+    payableChanged: value.payableChanged === true,
+    breakdownChanged: value.breakdownChanged === true,
+    reason: parsePricingAdjustmentReason(value.reason),
+    differenceCents: Math.round(numberValue(value.differenceCents, 0)),
+    submitted,
+    canonical,
+  };
+}
+
 function parseSavedPaymentMethod(value: unknown): SavedPaymentMethod | null {
   if (!isRecord(value)) return null;
   if (typeof value.id !== "string" || !value.id.trim()) return null;
@@ -121,6 +182,10 @@ export function parsePaymentPrepareResponse(
     manageUrl: stringValue(record.manageUrl),
     message: optionalString(record.message),
     error: optionalString(record.error),
+    pricingAdjusted: record.pricingAdjusted === true,
+    pricingAdjustment: parsePricingAdjustment(record.pricingAdjustment),
+    canonicalPricing: parseCanonicalPricingSnapshot(record.canonicalPricing),
+    splitAdjusted: record.splitAdjusted === true,
   };
 }
 
@@ -157,6 +222,9 @@ export function parseOrderCreateEnvelope(value: unknown): OrderCreateEnvelope {
     planned: record.planned,
     trackingToken: record.trackingToken,
     emergencyMode: record.emergencyMode === true,
+    pricingAdjusted: record.pricingAdjusted === true,
+    pricingAdjustment: parsePricingAdjustment(record.pricingAdjustment),
+    canonicalPricing: parseCanonicalPricingSnapshot(record.canonicalPricing),
     order: isRecord(record.order) ? record.order : undefined,
     data: isRecord(record.data) ? record.data : undefined,
   };
