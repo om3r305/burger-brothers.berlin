@@ -44,11 +44,15 @@ function loadShowcaseConfig() {
     exports: module.exports,
     require(request) {
       if (request === "./runtime") {
-        return {
-          normalizeShowcaseCategory(value) {
-            return String(value || "").trim().toLowerCase();
-          },
-        };
+        return { normalizeShowcaseCategory(value) { return String(value || "").trim().toLowerCase(); } };
+      }
+      if (request === "./editor") {
+        return { canonicalSceneType(value) {
+          return ({ "review-qr": "qr", "social-video": "video", countdown: "campaign", "special-day": "message" })[value] || value;
+        } };
+      }
+      if (request === "./presets") {
+        return { specialDayPresetIsActive() { return true; } };
       }
       throw new Error(`Unexpected require in showcase config test: ${request}`);
     },
@@ -153,7 +157,7 @@ assert(
   "Ticker visibility guard must remain present",
 );
 
-const admin = read("app/admin/showcase/page.tsx");
+const admin = read("app/admin/showcase/page.tsx") + read("components/showcase/admin/SceneBasicsEditor.tsx") + read("components/showcase/admin/ShowcasePreviewSidebar.tsx");
 assert(
   admin.includes("Boş bırakırsan ekranda başlık gösterilmez."),
   "Admin title blank behavior hint is missing",

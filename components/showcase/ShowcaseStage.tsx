@@ -13,6 +13,7 @@ import type {
   ShowcaseScene,
   ShowcaseSnapshot,
 } from "@/lib/showcase/types";
+import { resolveWeatherMessage, SPECIAL_DAY_PRESETS } from "@/lib/showcase/presets";
 import styles from "./ShowcaseStage.module.css";
 
 type Props = {
@@ -317,7 +318,7 @@ function VideoScene({
           key={`${scene.id}:${scene.mediaUrl}`}
           src={scene.mediaUrl}
           poster={scene.posterUrl}
-          muted
+          muted={scene.muted !== false}
           autoPlay
           playsInline
           preload="auto"
@@ -614,10 +615,11 @@ function CampaignScene({
   snapshot: ShowcaseSnapshot;
   campaign: ShowcaseCampaign | null;
 }) {
-  const badge = visibleText(scene.badge ?? campaign?.badgeText);
-  const subtitle = visibleText(scene.subtitle ?? campaign?.title);
-  const title = visibleText(scene.title ?? campaignHeadline(campaign));
-  const body = visibleText(scene.body ?? campaignText(campaign));
+  const useAutomatic = scene.campaignAutoContent !== false && Boolean(campaign);
+  const badge = visibleText(useAutomatic ? campaign?.badgeText : scene.badge) || visibleText(scene.badge);
+  const subtitle = visibleText(useAutomatic ? campaign?.title : scene.subtitle) || visibleText(scene.subtitle);
+  const title = visibleText(useAutomatic ? campaignHeadline(campaign) : scene.title) || visibleText(scene.title);
+  const body = visibleText(useAutomatic ? campaignText(campaign) : scene.body) || visibleText(scene.body);
   const qrLabel = visibleText(scene.qrLabel);
 
   return (
@@ -731,6 +733,146 @@ function MessageScene({ scene, snapshot }: { scene: ShowcaseScene; snapshot: Sho
   );
 }
 
+
+function PremiumScene({ scene, snapshot, sceneIndex }: { scene: ShowcaseScene; snapshot: ShowcaseSnapshot; sceneIndex: number }) {
+  const title = visibleText(scene.title);
+  const subtitle = visibleText(scene.subtitle);
+  const body = visibleText(scene.body);
+  const isReviewQr = scene.type === "review-qr" || (scene.type === "qr" && scene.qrVariant === "google-review");
+  const isCountdown = scene.type === "countdown" || (scene.type === "campaign" && scene.campaignVariant === "countdown");
+  const isSpecialDay = scene.type === "special-day" || (scene.type === "message" && scene.messageVariant === "special-day");
+
+  if (scene.type === "weather") {
+    const weather = snapshot.weather;
+    const automaticBody = resolveWeatherMessage(weather, new Date(), scene.weatherMessages);
+    return (
+      <div className={`${styles.premiumScene} ${styles.weatherScene}`}>
+        <div className={styles.weatherEmoji}>{weather?.emoji || "🌤️"}</div>
+        <div className={styles.premiumEyebrow}>{weather?.locationLabel || "BERLIN-TEGEL"}</div>
+        <h1>{title || (weather && Number.isFinite(weather.temperature) ? `${Math.round(weather.temperature)}°C` : "WETTER")}</h1>
+        <div className={styles.weatherLabel}>{subtitle || weather?.label || "Wird aktualisiert"}</div>
+        <p>{weather ? (scene.weatherMode === "custom" ? body : automaticBody) : "Aktuelle Wetterdaten werden gerade geladen."}</p>
+        {weather?.updatedAt ? (
+          <small className={styles.dataTimestamp}>
+            {weather.stale ? "Letzte verfügbare Daten" : "Aktualisiert"} {new Date(weather.updatedAt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}
+          </small>
+        ) : null}
+      </div>
+    );
+  }
+
+  if (scene.type === "reviews") {
+    const filtered = (snapshot.reviews || []).filter(
+      (review) => review.approved !== false &&
+        review.rating >= (scene.reviewMinRating || 4) &&
+        (!scene.reviewOnlyWithPhoto || (review.photoUrls || []).length > 0),
+    );
+    const list = scene.reviewSort === "random"
+      ? [...filtered].sort((a, b) => a.id.localeCompare(b.id))
+      : [...filtered].sort((a, b) => Date.parse(b.updateTime || b.createTime || "") - Date.parse(a.updateTime || a.createTime || ""));
+    const limited = list.slice(0, scene.reviewLimit || 8);
+    const review = limited.length ? limited[sceneIndex % limited.length] : undefined;
+    return (
+      <div className={styles.reviewScene}>
+        {review?.photoUrls?.[0] ? <img src={review.photoUrls[0]} alt="Kundenfoto" className={styles.reviewPhoto} /> : null}
+        <div className={styles.reviewCard}>
+          <div className={styles.reviewStars}>{"★".repeat(Math.round(review?.rating || 5))}</div>
+          <blockquote>{review?.comment || body || "Vielen Dank für eure großartige Bewertung!"}</blockquote>
+          <strong>{review?.authorName || "Google Bewertung"}</strong>
+          <span>Google</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (isReviewQr) {
+    return (
+      <div className={styles.reviewQrScene}>
+        <div className={styles.reviewQrCopy}>
+          <div className={styles.premiumEyebrow}>{scene.badge || "GOOGLE BEWERTUNG"}</div>
+          <h1>{title || "DEINE MEINUNG ZÄHLT ❤️"}</h1>
+          <p>{body || "Teile dein Burger-Erlebnis. Dein Foto könnte schon bald hier erscheinen."}</p>
+        </div>
+        <SharpQr value={scene.qrUrl || snapshot.document.settings.qrUrl} label={scene.qrLabel || "Jetzt bewerten"} />
+      </div>
+    );
+  }
+
+  if (isCountdown) {
+    const linkedCampaign = campaignFor(scene, snapshot.campaigns);
+    const autoCampaign = scene.campaignAutoContent !== false && linkedCampaign;
+    const countdownTitle = visibleText(autoCampaign ? campaignHeadline(linkedCampaign) : scene.title) || title;
+    const countdownSubtitle = visibleText(autoCampaign ? linkedCampaign?.title : scene.subtitle) || subtitle;
+    const countdownBadge = visibleText(autoCampaign ? linkedCampaign?.badgeText : scene.badge) || scene.badge;
+    const target = Date.parse((autoCampaign ? linkedCampaign?.endsAt : undefined) || scene.countdownTargetAt || scene.endAt || "");
+    const left = Number.isFinite(target) ? Math.max(0, target - Date.now()) : 0;
+    const days = Math.floor(left / 86400000);
+    const hours = Math.floor(left / 3600000) % 24;
+    const minutes = Math.floor(left / 60000) % 60;
+    const ended = Number.isFinite(target) && target <= Date.now();
+    if (ended && scene.countdownEndBehavior === "ended") {
+      return (
+        <div className={`${styles.premiumScene} ${styles.countdownScene}`}>
+          <div className={styles.premiumEyebrow}>{countdownBadge || "AKTION"}</div>
+          <h1>AKTION BEENDET</h1>
+          <p>Danke für eure großartige Unterstützung.</p>
+        </div>
+      );
+    }
+    return (
+      <div className={`${styles.premiumScene} ${styles.countdownScene}`}>
+        <div className={styles.premiumEyebrow}>{countdownBadge || "LIMITIERTE AKTION"}</div>
+        <h1>{countdownTitle || "LIMITIERTE AKTION"}</h1>
+        <div className={styles.countdown}>
+          <b>{days}<small>TAGE</small></b>
+          <b>{hours}<small>STUNDEN</small></b>
+          <b>{minutes}<small>MINUTEN</small></b>
+        </div>
+        {countdownSubtitle ? <p>{countdownSubtitle}</p> : null}
+      </div>
+    );
+  }
+
+  if (scene.type === "bestseller") {
+    const period = String(Math.max(1, Number(scene.bestsellerPeriodDays || 7)));
+    const items = (snapshot.bestsellersByPeriod?.[period] || snapshot.bestsellers || []).slice(0, scene.bestsellerLimit || 5);
+    return (
+      <div className={styles.bestsellerScene}>
+        <div className={styles.premiumEyebrow}>🔥 AM HÄUFIGSTEN BESTELLT · {period} TAGE</div>
+        <h1>{title || "UNSERE BESTSELLER"}</h1>
+        {items.length ? (
+          <div className={styles.bestsellerGrid}>
+            {items.map((item, index) => (
+              <div key={`${item.name}-${index}`} className={styles.bestsellerCard}>
+                {item.imageUrl ? <img src={item.imageUrl} alt={item.name} /> : null}
+                <span>#{index + 1}</span>
+                <strong>{item.name}</strong>
+                {item.displayPrice != null ? <em>{money(item.displayPrice)}</em> : null}
+              </div>
+            ))}
+          </div>
+        ) : <p className={styles.premiumEmpty}>Die aktuellen Lieblingsburger werden gerade ermittelt.</p>}
+      </div>
+    );
+  }
+
+  if (isSpecialDay) {
+    const preset = SPECIAL_DAY_PRESETS[(scene.specialPreset || "classic") as keyof typeof SPECIAL_DAY_PRESETS] || SPECIAL_DAY_PRESETS.classic;
+    return (
+      <div className={`${styles.premiumScene} ${styles.specialScene} ${styles[`special_${scene.specialTheme || preset.theme || "classic"}`] || ""}`}>
+        {scene.specialLogoUrl
+          ? <img src={scene.specialLogoUrl} alt="" className={styles.specialLogo} />
+          : <div className={styles.specialEmoji}>{scene.specialEmoji || preset.emoji}</div>}
+        {scene.badge ? <div className={styles.premiumEyebrow}>{scene.badge}</div> : null}
+        {title ? <h1>{title}</h1> : null}
+        {body ? <p>{body}</p> : null}
+      </div>
+    );
+  }
+
+  return null;
+}
+
 export default function ShowcaseStage({
   snapshot,
   scene,
@@ -803,12 +945,13 @@ export default function ShowcaseStage({
           ) : null}
           {scene.type === "product" ? <ProductFlowScene scene={scene} snapshot={snapshot} /> : null}
           {scene.type === "menu" ? <MenuScene scene={scene} snapshot={snapshot} /> : null}
-          {scene.type === "campaign" ? (
+          {scene.type === "campaign" && scene.campaignVariant !== "countdown" ? (
             <CampaignScene scene={scene} snapshot={snapshot} campaign={campaign} />
           ) : null}
           {scene.type === "image" ? <ImageScene scene={scene} snapshot={snapshot} /> : null}
-          {scene.type === "qr" ? <QrScene scene={scene} snapshot={snapshot} /> : null}
-          {scene.type === "message" ? <MessageScene scene={scene} snapshot={snapshot} /> : null}
+          {scene.type === "qr" && scene.qrVariant !== "google-review" ? <QrScene scene={scene} snapshot={snapshot} /> : null}
+          {scene.type === "message" && scene.messageVariant !== "special-day" ? <MessageScene scene={scene} snapshot={snapshot} /> : null}
+          {(scene.type === "weather" || scene.type === "reviews" || scene.type === "bestseller" || scene.type === "review-qr" || scene.type === "countdown" || scene.type === "special-day" || (scene.type === "qr" && scene.qrVariant === "google-review") || (scene.type === "campaign" && scene.campaignVariant === "countdown") || (scene.type === "message" && scene.messageVariant === "special-day")) ? <PremiumScene scene={scene} snapshot={snapshot} sceneIndex={sceneIndex} /> : null}
         </div>
 
         <div className={styles.topChrome}>

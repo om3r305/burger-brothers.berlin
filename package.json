@@ -26,7 +26,7 @@
     "release:test": "node tools/release-security-tests.mjs",
     "secure:release": "powershell -ExecutionPolicy Bypass -File tools/create-secure-release.ps1",
     "tv:refactor:test": "node tools/tv-refactor-regression-tests.cjs",
-    "showcase:test": "node tools/showcase-regression-tests.cjs && node tools/showcase-empty-text-regression-tests.cjs",
+    "showcase:test": "node tools/showcase-regression-tests.cjs && node tools/showcase-empty-text-regression-tests.cjs && node tools/showcase-final-hardening-regression-tests.cjs && node tools/showcase-final-v2-regression-tests.cjs",
     "checkout:safety:test": "node tools/checkout-safety-regression-tests.cjs",
     "canonical:pricing:test": "node tools/canonical-pricing-regression-tests.cjs"
   },

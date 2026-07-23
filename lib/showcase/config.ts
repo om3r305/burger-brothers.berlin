@@ -6,6 +6,8 @@ import type {
   ShowcaseTransition,
 } from "./types";
 import { normalizeShowcaseCategory } from "./runtime";
+import { canonicalSceneType } from "./editor";
+import { specialDayPresetIsActive, type WeatherCopyKey } from "./presets";
 
 const SCENE_TYPES = new Set<ShowcaseSceneType>([
   "hero",
@@ -16,6 +18,13 @@ const SCENE_TYPES = new Set<ShowcaseSceneType>([
   "image",
   "qr",
   "message",
+  "weather",
+  "reviews",
+  "review-qr",
+  "countdown",
+  "bestseller",
+  "special-day",
+  "social-video",
 ]);
 
 const TRANSITIONS = new Set<ShowcaseTransition>([
@@ -91,7 +100,7 @@ export function createDefaultShowcaseDocument(siteUrl = "https://www.burger-brot
     settings: {
       name: "Burger Brothers Vitrin Ekranı",
       defaultDurationSeconds: 45,
-      refreshSeconds: 3,
+      refreshSeconds: 15,
       showClock: true,
       showProgress: true,
       showConnectionState: false,
@@ -138,7 +147,8 @@ export function createDefaultShowcaseDocument(siteUrl = "https://www.burger-brot
 }
 
 export function normalizeShowcaseScene(value: any, fallbackDuration = 45): ShowcaseScene {
-  const type = SCENE_TYPES.has(value?.type) ? value.type : "message";
+  const legacyType = SCENE_TYPES.has(value?.type) ? value.type as ShowcaseSceneType : "message";
+  const type = canonicalSceneType(legacyType);
   const transition = TRANSITIONS.has(value?.transition) ? value.transition : "fade";
   const accent = /^#[0-9a-f]{6}$/i.test(String(value?.accent || ""))
     ? String(value.accent)
@@ -158,6 +168,26 @@ export function normalizeShowcaseScene(value: any, fallbackDuration = 45): Showc
       ? [legacyProductId]
       : [];
   const showLogoFallback = type === "product" || type === "menu" ? false : true;
+  const weatherMessages = Object.fromEntries(
+    Object.entries(value?.weatherMessages || {})
+      .map(([key, message]) => [key, cleanText(message, 240)])
+      .filter(([, message]) => Boolean(message)),
+  ) as Partial<Record<WeatherCopyKey, string>>;
+
+  const qrVariant = legacyType === "review-qr"
+    ? "google-review"
+    : ["order", "google-review", "custom"].includes(value?.qrVariant)
+      ? value.qrVariant
+      : "order";
+  const videoVariant = legacyType === "social-video"
+    ? "social"
+    : value?.videoVariant === "social" ? "social" : "standard";
+  const campaignVariant = legacyType === "countdown"
+    ? "countdown"
+    : value?.campaignVariant === "countdown" ? "countdown" : "standard";
+  const messageVariant = legacyType === "special-day"
+    ? "special-day"
+    : value?.messageVariant === "special-day" ? "special-day" : "standard";
 
   return {
     id: id(value?.id),
@@ -168,8 +198,6 @@ export function normalizeShowcaseScene(value: any, fallbackDuration = 45): Showc
     transition,
     startAt: cleanDate(value?.startAt) || undefined,
     endAt: cleanDate(value?.endAt) || undefined,
-    // Ekranda düzenlenebilen metinler boş bırakıldığında boş kalmalıdır.
-    // Boş stringi undefined'a çevirmek, oynatıcıdaki fallback yazılarını yeniden gösteriyordu.
     title: cleanText(value?.title, 180),
     subtitle: cleanText(value?.subtitle, 260),
     body: cleanText(value?.body, 1_200),
@@ -177,8 +205,10 @@ export function normalizeShowcaseScene(value: any, fallbackDuration = 45): Showc
     mediaUrl: cleanUrl(value?.mediaUrl) || undefined,
     posterUrl: cleanUrl(value?.posterUrl) || undefined,
     productId: normalizedProductIds[0] || undefined,
-    productIds: normalizedProductIds.length ? normalizedProductIds : undefined,
+    productIds: normalizedProductIds.length ? normalizedProductIds : [],
     productSeconds: numberInRange(value?.productSeconds, 12, 6, 120),
+    productLimit: numberInRange(value?.productLimit, 8, 1, 20),
+    productMaxTotalSeconds: numberInRange(value?.productMaxTotalSeconds, 90, 15, 300),
     productImageFit: value?.productImageFit === "cover" ? "cover" : "contain",
     productImageScale: numberInRange(value?.productImageScale, 78, 35, 130),
     productImageX: numberInRange(value?.productImageX, 0, -40, 40),
@@ -191,6 +221,7 @@ export function normalizeShowcaseScene(value: any, fallbackDuration = 45): Showc
     menuShowImages: bool(value?.menuShowImages, true),
     menuImageSize: numberInRange(value?.menuImageSize, 58, 36, 104),
     campaignId: cleanText(value?.campaignId, 120) || undefined,
+    campaignAutoContent: bool(value?.campaignAutoContent, true),
     qrUrl: cleanUrl(value?.qrUrl) || undefined,
     qrLabel: cleanText(value?.qrLabel, 120),
     accent,
@@ -198,7 +229,28 @@ export function normalizeShowcaseScene(value: any, fallbackDuration = 45): Showc
     showLogo: bool(value?.showLogo, showLogoFallback),
     showQr: bool(value?.showQr, false),
     showPrice: bool(value?.showPrice, true),
-    muted: true,
+    muted: bool(value?.muted, true),
+    videoVariant,
+    qrVariant,
+    campaignVariant,
+    messageVariant,
+    reviewMinRating: numberInRange(value?.reviewMinRating, 4, 1, 5),
+    reviewOnlyWithPhoto: bool(value?.reviewOnlyWithPhoto, false),
+    reviewLimit: numberInRange(value?.reviewLimit, 8, 1, 30),
+    reviewSort: value?.reviewSort === "random" ? "random" : "newest",
+    countdownTargetAt: cleanDate(value?.countdownTargetAt) || undefined,
+    bestsellerPeriodDays: numberInRange(value?.bestsellerPeriodDays, 7, 1, 365),
+    bestsellerLimit: numberInRange(value?.bestsellerLimit, 5, 1, 10),
+    specialTheme: ["love", "mother", "father", "halloween", "christmas", "new-year", "easter", "germany", "berlin", "celebration", "winter", "classic"].includes(value?.specialTheme)
+      ? value.specialTheme
+      : "classic",
+    specialEmoji: cleanText(value?.specialEmoji, 16),
+    specialLogoUrl: cleanUrl(value?.specialLogoUrl) || undefined,
+    specialPreset: cleanText(value?.specialPreset, 80) || undefined,
+    specialAutoSchedule: bool(value?.specialAutoSchedule, false),
+    countdownEndBehavior: value?.countdownEndBehavior === "ended" ? "ended" : "skip",
+    weatherMode: value?.weatherMode === "custom" ? "custom" : "auto",
+    weatherMessages,
   };
 }
 
@@ -223,7 +275,7 @@ export function normalizeShowcaseDocument(value: any, siteUrl = "https://www.bur
     settings: {
       name: cleanText(value?.settings?.name, 120) || defaults.settings.name,
       defaultDurationSeconds: defaultDuration,
-      refreshSeconds: numberInRange(value?.settings?.refreshSeconds, 3, 2, 5),
+      refreshSeconds: numberInRange(value?.settings?.refreshSeconds, 15, 10, 60),
       showClock: bool(value?.settings?.showClock, true),
       showProgress: bool(value?.settings?.showProgress, true),
       showConnectionState: bool(value?.settings?.showConnectionState, false),
@@ -278,11 +330,23 @@ export function normalizeShowcaseMediaList(value: any): ShowcaseMediaItem[] {
     .filter((item) => item.key && item.url && item.mimeType);
 }
 
+function specialPresetIsActive(scene: ShowcaseScene, now: number) {
+  const isSpecialDay = scene.type === "special-day" || (scene.type === "message" && scene.messageVariant === "special-day");
+  if (!scene.specialAutoSchedule || !isSpecialDay) return true;
+  return specialDayPresetIsActive(scene.specialPreset || scene.specialTheme, now);
+}
+
 export function sceneIsActive(scene: ShowcaseScene, now = Date.now()) {
   if (!scene.enabled) return false;
+  if (!specialPresetIsActive(scene, now)) return false;
   const start = scene.startAt ? Date.parse(scene.startAt) : NaN;
   const end = scene.endAt ? Date.parse(scene.endAt) : NaN;
   if (Number.isFinite(start) && now < start) return false;
   if (Number.isFinite(end) && now > end) return false;
+  const isCountdown = scene.type === "countdown" || (scene.type === "campaign" && scene.campaignVariant === "countdown");
+  if (isCountdown && scene.countdownEndBehavior !== "ended") {
+    const target = scene.countdownTargetAt ? Date.parse(scene.countdownTargetAt) : NaN;
+    if (Number.isFinite(target) && now >= target) return false;
+  }
   return true;
 }

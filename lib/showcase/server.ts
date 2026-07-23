@@ -17,6 +17,7 @@ import {
   normalizeShowcaseCategory,
   showcaseCategoryLabel,
 } from "./runtime";
+import { campaignScenePatch } from "./editor";
 import type {
   ShowcaseBranding,
   ShowcaseCampaign,
@@ -24,11 +25,57 @@ import type {
   ShowcaseMediaItem,
   ShowcaseProduct,
   ShowcaseSnapshot,
+  ShowcaseScreen,
+  ShowcaseReview,
+  ShowcaseWeather,
+  ShowcaseBestseller,
 } from "./types";
 
 export const SHOWCASE_DRAFT_KEY = "showcase:draft";
 export const SHOWCASE_PUBLISHED_KEY = "showcase:published";
 export const SHOWCASE_MEDIA_KEY = "showcase:media";
+export const SHOWCASE_SCREENS_KEY = "showcase:screens";
+export const SHOWCASE_REVIEWS_KEY = "showcase:reviews";
+
+export const DEFAULT_SHOWCASE_SCREENS: ShowcaseScreen[] = [
+  { slug: "main", name: "Ana vitrin", orientation: "landscape", active: true },
+  { slug: "brand", name: "Marka ve video", orientation: "landscape", active: true },
+  { slug: "menu", name: "Dijital menü", orientation: "landscape", active: true },
+  { slug: "announcement", name: "Duyuru ve kampanya", orientation: "landscape", active: true },
+];
+
+export function normalizeScreenSlug(value: any) {
+  const slug = String(value || "main").trim().toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 60);
+  return slug || "main";
+}
+function draftKey(slug: string) { return slug === "main" ? SHOWCASE_DRAFT_KEY : `showcase:screen:${slug}:draft`; }
+function publishedKey(slug: string) { return slug === "main" ? SHOWCASE_PUBLISHED_KEY : `showcase:screen:${slug}:published`; }
+function normalizeScreens(value: any): ShowcaseScreen[] {
+  const rows = Array.isArray(value) ? value : DEFAULT_SHOWCASE_SCREENS;
+  const seen = new Set<string>();
+  const out = rows.map((row: any) => ({
+    slug: normalizeScreenSlug(row?.slug),
+    name: String(row?.name || row?.slug || "Ekran").trim().slice(0, 100),
+    orientation: ["landscape", "portrait", "ultrawide"].includes(row?.orientation) ? row.orientation : "landscape",
+    active: row?.active !== false,
+  } as ShowcaseScreen)).filter((row: ShowcaseScreen) => !seen.has(row.slug) && seen.add(row.slug));
+  if (!out.some((row) => row.slug === "main")) out.unshift(DEFAULT_SHOWCASE_SCREENS[0]);
+  return out.slice(0, 30);
+}
+function normalizeReviews(value: any): ShowcaseReview[] {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, 250).map((r: any) => ({
+    id: String(r?.id || r?.reviewId || `review-${Date.now()}-${Math.random()}`),
+    authorName: String(r?.authorName || r?.reviewer?.displayName || "Google Nutzer").slice(0, 100),
+    authorPhotoUrl: r?.authorPhotoUrl || r?.reviewer?.profilePhotoUrl || undefined,
+    rating: Math.max(1, Math.min(5, Number(r?.rating || r?.starRating || 5))),
+    comment: String(r?.comment || "").slice(0, 1500),
+    photoUrls: Array.isArray(r?.photoUrls) ? r.photoUrls.filter(Boolean).slice(0, 8) : [],
+    createTime: r?.createTime || undefined, updateTime: r?.updateTime || undefined,
+    approved: r?.approved === true, source: r?.source === "manual" ? "manual" : "google",
+  }));
+}
+
 const DRINK_GROUPS_KEY = "bb_drink_groups_v1";
 const EXTRA_GROUPS_KEY = "bb_extra_groups_v1";
 
@@ -222,21 +269,39 @@ async function readSettingValues(tenantId: string, keys: string[]) {
   return new Map(rows.map((row) => [row.key, row.value]));
 }
 
-export async function readShowcaseAdminState(siteUrl: string) {
+export async function readShowcaseAdminState(siteUrl: string, requestedSlug = "main") {
   const tenantId = await getTenantId();
+  const slug = normalizeScreenSlug(requestedSlug);
   const values = await readSettingValues(tenantId, [
-    SHOWCASE_DRAFT_KEY,
-    SHOWCASE_PUBLISHED_KEY,
-    SHOWCASE_MEDIA_KEY,
+    draftKey(slug), publishedKey(slug), SHOWCASE_MEDIA_KEY, SHOWCASE_SCREENS_KEY, SHOWCASE_REVIEWS_KEY,
   ]);
-
-  const published = normalizeShowcaseDocument(values.get(SHOWCASE_PUBLISHED_KEY), siteUrl);
-  const draft = values.has(SHOWCASE_DRAFT_KEY)
-    ? normalizeShowcaseDocument(values.get(SHOWCASE_DRAFT_KEY), siteUrl)
-    : published;
+  const screens = normalizeScreens(values.get(SHOWCASE_SCREENS_KEY));
+  const screen = screens.find((row) => row.slug === slug) || screens[0];
+  const effectiveSlug = screen.slug;
+  const pubKey = publishedKey(effectiveSlug);
+  const drKey = draftKey(effectiveSlug);
+  let publishedRaw = values.get(pubKey);
+  if (!publishedRaw && effectiveSlug !== "main") {
+    const fallback = await readSettingValues(tenantId, [SHOWCASE_PUBLISHED_KEY]);
+    publishedRaw = fallback.get(SHOWCASE_PUBLISHED_KEY);
+  }
+  const published = normalizeShowcaseDocument(publishedRaw, siteUrl);
+  const draft = values.has(drKey) ? normalizeShowcaseDocument(values.get(drKey), siteUrl) : published;
   const media = normalizeShowcaseMediaList(values.get(SHOWCASE_MEDIA_KEY));
+  const reviews = normalizeReviews(values.get(SHOWCASE_REVIEWS_KEY));
+  return { tenantId, slug: effectiveSlug, screen, screens, draft, published, media, reviews };
+}
 
-  return { tenantId, draft, published, media };
+
+export async function readPublishedShowcaseVersion(requestedSlug = "main") {
+  const tenantId = await getTenantId();
+  const slug = normalizeScreenSlug(requestedSlug);
+  const values = await readSettingValues(tenantId, [publishedKey(slug), SHOWCASE_PUBLISHED_KEY]);
+  const raw = values.get(publishedKey(slug)) ?? values.get(SHOWCASE_PUBLISHED_KEY);
+  const version = raw && typeof raw === "object" && !Array.isArray(raw)
+    ? String((raw as Record<string, unknown>).version || "")
+    : "";
+  return { slug, version };
 }
 
 export async function saveShowcaseSetting(
@@ -373,13 +438,111 @@ function selectShopName(settings: any) {
   ).trim();
 }
 
-export async function buildShowcaseSnapshot(req: Request): Promise<ShowcaseSnapshot> {
+
+const WEATHER_TTL_MS = 10 * 60_000;
+const WEATHER_STALE_MS = 60 * 60_000;
+let weatherCache: { value: ShowcaseWeather; expiresAt: number; staleUntil: number } | null = null;
+let weatherRequest: Promise<ShowcaseWeather | null> | null = null;
+
+async function fetchShowcaseWeather(): Promise<ShowcaseWeather | null> {
+  const now = Date.now();
+  if (weatherCache && now < weatherCache.expiresAt) return weatherCache.value;
+  if (weatherRequest) return weatherRequest;
+
+  weatherRequest = (async () => {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 4_500);
+      const response = await fetch(
+        "https://api.open-meteo.com/v1/forecast?latitude=52.588&longitude=13.289&current=temperature_2m,apparent_temperature,weather_code&timezone=Europe%2FBerlin",
+        { cache: "no-store", signal: controller.signal },
+      );
+      clearTimeout(timer);
+      if (!response.ok) throw new Error(`OPEN_METEO_${response.status}`);
+      const data: any = await response.json();
+      const temperature = Number(data?.current?.temperature_2m);
+      const apparentTemperature = Number(data?.current?.apparent_temperature);
+      const code = Number(data?.current?.weather_code);
+      if (!Number.isFinite(temperature) || !Number.isFinite(code)) {
+        throw new Error("OPEN_METEO_INVALID_PAYLOAD");
+      }
+      const rainy = [51,53,55,56,57,61,63,65,66,67,80,81,82,95,96,99].includes(code);
+      const snowy = [71,73,75,77,85,86].includes(code);
+      const foggy = [45,48].includes(code);
+      const cloudy = [1,2,3].includes(code);
+      const value: ShowcaseWeather = {
+        temperature,
+        apparentTemperature: Number.isFinite(apparentTemperature) ? apparentTemperature : undefined,
+        weatherCode: code,
+        label: snowy ? "Schnee" : rainy ? "Regen" : foggy ? "Nebel" : cloudy ? "Bewölkt" : "Sonnig",
+        emoji: snowy ? "❄️" : rainy ? "🌧️" : foggy ? "🌫️" : cloudy ? "☁️" : "☀️",
+        updatedAt: data?.current?.time ? new Date(data.current.time).toISOString() : new Date().toISOString(),
+        source: "open-meteo",
+        locationLabel: "BERLIN-TEGEL",
+        stale: false,
+      };
+      weatherCache = { value, expiresAt: now + WEATHER_TTL_MS, staleUntil: now + WEATHER_STALE_MS };
+      return value;
+    } catch (error) {
+      if (weatherCache && now < weatherCache.staleUntil) {
+        return { ...weatherCache.value, source: "cache_fallback", stale: true };
+      }
+      console.warn("[showcase:weather]", error);
+      return null;
+    } finally {
+      weatherRequest = null;
+    }
+  })();
+
+  return weatherRequest;
+}
+
+function buildBestsellers(
+  orders: Array<{ items: unknown; ts?: Date | string | null }>,
+  products: ShowcaseProduct[],
+  periodDays: number,
+): ShowcaseBestseller[] {
+  const cutoff = Date.now() - Math.max(1, periodDays) * 86_400_000;
+  const counts = new Map<string, { name: string; quantity: number }>();
+  for (const order of orders) {
+    const timestamp = order?.ts ? new Date(order.ts).valueOf() : Date.now();
+    if (Number.isFinite(timestamp) && timestamp < cutoff) continue;
+    for (const raw of array(order?.items)) {
+      const item = object(raw);
+      const id = String(item.productId || item.id || item.sku || "");
+      const name = String(item.name || item.title || "Produkt");
+      const key = id || name.toLowerCase();
+      const current = counts.get(key) || { name, quantity: 0 };
+      current.quantity += Math.max(1, Number(item.qty || item.quantity || 1));
+      counts.set(key, current);
+    }
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1].quantity - a[1].quantity)
+    .slice(0, 10)
+    .map(([key, row]) => {
+      const product = products.find((item) => item.id === key || item.sku === key || item.name.toLowerCase() === row.name.toLowerCase());
+      return {
+        productId: product?.id,
+        name: product?.name || row.name,
+        quantity: row.quantity,
+        imageUrl: product?.imageUrl,
+        displayPrice: product?.displayPrice,
+      };
+    });
+}
+
+export async function buildShowcaseSnapshot(req: Request, requestedSlug = "main", documentOverride?: ShowcaseDocument): Promise<ShowcaseSnapshot> {
   const siteUrl = requestOrigin(req);
   const tenantId = await getTenantId();
+  const slug = normalizeScreenSlug(requestedSlug);
   const now = new Date();
   const [values, products, campaigns, settings] = await Promise.all([
     readSettingValues(tenantId, [
+      publishedKey(slug),
       SHOWCASE_PUBLISHED_KEY,
+      SHOWCASE_SCREENS_KEY,
+      SHOWCASE_REVIEWS_KEY,
       DRINK_GROUPS_KEY,
       EXTRA_GROUPS_KEY,
     ]),
@@ -401,9 +564,21 @@ export async function buildShowcaseSnapshot(req: Request): Promise<ShowcaseSnaps
     getServerSettings(),
   ]);
 
-  const document = values.has(SHOWCASE_PUBLISHED_KEY)
-    ? normalizeShowcaseDocument(values.get(SHOWCASE_PUBLISHED_KEY), siteUrl)
-    : createDefaultShowcaseDocument(siteUrl);
+  const publishedRaw = values.get(publishedKey(slug)) ?? values.get(SHOWCASE_PUBLISHED_KEY);
+  const baseDocument = documentOverride
+    ? normalizeShowcaseDocument(documentOverride, siteUrl)
+    : publishedRaw
+      ? normalizeShowcaseDocument(publishedRaw, siteUrl)
+      : createDefaultShowcaseDocument(siteUrl);
+  const mappedCampaigns = campaigns.map(mapCampaign);
+  const document: ShowcaseDocument = {
+    ...baseDocument,
+    scenes: baseDocument.scenes.map((scene) => {
+      if (scene.type !== "campaign" || scene.campaignAutoContent === false || !scene.campaignId) return scene;
+      const campaign = mappedCampaigns.find((item) => item.id === scene.campaignId);
+      return campaign ? { ...scene, ...campaignScenePatch(campaign, scene.campaignVariant || "standard"), id: scene.id } : scene;
+    }),
+  };
   const resolved = resolveActiveTheme(settings?.theme);
   const preset = getThemePreset(resolved.theme);
   const showSnow =
@@ -435,6 +610,29 @@ export async function buildShowcaseSnapshot(req: Request): Promise<ShowcaseSnaps
     ...mapVariantGroups(values.get(DRINK_GROUPS_KEY), "drinks", campaigns),
     ...mapVariantGroups(values.get(EXTRA_GROUPS_KEY), "extras", campaigns),
   ];
+  const screens = normalizeScreens(values.get(SHOWCASE_SCREENS_KEY));
+  const screen = screens.find((row) => row.slug === slug) || screens[0];
+  const reviews = normalizeReviews(values.get(SHOWCASE_REVIEWS_KEY)).filter((review) => review.approved);
+  const bestsellerPeriods = Array.from(new Set(
+    document.scenes
+      .filter((scene) => scene.type === "bestseller")
+      .map((scene) => Math.max(1, Math.min(365, Number(scene.bestsellerPeriodDays || 7)))),
+  ));
+  if (!bestsellerPeriods.length) bestsellerPeriods.push(7);
+  const maxPeriod = Math.max(...bestsellerPeriods);
+  const [weather, recentOrders] = await Promise.all([
+    fetchShowcaseWeather(),
+    prisma.order.findMany({
+      where: { tenantId, status: { notIn: ["cancelled", "canceled"] }, ts: { gte: new Date(Date.now() - maxPeriod * 86400000) } },
+      select: { items: true, ts: true },
+      take: 2500,
+      orderBy: { ts: "desc" },
+    }).catch(() => []),
+  ]);
+  const bestsellersByPeriod = Object.fromEntries(
+    bestsellerPeriods.map((days) => [String(days), buildBestsellers(recentOrders, showcaseProducts, days)]),
+  );
+  const bestsellers = bestsellersByPeriod[String(bestsellerPeriods[0])] || [];
 
   return {
     ok: true,
@@ -442,8 +640,14 @@ export async function buildShowcaseSnapshot(req: Request): Promise<ShowcaseSnaps
     generatedAt: new Date().toISOString(),
     document,
     products: showcaseProducts,
-    campaigns: campaigns.map(mapCampaign),
+    campaigns: mappedCampaigns,
     branding,
+    screen,
+    weather,
+    reviews,
+    bestsellers,
+    bestsellersByPeriod,
+    bestsellerGeneratedAt: new Date().toISOString(),
   };
 }
 

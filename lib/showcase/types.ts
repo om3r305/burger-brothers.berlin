@@ -6,7 +6,54 @@ export type ShowcaseSceneType =
   | "campaign"
   | "image"
   | "qr"
-  | "message";
+  | "message"
+  | "weather"
+  | "reviews"
+  | "review-qr"
+  | "countdown"
+  | "bestseller"
+  | "special-day"
+  | "social-video";
+
+export type ShowcaseScreen = {
+  slug: string;
+  name: string;
+  orientation: "landscape" | "portrait" | "ultrawide";
+  active: boolean;
+};
+
+export type ShowcaseReview = {
+  id: string;
+  authorName: string;
+  authorPhotoUrl?: string;
+  rating: number;
+  comment: string;
+  photoUrls?: string[];
+  createTime?: string;
+  updateTime?: string;
+  approved: boolean;
+  source: "google" | "manual";
+};
+
+export type ShowcaseWeather = {
+  temperature: number;
+  apparentTemperature?: number;
+  weatherCode: number;
+  label: string;
+  emoji: string;
+  updatedAt: string;
+  source?: "open-meteo" | "cache_fallback";
+  locationLabel?: string;
+  stale?: boolean;
+};
+
+export type ShowcaseBestseller = {
+  productId?: string;
+  name: string;
+  quantity: number;
+  imageUrl?: string;
+  displayPrice?: number;
+};
 
 export type ShowcaseTransition = "fade" | "slide" | "zoom" | "none";
 export type ShowcaseMediaFit = "cover" | "contain";
@@ -65,6 +112,45 @@ export type ShowcaseScene = {
   showQr?: boolean;
   showPrice?: boolean;
   muted?: boolean;
+
+  /** Birleşik sahne tiplerinin alt görünümü. Eski tipler normalize edilir. */
+  videoVariant?: "standard" | "social";
+  qrVariant?: "order" | "google-review" | "custom";
+  campaignVariant?: "standard" | "countdown";
+  messageVariant?: "standard" | "special-day";
+  campaignAutoContent?: boolean;
+
+  /** Ürün akışının tek sahnede diğer sahneleri ezmesini önleyen sınırlar. */
+  productLimit?: number;
+  productMaxTotalSeconds?: number;
+
+  reviewMinRating?: number;
+  reviewOnlyWithPhoto?: boolean;
+  reviewLimit?: number;
+  reviewSort?: "newest" | "random";
+  countdownTargetAt?: string;
+  bestsellerPeriodDays?: number;
+  bestsellerLimit?: number;
+  specialTheme?:
+    | "love"
+    | "mother"
+    | "father"
+    | "halloween"
+    | "christmas"
+    | "new-year"
+    | "easter"
+    | "germany"
+    | "berlin"
+    | "celebration"
+    | "winter"
+    | "classic";
+  specialEmoji?: string;
+  specialLogoUrl?: string;
+  specialPreset?: string;
+  specialAutoSchedule?: boolean;
+  countdownEndBehavior?: "skip" | "ended";
+  weatherMode?: "auto" | "custom";
+  weatherMessages?: Partial<Record<import("./presets").WeatherCopyKey, string>>;
 };
 
 export type ShowcaseSettings = {
@@ -153,6 +239,12 @@ export type ShowcaseSnapshot = {
   products: ShowcaseProduct[];
   campaigns: ShowcaseCampaign[];
   branding: ShowcaseBranding;
+  screen?: ShowcaseScreen;
+  weather?: ShowcaseWeather | null;
+  reviews?: ShowcaseReview[];
+  bestsellers?: ShowcaseBestseller[];
+  bestsellersByPeriod?: Record<string, ShowcaseBestseller[]>;
+  bestsellerGeneratedAt?: string;
 };
 
 export type ShowcaseMediaItem = {

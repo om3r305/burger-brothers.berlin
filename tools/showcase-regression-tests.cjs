@@ -70,9 +70,9 @@ assert(
   "Showcase landing scene must include the landing location label",
 );
 
-const showcaseAdmin = read("app/admin/showcase/page.tsx");
+const showcaseAdmin = read("app/admin/showcase/page.tsx") + read("components/showcase/admin/ShowcaseAdminHeader.tsx") + read("components/showcase/admin/SceneBasicsEditor.tsx");
 assert(
-  showcaseAdmin.includes("Vitrin Yönetimi") && showcaseAdmin.includes("Site verilerini yenile"),
+  showcaseAdmin.includes("Vitrin Yönetimi") && (showcaseAdmin.includes("Site verilerini yenile") || showcaseAdmin.includes("Canlı verileri yenile")),
   "Showcase admin interface must be Turkish",
 );
 assert(

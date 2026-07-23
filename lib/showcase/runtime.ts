@@ -91,9 +91,11 @@ export function selectedProductsForScene(
     if (product.sku) byId.set(String(product.sku), product);
   }
 
+  const limit = Math.max(1, Math.min(20, Number(scene.productLimit || 8)));
   return ids
     .map((id) => byId.get(id))
-    .filter((product): product is ShowcaseProduct => Boolean(product && product.active !== false));
+    .filter((product): product is ShowcaseProduct => Boolean(product && product.active !== false))
+    .slice(0, limit);
 }
 
 export type ShowcaseMenuPage = {
@@ -116,9 +118,11 @@ export function buildShowcaseMenuPages(
   const requested = Array.isArray(scene.menuCategories)
     ? Array.from(new Set(scene.menuCategories.map(normalizeShowcaseCategory).filter(Boolean)))
     : [];
-  // Yalnızca admin tarafından açıkça seçilen kategoriler gösterilir.
-  // Boş seçim, başka kategorilere otomatik geri düşmez.
-  const selectedCategories = requested.filter((category) => available.includes(category));
+  // Grup seçilmediyse tüm aktif kategoriler güvenli varsayılan olarak kullanılır.
+  // Böylece unutulan bir seçim TV ekranını boş bırakmaz.
+  const selectedCategories = requested.length
+    ? requested.filter((category) => available.includes(category))
+    : available;
   const requestedPageSize = itemsPerPageOverride ?? scene.menuItemsPerPage ?? 8;
   const itemsPerPage = Math.max(4, Math.min(24, Number(requestedPageSize)));
   const pages: ShowcaseMenuPage[] = [];
@@ -176,7 +180,8 @@ export function effectiveShowcaseSceneDuration(
 ) {
   if (scene.type === "product") {
     const count = Math.max(1, selectedProductsForScene(scene, snapshot.products).length);
-    return count * Math.max(6, Number(scene.productSeconds || 12));
+    const raw = count * Math.max(6, Number(scene.productSeconds || 12));
+    return Math.min(raw, Math.max(15, Number(scene.productMaxTotalSeconds || 90)));
   }
 
   if (scene.type === "menu") {

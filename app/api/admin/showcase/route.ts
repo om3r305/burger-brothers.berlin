@@ -11,6 +11,7 @@ import {
   saveShowcaseSetting,
   SHOWCASE_DRAFT_KEY,
   SHOWCASE_PUBLISHED_KEY,
+  normalizeScreenSlug,
 } from "@/lib/showcase/server";
 import {
   createDefaultShowcaseDocument,
@@ -42,10 +43,9 @@ export async function GET(req: Request) {
 
   try {
     const siteUrl = requestOrigin(req);
-    const [state, snapshot] = await Promise.all([
-      readShowcaseAdminState(siteUrl),
-      buildShowcaseSnapshot(req),
-    ]);
+    const screen = normalizeScreenSlug(new URL(req.url).searchParams.get("screen") || "main");
+    const state = await readShowcaseAdminState(siteUrl, screen);
+    const snapshot = await buildShowcaseSnapshot(req, screen, state.draft);
     const cloudinary = readCloudinaryConfig();
 
     return json({
@@ -57,6 +57,14 @@ export async function GET(req: Request) {
       products: snapshot.products,
       campaigns: snapshot.campaigns,
       branding: snapshot.branding,
+      screen: state.screen,
+      screens: state.screens,
+      reviews: state.reviews,
+      weather: snapshot.weather || null,
+      bestsellers: snapshot.bestsellers || [],
+      bestsellersByPeriod: snapshot.bestsellersByPeriod || {},
+      bestsellerGeneratedAt: snapshot.bestsellerGeneratedAt,
+      generatedAt: snapshot.generatedAt,
       storage: {
         configured: Boolean(cloudinary),
         provider: "cloudinary",
@@ -78,8 +86,9 @@ export async function PUT(req: Request) {
 
   try {
     const siteUrl = requestOrigin(req);
-    const state = await readShowcaseAdminState(siteUrl);
     const payload = await body(req);
+    const screen = normalizeScreenSlug(payload?.screen || new URL(req.url).searchParams.get("screen") || "main");
+    const state = await readShowcaseAdminState(siteUrl, screen);
     const document = normalizeShowcaseDocument(payload?.document ?? payload, siteUrl);
     const saved = {
       ...document,
@@ -90,7 +99,7 @@ export async function PUT(req: Request) {
       publishedAt: state.published.publishedAt,
     };
 
-    await saveShowcaseSetting(state.tenantId, SHOWCASE_DRAFT_KEY, saved);
+    await saveShowcaseSetting(state.tenantId, screen === "main" ? SHOWCASE_DRAFT_KEY : `showcase:screen:${screen}:draft`, saved);
     return json({ ok: true, source: "db", draft: saved });
   } catch (error: any) {
     console.error("[admin:showcase:PUT]", error);
@@ -106,8 +115,9 @@ export async function POST(req: Request) {
 
   try {
     const siteUrl = requestOrigin(req);
-    const state = await readShowcaseAdminState(siteUrl);
     const payload = await body(req);
+    const screen = normalizeScreenSlug(payload?.screen || new URL(req.url).searchParams.get("screen") || "main");
+    const state = await readShowcaseAdminState(siteUrl, screen);
     const action = String(payload?.action || "publish");
 
     if (action === "restorePublished") {
@@ -116,13 +126,13 @@ export async function POST(req: Request) {
         version: `draft-${Date.now().toString(36)}`,
         updatedAt: new Date().toISOString(),
       };
-      await saveShowcaseSetting(state.tenantId, SHOWCASE_DRAFT_KEY, restored);
+      await saveShowcaseSetting(state.tenantId, screen === "main" ? SHOWCASE_DRAFT_KEY : `showcase:screen:${screen}:draft`, restored);
       return json({ ok: true, source: "db", draft: restored, published: state.published });
     }
 
     if (action === "resetDraft") {
       const reset = createDefaultShowcaseDocument(siteUrl);
-      await saveShowcaseSetting(state.tenantId, SHOWCASE_DRAFT_KEY, reset);
+      await saveShowcaseSetting(state.tenantId, screen === "main" ? SHOWCASE_DRAFT_KEY : `showcase:screen:${screen}:draft`, reset);
       return json({ ok: true, source: "db", draft: reset, published: state.published });
     }
 
@@ -139,8 +149,8 @@ export async function POST(req: Request) {
     };
 
     await Promise.all([
-      saveShowcaseSetting(state.tenantId, SHOWCASE_DRAFT_KEY, published),
-      saveShowcaseSetting(state.tenantId, SHOWCASE_PUBLISHED_KEY, published),
+      saveShowcaseSetting(state.tenantId, screen === "main" ? SHOWCASE_DRAFT_KEY : `showcase:screen:${screen}:draft`, published),
+      saveShowcaseSetting(state.tenantId, screen === "main" ? SHOWCASE_PUBLISHED_KEY : `showcase:screen:${screen}:published`, published),
     ]);
 
     return json({ ok: true, source: "db", draft: published, published });

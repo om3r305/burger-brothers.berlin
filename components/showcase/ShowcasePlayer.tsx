@@ -13,6 +13,7 @@ import {
 } from "@/lib/showcase/runtime";
 import type { ShowcaseSnapshot } from "@/lib/showcase/types";
 import ShowcaseStage from "./ShowcaseStage";
+import ShowcaseErrorBoundary from "./ShowcaseErrorBoundary";
 
 const CACHE_KEY = "bb_showcase_snapshot_v1";
 const LIVE_CHANNEL = "bb_showcase_live_v1";
@@ -107,9 +108,9 @@ function defaultSnapshot(): ShowcaseSnapshot {
   };
 }
 
-function readCachedSnapshot() {
+function readCachedSnapshot(cacheKey = CACHE_KEY) {
   try {
-    const raw = localStorage.getItem(CACHE_KEY);
+    const raw = localStorage.getItem(cacheKey);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as ShowcaseSnapshot;
     if (!parsed?.document || !parsed?.branding) return null;
@@ -122,26 +123,33 @@ function readCachedSnapshot() {
   }
 }
 
-function writeCachedSnapshot(snapshot: ShowcaseSnapshot) {
+function writeCachedSnapshot(snapshot: ShowcaseSnapshot, cacheKey = CACHE_KEY) {
   try {
-    localStorage.setItem(CACHE_KEY, JSON.stringify(snapshot));
+    localStorage.setItem(cacheKey, JSON.stringify(snapshot));
   } catch {}
 }
 
-async function fetchSnapshot(signal?: AbortSignal) {
-  const response = await fetch(`/api/showcase?t=${Date.now()}`, {
+type ShowcaseFetchResult = ShowcaseSnapshot | { ok: true; unchanged: true; version: string; generatedAt: string };
+
+async function fetchSnapshot(screenSlug = "main", knownVersion = "", signal?: AbortSignal): Promise<ShowcaseFetchResult> {
+  const params = new URLSearchParams({ screen: screenSlug, t: String(Date.now()) });
+  if (knownVersion) params.set("knownVersion", knownVersion);
+  const response = await fetch(`/api/showcase?${params.toString()}`, {
     cache: "no-store",
     signal,
     headers: { Accept: "application/json" },
   });
   const data = await response.json().catch(() => null);
-  if (!response.ok || !data?.document) {
+  if (!response.ok || !data?.ok) {
     throw new Error(data?.error || `SHOWCASE_HTTP_${response.status}`);
   }
+  if (data.unchanged === true) return data as ShowcaseFetchResult;
+  if (!data.document) throw new Error("SHOWCASE_SNAPSHOT_MISSING");
   return data as ShowcaseSnapshot;
 }
 
-export default function ShowcasePlayer() {
+export default function ShowcasePlayer({ screenSlug = "main" }: { screenSlug?: string }) {
+  const cacheKey = `${CACHE_KEY}:${screenSlug}`;
   const [snapshot, setSnapshot] = useState<ShowcaseSnapshot | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [online, setOnline] = useState(true);
@@ -152,7 +160,10 @@ export default function ShowcasePlayer() {
   }>({ playbackKey: "" });
   const wakeLockRef = useRef<any>(null);
   const loadingRef = useRef(false);
+  const snapshotRef = useRef<ShowcaseSnapshot | null>(null);
+  const lastFullLoadRef = useRef(0);
   const persistVisibleMediaRef = useRef<() => void>(() => {});
+  snapshotRef.current = snapshot;
 
   const activeScenes = useMemo(() => {
     const scenes = snapshot?.document?.scenes || [];
@@ -246,20 +257,26 @@ export default function ShowcasePlayer() {
     );
   }, []);
 
-  const load = useCallback(async (quiet = false) => {
+  const load = useCallback(async (quiet = false, forceFull = false) => {
     if (loadingRef.current) return;
     loadingRef.current = true;
 
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), 12_000);
+    const current = snapshotRef.current;
+    const dynamicRefreshDue = Date.now() - lastFullLoadRef.current >= 5 * 60_000;
+    const knownVersion = !forceFull && !dynamicRefreshDue ? current?.document?.version || "" : "";
 
     try {
-      const fresh = await fetchSnapshot(controller.signal);
+      const result = await fetchSnapshot(screenSlug, knownVersion, controller.signal);
       setOnline(true);
-      writeCachedSnapshot(fresh);
-      setSnapshot((current) => {
-        if (current?.document?.version === fresh.document.version) {
-          return { ...fresh, document: current.document };
+      if ("unchanged" in result && result.unchanged) return;
+      const fresh = result as ShowcaseSnapshot;
+      lastFullLoadRef.current = Date.now();
+      writeCachedSnapshot(fresh, cacheKey);
+      setSnapshot((previous) => {
+        if (previous?.document?.version === fresh.document.version) {
+          return { ...fresh, document: previous.document };
         }
         setActiveIndex(0);
         return fresh;
@@ -267,16 +284,16 @@ export default function ShowcasePlayer() {
     } catch (error) {
       setOnline(false);
       if (!quiet) {
-        setSnapshot((current) => current || readCachedSnapshot() || defaultSnapshot());
+        setSnapshot((currentSnapshot) => currentSnapshot || readCachedSnapshot(cacheKey) || defaultSnapshot());
       }
     } finally {
       loadingRef.current = false;
       window.clearTimeout(timeout);
     }
-  }, []);
+  }, [cacheKey, screenSlug]);
 
   useEffect(() => {
-    const cached = readCachedSnapshot();
+    const cached = readCachedSnapshot(cacheKey);
     setSnapshot(cached || defaultSnapshot());
     void load(Boolean(cached));
   }, [load]);
@@ -284,15 +301,15 @@ export default function ShowcasePlayer() {
   useEffect(() => {
     if (!snapshot) return;
     const seconds = Math.max(
-      2,
-      Math.min(5, Number(snapshot.document.settings.refreshSeconds || 3)),
+      10,
+      Math.min(60, Number(snapshot.document.settings.refreshSeconds || 15)),
     );
     const timer = window.setInterval(() => void load(true), seconds * 1_000);
     return () => window.clearInterval(timer);
   }, [load, snapshot?.document?.settings?.refreshSeconds]);
 
   useEffect(() => {
-    const refreshNow = () => void load(true);
+    const refreshNow = () => void load(true, true);
     let channel: BroadcastChannel | null = null;
 
     try {
@@ -459,19 +476,20 @@ export default function ShowcasePlayer() {
 
   return (
     <div id="bb-showcase-root">
-      <ShowcaseStage
-        key={playbackKey}
-        snapshot={snapshot}
-        scene={displayScene}
-        sceneIndex={activeIndex}
-        sceneCount={activeScenes.length}
-        online={online}
-        onVideoEnded={() => {
-          persistVisibleMedia();
-          advanceScene(playbackKey);
-        }}
-        onVideoError={() => advanceScene(playbackKey)}
-      />
+      <ShowcaseErrorBoundary key={playbackKey} label="Sahne atlandı" onReset={() => advanceScene(playbackKey)}>
+        <ShowcaseStage
+          snapshot={snapshot}
+          scene={displayScene}
+          sceneIndex={activeIndex}
+          sceneCount={activeScenes.length}
+          online={online}
+          onVideoEnded={() => {
+            persistVisibleMedia();
+            advanceScene(playbackKey);
+          }}
+          onVideoError={() => advanceScene(playbackKey)}
+        />
+      </ShowcaseErrorBoundary>
     </div>
   );
 }
