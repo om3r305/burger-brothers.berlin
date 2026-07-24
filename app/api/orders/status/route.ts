@@ -276,6 +276,23 @@ function normalizeChannel(value: any) {
   return text || "web";
 }
 
+function isSchnellOrderLike(row: any, meta: Record<string, any>) {
+  const mode = String(row?.mode || "").toLowerCase().trim();
+  const channel = String(row?.channel || "").toLowerCase().trim();
+  const source = String(meta?.source || "").toLowerCase().trim();
+
+  return (
+    ["dine_in", "dine-in", "vor_ort", "vor ort", "salon"].includes(mode) ||
+    ["schnellbestellung", "salon", "salon_qr", "qr_quick_order"].includes(
+      channel,
+    ) ||
+    ["qr_quick_order", "salon_qr", "schnellbestellung"].includes(source) ||
+    (Number.isFinite(Number(meta?.customerNumber)) &&
+      Number(meta?.customerNumber) > 0 &&
+      meta?.tableNumber == null)
+  );
+}
+
 function normalizeHistory(value: any): any[] {
   return ensureArr(value).map((entry) => ({
     ts: toNumber(entry?.ts ?? entry?.createdAt, Date.now()),
@@ -420,8 +437,12 @@ function serializeOrder(row: any) {
     ts: toTs(row?.ts ?? row?.createdAt),
     createdAt: toIso(row?.createdAt ?? row?.ts),
     updatedAt: toIso(row?.updatedAt),
-    mode: normalizeMode(row?.mode),
-    channel: normalizeChannel(row?.channel),
+    mode: isSchnellOrderLike(row, meta)
+      ? "dine_in"
+      : normalizeMode(row?.mode),
+    channel: isSchnellOrderLike(row, meta)
+      ? "schnellbestellung"
+      : normalizeChannel(row?.channel),
     status,
     legacyStatus,
     statusLegacy: legacyStatus,
@@ -1049,11 +1070,18 @@ async function handleStatusUpdate(req: Request) {
       );
     }
 
-    if ((row as any)?.mode === "dine_in" && requestedStatus === "out_for_delivery") {
-      return securityJson({ ok: false, error: "dine_in_cannot_be_out_for_delivery" }, 409);
+    const metaObj = ensureObj((row as any)?.meta);
+
+    if (
+      isSchnellOrderLike(row, metaObj) &&
+      requestedStatus === "out_for_delivery"
+    ) {
+      return securityJson(
+        { ok: false, error: "dine_in_cannot_be_out_for_delivery" },
+        409,
+      );
     }
 
-    const metaObj = ensureObj((row as any)?.meta);
     const currentStatus = normalizeStatus(metaObj?.statusManual ?? (row as any)?.status) || "new";
     let effectiveBody: any = {
       ...body,

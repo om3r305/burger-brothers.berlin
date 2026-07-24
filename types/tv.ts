@@ -244,6 +244,8 @@ export type OrderMeta = {
   acceptedPlanned?: string;
   customerNumber?: number;
   businessDate?: string;
+  source?: string;
+  tableNumber?: number | string | null;
 };
 
 export type StoredOrder = {

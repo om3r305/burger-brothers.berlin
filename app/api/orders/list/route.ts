@@ -245,6 +245,23 @@ function normalizeChannel(value: any) {
   return tryChannel(value) ?? "web";
 }
 
+function isSchnellOrderLike(row: any, meta: Record<string, any>) {
+  const mode = String(row?.mode || "").toLowerCase().trim();
+  const channel = String(row?.channel || "").toLowerCase().trim();
+  const source = String(meta?.source || "").toLowerCase().trim();
+
+  return (
+    ["dine_in", "dine-in", "vor_ort", "vor ort", "salon"].includes(mode) ||
+    ["schnellbestellung", "salon", "salon_qr", "qr_quick_order"].includes(
+      channel,
+    ) ||
+    ["qr_quick_order", "salon_qr", "schnellbestellung"].includes(source) ||
+    (Number.isFinite(Number(meta?.customerNumber)) &&
+      Number(meta?.customerNumber) > 0 &&
+      meta?.tableNumber == null)
+  );
+}
+
 function tryStatus(value: any): OrderStatus | null {
   if (isAllFilter(value)) return null;
 
@@ -583,8 +600,11 @@ function serializeOrder(row: any) {
   );
 
   const ts = toMs(row?.ts ?? row?.createdAt);
-  const mode = normalizeMode(row?.mode);
-  const channel = normalizeChannel(row?.channel);
+  const schnellOrder = isSchnellOrderLike(row, rawMeta);
+  const mode: OrderMode = schnellOrder ? "dine_in" : normalizeMode(row?.mode);
+  const channel = schnellOrder
+    ? "schnellbestellung"
+    : normalizeChannel(row?.channel);
 
   const note = cleanText(
     rawMeta?.note ??

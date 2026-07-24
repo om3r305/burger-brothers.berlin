@@ -375,6 +375,27 @@ export function normalizeMode(value: unknown): OrderMode {
   return "delivery";
 }
 
+function isSchnellOrderLike(
+  source: UnknownRecord,
+  meta: OrderMeta,
+) {
+  const mode = String(source.mode || "").toLowerCase().trim();
+  const channel = String(source.channel || "").toLowerCase().trim();
+  const sourceName = String(meta.source || "").toLowerCase().trim();
+  const customerNumber = Number(meta.customerNumber || 0);
+
+  return (
+    ["dine_in", "dine-in", "vor_ort", "vor ort", "salon"].includes(mode) ||
+    ["schnellbestellung", "salon", "salon_qr", "qr_quick_order"].includes(
+      channel,
+    ) ||
+    ["qr_quick_order", "salon_qr", "schnellbestellung"].includes(sourceName) ||
+    (Number.isFinite(customerNumber) &&
+      customerNumber > 0 &&
+      meta.tableNumber == null)
+  );
+}
+
 export function toMsStrict(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value) && value > 0) {
     return value;
@@ -1045,8 +1066,14 @@ export function normalizeOrders(data: unknown): StoredOrder[] {
           deliveredAt: asOptionalText(
             source.deliveredAt ?? source.delivered_at,
           ),
-          mode: normalizeMode(source.mode),
-          channel: source.channel ? String(source.channel) : "web",
+          mode: isSchnellOrderLike(source, meta)
+            ? "dine_in"
+            : normalizeMode(source.mode),
+          channel: isSchnellOrderLike(source, meta)
+            ? "schnellbestellung"
+            : source.channel
+              ? String(source.channel)
+              : "web",
           status: normalizeStatus(meta.statusManual ?? source.status),
           planned: source.planned ? String(source.planned) : null,
           etaMin: numOrNull(source.etaMin ?? meta.etaMin ?? meta.eta),

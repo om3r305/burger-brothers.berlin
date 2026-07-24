@@ -5,6 +5,9 @@ import { prisma, getTenantId } from "@/lib/db";
 export const SCHNELL_COOKIE = "bb_schnell_sess";
 export const SCHNELL_SETTINGS_KEY = "schnellbestellung";
 export const SCHNELL_PAUSE_KEY = "pause";
+export const SCHNELL_DRINK_GROUPS_KEY = "bb_drink_groups_v1";
+export const SCHNELL_EXTRA_GROUPS_KEY = "bb_extra_groups_v1";
+const SCHNELL_GROUP_VARIANT_PREFIX = "sgv:";
 
 export const SCHNELL_CATEGORY_ORDER = [
   "burger",
@@ -36,6 +39,23 @@ export type SchnellCampaign = {
   startsAt?: string;
   endsAt?: string;
   badgeText?: string;
+};
+
+export type SchnellCatalogRecord = {
+  id: string;
+  sku?: string | null;
+  name: string;
+  description: string;
+  imageUrl: string;
+  category: SchnellCategory;
+  rawCategory: string;
+  price: number;
+  extrasJson: unknown[];
+  allergens: unknown;
+  activeFrom?: Date | null;
+  activeTo?: Date | null;
+  sourceKind: "product" | "group_variant";
+  depositAmount?: number;
 };
 
 export type SchnellSettings = {
@@ -581,18 +601,296 @@ export function getSchnellCampaignPrice(
   };
 }
 
+
+function toFiniteNumber(value: unknown, fallback = 0) {
+  const parsed =
+    typeof value === "number"
+      ? value
+      : Number(String(value ?? "").replace(",", "."));
+
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function toBoolean(value: unknown, fallback = true) {
+  if (typeof value === "boolean") return value;
+  if (value === undefined || value === null || value === "") return fallback;
+
+  const text = String(value).trim().toLowerCase();
+
+  if (["1", "true", "yes", "ja", "on", "aktiv"].includes(text)) return true;
+  if (["0", "false", "no", "nein", "off", "inaktiv"].includes(text)) return false;
+
+  return fallback;
+}
+
+function toOptionalDate(value: unknown) {
+  if (!value) return null;
+
+  const date = value instanceof Date ? value : new Date(String(value));
+
+  return Number.isFinite(date.valueOf()) ? date : null;
+}
+
+function activeAt(
+  active: unknown,
+  startsAt: unknown,
+  endsAt: unknown,
+  now = new Date(),
+) {
+  if (!toBoolean(active, true)) return false;
+
+  const starts = toOptionalDate(startsAt);
+  const ends = toOptionalDate(endsAt);
+  const time = now.getTime();
+
+  if (starts && starts.getTime() > time) return false;
+  if (ends && ends.getTime() < time) return false;
+
+  return true;
+}
+
+function groupArray(value: unknown) {
+  return Array.isArray(value) ? value : [];
+}
+
+function stableGroupPart(value: unknown, fallback: string) {
+  const text = cleanText(value, 180);
+
+  return encodeURIComponent(text || fallback).slice(0, 180);
+}
+
+function groupVariantId(
+  category: "drinks" | "extras",
+  groupId: unknown,
+  variantId: unknown,
+) {
+  return `${SCHNELL_GROUP_VARIANT_PREFIX}${category}:${stableGroupPart(
+    groupId,
+    "group",
+  )}:${stableGroupPart(variantId, "variant")}`;
+}
+
+export function isSchnellGroupVariantId(value: unknown) {
+  return String(value ?? "").startsWith(SCHNELL_GROUP_VARIANT_PREFIX);
+}
+
+function normalizeGroupVariantProducts(
+  category: "drinks" | "extras",
+  value: unknown,
+  now = new Date(),
+): SchnellCatalogRecord[] {
+  const records: SchnellCatalogRecord[] = [];
+
+  groupArray(value).forEach((group: any, groupIndex) => {
+    if (
+      !activeAt(
+        group?.active ?? group?.enabled,
+        group?.activeFrom ?? group?.startAt ?? group?.startsAt,
+        group?.activeTo ?? group?.endAt ?? group?.endsAt,
+        now,
+      )
+    ) {
+      return;
+    }
+
+    const groupName =
+      cleanText(group?.name ?? group?.title, 160) ||
+      (category === "drinks" ? "Getränk" : "Extra");
+    const groupKey =
+      group?.sku ??
+      group?.code ??
+      group?.slug ??
+      group?.id ??
+      `${category}-${groupIndex + 1}`;
+    const variants = Array.isArray(group?.variants)
+      ? group.variants
+      : Array.isArray(group?.items)
+        ? group.items
+        : Array.isArray(group?.options)
+          ? group.options
+          : [];
+
+    variants.forEach((variant: any, variantIndex: number) => {
+      if (
+        !activeAt(
+          variant?.active ?? variant?.enabled,
+          variant?.activeFrom ?? variant?.startAt ?? variant?.startsAt,
+          variant?.activeTo ?? variant?.endAt ?? variant?.endsAt,
+          now,
+        )
+      ) {
+        return;
+      }
+
+      const variantName = cleanText(
+        variant?.name ?? variant?.title ?? variant?.label,
+        140,
+      );
+      const variantKey =
+        variant?.id ??
+        variant?.sku ??
+        variant?.code ??
+        variantName ??
+        variantIndex + 1;
+      const basePrice = Math.max(
+        0,
+        toFiniteNumber(variant?.price ?? variant?.preis, 0),
+      );
+      const depositAmount = Math.max(
+        0,
+        toFiniteNumber(
+          variant?.pfandAmount ??
+            variant?.depositAmount ??
+            group?.pfandAmount ??
+            group?.depositAmount,
+          0,
+        ),
+      );
+      const id = groupVariantId(category, groupKey, variantKey);
+      const sameName =
+        Boolean(variantName) &&
+        variantName.localeCompare(groupName, "de", {
+          sensitivity: "base",
+        }) === 0;
+      const name =
+        variantName && !sameName ? `${groupName} – ${variantName}` : groupName;
+      const depositNote =
+        depositAmount > 0
+          ? `inkl. ${depositAmount.toLocaleString("de-DE", {
+              style: "currency",
+              currency: "EUR",
+            })} Pfand`
+          : "";
+      const description = [
+        cleanText(group?.description ?? group?.desc, 500),
+        depositNote,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+
+      records.push({
+        id,
+        sku: cleanText(variant?.sku ?? variant?.code, 120) || id,
+        name,
+        description,
+        imageUrl: cleanText(
+          variant?.image ??
+            variant?.imageUrl ??
+            variant?.cover ??
+            group?.image ??
+            group?.imageUrl ??
+            group?.cover,
+          1000,
+        ),
+        category,
+        rawCategory: category,
+        price: Math.round((basePrice + depositAmount) * 100) / 100,
+        extrasJson: [],
+        allergens:
+          variant?.allergens ??
+          variant?.allergenJson ??
+          group?.allergens ??
+          group?.allergenJson ??
+          [],
+        activeFrom: null,
+        activeTo: null,
+        sourceKind: "group_variant",
+        depositAmount,
+      });
+    });
+  });
+
+  return records;
+}
+
+function normalizeProductRecord(product: any): SchnellCatalogRecord {
+  const category = normalizeSchnellCategory(product?.category);
+
+  return {
+    id: String(product?.id || ""),
+    sku: product?.sku ? String(product.sku) : null,
+    name: cleanText(product?.name, 180) || "Artikel",
+    description: cleanText(product?.description, 1000),
+    imageUrl: cleanText(product?.imageUrl, 1000),
+    category,
+    rawCategory: cleanText(product?.category, 100) || category,
+    price: Math.max(0, toFiniteNumber(product?.price, 0)),
+    extrasJson: Array.isArray(product?.extrasJson) ? product.extrasJson : [],
+    allergens: product?.allergens ?? [],
+    activeFrom: product?.activeFrom ?? null,
+    activeTo: product?.activeTo ?? null,
+    sourceKind: "product",
+    depositAmount: 0,
+  };
+}
+
+export function buildSchnellGroupVariantProducts(
+  drinkGroups: unknown,
+  extraGroups: unknown,
+  now = new Date(),
+) {
+  return [
+    ...normalizeGroupVariantProducts("drinks", drinkGroups, now),
+    ...normalizeGroupVariantProducts("extras", extraGroups, now),
+  ];
+}
+
+export async function loadSchnellCatalogProducts(
+  settings: SchnellSettings,
+): Promise<SchnellCatalogRecord[]> {
+  const tenantId = await getTenantId();
+  const now = new Date();
+
+  const [products, drinkGroupsRow, extraGroupsRow] = await Promise.all([
+    prisma.product.findMany({
+      where: { tenantId, active: true },
+      orderBy: [{ order: "asc" }, { name: "asc" }],
+    }),
+    prisma.setting.findUnique({
+      where: {
+        tenantId_key: { tenantId, key: SCHNELL_DRINK_GROUPS_KEY },
+      },
+      select: { value: true },
+    }),
+    prisma.setting.findUnique({
+      where: {
+        tenantId_key: { tenantId, key: SCHNELL_EXTRA_GROUPS_KEY },
+      },
+      select: { value: true },
+    }),
+  ]);
+
+  const regularProducts = products
+    .map(normalizeProductRecord)
+    .filter((product) => {
+      if (product.activeFrom && product.activeFrom.getTime() > now.getTime()) {
+        return false;
+      }
+
+      if (product.activeTo && product.activeTo.getTime() < now.getTime()) {
+        return false;
+      }
+
+      return productIsAllowed(product, settings);
+    });
+
+  const groupProducts = buildSchnellGroupVariantProducts(
+    drinkGroupsRow?.value,
+    extraGroupsRow?.value,
+    now,
+  ).filter((product) => productIsAllowed(product, settings));
+
+  return [...regularProducts, ...groupProducts];
+}
+
 function productIsAllowed(
   product: { id: string; category: string; name: string },
   settings: SchnellSettings,
 ) {
   if (settings.hiddenProductIds.includes(product.id)) return false;
-  if (
-    settings.visibleCategories.length > 0 &&
-    !settings.visibleCategories.includes(product.category) &&
-    !settings.visibleCategories.includes(normalizeSchnellCategory(product.category))
-  ) {
-    return false;
-  }
+  // All active restaurant categories are shown by default. The previous
+  // visibleCategories value was never editable in the admin UI and could keep
+  // newly added Getränke/Extras hidden forever.
   if (isComplimentaryTableSauce(product.category, product.name)) return false;
   return true;
 }
@@ -631,18 +929,37 @@ export async function createCashSchnellOrder(params: {
             };
           }
 
-          const [settingsRow, pauseRow] = await Promise.all([
-            transaction.setting.findUnique({
-              where: {
-                tenantId_key: { tenantId, key: SCHNELL_SETTINGS_KEY },
-              },
-              select: { value: true },
-            }),
-            transaction.setting.findUnique({
-              where: { tenantId_key: { tenantId, key: SCHNELL_PAUSE_KEY } },
-              select: { value: true },
-            }),
-          ]);
+          const [settingsRow, pauseRow, drinkGroupsRow, extraGroupsRow] =
+            await Promise.all([
+              transaction.setting.findUnique({
+                where: {
+                  tenantId_key: { tenantId, key: SCHNELL_SETTINGS_KEY },
+                },
+                select: { value: true },
+              }),
+              transaction.setting.findUnique({
+                where: { tenantId_key: { tenantId, key: SCHNELL_PAUSE_KEY } },
+                select: { value: true },
+              }),
+              transaction.setting.findUnique({
+                where: {
+                  tenantId_key: {
+                    tenantId,
+                    key: SCHNELL_DRINK_GROUPS_KEY,
+                  },
+                },
+                select: { value: true },
+              }),
+              transaction.setting.findUnique({
+                where: {
+                  tenantId_key: {
+                    tenantId,
+                    key: SCHNELL_EXTRA_GROUPS_KEY,
+                  },
+                },
+                select: { value: true },
+              }),
+            ]);
 
           const settings = normalizeSchnellSettings(settingsRow?.value);
           const tvPaused = obj(pauseRow?.value).dineIn === true;
@@ -680,10 +997,29 @@ export async function createCashSchnellOrder(params: {
 
           if (!productIds.length) throw new Error("EMPTY_CART");
 
-          const products = await transaction.product.findMany({
-            where: { tenantId, id: { in: productIds }, active: true },
-          });
-          const productById = new Map(products.map((product) => [product.id, product]));
+          const regularProductIds = productIds.filter(
+            (productId) => !isSchnellGroupVariantId(productId),
+          );
+          const products = regularProductIds.length
+            ? await transaction.product.findMany({
+                where: {
+                  tenantId,
+                  id: { in: regularProductIds },
+                  active: true,
+                },
+              })
+            : [];
+
+          const productById = new Map<string, SchnellCatalogRecord>();
+
+          products
+            .map(normalizeProductRecord)
+            .forEach((product) => productById.set(product.id, product));
+
+          buildSchnellGroupVariantProducts(
+            drinkGroupsRow?.value,
+            extraGroupsRow?.value,
+          ).forEach((product) => productById.set(product.id, product));
 
           let merchandise = 0;
           let discount = 0;
@@ -772,6 +1108,8 @@ export async function createCashSchnellOrder(params: {
                     badgeText: campaignPrice.badgeText,
                   }
                 : undefined,
+              sourceKind: product.sourceKind,
+              depositAmount: product.depositAmount || 0,
             });
           }
 

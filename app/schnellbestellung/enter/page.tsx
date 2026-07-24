@@ -1,6 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 type ProblemKind =
@@ -30,7 +36,7 @@ type VerifyResponse = {
 };
 
 const TARGET_ACCURACY_METERS = 75;
-const LOCATION_DEADLINE_MS = 20_000;
+const LOCATION_DEADLINE_MS = 18_000;
 
 let fallbackDeviceId = "";
 
@@ -73,8 +79,6 @@ async function readGeolocationPermission() {
 
     return status.state;
   } catch {
-    // Safari versions that do not expose geolocation through Permissions API
-    // still support navigator.geolocation, so continue with the real request.
     return "unsupported" as const;
   }
 }
@@ -149,8 +153,6 @@ function getBestPosition() {
           }
         },
         (error) => {
-          // If Safari already delivered a position, keep the best reading when
-          // a later high-accuracy refresh times out.
           if (bestPosition && error.code === 3) {
             finishWithPosition(bestPosition);
             return;
@@ -160,7 +162,7 @@ function getBestPosition() {
         },
         {
           enableHighAccuracy: true,
-          maximumAge: 0,
+          maximumAge: 5_000,
           timeout: 15_000,
         },
       );
@@ -182,160 +184,164 @@ function isAppleMobile() {
 
 function formatAccuracy(value: unknown) {
   const number = Number(value);
+
   return Number.isFinite(number) ? Math.round(number) : null;
 }
 
 export default function Enter() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const token = useMemo(() => searchParams.get("t")?.trim() ?? "", [searchParams]);
-
-  const [message, setMessage] = useState(
-    "Bitte bestätigen Sie Ihren Standort.",
+  const token = useMemo(
+    () => searchParams.get("t")?.trim() ?? "",
+    [searchParams],
   );
+
+  const autoStartedRef = useRef(false);
+  const busyRef = useRef(false);
+  const [message, setMessage] = useState("Standort wird geprüft …");
   const [problem, setProblem] = useState<ProblemKind>(null);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState(true);
 
-  useEffect(() => {
-    if (!token) {
-      setMessage("Ungültiger QR-Code. Bitte scannen Sie den aktuellen QR-Code erneut.");
-      setProblem("server");
-    }
-  }, [token]);
+  const setBusyState = useCallback((value: boolean) => {
+    busyRef.current = value;
+    setBusy(value);
+  }, []);
 
-  const showGeoFailure = (error: GeoFailure) => {
-    setBusy(false);
+  const showGeoFailure = useCallback(
+    (error: GeoFailure) => {
+      setBusyState(false);
 
-    if (error.code === 1) {
-      setProblem("permission_denied");
+      if (error.code === 1) {
+        setProblem("permission_denied");
+        setMessage(
+          "Der Standortzugriff ist blockiert. Bitte erlauben Sie den Zugriff und versuchen Sie es erneut.",
+        );
+        return;
+      }
+
+      if (error.code === 3) {
+        setProblem("timeout");
+        setMessage(
+          "Die Standortbestimmung dauert zu lange. Bitte gehen Sie näher ans Fenster und versuchen Sie es erneut.",
+        );
+        return;
+      }
+
+      setProblem("position_unavailable");
       setMessage(
-        "Der Standortzugriff ist blockiert. Bitte erlauben Sie den Zugriff und versuchen Sie es erneut.",
+        "Ihr Standort konnte momentan nicht bestimmt werden. Bitte prüfen Sie Ortungsdienste, WLAN und Mobilfunk.",
       );
-      return;
-    }
+    },
+    [setBusyState],
+  );
 
-    if (error.code === 3) {
-      setProblem("timeout");
-      setMessage(
-        "Die Standortbestimmung dauert zu lange. Bitte gehen Sie näher ans Fenster und versuchen Sie es erneut.",
-      );
-      return;
-    }
+  const verifyPosition = useCallback(
+    async (position: GeolocationPosition) => {
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), 15_000);
 
-    setProblem("position_unavailable");
-    setMessage(
-      "Ihr Standort konnte momentan nicht bestimmt werden. Bitte prüfen Sie Ortungsdienste, WLAN und Mobilfunk.",
-    );
-  };
+      try {
+        const response = await fetch(
+          "/api/schnellbestellung/location/verify",
+          {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+            },
+            credentials: "same-origin",
+            cache: "no-store",
+            signal: controller.signal,
+            body: JSON.stringify({
+              token,
+              lat: position.coords.latitude,
+              lng: position.coords.longitude,
+              accuracy: position.coords.accuracy,
+              deviceId: getDeviceId(),
+            }),
+          },
+        );
 
-  const verifyPosition = async (position: GeolocationPosition) => {
-    const controller = new AbortController();
-    const timeoutId = window.setTimeout(() => controller.abort(), 15_000);
+        const data = (await response.json().catch(() => ({}))) as VerifyResponse;
 
-    try {
-      const response = await fetch("/api/schnellbestellung/location/verify", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-        },
-        credentials: "same-origin",
-        cache: "no-store",
-        signal: controller.signal,
-        body: JSON.stringify({
-          token,
-          lat: position.coords.latitude,
-          lng: position.coords.longitude,
-          accuracy: position.coords.accuracy,
-          deviceId: getDeviceId(),
-        }),
-      });
+        if (response.ok && data.ok) {
+          // replace prevents Back from returning to the temporary GPS screen.
+          router.replace("/schnellbestellung");
+          return;
+        }
 
-      const data = (await response.json().catch(() => ({}))) as VerifyResponse;
+        setBusyState(false);
+        setProblem("server");
 
-      if (response.ok && data.ok) {
-        router.replace("/schnellbestellung");
-        return;
-      }
+        if (data.error === "accuracy_too_low") {
+          setProblem("accuracy_low");
+          const accuracy = formatAccuracy(data.accuracy);
+          const maximum = formatAccuracy(data.maxAccuracy);
+          const detail =
+            accuracy !== null && maximum !== null
+              ? ` Aktuelle Genauigkeit: ±${accuracy} m, benötigt: höchstens ±${maximum} m.`
+              : "";
 
-      setBusy(false);
-      setProblem("server");
+          setMessage(
+            `Ihr Standort ist noch zu ungenau. Aktivieren Sie „Genauer Standort“ und versuchen Sie es erneut.${detail}`,
+          );
+          return;
+        }
 
-      if (data.error === "accuracy_too_low") {
-        setProblem("accuracy_low");
-        const accuracy = formatAccuracy(data.accuracy);
-        const maximum = formatAccuracy(data.maxAccuracy);
-        const detail =
-          accuracy !== null && maximum !== null
-            ? ` Aktuelle Genauigkeit: ±${accuracy} m, benötigt: höchstens ±${maximum} m.`
-            : "";
+        if (data.error === "outside_radius") {
+          setMessage(
+            "Schnellbestellungen sind nur direkt im Restaurant möglich.",
+          );
+          return;
+        }
+
+        if (data.error === "invalid_qr") {
+          setMessage(
+            "Der QR-Code ist abgelaufen. Bitte scannen Sie den aktuellen QR-Code im Restaurant erneut.",
+          );
+          return;
+        }
+
+        if (data.error === "unavailable") {
+          setMessage(
+            "Die Schnellbestellung ist momentan nicht verfügbar. Bitte wenden Sie sich an unser Personal.",
+          );
+          return;
+        }
+
+        if (data.error === "origin_not_allowed") {
+          setMessage(
+            "Die Sicherheitsprüfung ist fehlgeschlagen. Bitte öffnen Sie den QR-Code direkt in Safari oder Chrome.",
+          );
+          return;
+        }
 
         setMessage(
-          `Ihr Standort ist noch zu ungenau. Aktivieren Sie „Genauer Standort“ und versuchen Sie es erneut.${detail}`,
+          "Der Standort konnte nicht bestätigt werden. Bitte versuchen Sie es erneut.",
         );
-        return;
-      }
-
-      if (data.error === "outside_radius") {
+      } catch (error) {
+        setBusyState(false);
+        setProblem("network");
         setMessage(
-          "Schnellbestellungen sind nur direkt im Restaurant möglich.",
+          error instanceof DOMException && error.name === "AbortError"
+            ? "Die Verbindung dauert zu lange. Bitte versuchen Sie es erneut."
+            : "Die Verbindung zum Bestellsystem ist fehlgeschlagen. Bitte versuchen Sie es erneut.",
         );
-        return;
+      } finally {
+        window.clearTimeout(timeoutId);
       }
+    },
+    [router, setBusyState, token],
+  );
 
-      if (data.error === "invalid_qr") {
-        setMessage(
-          "Der QR-Code ist abgelaufen. Bitte scannen Sie den aktuellen QR-Code im Restaurant erneut.",
-        );
-        return;
-      }
+  const start = useCallback(async () => {
+    if (busyRef.current || !token) return;
 
-      if (data.error === "unavailable") {
-        setMessage(
-          "Die Schnellbestellung ist momentan nicht verfügbar. Bitte wenden Sie sich an unser Personal.",
-        );
-        return;
-      }
-
-      if (data.error === "origin_not_allowed") {
-        setMessage(
-          "Die Sicherheitsprüfung ist fehlgeschlagen. Bitte öffnen Sie den QR-Code direkt in Safari oder Chrome.",
-        );
-        return;
-      }
-
-      if (response.status === 401) {
-        setMessage(
-          "Die Sitzung konnte nicht gestartet werden. Bitte laden Sie die Seite neu oder scannen Sie den QR-Code erneut.",
-        );
-        return;
-      }
-
-      setMessage(
-        "Der Standort konnte nicht bestätigt werden. Bitte versuchen Sie es erneut.",
-      );
-    } catch (error) {
-      setBusy(false);
-      setProblem("network");
-
-      setMessage(
-        error instanceof DOMException && error.name === "AbortError"
-          ? "Die Verbindung dauert zu lange. Bitte versuchen Sie es erneut."
-          : "Die Verbindung zum Bestellsystem ist fehlgeschlagen. Bitte versuchen Sie es erneut.",
-      );
-    } finally {
-      window.clearTimeout(timeoutId);
-    }
-  };
-
-  const start = async () => {
-    if (busy || !token) return;
-
-    setBusy(true);
+    setBusyState(true);
     setProblem(null);
-    setMessage("Standortzugriff wird vorbereitet …");
+    setMessage("Standort wird geprüft …");
 
     if (!window.isSecureContext) {
-      setBusy(false);
+      setBusyState(false);
       setProblem("insecure_context");
       setMessage(
         "Der Standortzugriff ist nur über eine sichere HTTPS-Verbindung möglich.",
@@ -344,7 +350,7 @@ export default function Enter() {
     }
 
     if (!("geolocation" in navigator)) {
-      setBusy(false);
+      setBusyState(false);
       setProblem("unsupported");
       setMessage(
         "Dieser Browser unterstützt keine Standortbestimmung. Bitte öffnen Sie den QR-Code in Safari oder Chrome.",
@@ -353,7 +359,7 @@ export default function Enter() {
     }
 
     if (!geolocationAllowedByDocumentPolicy()) {
-      setBusy(false);
+      setBusyState(false);
       setProblem("policy_blocked");
       setMessage(
         "Der Browser blockiert den Standortzugriff auf dieser Seite. Bitte öffnen Sie den QR-Code direkt in Safari oder Chrome.",
@@ -364,7 +370,7 @@ export default function Enter() {
     const permission = await readGeolocationPermission();
 
     if (permission === "denied") {
-      setBusy(false);
+      setBusyState(false);
       setProblem("permission_denied");
       setMessage(
         "Der Standortzugriff wurde für diese Website blockiert. Bitte ändern Sie die Website-Einstellung und versuchen Sie es erneut.",
@@ -372,23 +378,47 @@ export default function Enter() {
       return;
     }
 
-    setMessage("Standort wird bestimmt …");
-
     try {
       const position = await getBestPosition();
-      setMessage("Standort wird sicher geprüft …");
+      setMessage("Menü wird geöffnet …");
       await verifyPosition(position);
     } catch (error) {
       showGeoFailure(error as GeoFailure);
     }
-  };
+  }, [setBusyState, showGeoFailure, token, verifyPosition]);
 
-  const appleInstructions = problem === "permission_denied" && isAppleMobile();
+  useEffect(() => {
+    if (!token) {
+      setBusyState(false);
+      setMessage(
+        "Ungültiger QR-Code. Bitte scannen Sie den aktuellen QR-Code erneut.",
+      );
+      setProblem("server");
+      return;
+    }
+
+    if (autoStartedRef.current) return;
+
+    autoStartedRef.current = true;
+    busyRef.current = false;
+
+    // Existing permission is used immediately. On a new device the browser's
+    // native permission sheet may appear; no extra restaurant button is needed.
+    const frame = window.requestAnimationFrame(() => {
+      void start();
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [setBusyState, start, token]);
+
+  const appleInstructions =
+    problem === "permission_denied" && isAppleMobile();
   const showInstructions =
     problem === "permission_denied" ||
     problem === "position_unavailable" ||
     problem === "timeout" ||
     problem === "accuracy_low";
+  const showRetry = !busy && Boolean(token);
 
   return (
     <main className="grid min-h-dvh place-items-center bg-stone-950 p-6 text-white">
@@ -401,6 +431,13 @@ export default function Enter() {
 
         <h1 className="mt-5 text-3xl font-black">Schnellbestellung</h1>
 
+        {busy ? (
+          <div
+            className="mx-auto mt-6 h-10 w-10 animate-spin rounded-full border-4 border-white/15 border-t-amber-400"
+            aria-label="Standort wird geprüft"
+          />
+        ) : null}
+
         <p className="mt-4 text-stone-300" aria-live="polite">
           {message}
         </p>
@@ -409,7 +446,9 @@ export default function Enter() {
           <div className="mt-5 rounded-2xl border border-amber-300/25 bg-amber-300/10 p-4 text-left text-sm leading-6 text-stone-200">
             {appleInstructions ? (
               <>
-                <p className="font-bold text-amber-200">Standort auf dem iPhone erlauben</p>
+                <p className="font-bold text-amber-200">
+                  Standort auf dem iPhone erlauben
+                </p>
                 <p className="mt-2">
                   1. Tippen Sie links in der Adressleiste auf das Seitensymbol.
                   <br />
@@ -417,9 +456,8 @@ export default function Enter() {
                   <br />
                   3. Stellen Sie „Standort“ auf „Fragen“ oder „Erlauben“.
                   <br />
-                  4. Prüfen Sie zusätzlich unter Einstellungen → Datenschutz &amp;
-                  Sicherheit → Ortungsdienste → Safari-Websites, dass der Zugriff
-                  und „Genauer Standort“ aktiviert sind.
+                  4. Aktivieren Sie in den iPhone-Ortungsdiensten auch
+                  „Genauer Standort“.
                 </p>
               </>
             ) : (
@@ -427,22 +465,23 @@ export default function Enter() {
                 <p className="font-bold text-amber-200">Standort erlauben</p>
                 <p className="mt-2">
                   Öffnen Sie die Website-Berechtigungen in der Adressleiste,
-                  erlauben Sie „Standort“ und aktivieren Sie möglichst den genauen
-                  Standort. Tippen Sie danach erneut auf die gelbe Schaltfläche.
+                  erlauben Sie „Standort“ und aktivieren Sie den genauen
+                  Standort.
                 </p>
               </>
             )}
           </div>
         ) : null}
 
-        <button
-          type="button"
-          disabled={busy || !token}
-          onClick={start}
-          className="mt-7 w-full rounded-2xl bg-amber-400 px-5 py-4 text-lg font-black text-black transition active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {busy ? "Bitte warten …" : "Standort bestätigen"}
-        </button>
+        {showRetry ? (
+          <button
+            type="button"
+            onClick={() => void start()}
+            className="mt-7 w-full rounded-2xl bg-amber-400 px-5 py-4 text-lg font-black text-black transition active:scale-[0.99]"
+          >
+            Erneut versuchen
+          </button>
+        ) : null}
       </section>
     </main>
   );

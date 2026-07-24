@@ -41,6 +41,51 @@ type CatalogResponse = {
   error?: string;
 };
 
+type CachedCatalog = {
+  savedAt: number;
+  products: Product[];
+  categories: Category[];
+};
+
+const CATALOG_CACHE_KEY = "bb_schnell_catalog_v2";
+const CATALOG_CACHE_MAX_AGE_MS = 10 * 60_000;
+
+function readCachedCatalog(): CachedCatalog | null {
+  try {
+    const parsed = JSON.parse(
+      window.localStorage.getItem(CATALOG_CACHE_KEY) || "null",
+    ) as CachedCatalog | null;
+
+    if (
+      !parsed ||
+      !Array.isArray(parsed.products) ||
+      !Array.isArray(parsed.categories) ||
+      Date.now() - Number(parsed.savedAt || 0) > CATALOG_CACHE_MAX_AGE_MS
+    ) {
+      return null;
+    }
+
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedCatalog(products: Product[], categories: Category[]) {
+  try {
+    window.localStorage.setItem(
+      CATALOG_CACHE_KEY,
+      JSON.stringify({
+        savedAt: Date.now(),
+        products,
+        categories,
+      }),
+    );
+  } catch {
+    // Cache is an optional speed optimization.
+  }
+}
+
 const ALLERGEN_LEGEND: Record<string, string> = {
   A: "Glutenhaltiges Getreide",
   A1: "Weizen",
@@ -127,10 +172,12 @@ export default function SchnellClient() {
   const [cartOpen, setCartOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {
     const saved = localStorage.getItem("bb_schnell_cart");
+
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -140,31 +187,70 @@ export default function SchnellClient() {
       }
     }
 
+    const cached = readCachedCatalog();
+
+    if (cached?.products.length) {
+      setProducts(cached.products);
+      setCategories(cached.categories);
+      setCategory(
+        cached.categories[0]?.key || cached.products[0]?.category || "",
+      );
+      setLoading(false);
+    }
+
+    let cancelled = false;
+
     void (async () => {
-      const sessionResponse = await fetch("/api/schnellbestellung/session", {
-        cache: "no-store",
-      });
-      const sessionData = await sessionResponse.json().catch(() => ({}));
+      try {
+        // The catalog endpoint already validates the signed salon session.
+        // Avoiding a separate session request removes one full network round-trip.
+        const response = await fetch("/api/schnellbestellung/catalog", {
+          credentials: "same-origin",
+          cache: "default",
+        });
+        const data = (await response.json().catch(() => ({}))) as CatalogResponse;
 
-      if (!sessionData.ok) {
-        router.replace("/schnellbestellung/enter");
-        return;
-      }
+        if (cancelled) return;
 
-      const response = await fetch("/api/schnellbestellung/catalog", {
-        cache: "no-store",
-      });
-      const data = (await response.json().catch(() => ({}))) as CatalogResponse;
+        if (response.ok && Array.isArray(data.products)) {
+          const nextCategories = Array.isArray(data.categories)
+            ? data.categories
+            : [];
+          const nextProducts = data.products;
 
-      if (response.ok && Array.isArray(data.products)) {
-        setProducts(data.products);
-        setCategories(Array.isArray(data.categories) ? data.categories : []);
-        setCategory(data.categories?.[0]?.key || data.products[0]?.category || "");
-      } else {
+          setProducts(nextProducts);
+          setCategories(nextCategories);
+          setCategory((current) =>
+            nextCategories.some((item) => item.key === current)
+              ? current
+              : nextCategories[0]?.key || nextProducts[0]?.category || "",
+          );
+          setError("");
+          writeCachedCatalog(nextProducts, nextCategories);
+          return;
+        }
+
+        if (response.status === 401) {
+          setError(
+            "Ihre Schnellbestellung-Sitzung ist abgelaufen. Bitte scannen Sie den QR-Code erneut.",
+          );
+          return;
+        }
+
         setError("Die Speisekarte ist gerade nicht verfügbar.");
+      } catch {
+        if (!cancelled && !cached?.products.length) {
+          setError("Die Speisekarte ist gerade nicht verfügbar.");
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     })();
-  }, [router]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     localStorage.setItem("bb_schnell_cart", JSON.stringify(cart));
@@ -308,7 +394,30 @@ export default function SchnellClient() {
       </header>
 
       <section className="mx-auto grid max-w-3xl grid-cols-2 gap-3 p-3">
-        {visibleProducts.map((product) => (
+        {loading && products.length === 0
+          ? Array.from({ length: 6 }, (_, index) => (
+              <div
+                key={`catalog-skeleton-${index}`}
+                className="overflow-hidden rounded-2xl border border-white/10 bg-white/5"
+                aria-hidden="true"
+              >
+                <div className="aspect-[4/3] animate-pulse bg-white/5" />
+                <div className="space-y-2 p-3">
+                  <div className="h-4 w-3/4 animate-pulse rounded bg-white/10" />
+                  <div className="h-3 w-full animate-pulse rounded bg-white/10" />
+                  <div className="h-5 w-1/3 animate-pulse rounded bg-white/10" />
+                </div>
+              </div>
+            ))
+          : null}
+
+        {!loading && category && visibleProducts.length === 0 ? (
+          <div className="col-span-2 rounded-2xl border border-white/10 bg-white/5 p-6 text-center text-stone-300">
+            In dieser Kategorie sind momentan keine Artikel verfügbar.
+          </div>
+        ) : null}
+
+        {visibleProducts.map((product, index) => (
           <button
             key={product.id}
             type="button"
@@ -325,7 +434,9 @@ export default function SchnellClient() {
               {product.imageUrl ? (
                 <img
                   src={product.imageUrl}
-                  loading="lazy"
+                  loading={index < 4 ? "eager" : "lazy"}
+                  decoding="async"
+                  fetchPriority={index < 2 ? "high" : "auto"}
                   className="h-full w-full object-contain"
                   alt={product.name}
                 />

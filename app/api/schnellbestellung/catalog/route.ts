@@ -1,16 +1,40 @@
 import { NextResponse } from "next/server";
-import { prisma, getTenantId } from "@/lib/db";
 import {
   getSchnellCampaignPrice,
   getSchnellSettings,
-  isComplimentaryTableSauce,
-  normalizeSchnellCategory,
+  loadSchnellCatalogProducts,
   SCHNELL_CATEGORY_ORDER,
   SCHNELL_COOKIE,
   schnellCategoryLabel,
   verifySessionToken,
 } from "@/lib/server/schnellbestellung";
 import { readRequestCookie } from "@/lib/server/request-security";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+type CatalogPayload = {
+  ok: true;
+  source: "db";
+  products: Array<Record<string, unknown>>;
+  categories: Array<{ key: string; label: string }>;
+  settings: {
+    cashEnabled: boolean;
+    onlineEnabled: boolean;
+    splitEnabled: boolean;
+  };
+};
+
+let memoryCache:
+  | {
+      key: string;
+      expiresAt: number;
+      payload: CatalogPayload;
+    }
+  | null = null;
+
+const CATALOG_MEMORY_TTL_MS = 12_000;
 
 function normalizeExtras(value: unknown) {
   return Array.isArray(value)
@@ -77,6 +101,31 @@ function normalizeAllergens(value: unknown) {
   return { allergens: [] as string[], allergenHinweise: "" };
 }
 
+function settingsCacheKey(settings: Awaited<ReturnType<typeof getSchnellSettings>>) {
+  return JSON.stringify({
+    generation: settings.generation,
+    visibleCategories: settings.visibleCategories,
+    hiddenProductIds: settings.hiddenProductIds,
+    campaigns: settings.campaigns,
+    payments: [
+      settings.cashEnabled,
+      settings.onlineEnabled,
+      settings.splitEnabled,
+    ],
+  });
+}
+
+function cachedPayload(key: string) {
+  if (!memoryCache) return null;
+
+  if (memoryCache.expiresAt <= Date.now() || memoryCache.key !== key) {
+    memoryCache = null;
+    return null;
+  }
+
+  return memoryCache.payload;
+}
+
 export async function GET(req: Request) {
   const settings = await getSchnellSettings();
   const session = verifySessionToken(
@@ -87,45 +136,45 @@ export async function GET(req: Request) {
   if (!session) {
     return NextResponse.json(
       { ok: false, error: "session_required" },
-      { status: 401 },
+      {
+        status: 401,
+        headers: { "Cache-Control": "private, no-store" },
+      },
     );
   }
 
   if (!settings.enabled || settings.paused) {
     return NextResponse.json(
       { ok: false, error: "unavailable" },
-      { status: 503 },
+      {
+        status: 503,
+        headers: { "Cache-Control": "private, no-store" },
+      },
     );
   }
 
   try {
-    const tenantId = await getTenantId();
-    const rows = await prisma.product.findMany({
-      where: { tenantId, active: true },
-      orderBy: [{ order: "asc" }, { name: "asc" }],
-    });
+    const cacheKey = settingsCacheKey(settings);
+    const cached = cachedPayload(cacheKey);
+
+    if (cached) {
+      return NextResponse.json(
+        {
+          ...cached,
+          memoryCached: true,
+        },
+        {
+          headers: {
+            "Cache-Control": "private, max-age=10, stale-while-revalidate=30",
+          },
+        },
+      );
+    }
+
+    const rows = await loadSchnellCatalogProducts(settings);
 
     const products = rows
-      .filter((product) => {
-        const now = Date.now();
-        if (product.activeFrom && product.activeFrom.getTime() > now) return false;
-        if (product.activeTo && product.activeTo.getTime() < now) return false;
-        if (settings.hiddenProductIds.includes(product.id)) return false;
-        if (isComplimentaryTableSauce(product.category, product.name)) return false;
-
-        const normalizedCategory = normalizeSchnellCategory(product.category);
-        if (
-          settings.visibleCategories.length > 0 &&
-          !settings.visibleCategories.includes(product.category) &&
-          !settings.visibleCategories.includes(normalizedCategory)
-        ) {
-          return false;
-        }
-
-        return true;
-      })
       .map((product) => {
-        const category = normalizeSchnellCategory(product.category);
         const allergenData = normalizeAllergens(product.allergens);
         const campaignPrice = getSchnellCampaignPrice(
           {
@@ -142,9 +191,9 @@ export async function GET(req: Request) {
           name: product.name,
           description: product.description || "",
           imageUrl: product.imageUrl || "",
-          category,
-          categoryLabel: schnellCategoryLabel(category),
-          categoryOrder: SCHNELL_CATEGORY_ORDER.indexOf(category),
+          category: product.category,
+          categoryLabel: schnellCategoryLabel(product.category),
+          categoryOrder: SCHNELL_CATEGORY_ORDER.indexOf(product.category),
           price: campaignPrice.price,
           originalPrice: campaignPrice.originalPrice,
           campaignBadge: campaignPrice.badgeText,
@@ -152,6 +201,8 @@ export async function GET(req: Request) {
           extras: normalizeExtras(product.extrasJson),
           allergens: allergenData.allergens,
           allergenHinweise: allergenData.allergenHinweise,
+          sourceKind: product.sourceKind,
+          depositAmount: product.depositAmount || 0,
           active: true,
         };
       })
@@ -159,6 +210,7 @@ export async function GET(req: Request) {
         if (left.categoryOrder !== right.categoryOrder) {
           return left.categoryOrder - right.categoryOrder;
         }
+
         return left.name.localeCompare(right.name, "de");
       });
 
@@ -169,22 +221,33 @@ export async function GET(req: Request) {
       label: schnellCategoryLabel(category),
     }));
 
-    return NextResponse.json(
-      {
-        ok: true,
-        source: "db",
-        products,
-        categories,
-        settings: {
-          cashEnabled: settings.cashEnabled,
-          onlineEnabled: settings.onlineEnabled,
-          splitEnabled: settings.splitEnabled,
-        },
+    const payload: CatalogPayload = {
+      ok: true,
+      source: "db",
+      products,
+      categories,
+      settings: {
+        cashEnabled: settings.cashEnabled,
+        onlineEnabled: settings.onlineEnabled,
+        splitEnabled: settings.splitEnabled,
       },
-      { headers: { "Cache-Control": "no-store" } },
-    );
+    };
+
+    memoryCache = {
+      key: cacheKey,
+      expiresAt: Date.now() + CATALOG_MEMORY_TTL_MS,
+      payload,
+    };
+
+    return NextResponse.json(payload, {
+      headers: {
+        "Cache-Control": "private, max-age=10, stale-while-revalidate=30",
+        "Server-Timing": "catalog;desc=schnell",
+      },
+    });
   } catch (error) {
     console.error("[schnellbestellung/catalog] failed", error);
+
     return NextResponse.json(
       {
         ok: false,
@@ -193,7 +256,10 @@ export async function GET(req: Request) {
         products: [],
         categories: [],
       },
-      { status: 503 },
+      {
+        status: 503,
+        headers: { "Cache-Control": "private, no-store" },
+      },
     );
   }
 }

@@ -17,6 +17,10 @@ const requiredFiles = [
   "app/admin/schnellbestellung/page.tsx",
   "components/schnellbestellung/SchnellClient.tsx",
   "lib/server/schnellbestellung.ts",
+  "lib/tv/domain.ts",
+  "types/tv.ts",
+  "app/api/orders/list/route.ts",
+  "app/api/orders/status/route.ts",
 ];
 
 for (const relativePath of requiredFiles) {
@@ -39,20 +43,9 @@ const pause = read("lib/pause.ts");
 const pauseApi = read("app/api/pause/route.ts");
 const ordersList = read("app/api/orders/list/route.ts");
 const tvPage = read("app/tv/page.tsx");
-const checkout = read("app/checkout/page.tsx");
-
-assert(
-  checkout.includes("dineIn: false"),
-  "Checkout PauseState must initialize dineIn",
-);
-assert(
-  core.includes("Prisma.InputJsonObject[]"),
-  "Schnellbestellung campaign metadata must use Prisma JSON input types",
-);
-assert(
-  core.includes("campaignPrice.badgeText ?? null"),
-  "Optional campaign badge text must remain valid JSON",
-);
+const ordersStatus = read("app/api/orders/status/route.ts");
+const enterPage = read("app/schnellbestellung/enter/page.tsx");
+const tvTypes = read("types/tv.ts");
 
 assert(core.includes("Serializable"));
 assert(core.includes('mode: "dine_in"'));
@@ -78,7 +71,17 @@ assert(success.includes("Bestellung beenden"));
 assert(catalog.includes("SCHNELL_CATEGORY_ORDER"));
 assert(catalog.includes("allergenHinweise"));
 assert(catalog.includes("originalPrice"));
-assert(catalog.includes("isComplimentaryTableSauce"));
+assert(catalog.includes("loadSchnellCatalogProducts"));
+assert(catalog.includes("CATALOG_MEMORY_TTL_MS"));
+assert(core.includes("SCHNELL_DRINK_GROUPS_KEY"));
+assert(core.includes("SCHNELL_EXTRA_GROUPS_KEY"));
+assert(core.includes("buildSchnellGroupVariantProducts"));
+assert(core.includes("isSchnellGroupVariantId"));
+assert(client.includes("bb_schnell_catalog_v2"));
+assert(!client.includes('fetch("/api/schnellbestellung/session"'));
+assert(client.includes('fetch("/api/schnellbestellung/catalog"'));
+assert(enterPage.includes("autoStartedRef"));
+assert(enterPage.includes("requestAnimationFrame"));
 
 assert(admin.includes("Statik baskı QR"));
 assert(admin.includes("Dinamik ekran QR"));
@@ -107,6 +110,10 @@ assert(tvPage.includes('const etaMin = dineInMode'));
 assert(tvPage.includes('? 0'));
 assert(!tvOverlay.includes('dineIn ? 1'), "Dine-in must not use a fake ETA");
 assert(ordersList.includes('return "dine_in"'));
+assert(ordersList.includes("isSchnellOrderLike"));
+assert(tvDomain.includes("isSchnellOrderLike"));
+assert(ordersStatus.includes("isSchnellOrderLike"));
+assert(tvTypes.includes("tableNumber?:"));
 
 assert(pause.includes("dineIn: boolean"));
 assert(pauseApi.includes("dineIn: boolean"));

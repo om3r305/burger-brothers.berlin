@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
-import { prisma, getTenantId } from "@/lib/db";
 import {
   getSchnellSettings,
   invalidateSchnellSessions,
-  normalizeSchnellCategory,
+  loadSchnellCatalogProducts,
   rotateStaticSchnellQr,
   saveSchnellSettings,
   schnellCategoryLabel,
@@ -17,32 +16,21 @@ export async function GET(req: Request) {
   const auth = await requireSessionRole(req, "admin");
   if (auth) return auth;
 
-  const tenantId = await getTenantId();
-  const products = await prisma.product.findMany({
-    where: { tenantId, active: true },
-    orderBy: [{ category: "asc" }, { order: "asc" }, { name: "asc" }],
-    select: {
-      id: true,
-      name: true,
-      category: true,
-      price: true,
-    },
-  });
+  const settings = await getSchnellSettings({ includeTvPause: false });
+  const products = await loadSchnellCatalogProducts(settings);
 
   return NextResponse.json(
     {
       ok: true,
-      settings: await getSchnellSettings({ includeTvPause: false }),
-      catalog: products.map((product) => {
-        const category = normalizeSchnellCategory(product.category);
-        return {
-          id: product.id,
-          name: product.name,
-          category,
-          categoryLabel: schnellCategoryLabel(category),
-          price: Number(product.price),
-        };
-      }),
+      settings,
+      catalog: products.map((product) => ({
+        id: product.id,
+        name: product.name,
+        category: product.category,
+        categoryLabel: schnellCategoryLabel(product.category),
+        price: Number(product.price),
+        sourceKind: product.sourceKind,
+      })),
     },
     {
       headers: {
