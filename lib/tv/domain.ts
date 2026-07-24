@@ -51,6 +51,16 @@ export const TV_SOUND_SOURCES: Record<TvSoundKind, string[]> = {
     "/sounds/pickup.m3u",
     "/sounds/pickup",
   ],
+  // A dedicated in-store sound can be added later without changing the hook.
+  // Until then, dine-in orders safely reuse the existing pickup sound.
+  dine_in: [
+    "/sounds/pickup.mp3",
+    "/sounds/pickup.wav",
+    "/sounds/pickup.m4a",
+    "/sounds/pickup.ogg",
+    "/sounds/pickup.m3u",
+    "/sounds/pickup",
+  ],
 };
 
 /* ───────────────── UI classes ───────────────── */
@@ -694,6 +704,7 @@ export function isSoundCandidateOrder(order: StoredOrder) {
 }
 
 export function getTvSoundKind(order: StoredOrder): TvSoundKind {
+  if (order.mode === "dine_in") return "dine_in";
   return order.mode === "pickup" ? "pickup" : "delivery";
 }
 
@@ -708,6 +719,7 @@ export function getTvSoundErrorMessage(error: unknown) {
 }
 
 export function getTvSoundTitle(kind: TvSoundKind) {
+  if (kind === "dine_in") return "Vor Ort";
   return kind === "delivery" ? "Lieferung" : "Abholung";
 }
 

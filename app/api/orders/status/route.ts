@@ -1038,6 +1038,10 @@ async function handleStatusUpdate(req: Request) {
       );
     }
 
+    if ((row as any)?.mode === "dine_in" && requestedStatus === "out_for_delivery") {
+      return securityJson({ ok: false, error: "dine_in_cannot_be_out_for_delivery" }, 409);
+    }
+
     const metaObj = ensureObj((row as any)?.meta);
     const currentStatus = normalizeStatus(metaObj?.statusManual ?? (row as any)?.status) || "new";
     let effectiveBody: any = {

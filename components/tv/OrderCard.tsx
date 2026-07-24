@@ -34,6 +34,7 @@ function minuteClass(leftMin: number, plannedFuture: boolean, isFinal: boolean) 
 }
 
 function modeChipClass(mode: StoredOrder["mode"]) {
+  if (mode === "dine_in") return "border-emerald-400/60 bg-emerald-500/15 text-emerald-200";
   return mode === "pickup"
     ? "border-cyan-400/60 bg-cyan-500/15 text-cyan-200"
     : "border-orange-400/60 bg-orange-500/15 text-orange-200";
@@ -108,7 +109,7 @@ export function OrderCard({
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <span className={`${chip} ${modeChipClass(order.mode)}`}>
-            {order.mode === "pickup" ? "Abholung" : "Lieferung"}
+            {order.mode === "dine_in" ? "VOR ORT" : order.mode === "pickup" ? "Abholung" : "Lieferung"}
           </span>
 
           {plannedFuture && (
@@ -203,6 +204,8 @@ export function OrderCard({
         </div>
       ) : null}
 
+      {order.mode === "dine_in" ? <div className="mt-4 text-center text-7xl font-black text-amber-300">{Number(order.meta?.customerNumber || 0) || "–"}</div> : null}
+
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <span className={`${chip} ${paymentBadge.className}`}>
           <span className="mr-1" aria-hidden="true">
@@ -213,7 +216,7 @@ export function OrderCard({
       </div>
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
-        {order.mode === "pickup" ? (
+        {order.mode === "pickup" || order.mode === "dine_in" ? (
           <>
             <button
               className={clsx(
@@ -237,7 +240,7 @@ export function OrderCard({
               title={lockedTitle}
               onClick={() => !actionDisabled && actions.changeStatus("ready")}
             >
-              Abholbereit
+              Fertig
             </button>
             <button
               className={clsx(
@@ -249,7 +252,7 @@ export function OrderCard({
               title={lockedTitle}
               onClick={() => !actionDisabled && actions.changeStatus("done")}
             >
-              Abgeschlossen
+              Ausgegeben
             </button>
           </>
         ) : (
@@ -290,7 +293,7 @@ export function OrderCard({
               title={lockedTitle}
               onClick={() => !actionDisabled && actions.changeStatus("done")}
             >
-              Abgeschlossen
+              Ausgegeben
             </button>
           </>
         )}

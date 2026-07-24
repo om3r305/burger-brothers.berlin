@@ -6,8 +6,8 @@ export type OrderStatus =
   | "done"
   | "cancelled";
 
-export type OrderMode = "pickup" | "delivery";
-export type TvSoundKind = "delivery" | "pickup";
+export type OrderMode = "pickup" | "delivery" | "dine_in";
+export type TvSoundKind = "delivery" | "pickup" | "dine_in";
 export type TvView = "incoming" | "onroad" | "finished";
 export type LeftPanel = "overview" | "articles";
 
@@ -242,6 +242,8 @@ export type OrderMeta = {
   planned?: string;
   confirmedPlanned?: string;
   acceptedPlanned?: string;
+  customerNumber?: number;
+  businessDate?: string;
 };
 
 export type StoredOrder = {

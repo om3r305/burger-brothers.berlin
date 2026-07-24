@@ -17,9 +17,11 @@ import {
 export function useTvSound() {
   const deliveryAudioRef = useRef<HTMLAudioElement | null>(null);
   const pickupAudioRef = useRef<HTMLAudioElement | null>(null);
+  const dineInAudioRef = useRef<HTMLAudioElement | null>(null);
   const sourceIndexRef = useRef<Record<TvSoundKind, number>>({
     delivery: 0,
     pickup: 0,
+    dine_in: 0,
   });
   const knownOrdersRef = useRef<Set<string> | null>(null);
   const enabledRef = useRef(true);
@@ -31,7 +33,9 @@ export function useTvSound() {
   const [error, setError] = useState("");
 
   const getAudioRef = useCallback((kind: TvSoundKind) => {
-    return kind === "delivery" ? deliveryAudioRef : pickupAudioRef;
+    if (kind === "delivery") return deliveryAudioRef;
+    if (kind === "dine_in") return dineInAudioRef;
+    return pickupAudioRef;
   }, []);
 
   const getAudioForKind = useCallback(
@@ -73,7 +77,7 @@ export function useTvSound() {
       setVolume(normalized);
       saveTvSoundVolume(normalized);
 
-      for (const kind of ["delivery", "pickup"] as const) {
+      for (const kind of ["delivery", "pickup", "dine_in"] as const) {
         const audio = getAudioRef(kind).current;
         if (audio) audio.volume = audioVolume;
       }
@@ -133,7 +137,7 @@ export function useTvSound() {
   );
 
   const stop = useCallback(() => {
-    for (const kind of ["delivery", "pickup"] as const) {
+    for (const kind of ["delivery", "pickup", "dine_in"] as const) {
       const audio = getAudioRef(kind).current;
       if (!audio) continue;
 
@@ -184,21 +188,13 @@ export function useTvSound() {
 
       if (!newOrders.length || !enabledRef.current) return;
 
-      const hasDelivery = newOrders.some(
-        (order) => getTvSoundKind(order) === "delivery",
-      );
-      const hasPickup = newOrders.some(
-        (order) => getTvSoundKind(order) === "pickup",
+      const kinds = (["delivery", "pickup", "dine_in"] as const).filter(
+        (kind) => newOrders.some((order) => getTvSoundKind(order) === kind),
       );
 
-      if (hasDelivery) void play("delivery");
-
-      if (hasPickup) {
-        window.setTimeout(
-          () => void play("pickup"),
-          hasDelivery ? 900 : 0,
-        );
-      }
+      kinds.forEach((kind, index) => {
+        window.setTimeout(() => void play(kind), index * 900);
+      });
 
       console.info(
         `TV order sound: ${newOrders.map(getOrderSoundLabel).join(", ")}`,
@@ -219,7 +215,7 @@ export function useTvSound() {
     saveTvSoundEnabled(defaultEnabled);
     saveTvSoundVolume(defaultVolume);
 
-    for (const kind of ["delivery", "pickup"] as const) {
+    for (const kind of ["delivery", "pickup", "dine_in"] as const) {
       try {
         getAudioForKind(kind)?.load();
       } catch {
@@ -230,7 +226,11 @@ export function useTvSound() {
 
   useEffect(() => {
     return () => {
-      for (const audio of [deliveryAudioRef.current, pickupAudioRef.current]) {
+      for (const audio of [
+        deliveryAudioRef.current,
+        pickupAudioRef.current,
+        dineInAudioRef.current,
+      ]) {
         try {
           audio?.pause();
         } catch {

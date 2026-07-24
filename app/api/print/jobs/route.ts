@@ -275,6 +275,8 @@ function serializeJob(row: any, jobId: string) {
       surcharges,
       total,
     },
+    customerNumber: Number(meta?.customerNumber || 0) || null,
+    businessDate: meta?.businessDate || null,
     payment: {
       method: meta?.paymentMethod ?? meta?.payment?.method ?? null,
       status: meta?.paymentStatus ?? meta?.payment?.status ?? null,

@@ -1,0 +1,1 @@
+import SchnellClient from "@/components/schnellbestellung/SchnellClient";export default function Page(){return <SchnellClient/>}
