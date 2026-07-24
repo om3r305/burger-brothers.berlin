@@ -1560,3 +1560,226 @@
     animation: none !important;
   }
 }
+
+
+.premiumScene,
+.bestsellerScene {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: max(8cqh, 54px) max(7cqw, 34px) max(10cqh, 70px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(10px, 2.1cqh, 28px);
+  overflow: hidden;
+  text-align: center;
+}
+.premiumScene h1,
+.bestsellerScene h1,
+.reviewQrScene h1 {
+  max-width: min(92cqw, 15ch);
+  margin: 0;
+  font-size: clamp(34px, 8cqw, 118px);
+  line-height: .9;
+  font-weight: 1000;
+  letter-spacing: -.045em;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+  text-shadow: 0 8px 35px #000;
+}
+.premiumScene p,
+.reviewQrScene p {
+  max-width: min(88cqw, 1050px);
+  margin: 0;
+  font-size: clamp(16px, 2.5cqw, 40px);
+  line-height: 1.2;
+  text-wrap: balance;
+}
+.premiumEyebrow {
+  max-width: 90cqw;
+  color: var(--showcase-accent);
+  font-size: clamp(11px, 1.4cqw, 23px);
+  font-weight: 1000;
+  letter-spacing: .22em;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+  text-transform: uppercase;
+}
+.weatherEmoji,.specialEmoji {
+  font-size: clamp(72px, 18cqw, 230px);
+  line-height: 1;
+  filter: drop-shadow(0 20px 35px #0008);
+}
+.weatherLabel {
+  margin-top: -.5cqh;
+  color: #fff5e9;
+  font-size: clamp(28px, 6cqw, 86px);
+  font-weight: 950;
+  line-height: .95;
+}
+.weatherScene h1 { font-size: clamp(64px, 15cqw, 190px); }
+.reviewScene {
+  position: absolute;
+  inset: 0;
+  padding: max(8cqh, 48px) max(6cqw, 30px) max(10cqh, 70px);
+  display: grid;
+  grid-template-columns: minmax(0,1.08fr) minmax(300px,.92fr);
+  gap: 3cqw;
+  align-items: center;
+  overflow: hidden;
+}
+.reviewPhoto { width:100%; height:min(70cqh,780px); object-fit:cover; border-radius:clamp(22px,3cqw,42px); box-shadow:0 25px 80px #000; }
+.reviewCard { min-width:0; padding:clamp(24px,4cqw,68px); border-radius:clamp(22px,3cqw,38px); background:linear-gradient(145deg,#fff,#eee); color:#17100b; text-align:left; box-shadow:0 30px 90px #0009; }
+.reviewStars { color:#f5a623; font-size:clamp(26px,4cqw,64px); letter-spacing:.08em; white-space:nowrap; }
+.reviewCard blockquote { margin:18px 0; font-size:clamp(24px,3.2cqw,54px); font-weight:900; line-height:1.08; overflow-wrap:anywhere; }
+.reviewCard strong { display:block; font-size:clamp(18px,2cqw,32px); }
+.reviewCard span { color:#666; }
+.reviewQrScene {
+  position:absolute;
+  inset:0;
+  padding:max(8cqh,48px) max(7cqw,34px) max(10cqh,70px);
+  display:grid;
+  grid-template-columns:minmax(0,1fr) minmax(260px,36cqw);
+  gap:5cqw;
+  align-items:center;
+  overflow:hidden;
+  text-align:left;
+}
+.reviewQrCopy { min-width:0; display:flex; flex-direction:column; gap:2cqh; }
+.reviewQrScene .qrCard { width:min(100%,36cqw); justify-self:center; }
+.countdownScene h1 { max-width: 12ch; }
+.countdown { width:100%; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:clamp(8px,2cqw,28px); justify-content:center; }
+.countdown b { min-width:0; padding:clamp(14px,3cqw,38px) clamp(8px,2cqw,28px); font-size:clamp(40px,9cqw,120px); line-height:1; background:#0d0907cc; border:2px solid color-mix(in srgb,var(--showcase-accent) 65%,transparent); border-radius:clamp(16px,2.5cqw,28px); box-shadow:0 20px 55px #000; }
+.countdown small { display:block; margin-top:.6em; color:var(--showcase-accent); font-size:clamp(9px,1.25cqw,19px); letter-spacing:.15em; }
+.bestsellerScene h1 { max-width:16ch; }
+.bestsellerGrid { width:100%; max-height:60cqh; display:grid; grid-template-columns:repeat(auto-fit,minmax(min(190px,28cqw),1fr)); gap:clamp(10px,1.6cqw,22px); overflow:hidden; }
+.bestsellerCard { position:relative; min-width:0; padding:clamp(10px,1.5cqw,18px); border-radius:clamp(16px,2cqw,28px); background:#100b08e8; border:1px solid #ffffff22; display:grid; gap:8px; align-content:start; }
+.bestsellerCard img { width:100%; min-height:0; aspect-ratio:1.25; object-fit:contain; }
+.bestsellerCard span { position:absolute; top:10px; left:10px; padding:6px 12px; border-radius:999px; background:var(--showcase-accent); color:#000; font-size:clamp(16px,2cqw,27px); font-weight:1000; }
+.bestsellerCard strong { font-size:clamp(17px,2cqw,31px); line-height:1.05; overflow-wrap:anywhere; }
+.bestsellerCard em { color:var(--showcase-accent); font-size:clamp(17px,1.7cqw,26px); font-style:normal; font-weight:900; }
+.premiumEmpty { padding:1em; border:1px solid #ffffff22; border-radius:20px; background:#0008; }
+.specialScene { background-size:cover; }
+.special_love{background:radial-gradient(circle at 50% 20%,#ff6b9d66,transparent 42%)}
+.special_mother{background:radial-gradient(circle at 50% 20%,#ffbf6966,transparent 44%)}
+.special_celebration{background:radial-gradient(circle at 50% 20%,#9b5cff66,transparent 44%)}
+.special_winter{background:radial-gradient(circle at 50% 20%,#75c8ff66,transparent 44%)}
+
+@container (max-aspect-ratio: 4/5) {
+  .premiumScene,.bestsellerScene { padding:8cqh 7cqw 11cqh; gap:1.8cqh; }
+  .premiumScene h1,.bestsellerScene h1,.reviewQrScene h1 { max-width:88cqw; font-size:clamp(30px,11cqw,84px); }
+  .premiumScene p,.reviewQrScene p { font-size:clamp(15px,4.5cqw,30px); }
+  .premiumEyebrow { font-size:clamp(10px,3.2cqw,18px); letter-spacing:.16em; }
+  .weatherEmoji,.specialEmoji { font-size:clamp(72px,28cqw,180px); }
+  .weatherScene h1 { font-size:clamp(66px,24cqw,150px); }
+  .weatherLabel { font-size:clamp(28px,10cqw,64px); }
+  .reviewScene,.reviewQrScene { grid-template-columns:1fr; align-content:center; padding:8cqh 7cqw 11cqh; }
+  .reviewPhoto { height:36cqh; }
+  .reviewCard { padding:6cqw; }
+  .reviewQrScene .qrCard { width:min(58cqw,320px); }
+  .countdown { gap:2cqw; }
+  .countdown b { padding:4cqw 2cqw; font-size:clamp(34px,14cqw,80px); }
+  .countdown small { font-size:clamp(8px,2.4cqw,14px); letter-spacing:.08em; }
+  .bestsellerGrid { max-height:58cqh; grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .bestsellerCard:nth-child(n+5) { display:none; }
+}
+
+@container (min-aspect-ratio: 2/1) {
+  .premiumScene,.bestsellerScene { padding:7cqh 6cqw 10cqh; gap:1.5cqh; }
+  .premiumScene h1,.bestsellerScene h1 { font-size:clamp(38px,6cqw,102px); }
+  .weatherEmoji,.specialEmoji { font-size:clamp(70px,12cqw,170px); }
+  .bestsellerGrid { grid-template-columns:repeat(5,minmax(0,1fr)); max-height:58cqh; }
+}
+
+.dataTimestamp {
+  margin-top: clamp(8px, 1.2vmin, 18px);
+  font-size: clamp(10px, 1.1vmin, 18px);
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  opacity: .6;
+}
+.specialLogo {
+  width: min(28vmin, 300px);
+  height: min(28vmin, 300px);
+  object-fit: contain;
+  filter: drop-shadow(0 20px 50px rgba(0,0,0,.45));
+}
+.special_halloween { background: radial-gradient(circle at 50% 20%, rgba(255,112,0,.34), transparent 38%), linear-gradient(145deg,#16051f,#020202 65%); }
+.special_christmas { background: radial-gradient(circle at 30% 20%, rgba(220,30,50,.38), transparent 38%), radial-gradient(circle at 75% 70%, rgba(20,150,80,.32), transparent 42%), #040706; }
+.special_new-year { background: radial-gradient(circle at 50% 25%, rgba(255,190,50,.35), transparent 42%), linear-gradient(145deg,#09051a,#000); }
+.special_easter { background: radial-gradient(circle at 30% 20%, rgba(255,170,210,.42), transparent 38%), radial-gradient(circle at 75% 70%, rgba(150,220,255,.30), transparent 42%), #120b18; }
+.special_germany { background: linear-gradient(155deg,#050505 0 34%,#6b0011 34% 67%,#8a6800 67%); }
+.special_berlin { background: radial-gradient(circle at 50% 20%, rgba(220,25,45,.35), transparent 42%), linear-gradient(145deg,#111,#000); }
+.special_father { background: radial-gradient(circle at 50% 15%, rgba(255,157,46,.28), transparent 42%), linear-gradient(145deg,#07131b,#000); }
+
+/* SHOWCASE_PREMIUM_STYLE_SYNC_V3_20260724
+   Keeps premium scenes readable even if container query units are unavailable. */
+.premiumScene,
+.bestsellerScene,
+.reviewScene,
+.reviewQrScene {
+  box-sizing: border-box;
+  min-width: 100%;
+  min-height: 100%;
+}
+
+@supports not (width: 1cqw) {
+  .premiumScene,
+  .bestsellerScene {
+    padding: 7vh 6vw 10vh;
+    gap: clamp(12px, 2vh, 30px);
+  }
+
+  .premiumScene h1,
+  .bestsellerScene h1,
+  .reviewQrScene h1 {
+    max-width: min(92vw, 15ch);
+    font-size: clamp(42px, 8vw, 118px);
+  }
+
+  .premiumScene p,
+  .reviewQrScene p {
+    max-width: min(88vw, 1050px);
+    font-size: clamp(18px, 2.5vw, 40px);
+  }
+
+  .premiumEyebrow {
+    max-width: 90vw;
+    font-size: clamp(12px, 1.4vw, 23px);
+  }
+
+  .weatherEmoji,
+  .specialEmoji {
+    font-size: clamp(76px, 18vw, 230px);
+  }
+
+  .weatherScene h1 {
+    font-size: clamp(68px, 15vw, 190px);
+  }
+
+  .weatherLabel {
+    font-size: clamp(30px, 6vw, 86px);
+  }
+
+  .reviewScene {
+    padding: 7vh 6vw 10vh;
+    gap: 3vw;
+  }
+
+  .reviewQrScene {
+    padding: 7vh 7vw 10vh;
+    gap: 5vw;
+  }
+
+  .countdown {
+    gap: clamp(10px, 2vw, 28px);
+  }
+
+  .countdown b {
+    padding: clamp(16px, 3vw, 38px) clamp(10px, 2vw, 28px);
+    font-size: clamp(42px, 9vw, 120px);
+  }
+}
