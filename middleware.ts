@@ -79,6 +79,24 @@ export function apiAccess(path: string, methodRaw: string): Access {
   if (path === "/api/groups" && readOnly) return "public";
   if (path === "/api/pause" && readOnly) return "public";
   if (path === "/api/analytics/collect" && method === "POST") return "public";
+
+  // Schnellbestellung customer routes are public at the middleware layer,
+  // while each route applies the controls relevant to it: signed QR or
+  // session validation, trusted-origin checks, rate limits, canonical pricing
+  // and idempotency. The access-token endpoint intentionally remains protected
+  // for the in-store QR display.
+  if (
+    path === "/api/schnellbestellung/location/verify" &&
+    method === "POST"
+  ) {
+    return "public";
+  }
+  if (path === "/api/schnellbestellung/catalog" && readOnly) return "public";
+  if (path === "/api/schnellbestellung/session" && readOnly) return "public";
+  if (path === "/api/schnellbestellung/orders" && method === "POST") {
+    return "public";
+  }
+
   if (path === "/api/track/lookup" && (method === "GET" || method === "POST")) return "public";
   if (child(path, "/api/track/by-order") && readOnly) return "public";
   if (child(path, "/api/track") && readOnly) return "public";
