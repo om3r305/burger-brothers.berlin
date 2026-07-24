@@ -61,7 +61,7 @@ export function OrderDetailsModal({
         <div className="mb-3 flex items-center justify-between">
           <div id="tv-order-details-title" className="text-xl font-semibold">
             #{order.id} •{" "}
-            {order.mode === "pickup" ? "Abholung" : "Lieferung"}
+            {order.mode === "dine_in" ? "Schnellbestellung · VOR ORT" : order.mode === "pickup" ? "Abholung" : "Lieferung"}
           </div>
 
           <button

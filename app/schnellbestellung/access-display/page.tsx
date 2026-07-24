@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import QRCode from "react-qr-code";
 
 type DisplayStatus =
@@ -15,6 +15,7 @@ type DisplayStatus =
 type TokenResponse = {
   ok?: boolean;
   token?: string;
+  mode?: "static" | "dynamic";
   expiresIn?: number;
   issuedAt?: number;
   error?: string;
@@ -62,9 +63,22 @@ function isLocalHost(url: string) {
   }
 }
 
+function downloadBlob(blob: Blob, filename: string) {
+  const href = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = href;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(href);
+}
+
 export default function SchnellbestellungAccessDisplay() {
+  const qrWrapRef = useRef<HTMLDivElement | null>(null);
   const [status, setStatus] = useState<DisplayStatus>("loading");
   const [entryUrl, setEntryUrl] = useState("");
+  const [qrMode, setQrMode] = useState<"static" | "dynamic">("static");
   const [expiresAt, setExpiresAt] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [requestNo, setRequestNo] = useState(0);
@@ -75,11 +89,8 @@ export default function SchnellbestellungAccessDisplay() {
     try {
       const response = await fetch("/api/schnellbestellung/access-token", {
         cache: "no-store",
-        headers: {
-          Accept: "application/json",
-        },
+        headers: { Accept: "application/json" },
       });
-
       const data = (await response.json().catch(() => ({}))) as TokenResponse;
 
       if (!response.ok || data.ok !== true || typeof data.token !== "string") {
@@ -89,14 +100,16 @@ export default function SchnellbestellungAccessDisplay() {
         return;
       }
 
-      const seconds = Math.max(30, Number(data.expiresIn) || 600);
+      const mode = data.mode === "dynamic" ? "dynamic" : "static";
       const issuedAt = Number(data.issuedAt) || Date.now();
+      const seconds = Math.max(30, Number(data.expiresIn) || 600);
       const url = `${window.location.origin}/schnellbestellung/enter?t=${encodeURIComponent(
         data.token,
       )}`;
 
+      setQrMode(mode);
       setEntryUrl(url);
-      setExpiresAt(issuedAt + seconds * 1000);
+      setExpiresAt(mode === "dynamic" ? issuedAt + seconds * 1000 : null);
       setStatus("ready");
     } catch {
       setEntryUrl("");
@@ -109,11 +122,11 @@ export default function SchnellbestellungAccessDisplay() {
     void loadToken(true);
 
     const refreshTimer = window.setInterval(() => {
-      void loadToken(false);
+      if (qrMode === "dynamic") void loadToken(false);
     }, 60_000);
 
     return () => window.clearInterval(refreshTimer);
-  }, [loadToken, requestNo]);
+  }, [loadToken, qrMode, requestNo]);
 
   useEffect(() => {
     const clock = window.setInterval(() => setNow(Date.now()), 1_000);
@@ -126,10 +139,54 @@ export default function SchnellbestellungAccessDisplay() {
   }, [expiresAt, now]);
 
   useEffect(() => {
-    if (status === "ready" && expiresAt && remainingSeconds <= 15) {
+    if (
+      qrMode === "dynamic" &&
+      status === "ready" &&
+      expiresAt &&
+      remainingSeconds <= 15
+    ) {
       void loadToken(false);
     }
-  }, [expiresAt, loadToken, remainingSeconds, status]);
+  }, [expiresAt, loadToken, qrMode, remainingSeconds, status]);
+
+  const downloadSvg = useCallback(() => {
+    const svg = qrWrapRef.current?.querySelector("svg");
+    if (!svg) return;
+
+    const serialized = new XMLSerializer().serializeToString(svg);
+    downloadBlob(
+      new Blob([serialized], { type: "image/svg+xml;charset=utf-8" }),
+      "burger-brothers-schnellbestellung-qr.svg",
+    );
+  }, []);
+
+  const downloadPng = useCallback(() => {
+    const svg = qrWrapRef.current?.querySelector("svg");
+    if (!svg) return;
+
+    const size = 1800;
+    const serialized = new XMLSerializer().serializeToString(svg);
+    const image = new Image();
+    const blob = new Blob([serialized], { type: "image/svg+xml;charset=utf-8" });
+    const objectUrl = URL.createObjectURL(blob);
+
+    image.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = size;
+      canvas.height = size;
+      const context = canvas.getContext("2d");
+      if (!context) return;
+      context.fillStyle = "#ffffff";
+      context.fillRect(0, 0, size, size);
+      context.drawImage(image, 0, 0, size, size);
+      canvas.toBlob((png) => {
+        if (png) downloadBlob(png, "burger-brothers-schnellbestellung-qr.png");
+      }, "image/png");
+      URL.revokeObjectURL(objectUrl);
+    };
+
+    image.src = objectUrl;
+  }, []);
 
   const localWarning = status === "ready" && isLocalHost(entryUrl);
   const statusCopy =
@@ -151,7 +208,10 @@ export default function SchnellbestellungAccessDisplay() {
           QR-Code scannen und direkt bestellen
         </p>
 
-        <div className="mx-auto mt-8 w-fit rounded-3xl bg-white p-5 shadow-2xl sm:mt-10 sm:p-8">
+        <div
+          ref={qrWrapRef}
+          className="mx-auto mt-8 w-fit rounded-3xl bg-white p-5 shadow-2xl sm:mt-10 sm:p-8"
+        >
           {status === "ready" && entryUrl ? (
             <QRCode
               value={entryUrl}
@@ -172,9 +232,7 @@ export default function SchnellbestellungAccessDisplay() {
           ) : (
             <div className="grid h-[min(68vw,420px)] w-[min(68vw,420px)] place-items-center bg-stone-100 p-6 text-stone-900">
               <div>
-                <div className="text-5xl" aria-hidden="true">
-                  ⚠️
-                </div>
+                <div className="text-5xl" aria-hidden="true">⚠️</div>
                 <h2 className="mt-4 text-xl font-black sm:text-2xl">
                   {statusCopy?.title}
                 </h2>
@@ -194,10 +252,37 @@ export default function SchnellbestellungAccessDisplay() {
         </div>
 
         {status === "ready" ? (
-          <p className="mt-4 text-sm text-stone-400 sm:text-base">
-            QR-Code wird automatisch erneuert
-            {remainingSeconds > 0 ? ` · noch ${remainingSeconds} Sek.` : ""}
-          </p>
+          <>
+            <p className="mt-4 text-sm text-stone-400 sm:text-base">
+              {qrMode === "static"
+                ? "Statischer Druck-QR · Standortprüfung bleibt aktiv"
+                : `Dynamischer QR-Code${remainingSeconds > 0 ? ` · noch ${remainingSeconds} Sek.` : ""}`}
+            </p>
+
+            <div className="mt-4 flex flex-wrap justify-center gap-3 print:hidden">
+              <button
+                type="button"
+                onClick={downloadPng}
+                className="rounded-xl bg-amber-400 px-5 py-3 font-black text-black"
+              >
+                PNG herunterladen
+              </button>
+              <button
+                type="button"
+                onClick={downloadSvg}
+                className="rounded-xl border border-white/20 bg-white/10 px-5 py-3 font-bold"
+              >
+                SVG herunterladen
+              </button>
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="rounded-xl border border-white/20 bg-white/10 px-5 py-3 font-bold"
+              >
+                Drucken
+              </button>
+            </div>
+          </>
         ) : null}
 
         {localWarning ? (

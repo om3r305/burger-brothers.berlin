@@ -315,14 +315,19 @@ export default function TVPage() {
 
   const handleAcceptAndPrint = useCallback(
     async (order: StoredOrder) => {
-      const plannedTime = normalizePlannedHHMM(
-        acceptPlannedDrafts[order.id] || order.planned,
-      );
-      const plannedMode = Boolean(plannedTime);
-      const etaMin = clampAcceptEta(
-        acceptEtaDrafts[order.id] ??
-          roundEtaStep(etaFor(order, avgPickup, avgDelivery)),
-      );
+      const dineInMode = order.mode === "dine_in";
+      const plannedTime = dineInMode
+        ? ""
+        : normalizePlannedHHMM(
+            acceptPlannedDrafts[order.id] || order.planned,
+          );
+      const plannedMode = !dineInMode && Boolean(plannedTime);
+      const etaMin = dineInMode
+        ? 0
+        : clampAcceptEta(
+            acceptEtaDrafts[order.id] ??
+              roundEtaStep(etaFor(order, avgPickup, avgDelivery)),
+          );
 
       setAcceptBusyId(order.id);
       sound.stop();
@@ -617,7 +622,7 @@ export default function TVPage() {
         onLogout={handleLogout}
       />
 
-      {pause.delivery || pause.pickup ? (
+      {pause.delivery || pause.pickup || pause.dineIn ? (
         <div className="rounded-xl border border-amber-400/40 bg-amber-500/15 p-3 text-sm text-amber-100">
           {pause.delivery ? (
             <div>
@@ -630,6 +635,12 @@ export default function TVPage() {
             <div>
               Aufgrund hoher Auslastung ist <b>Abholung</b>{" "}
               vorübergehend pausiert.
+            </div>
+          ) : null}
+
+          {pause.dineIn ? (
+            <div>
+              <b>Schnellbestellung</b> ist vorübergehend pausiert.
             </div>
           ) : null}
         </div>
@@ -760,16 +771,21 @@ export default function TVPage() {
         productError={products.error}
         sound={{
           enabled: sound.enabled,
+          dineInEnabled: sound.dineInEnabled,
           unlocked: sound.unlocked,
           volume: sound.volume,
           error: sound.error,
           onToggle: sound.toggle,
+          onToggleDineIn: sound.toggleDineIn,
           onVolume: sound.setVolume,
           onTestDelivery: async () => {
             await sound.play("delivery", true);
           },
           onTestPickup: async () => {
             await sound.play("pickup", true);
+          },
+          onTestDineIn: async () => {
+            await sound.play("dine_in", true);
           },
         }}
         onClose={() => setLeftOpen(false)}

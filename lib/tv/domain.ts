@@ -34,6 +34,7 @@ export const DONE_LOCK_AFTER_MS = 3 * 60 * 1000;
 
 export const TV_SOUND_ENABLED_KEY = "bb_tv_sound_enabled_v1";
 export const TV_SOUND_VOLUME_KEY = "bb_tv_sound_volume_v1";
+export const TV_DINE_IN_SOUND_ENABLED_KEY = "bb_tv_dine_in_sound_enabled_v1";
 export const TV_SOUND_SOURCES: Record<TvSoundKind, string[]> = {
   delivery: [
     "/sounds/delivery.mp3",
@@ -51,15 +52,16 @@ export const TV_SOUND_SOURCES: Record<TvSoundKind, string[]> = {
     "/sounds/pickup.m3u",
     "/sounds/pickup",
   ],
-  // A dedicated in-store sound can be added later without changing the hook.
-  // Until then, dine-in orders safely reuse the existing pickup sound.
+  // Dedicated Schnellbestellung sound first; pickup remains a safe fallback.
   dine_in: [
+    "/sounds/dine-in.wav",
+    "/sounds/dine-in.mp3",
+    "/sounds/dine-in.m4a",
+    "/sounds/dine-in.ogg",
     "/sounds/pickup.mp3",
     "/sounds/pickup.wav",
     "/sounds/pickup.m4a",
     "/sounds/pickup.ogg",
-    "/sounds/pickup.m3u",
-    "/sounds/pickup",
   ],
 };
 
@@ -354,6 +356,17 @@ export function normalizeStatus(value: unknown): OrderStatus {
 
 export function normalizeMode(value: unknown): OrderMode {
   const text = String(value || "").toLowerCase().trim();
+
+  if (
+    text === "dine_in" ||
+    text === "dine-in" ||
+    text === "vor_ort" ||
+    text === "vor ort" ||
+    text === "schnellbestellung" ||
+    text === "salon"
+  ) {
+    return "dine_in";
+  }
 
   if (text === "pickup" || text === "abholung" || text === "apollo" || text === "apollon") {
     return "pickup";
@@ -688,6 +701,25 @@ export function saveTvSoundEnabled(enabled: boolean) {
 
   try {
     localStorage.setItem(TV_SOUND_ENABLED_KEY, enabled ? "1" : "0");
+  } catch {}
+}
+
+export function loadTvDineInSoundEnabled() {
+  if (typeof window === "undefined") return true;
+
+  try {
+    const stored = localStorage.getItem(TV_DINE_IN_SOUND_ENABLED_KEY);
+    return stored == null ? true : stored !== "0";
+  } catch {
+    return true;
+  }
+}
+
+export function saveTvDineInSoundEnabled(enabled: boolean) {
+  if (typeof window === "undefined") return;
+
+  try {
+    localStorage.setItem(TV_DINE_IN_SOUND_ENABLED_KEY, enabled ? "1" : "0");
   } catch {}
 }
 
@@ -1585,6 +1617,8 @@ export function plannedStartMs(order: StoredOrder, tz: string) {
 }
 
 export function etaFor(order: StoredOrder, avgPickup: number, avgDelivery: number) {
+  if (order.mode === "dine_in") return 1;
+
   const meta = cleanObj(order?.meta);
   const base =
     numOrNull(order.etaMin ?? meta?.etaMin ?? meta?.eta) ??
@@ -1621,6 +1655,8 @@ export function sortLeftMinutes(
   nowMs: number,
   etaOverride?: number | null,
 ) {
+  if (order.mode === "dine_in") return 0;
+
   const planned = plannedStartMs(order, tz);
   const effectiveEta = etaOverride ?? etaFor(order, avgPickup, avgDelivery);
 
@@ -1896,10 +1932,13 @@ export function isPlannedOrder(order: StoredOrder) {
 }
 
 export function plannedAcceptLabel(order: StoredOrder) {
+  if (order.mode === "dine_in") return "Schnellbestellung";
   return order.mode === "pickup" ? "Geplante Abholzeit" : "Geplante Lieferzeit";
 }
 
 export function acceptanceTitle(order: StoredOrder) {
+  if (order.mode === "dine_in") return "Schnellbestellung";
+
   const planned = normalizePlannedHHMM(order.planned);
   const plannedLabel = planned ? `Geplant ${planned}` : "";
 
@@ -1911,6 +1950,11 @@ export function acceptanceTitle(order: StoredOrder) {
 }
 
 export function acceptanceSubtitle(order: StoredOrder) {
+  if (order.mode === "dine_in") {
+    const customerNumber = Number(order.meta?.customerNumber || 0);
+    return customerNumber ? `Nummer ${customerNumber}` : "Bestellung vor Ort";
+  }
+
   if (order.mode === "pickup") {
     const name = String(order.customer?.name || "").trim();
     const phone = String(order.customer?.phone || "").trim();
@@ -1922,6 +1966,8 @@ export function acceptanceSubtitle(order: StoredOrder) {
 }
 
 export function acceptanceZip(order: StoredOrder) {
+  if (order.mode === "dine_in") return "";
+
   return String(
     order.plz ||
       order.customer?.plz ||

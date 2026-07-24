@@ -8,75 +8,99 @@ import {
 
 export function TvSoundControls({
   enabled,
+  dineInEnabled,
   unlocked,
   volume,
   error,
   onToggle,
+  onToggleDineIn,
   onVolume,
   onTestDelivery,
   onTestPickup,
+  onTestDineIn,
 }: {
   enabled: boolean;
+  dineInEnabled: boolean;
   unlocked: boolean;
   volume: number;
   error: string;
   onToggle: () => void | Promise<void>;
+  onToggleDineIn: () => void;
   onVolume: (volume: number) => void;
   onTestDelivery: () => void | Promise<void>;
   onTestPickup: () => void | Promise<void>;
+  onTestDineIn: () => void | Promise<void>;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-black/15 px-2 py-2 text-xs">
-      <button
-        type="button"
-        onClick={onToggle}
-        className={`rounded-full border px-3 py-1 font-semibold transition ${
-          enabled
-            ? unlocked
-              ? "border-emerald-400/50 bg-emerald-500/15 text-emerald-100 hover:bg-emerald-500/25"
-              : "border-amber-400/50 bg-amber-500/15 text-amber-100 hover:bg-amber-500/25"
-            : "border-white/10 bg-white/5 text-stone-300 hover:bg-white/10"
-        }`}
-        title={getSoundButtonTitle(enabled, unlocked)}
-      >
-        {getSoundButtonLabel(enabled, unlocked)}
-      </button>
+    <div className="space-y-3 text-xs">
+      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-black/15 px-2 py-2">
+        <button
+          type="button"
+          onClick={onToggle}
+          className={`rounded-full border px-3 py-1 font-semibold transition ${
+            enabled
+              ? unlocked
+                ? "border-emerald-400/50 bg-emerald-500/15 text-emerald-100 hover:bg-emerald-500/25"
+                : "border-amber-400/50 bg-amber-500/15 text-amber-100 hover:bg-amber-500/25"
+              : "border-white/10 bg-white/5 text-stone-300 hover:bg-white/10"
+          }`}
+          title={getSoundButtonTitle(enabled, unlocked)}
+        >
+          {getSoundButtonLabel(enabled, unlocked)}
+        </button>
 
-      <label className="flex items-center gap-2 text-stone-300">
-        <span className="hidden sm:inline">Lautstärke</span>
-        <input
-          type="range"
-          min={0}
-          max={100}
-          step={5}
-          value={volume}
-          onChange={(event: ChangeEvent<HTMLInputElement>) => onVolume(Number(event.target.value))}
-          className="h-1 w-20 accent-emerald-400"
-          aria-label="Ton-Lautstärke"
-        />
-        <span className="w-8 text-right tabular-nums">{volume}%</span>
-      </label>
+        <label className="flex items-center gap-2 text-stone-300">
+          <span className="hidden sm:inline">Lautstärke</span>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            step={5}
+            value={volume}
+            onChange={(event: ChangeEvent<HTMLInputElement>) =>
+              onVolume(Number(event.target.value))
+            }
+            className="h-1 w-20 accent-emerald-400"
+            aria-label="Ton-Lautstärke"
+          />
+          <span className="w-8 text-right tabular-nums">{volume}%</span>
+        </label>
 
-      <button
-        type="button"
-        onClick={onTestDelivery}
-        className="rounded-full border border-orange-400/40 bg-orange-500/10 px-2 py-1 text-orange-100 hover:bg-orange-500/20"
-        title="Lieferungston testen"
-      >
-        L
-      </button>
+        <button type="button" onClick={onTestDelivery} className="rounded-full border border-orange-400/40 bg-orange-500/10 px-2 py-1 text-orange-100 hover:bg-orange-500/20" title="Lieferungston testen">L</button>
+        <button type="button" onClick={onTestPickup} className="rounded-full border border-cyan-400/40 bg-cyan-500/10 px-2 py-1 text-cyan-100 hover:bg-cyan-500/20" title="Abholton testen">A</button>
+      </div>
 
-      <button
-        type="button"
-        onClick={onTestPickup}
-        className="rounded-full border border-cyan-400/40 bg-cyan-500/10 px-2 py-1 text-cyan-100 hover:bg-cyan-500/20"
-        title="Abholton testen"
-      >
-        A
-      </button>
+      <div className="rounded-xl border border-emerald-400/25 bg-emerald-500/10 p-3">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <div className="font-black text-emerald-100">Schnellbestellung-Ton</div>
+            <div className="mt-0.5 text-stone-400">Nur VOR ORT Bestellungen</div>
+          </div>
+          <button
+            type="button"
+            onClick={onToggleDineIn}
+            aria-pressed={dineInEnabled}
+            className={`rounded-full px-3 py-1 font-black ${
+              dineInEnabled
+                ? "bg-emerald-400 text-black"
+                : "bg-white/10 text-stone-300"
+            }`}
+          >
+            {dineInEnabled ? "Aktiv" : "Aus"}
+          </button>
+        </div>
+        <button
+          type="button"
+          onClick={onTestDineIn}
+          disabled={!dineInEnabled}
+          className="mt-3 w-full rounded-lg border border-emerald-300/30 bg-black/20 px-3 py-2 font-bold text-emerald-100 disabled:opacity-40"
+        >
+          Schnellbestellung-Ton testen
+        </button>
+      </div>
 
       {error ? (
-        <span className="max-w-[260px] truncate text-amber-300" title={error}>
+        <span className="block max-w-[300px] text-amber-300" title={error}>
           {error}
         </span>
       ) : null}

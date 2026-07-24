@@ -7,6 +7,7 @@ export function useTvPause() {
   const [pause, setPause] = useState<PauseState>({
     delivery: false,
     pickup: false,
+    dineIn: false,
   });
 
   useEffect(() => {

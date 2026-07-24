@@ -11,6 +11,7 @@ export const revalidate = 0;
 type PauseState = {
   delivery: boolean;
   pickup: boolean;
+  dineIn: boolean;
 };
 
 const KEY = "pause";
@@ -32,6 +33,7 @@ function normalizePause(input: any): PauseState {
   return {
     delivery: !!raw.delivery,
     pickup: !!raw.pickup,
+    dineIn: !!raw.dineIn,
   };
 }
 

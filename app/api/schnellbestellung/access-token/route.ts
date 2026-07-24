@@ -28,13 +28,8 @@ export async function GET() {
   try {
     const settings = await getSchnellSettings();
 
-    if (!settings.enabled) {
-      return unavailable("disabled");
-    }
-
-    if (settings.paused) {
-      return unavailable("paused");
-    }
+    if (!settings.enabled) return unavailable("disabled");
+    if (settings.paused) return unavailable("paused");
 
     const token = createAccessToken(settings);
 
@@ -42,7 +37,9 @@ export async function GET() {
       {
         ok: true,
         token,
-        expiresIn: settings.qrTtlMinutes * 60,
+        mode: settings.qrMode,
+        expiresIn:
+          settings.qrMode === "dynamic" ? settings.qrTtlMinutes * 60 : 0,
         issuedAt: Date.now(),
       },
       {

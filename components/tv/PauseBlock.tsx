@@ -72,6 +72,12 @@ export function PauseBlock({
         onChange={() => toggle("pickup")}
         label="Abholung pausieren"
       />
+
+      <ToggleSwitch
+        checked={!!pause.dineIn}
+        onChange={() => toggle("dineIn")}
+        label="Schnellbestellung pausieren"
+      />
     </div>
   );
 }

@@ -44,13 +44,16 @@ export function TvSidebar({
   productError: string;
   sound: {
     enabled: boolean;
+    dineInEnabled: boolean;
     unlocked: boolean;
     volume: number;
     error: string;
     onToggle: () => void | Promise<void>;
+    onToggleDineIn: () => void;
     onVolume: (volume: number) => void;
     onTestDelivery: () => void | Promise<void>;
     onTestPickup: () => void | Promise<void>;
+    onTestDineIn: () => void | Promise<void>;
   };
   onClose: () => void;
   onPanelChange: (panel: LeftPanel) => void;
@@ -130,13 +133,16 @@ export function TvSidebar({
               <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3">
                 <TvSoundControls
                   enabled={sound.enabled}
+                  dineInEnabled={sound.dineInEnabled}
                   unlocked={sound.unlocked}
                   volume={sound.volume}
                   error={sound.error}
                   onToggle={sound.onToggle}
+                  onToggleDineIn={sound.onToggleDineIn}
                   onVolume={sound.onVolume}
                   onTestDelivery={sound.onTestDelivery}
                   onTestPickup={sound.onTestPickup}
+                  onTestDineIn={sound.onTestDineIn}
                 />
                 <div className="mt-2 text-xs text-stone-400">
                   Standard: Ton aktiv, Lautstärke {sound.volume}%,

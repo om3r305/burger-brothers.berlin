@@ -231,8 +231,19 @@ function toLegacyStatus(input: any): LegacyOrderStatus {
   }
 }
 
-function normalizeMode(value: any): "pickup" | "delivery" {
+function normalizeMode(value: any): "pickup" | "delivery" | "dine_in" {
   const text = String(value || "").toLowerCase().trim();
+
+  if (
+    text === "dine_in" ||
+    text === "dine-in" ||
+    text === "vor_ort" ||
+    text === "vor ort" ||
+    text === "schnellbestellung" ||
+    text === "salon"
+  ) {
+    return "dine_in";
+  }
 
   if (
     text === "pickup" ||

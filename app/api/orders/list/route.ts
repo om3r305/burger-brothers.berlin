@@ -17,7 +17,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-type OrderMode = "pickup" | "delivery";
+type OrderMode = "pickup" | "delivery" | "dine_in";
 
 type OrderStatus =
   | "new"
@@ -183,6 +183,17 @@ function tryMode(value: any): OrderMode | null {
   if (isAllFilter(value)) return null;
 
   const text = String(value || "").toLowerCase().trim();
+
+  if (
+    text === "dine_in" ||
+    text === "dine-in" ||
+    text === "vor_ort" ||
+    text === "vor ort" ||
+    text === "schnellbestellung" ||
+    text === "salon"
+  ) {
+    return "dine_in";
+  }
 
   if (
     text === "pickup" ||

@@ -9,6 +9,7 @@ export function SummaryGrid({ orders }: { orders: StoredOrder[] }) {
     const total = orders.length;
     const lifa = orders.filter((order) => order.mode === "delivery").length;
     const apollon = orders.filter((order) => order.mode === "pickup").length;
+    const dineIn = orders.filter((order) => order.mode === "dine_in").length;
     const online = orders.filter((order) => getPaymentKind(order) === "online").length;
     const cash = orders.filter((order) => getPaymentKind(order) === "cash").length;
     const active = orders.filter(
@@ -27,6 +28,7 @@ export function SummaryGrid({ orders }: { orders: StoredOrder[] }) {
       total,
       lifa,
       apollon,
+      dineIn,
       online,
       cash,
       active,
@@ -52,6 +54,7 @@ export function SummaryGrid({ orders }: { orders: StoredOrder[] }) {
       <Item label="Bar" value={stats.cash} />
       <Item label="Lieferung" value={stats.lifa} />
       <Item label="Abholung" value={stats.apollon} />
+      <Item label="Schnellbestellung" value={stats.dineIn} />
     </div>
   );
 }

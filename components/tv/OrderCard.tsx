@@ -82,8 +82,9 @@ export function OrderCard({
     statusBusy = false,
   } = display;
 
+  const dineIn = order.mode === "dine_in";
   const effectiveEta = etaOverride ?? etaFor(order, avgPickup, avgDelivery);
-  const rawLeftMin = remainingMinutes(order, effectiveEta, timezone);
+  const rawLeftMin = dineIn ? 0 : remainingMinutes(order, effectiveEta, timezone);
   const leftMin = displayLeftMin ?? rawLeftMin;
   const plannedMs = plannedStartMs(order, timezone);
   const plannedFuture = Boolean(plannedMs && plannedMs > Date.now());
@@ -147,12 +148,12 @@ export function OrderCard({
           ) : null}
 
           <span className={`${chip} ${chipColor(order.status)}`}>
-            {statusLabel[order.status]}
+            {dineIn ? (order.status === "new" ? "Neu" : order.status === "preparing" ? "In Vorbereitung" : order.status === "ready" ? "Fertig" : order.status === "done" ? "Ausgegeben" : statusLabel[order.status]) : statusLabel[order.status]}
           </span>
         </div>
       </div>
 
-      {!isFinal ? (
+      {!isFinal && !dineIn ? (
         <div className="mt-3 flex items-end justify-between">
           <div
             className={minuteClass(leftMin, plannedFuture, isFinal)}
@@ -204,7 +205,15 @@ export function OrderCard({
         </div>
       ) : null}
 
-      {order.mode === "dine_in" ? <div className="mt-4 text-center text-7xl font-black text-amber-300">{Number(order.meta?.customerNumber || 0) || "–"}</div> : null}
+      {dineIn ? (
+        <div className="mt-4 rounded-2xl border border-emerald-400/25 bg-emerald-500/10 p-4 text-center">
+          <div className="text-xs font-black uppercase tracking-[0.18em] text-emerald-200">Kundennummer</div>
+          <div className="mt-1 text-8xl font-black leading-none text-amber-300">{Number(order.meta?.customerNumber || 0) || "–"}</div>
+          <div className="mt-3 text-sm font-semibold text-stone-300">
+            Bestellt um {new Intl.DateTimeFormat("de-DE", { timeZone: "Europe/Berlin", hour: "2-digit", minute: "2-digit" }).format(new Date(order.ts || Date.now()))} Uhr
+          </div>
+        </div>
+      ) : null}
 
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <span className={`${chip} ${paymentBadge.className}`}>

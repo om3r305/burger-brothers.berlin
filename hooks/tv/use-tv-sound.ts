@@ -10,6 +10,8 @@ import {
   getTvSoundKind,
   getTvSoundTitle,
   isSoundCandidateOrder,
+  loadTvDineInSoundEnabled,
+  saveTvDineInSoundEnabled,
   saveTvSoundEnabled,
   saveTvSoundVolume,
 } from "@/lib/tv/domain";
@@ -25,9 +27,11 @@ export function useTvSound() {
   });
   const knownOrdersRef = useRef<Set<string> | null>(null);
   const enabledRef = useRef(true);
+  const dineInEnabledRef = useRef(true);
   const volumeRef = useRef(1);
 
   const [enabled, setEnabled] = useState(true);
+  const [dineInEnabled, setDineInEnabled] = useState(true);
   const [unlocked, setUnlocked] = useState(true);
   const [volume, setVolume] = useState(100);
   const [error, setError] = useState("");
@@ -88,6 +92,7 @@ export function useTvSound() {
   const play = useCallback(
     async (kind: TvSoundKind, force = false) => {
       if (!force && !enabledRef.current) return false;
+      if (!force && kind === "dine_in" && !dineInEnabledRef.current) return false;
 
       const sources = TV_SOUND_SOURCES[kind];
       let lastError: unknown = null;
@@ -164,6 +169,24 @@ export function useTvSound() {
     setEnabledSafe(false);
   }, [setEnabledSafe, unlock, unlocked]);
 
+
+  const toggleDineIn = useCallback(() => {
+    const next = !dineInEnabledRef.current;
+    dineInEnabledRef.current = next;
+    setDineInEnabled(next);
+    saveTvDineInSoundEnabled(next);
+
+    if (!next) {
+      const audio = dineInAudioRef.current;
+      try {
+        audio?.pause();
+        if (audio) audio.currentTime = 0;
+      } catch {
+        // Best effort.
+      }
+    }
+  }, []);
+
   const handleNewOrders = useCallback(
     (nextOrders: StoredOrder[]) => {
       const candidates = nextOrders.filter(isSoundCandidateOrder);
@@ -189,7 +212,9 @@ export function useTvSound() {
       if (!newOrders.length || !enabledRef.current) return;
 
       const kinds = (["delivery", "pickup", "dine_in"] as const).filter(
-        (kind) => newOrders.some((order) => getTvSoundKind(order) === kind),
+        (kind) =>
+          newOrders.some((order) => getTvSoundKind(order) === kind) &&
+          (kind !== "dine_in" || dineInEnabledRef.current),
       );
 
       kinds.forEach((kind, index) => {
@@ -206,13 +231,17 @@ export function useTvSound() {
   useEffect(() => {
     const defaultEnabled = true;
     const defaultVolume = 100;
+    const defaultDineInEnabled = loadTvDineInSoundEnabled();
 
     enabledRef.current = defaultEnabled;
+    dineInEnabledRef.current = defaultDineInEnabled;
     volumeRef.current = defaultVolume / 100;
     setEnabled(defaultEnabled);
+    setDineInEnabled(defaultDineInEnabled);
     setUnlocked(true);
     setVolume(defaultVolume);
     saveTvSoundEnabled(defaultEnabled);
+    saveTvDineInSoundEnabled(defaultDineInEnabled);
     saveTvSoundVolume(defaultVolume);
 
     for (const kind of ["delivery", "pickup", "dine_in"] as const) {
@@ -243,12 +272,14 @@ export function useTvSound() {
 
   return {
     enabled,
+    dineInEnabled,
     unlocked,
     volume,
     error,
     play,
     stop,
     toggle,
+    toggleDineIn,
     setVolume: setVolumeSafe,
     handleNewOrders,
   };

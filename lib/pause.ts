@@ -5,6 +5,7 @@ export const LS_PAUSE = "bb_pause_v1";
 export type PauseState = {
   delivery: boolean;
   pickup: boolean;
+  dineIn: boolean;
 };
 
 const API_PATH = "/api/pause";
@@ -12,6 +13,7 @@ const API_PATH = "/api/pause";
 const DEFAULT_PAUSE: PauseState = {
   delivery: false,
   pickup: false,
+  dineIn: false,
 };
 
 function hasWindow() {
@@ -31,6 +33,7 @@ function normalizePause(input: any): PauseState {
   return {
     delivery: !!raw?.delivery,
     pickup: !!raw?.pickup,
+    dineIn: !!raw?.dineIn,
   };
 }
 
@@ -188,11 +191,12 @@ export function clearPause(): void {
 }
 
 export function isModePaused(
-  mode: "pickup" | "delivery",
+  mode: "pickup" | "delivery" | "dine_in",
   state?: PauseState,
 ): boolean {
   const pause = state ?? readPause();
 
+  if (mode === "dine_in") return !!pause.dineIn;
   return mode === "pickup" ? !!pause.pickup : !!pause.delivery;
 }
 
@@ -255,13 +259,17 @@ export function buildPauseMessage(state?: PauseState): string | null {
     messages.push("Abholung vorübergehend pausiert.");
   }
 
+  if (pause.dineIn) {
+    messages.push("Schnellbestellung vorübergehend pausiert.");
+  }
+
   return messages.length ? `⚠️ ${messages.join(" ")}` : null;
 }
 
 export function isPauseState(obj: any): obj is PauseState {
   if (!obj || typeof obj !== "object") return false;
 
-  return "delivery" in obj && "pickup" in obj;
+  return "delivery" in obj && "pickup" in obj && "dineIn" in obj;
 }
 
 /**

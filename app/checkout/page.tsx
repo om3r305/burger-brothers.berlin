@@ -1431,6 +1431,7 @@ export default function CheckoutPage() {
   const [pause, setPause] = useState<PauseState>({
     delivery: false,
     pickup: false,
+    dineIn: false,
   });
 
   useEffect(() => {
