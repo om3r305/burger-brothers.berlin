@@ -72,6 +72,7 @@ export type SchnellSettings = {
   orderHistoryEnabled: boolean;
   liveReadyAlertEnabled: boolean;
   backgroundReadyPushEnabled: boolean;
+  iosHomeScreenFlowEnabled: boolean;
   timeSignalEnabled: boolean;
   timeWarningMinutes: number;
   timeCriticalMinutes: number;
@@ -110,6 +111,7 @@ export const DEFAULT_SCHNELL_SETTINGS: SchnellSettings = {
   orderHistoryEnabled: true,
   liveReadyAlertEnabled: true,
   backgroundReadyPushEnabled: true,
+  iosHomeScreenFlowEnabled: false,
   timeSignalEnabled: true,
   timeWarningMinutes: 10,
   timeCriticalMinutes: 15,
@@ -309,6 +311,7 @@ export function normalizeSchnellSettings(value: unknown): SchnellSettings {
     orderHistoryEnabled: raw.orderHistoryEnabled !== false,
     liveReadyAlertEnabled: raw.liveReadyAlertEnabled !== false,
     backgroundReadyPushEnabled: raw.backgroundReadyPushEnabled !== false,
+    iosHomeScreenFlowEnabled: raw.iosHomeScreenFlowEnabled === true,
     timeSignalEnabled: raw.timeSignalEnabled !== false,
     timeWarningMinutes: clamp(
       raw.timeWarningMinutes,

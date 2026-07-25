@@ -45,6 +45,7 @@ type SchnellSettings = {
   orderHistoryEnabled: boolean;
   liveReadyAlertEnabled: boolean;
   backgroundReadyPushEnabled: boolean;
+  iosHomeScreenFlowEnabled: boolean;
   timeSignalEnabled: boolean;
   timeWarningMinutes: number;
   timeCriticalMinutes: number;
@@ -98,6 +99,7 @@ type BooleanSettingKey =
   | "orderHistoryEnabled"
   | "liveReadyAlertEnabled"
   | "backgroundReadyPushEnabled"
+  | "iosHomeScreenFlowEnabled"
   | "timeSignalEnabled";
 
 type NumberSettingKey =
@@ -171,9 +173,15 @@ const TOGGLES: Array<{
   },
   {
     key: "backgroundReadyPushEnabled",
-    label: "Android arka plan bildirimi aktif",
+    label: "Arka plan bildirimi aktif",
     description:
-      "Chrome izin verirse telefon kilitliyken veya tarayıcı arka plandayken sistem bildirimi gönderir.",
+      "Android Chrome ve ana ekrana eklenmiş iPhone web uygulamasında Fertig bildirimi gönderir.",
+  },
+  {
+    key: "iosHomeScreenFlowEnabled",
+    label: "iPhone ana ekran yönlendirmesi aktif",
+    description:
+      "Yalnız iPhone/iPad QR akışında ücretsiz ana ekran kurulumu seçeneğini gösterir. Kapalıysa iOS normal sipariş akışına doğrudan devam eder.",
   },
   {
     key: "timeSignalEnabled",

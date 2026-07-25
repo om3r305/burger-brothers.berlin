@@ -82,7 +82,7 @@ self.addEventListener("push", (pushEvent) => {
       await notifyOpenClients(readyEvent).catch(() => undefined);
       await self.registration.showNotification(title, {
         body,
-        icon: "/apple-touch-icon.png?v=5",
+        icon: "/schnell-icon-192.png?v=1",
         badge: "/favicon.ico",
         tag,
         renotify: true,

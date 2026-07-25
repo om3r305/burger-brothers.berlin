@@ -8,7 +8,14 @@ const read = (relativePath) =>
 
 const requiredFiles = [
   "app/schnellbestellung/page.tsx",
+  "app/schnellbestellung/layout.tsx",
+  "app/api/schnellbestellung/manifest/route.ts",
+  "public/manifest-schnellbestellung.webmanifest",
+  "public/schnell-icon-180.png",
+  "public/schnell-icon-192.png",
+  "public/schnell-icon-512.png",
   "app/schnellbestellung/enter/page.tsx",
+  "components/schnellbestellung/SchnellEnterClient.tsx",
   "app/schnellbestellung/success/page.tsx",
   "app/schnellbestellung/access-display/page.tsx",
   "app/api/schnellbestellung/access-token/route.ts",
@@ -52,7 +59,13 @@ const pauseApi = read("app/api/pause/route.ts");
 const ordersList = read("app/api/orders/list/route.ts");
 const tvPage = read("app/tv/page.tsx");
 const ordersStatus = read("app/api/orders/status/route.ts");
-const enterPage = read("app/schnellbestellung/enter/page.tsx");
+const enterPage =
+  read("app/schnellbestellung/enter/page.tsx") +
+  read("components/schnellbestellung/SchnellEnterClient.tsx");
+const schnellLayout = read("app/schnellbestellung/layout.tsx");
+const schnellManifestRoute = read("app/api/schnellbestellung/manifest/route.ts");
+const schnellManifest = read("public/manifest-schnellbestellung.webmanifest");
+const sessionRoute = read("app/api/schnellbestellung/session/route.ts");
 const locationRoute = read("app/api/schnellbestellung/location/verify/route.ts");
 const orderRoute = read("app/api/schnellbestellung/orders/route.ts");
 const publicStatusRoute = read("app/api/schnellbestellung/status/route.ts");
@@ -87,6 +100,9 @@ assert(core.includes("timeWarningMinutes"));
 assert(core.includes("timeCriticalMinutes"));
 assert(core.includes("locationCheckEnabled: false"));
 assert(core.includes("backgroundReadyPushEnabled"));
+assert(core.includes("iosHomeScreenFlowEnabled: boolean"));
+assert(core.includes("iosHomeScreenFlowEnabled: false"));
+assert(core.includes("raw.iosHomeScreenFlowEnabled === true"));
 assert(core.includes("activeStatuses"));
 assert(core.includes("normalizeSchnellOrderStatus"));
 assert(core.includes('activeStatuses.has(status)'));
@@ -150,8 +166,29 @@ assert(core.includes("buildSchnellGroupVariantProducts"));
 assert(core.includes("isSchnellGroupVariantId"));
 
 assert(enterPage.includes("requestSession"));
+assert(enterPage.includes("isAppleMobileDevice"));
+assert(enterPage.includes("isStandaloneDisplayMode"));
+assert(enterPage.includes("installManifestForToken"));
+assert(enterPage.includes("generateMetadata"));
+assert(enterPage.includes("/api/schnellbestellung/manifest?t="));
+assert(enterPage.includes("Fertig-Benachrichtigung aktivieren"));
+assert(enterPage.includes("Zum Home-Bildschirm"));
+assert(enterPage.includes("homeScreen: true"));
+assert(enterPage.includes("session?.iosHomeScreenFlowEnabled"));
+assert(schnellLayout.includes('manifest: "/manifest-schnellbestellung.webmanifest"'));
+assert(schnellLayout.includes('url: "/schnell-icon-180.png?v=1"'));
+assert(schnellManifestRoute.includes('verifyAccessToken(token, settings)'));
+assert(schnellManifestRoute.includes('search.set("t", token)'));
+assert(schnellManifestRoute.includes('scope: "/schnellbestellung/"'));
+assert(schnellManifest.includes('"display": "standalone"'));
+assert(schnellManifest.includes('"start_url": "/schnellbestellung/enter?homescreen=1"'));
+assert(sessionRoute.includes("iosHomeScreenFlowEnabled"));
 assert(enterPage.includes("location_required"));
 assert(locationRoute.includes("!settings.locationCheckEnabled"));
+assert(locationRoute.includes("homeScreenLocationAccess"));
+assert(locationRoute.includes("settings.iosHomeScreenFlowEnabled"));
+assert(locationRoute.includes("isAppleMobileRequest"));
+assert(locationRoute.includes("!accessToken && !homeScreenLocationAccess"));
 assert(locationRoute.includes("locationSkipped: true"));
 assert(orderRoute.includes("settings.locationCheckEnabled"));
 assert(orderRoute.includes("takeaway: body.takeaway === true"));
@@ -159,7 +196,9 @@ assert(orderRoute.includes("takeaway: body.takeaway === true"));
 assert(admin.includes("Konum kontrolü aktif"));
 assert(admin.includes("Zum Mitnehmen seçimi aktif"));
 assert(admin.includes("Telefon hazır uyarısı aktif"));
-assert(admin.includes("Android arka plan bildirimi aktif"));
+assert(admin.includes("Arka plan bildirimi aktif"));
+assert(admin.includes("iPhone ana ekran yönlendirmesi aktif"));
+assert(admin.includes("iosHomeScreenFlowEnabled"));
 assert(admin.includes("TV turuncu uyarı başlangıcı"));
 assert(admin.includes("Statik baskı QR"));
 assert(admin.includes("Dinamik ekran QR"));
@@ -218,6 +257,8 @@ assert(publicStatusRoute.includes("readyEventId"));
 assert(publicStatusRoute.includes("readyEventSequence"));
 assert(middleware.includes('path === "/api/schnellbestellung/status"'));
 assert(middleware.includes('path === "/api/schnellbestellung/push"'));
+assert(middleware.includes('path === "/api/schnellbestellung/manifest"'));
+assert(middleware.includes("/manifest-schnellbestellung.webmanifest"));
 assert(pushRoute.includes("readyPushSubscription"));
 assert(pushRoute.includes("pending"));
 assert(pushRoute.includes("order_forbidden"));
@@ -227,6 +268,7 @@ assert(pushClient.includes("Notification.requestPermission"));
 assert(pushClient.includes("pushManager.subscribe"));
 assert(serviceWorker.includes('self.addEventListener("push"'));
 assert(serviceWorker.includes("showNotification"));
+assert(serviceWorker.includes("/schnell-icon-192.png?v=1"));
 assert(serviceWorker.includes("renotify: true"));
 assert(serviceWorker.includes("vibrate:"));
 assert(printProxy.includes("const isTakeaway"));

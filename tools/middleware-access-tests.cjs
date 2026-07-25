@@ -55,6 +55,7 @@ try {
   } = require(path.join(root, "middleware.ts"));
 
   const matrix = [
+    ["/api/schnellbestellung/manifest", "GET", "public"],
     ["/api/payments/profile", "GET", "public"],
     ["/api/payments/profile", "POST", "public"],
     ["/api/payments/profile", "DELETE", "public"],
@@ -78,6 +79,7 @@ try {
 
   assert.equal(publicAsset("/api/private/file.js"), false);
   assert.equal(publicAsset("/images/burger.webp"), true);
+  assert.equal(publicAsset("/manifest-schnellbestellung.webmanifest"), true);
   assert.equal(publicAsset("/admin/private.js"), false);
 
   const previousNodeEnv = process.env.NODE_ENV;

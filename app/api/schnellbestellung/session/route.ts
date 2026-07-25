@@ -24,6 +24,8 @@ export async function GET(req: Request) {
         settings.locationCheckEnabled &&
         Date.now() - Number(session?.locAt) > settings.recheckMinutes * 60_000,
       locationCheckEnabled: settings.locationCheckEnabled,
+      iosHomeScreenFlowEnabled: settings.iosHomeScreenFlowEnabled,
+      backgroundReadyPushEnabled: settings.backgroundReadyPushEnabled,
       payments: {
         cash: settings.cashEnabled,
         online: settings.onlineEnabled,
