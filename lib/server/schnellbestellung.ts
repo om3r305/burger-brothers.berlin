@@ -67,6 +67,15 @@ export type SchnellSettings = {
   tvEnabled: boolean;
   soundEnabled: boolean;
   autoPrint: boolean;
+  locationCheckEnabled: boolean;
+  takeawayEnabled: boolean;
+  orderHistoryEnabled: boolean;
+  liveReadyAlertEnabled: boolean;
+  timeSignalEnabled: boolean;
+  timeWarningMinutes: number;
+  timeCriticalMinutes: number;
+  historyMaxOrders: number;
+  historyDays: number;
   radiusMeters: number;
   maxAccuracyMeters: number;
   qrMode: SchnellQrMode;
@@ -95,6 +104,15 @@ export const DEFAULT_SCHNELL_SETTINGS: SchnellSettings = {
   tvEnabled: true,
   soundEnabled: true,
   autoPrint: true,
+  locationCheckEnabled: false,
+  takeawayEnabled: true,
+  orderHistoryEnabled: true,
+  liveReadyAlertEnabled: true,
+  timeSignalEnabled: true,
+  timeWarningMinutes: 10,
+  timeCriticalMinutes: 15,
+  historyMaxOrders: 5,
+  historyDays: 90,
   radiusMeters: 100,
   maxAccuracyMeters: 75,
   qrMode: "static",
@@ -266,6 +284,30 @@ export function normalizeSchnellSettings(value: unknown): SchnellSettings {
     tvEnabled: raw.tvEnabled !== false,
     soundEnabled: raw.soundEnabled !== false,
     autoPrint: raw.autoPrint !== false,
+    locationCheckEnabled: raw.locationCheckEnabled === true,
+    takeawayEnabled: raw.takeawayEnabled !== false,
+    orderHistoryEnabled: raw.orderHistoryEnabled !== false,
+    liveReadyAlertEnabled: raw.liveReadyAlertEnabled !== false,
+    timeSignalEnabled: raw.timeSignalEnabled !== false,
+    timeWarningMinutes: clamp(
+      raw.timeWarningMinutes,
+      1,
+      120,
+      defaults.timeWarningMinutes,
+    ),
+    timeCriticalMinutes: clamp(
+      raw.timeCriticalMinutes,
+      2,
+      180,
+      defaults.timeCriticalMinutes,
+    ),
+    historyMaxOrders: clamp(
+      raw.historyMaxOrders,
+      1,
+      20,
+      defaults.historyMaxOrders,
+    ),
+    historyDays: clamp(raw.historyDays, 1, 365, defaults.historyDays),
     radiusMeters: clamp(raw.radiusMeters, 25, 500, defaults.radiusMeters),
     maxAccuracyMeters: clamp(
       raw.maxAccuracyMeters,
@@ -486,7 +528,13 @@ export function verifyAccessToken(token: string, settings: SchnellSettings) {
 
 export function createSessionToken(
   settings: SchnellSettings,
-  data: { lat: number; lng: number; accuracy: number; deviceId: string },
+  data: {
+    deviceId: string;
+    lat?: number;
+    lng?: number;
+    accuracy?: number;
+    locationVerified?: boolean;
+  },
 ) {
   const now = Date.now();
   return createSignedToken({
@@ -495,7 +543,11 @@ export function createSessionToken(
     exp: now + settings.sessionMinutes * 60_000,
     locAt: now,
     gen: settings.generation,
-    ...data,
+    locationVerified: data.locationVerified === true,
+    deviceId: data.deviceId,
+    ...(Number.isFinite(data.lat) ? { lat: data.lat } : {}),
+    ...(Number.isFinite(data.lng) ? { lng: data.lng } : {}),
+    ...(Number.isFinite(data.accuracy) ? { accuracy: data.accuracy } : {}),
   });
 }
 
@@ -674,6 +726,39 @@ export function isSchnellGroupVariantId(value: unknown) {
   return String(value ?? "").startsWith(SCHNELL_GROUP_VARIANT_PREFIX);
 }
 
+function normalizeComparableName(value: unknown) {
+  return String(value ?? "")
+    .toLocaleLowerCase("de-DE")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function cleanSchnellGroupVariantName(
+  category: "drinks" | "extras",
+  groupNameRaw: unknown,
+  variantNameRaw: unknown,
+) {
+  const groupName = cleanText(groupNameRaw, 160);
+  const variantName = cleanText(variantNameRaw, 160);
+
+  if (!variantName) return groupName || (category === "drinks" ? "Getränk" : "Extra");
+  if (!groupName) return variantName;
+
+  const groupComparable = normalizeComparableName(groupName);
+  const variantComparable = normalizeComparableName(variantName);
+
+  if (variantComparable === groupComparable) return groupName;
+  if (variantComparable.startsWith(`${groupComparable} `)) return variantName;
+  if (groupComparable.startsWith(`${variantComparable} `)) return groupName;
+
+  if (category === "extras") return variantName;
+
+  return `${groupName} ${variantName}`.replace(/\s+/g, " ").trim();
+}
+
 function normalizeGroupVariantProducts(
   category: "drinks" | "extras",
   value: unknown,
@@ -747,13 +832,11 @@ function normalizeGroupVariantProducts(
         ),
       );
       const id = groupVariantId(category, groupKey, variantKey);
-      const sameName =
-        Boolean(variantName) &&
-        variantName.localeCompare(groupName, "de", {
-          sensitivity: "base",
-        }) === 0;
-      const name =
-        variantName && !sameName ? `${groupName} – ${variantName}` : groupName;
+      const name = cleanSchnellGroupVariantName(
+        category,
+        groupName,
+        variantName,
+      );
       const depositNote =
         depositAmount > 0
           ? `inkl. ${depositAmount.toLocaleString("de-DE", {
@@ -900,6 +983,7 @@ export async function createCashSchnellOrder(params: {
   idempotencyKey: string;
   deviceId: string;
   session: any;
+  takeaway?: boolean;
 }) {
   const tenantId = await getTenantId();
   const businessDate = berlinBusinessDate();
@@ -972,6 +1056,8 @@ export async function createCashSchnellOrder(params: {
           ) {
             throw new Error("SCHNELL_UNAVAILABLE");
           }
+
+          const takeaway = settings.takeawayEnabled && params.takeaway === true;
 
           const since = new Date(Date.now() - settings.orderWindowMinutes * 60_000);
           const recent = await transaction.order.findMany({
@@ -1171,6 +1257,14 @@ export async function createCashSchnellOrder(params: {
                 printRequested: settings.autoPrint,
                 tvEnabled: settings.tvEnabled,
                 campaigns: campaignDetails,
+                fulfillment: takeaway ? "takeaway" : "eat_here",
+                takeaway,
+                timeSignalEnabled: settings.timeSignalEnabled,
+                timeWarningMinutes: settings.timeWarningMinutes,
+                timeCriticalMinutes: Math.max(
+                  settings.timeWarningMinutes + 1,
+                  settings.timeCriticalMinutes,
+                ),
                 createdAt: new Date().toISOString(),
               },
             },

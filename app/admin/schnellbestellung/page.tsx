@@ -40,6 +40,15 @@ type SchnellSettings = {
   tvEnabled: boolean;
   soundEnabled: boolean;
   autoPrint: boolean;
+  locationCheckEnabled: boolean;
+  takeawayEnabled: boolean;
+  orderHistoryEnabled: boolean;
+  liveReadyAlertEnabled: boolean;
+  timeSignalEnabled: boolean;
+  timeWarningMinutes: number;
+  timeCriticalMinutes: number;
+  historyMaxOrders: number;
+  historyDays: number;
   radiusMeters: number;
   maxAccuracyMeters: number;
   qrMode: "static" | "dynamic";
@@ -82,7 +91,12 @@ type BooleanSettingKey =
   | "splitEnabled"
   | "tvEnabled"
   | "soundEnabled"
-  | "autoPrint";
+  | "autoPrint"
+  | "locationCheckEnabled"
+  | "takeawayEnabled"
+  | "orderHistoryEnabled"
+  | "liveReadyAlertEnabled"
+  | "timeSignalEnabled";
 
 type NumberSettingKey =
   | "radiusMeters"
@@ -94,6 +108,10 @@ type NumberSettingKey =
   | "maxOrdersPerDevice"
   | "orderWindowMinutes"
   | "numberStart"
+  | "timeWarningMinutes"
+  | "timeCriticalMinutes"
+  | "historyMaxOrders"
+  | "historyDays"
   | "shopLat"
   | "shopLng";
 
@@ -128,6 +146,31 @@ const TOGGLES: Array<{
     key: "cashEnabled",
     label: "Barzahlung aktif",
     description: "Müşteri siparişi oluşturur ve kasada nakit öder.",
+  },
+  {
+    key: "locationCheckEnabled",
+    label: "Konum kontrolü aktif",
+    description: "Kapalıysa QR okutulduğunda menü doğrudan açılır.",
+  },
+  {
+    key: "takeawayEnabled",
+    label: "Zum Mitnehmen seçimi aktif",
+    description: "Müşteri isterse siparişi paket olarak işaretleyebilir.",
+  },
+  {
+    key: "orderHistoryEnabled",
+    label: "Son siparişleri hatırla",
+    description: "Aynı cihazda son siparişler sepete geri yüklenebilir.",
+  },
+  {
+    key: "liveReadyAlertEnabled",
+    label: "Telefon hazır uyarısı aktif",
+    description: "TV'de Fertig yapılınca açık bekleme ekranında sesli uyarı verir.",
+  },
+  {
+    key: "timeSignalEnabled",
+    label: "TV zaman renkleri aktif",
+    description: "Schnellbestellung kartları bekleme süresine göre renk değiştirir.",
   },
   {
     key: "onlineEnabled",
@@ -172,6 +215,10 @@ const NUMBER_FIELDS: Array<{
   { key: "maxOrdersPerDevice", label: "Cihaz başına sipariş limiti" },
   { key: "orderWindowMinutes", label: "Sipariş limit penceresi (dakika)" },
   { key: "numberStart", label: "Günlük müşteri numarası başlangıcı" },
+  { key: "timeWarningMinutes", label: "TV turuncu uyarı başlangıcı (dakika)" },
+  { key: "timeCriticalMinutes", label: "TV kırmızı uyarı başlangıcı (dakika)" },
+  { key: "historyMaxOrders", label: "Cihazda gösterilecek son sipariş sayısı" },
+  { key: "historyDays", label: "Sipariş geçmişi saklama süresi (gün)" },
   { key: "shopLat", label: "Dükkân enlemi (Latitude)", step: "0.000001" },
   { key: "shopLng", label: "Dükkân boylamı (Longitude)", step: "0.000001" },
 ];
@@ -383,7 +430,7 @@ export default function SchnellbestellungAdminPage() {
         <section className="mt-8 rounded-2xl border border-stone-700 p-5">
           <h2 className="text-xl font-black">QR modu</h2>
           <p className="mt-2 text-sm text-stone-400">
-            Sabit QR masalara basılabilir; GPS ve kısa süreli oturum kontrolü yine çalışır. Dinamik QR ekranda süreli olarak yenilenir.
+            Sabit QR masalara basılabilir. Konum kontrolü açıksa GPS otomatik doğrulanır; kapalıysa menü doğrudan açılır. Dinamik QR ekranda süreli olarak yenilenir.
           </p>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <label className={`rounded-xl border p-4 ${settings.qrMode === "static" ? "border-amber-400 bg-amber-400/10" : "border-stone-700"}`}>
@@ -423,7 +470,7 @@ export default function SchnellbestellungAdminPage() {
         </section>
 
         <section className="mt-8">
-          <h2 className="text-xl font-black">Güvenlik ve konum</h2>
+          <h2 className="text-xl font-black">Güvenlik, hız ve zaman ayarları</h2>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             {NUMBER_FIELDS.map((item) => (
               <label key={item.key} className="rounded-xl border border-stone-700 p-3 text-sm">

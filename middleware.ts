@@ -93,6 +93,7 @@ export function apiAccess(path: string, methodRaw: string): Access {
   }
   if (path === "/api/schnellbestellung/catalog" && readOnly) return "public";
   if (path === "/api/schnellbestellung/session" && readOnly) return "public";
+  if (path === "/api/schnellbestellung/status" && readOnly) return "public";
   if (path === "/api/schnellbestellung/orders" && method === "POST") {
     return "public";
   }

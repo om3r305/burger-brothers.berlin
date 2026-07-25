@@ -852,9 +852,12 @@ async function buildTicketFromOrder(o, opts={}){
 
   // ===== ÜST BLOK =====
   const isDineIn = String(o?.mode || '').toLowerCase() === 'dine_in' || String(o?.channel || '').toLowerCase() === 'schnellbestellung';
+  const isTakeaway = isDineIn && (M?.takeaway === true || String(M?.fulfillment || '').toLowerCase() === 'takeaway');
   const customerNumber = Number(o?.customerNumber ?? M?.customerNumber ?? 0);
   if (isDineIn && customerNumber > 0) {
-    out.push(align(1), bold(1), size(3,3), text(String(customerNumber)), size(1,1), text('SALONBESTELLUNG'), bold(0), align(0), text('='.repeat(LINE)));
+    out.push(align(1), bold(1), size(3,3), text(String(customerNumber)), size(1,1), text('SALONBESTELLUNG'));
+    if (isTakeaway) out.push(size(2,2), text('ZUM MITNEHMEN'), size(1,1));
+    out.push(bold(0), align(0), text('='.repeat(LINE)));
   }
 
   const logoChunk = await printLogoIfAny(opts.logoUrl);

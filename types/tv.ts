@@ -246,6 +246,11 @@ export type OrderMeta = {
   businessDate?: string;
   source?: string;
   tableNumber?: number | string | null;
+  fulfillment?: "eat_here" | "takeaway" | string;
+  takeaway?: boolean;
+  timeSignalEnabled?: boolean;
+  timeWarningMinutes?: number;
+  timeCriticalMinutes?: number;
 };
 
 export type StoredOrder = {

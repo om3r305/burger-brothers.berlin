@@ -26,6 +26,7 @@ type Product = {
 };
 
 type Category = { key: string; label: string };
+
 type CartLine = {
   key: string;
   product: Product;
@@ -34,10 +35,21 @@ type CartLine = {
   note: string;
 };
 
+type CatalogSettings = {
+  cashEnabled: boolean;
+  onlineEnabled: boolean;
+  splitEnabled: boolean;
+  takeawayEnabled: boolean;
+  orderHistoryEnabled: boolean;
+  historyMaxOrders: number;
+  historyDays: number;
+};
+
 type CatalogResponse = {
   ok?: boolean;
   products?: Product[];
   categories?: Category[];
+  settings?: Partial<CatalogSettings>;
   error?: string;
 };
 
@@ -45,46 +57,43 @@ type CachedCatalog = {
   savedAt: number;
   products: Product[];
   categories: Category[];
+  settings: CatalogSettings;
 };
 
-const CATALOG_CACHE_KEY = "bb_schnell_catalog_v2";
+type HistoryItem = {
+  productId: string;
+  qty: number;
+  extraIds: string[];
+  note: string;
+};
+
+type HistoryEntry = {
+  id: string;
+  createdAt: number;
+  customerNumber: number;
+  takeaway: boolean;
+  total: number;
+  items: HistoryItem[];
+};
+
+type AudioWindow = Window &
+  typeof globalThis & {
+    __bbSchnellReadyAudioContext?: AudioContext;
+  };
+
+const DEFAULT_CATALOG_SETTINGS: CatalogSettings = {
+  cashEnabled: true,
+  onlineEnabled: false,
+  splitEnabled: false,
+  takeawayEnabled: true,
+  orderHistoryEnabled: true,
+  historyMaxOrders: 5,
+  historyDays: 90,
+};
+
+const CATALOG_CACHE_KEY = "bb_schnell_catalog_v3";
 const CATALOG_CACHE_MAX_AGE_MS = 10 * 60_000;
-
-function readCachedCatalog(): CachedCatalog | null {
-  try {
-    const parsed = JSON.parse(
-      window.localStorage.getItem(CATALOG_CACHE_KEY) || "null",
-    ) as CachedCatalog | null;
-
-    if (
-      !parsed ||
-      !Array.isArray(parsed.products) ||
-      !Array.isArray(parsed.categories) ||
-      Date.now() - Number(parsed.savedAt || 0) > CATALOG_CACHE_MAX_AGE_MS
-    ) {
-      return null;
-    }
-
-    return parsed;
-  } catch {
-    return null;
-  }
-}
-
-function writeCachedCatalog(products: Product[], categories: Category[]) {
-  try {
-    window.localStorage.setItem(
-      CATALOG_CACHE_KEY,
-      JSON.stringify({
-        savedAt: Date.now(),
-        products,
-        categories,
-      }),
-    );
-  } catch {
-    // Cache is an optional speed optimization.
-  }
-}
+const HISTORY_KEY = "bb_schnell_order_history_v1";
 
 const ALLERGEN_LEGEND: Record<string, string> = {
   A: "Glutenhaltiges Getreide",
@@ -122,28 +131,28 @@ function makeLineKey(productId: string, extraIds: string[]) {
   return `${productId}:${[...extraIds].sort().join(",")}:${crypto.randomUUID()}`;
 }
 
-function orderFingerprint(cart: CartLine[]) {
-  return JSON.stringify(
-    cart.map((line) => ({
+function orderFingerprint(cart: CartLine[], takeaway: boolean) {
+  return JSON.stringify({
+    takeaway,
+    items: cart.map((line) => ({
       productId: line.product.id,
       qty: line.qty,
       extraIds: [...line.extraIds].sort(),
       note: line.note.trim(),
     })),
-  );
+  });
 }
 
-function getStableIdempotencyKey(cart: CartLine[]) {
+function getStableIdempotencyKey(cart: CartLine[], takeaway: boolean) {
   const storageKey = "bb_schnell_pending_order";
-  const fingerprint = orderFingerprint(cart);
+  const fingerprint = orderFingerprint(cart, takeaway);
 
   try {
     const current = JSON.parse(localStorage.getItem(storageKey) || "null") as
       | { key?: string; fingerprint?: string; createdAt?: number }
       | null;
     const fresh =
-      current &&
-      current.key &&
+      current?.key &&
       current.fingerprint === fingerprint &&
       Date.now() - Number(current.createdAt || 0) < 30 * 60_000;
 
@@ -160,10 +169,145 @@ function getStableIdempotencyKey(cart: CartLine[]) {
   return key;
 }
 
+function normalizeCatalogSettings(value: Partial<CatalogSettings> | undefined) {
+  return {
+    ...DEFAULT_CATALOG_SETTINGS,
+    ...(value || {}),
+    historyMaxOrders: Math.max(
+      1,
+      Math.min(20, Number(value?.historyMaxOrders) || 5),
+    ),
+    historyDays: Math.max(1, Math.min(365, Number(value?.historyDays) || 90)),
+  };
+}
+
+function readCachedCatalog(): CachedCatalog | null {
+  try {
+    const parsed = JSON.parse(
+      window.localStorage.getItem(CATALOG_CACHE_KEY) || "null",
+    ) as CachedCatalog | null;
+
+    if (
+      !parsed ||
+      !Array.isArray(parsed.products) ||
+      !Array.isArray(parsed.categories) ||
+      Date.now() - Number(parsed.savedAt || 0) > CATALOG_CACHE_MAX_AGE_MS
+    ) {
+      return null;
+    }
+
+    return {
+      ...parsed,
+      settings: normalizeCatalogSettings(parsed.settings),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedCatalog(
+  products: Product[],
+  categories: Category[],
+  settings: CatalogSettings,
+) {
+  try {
+    window.localStorage.setItem(
+      CATALOG_CACHE_KEY,
+      JSON.stringify({ savedAt: Date.now(), products, categories, settings }),
+    );
+  } catch {
+    // Optional performance cache.
+  }
+}
+
+function readHistory(settings: CatalogSettings) {
+  if (!settings.orderHistoryEnabled) return [];
+
+  try {
+    const history = JSON.parse(
+      localStorage.getItem(HISTORY_KEY) || "[]",
+    ) as HistoryEntry[];
+    const minimumTime = Date.now() - settings.historyDays * 24 * 60 * 60_000;
+
+    return history
+      .filter(
+        (entry) =>
+          entry &&
+          Number(entry.createdAt) >= minimumTime &&
+          Array.isArray(entry.items),
+      )
+      .slice(0, settings.historyMaxOrders);
+  } catch {
+    localStorage.removeItem(HISTORY_KEY);
+    return [];
+  }
+}
+
+function saveHistoryEntry(
+  settings: CatalogSettings,
+  cart: CartLine[],
+  takeaway: boolean,
+  customerNumber: number,
+  total: number,
+) {
+  if (!settings.orderHistoryEnabled) return;
+
+  const entry: HistoryEntry = {
+    id: crypto.randomUUID(),
+    createdAt: Date.now(),
+    customerNumber,
+    takeaway,
+    total,
+    items: cart.map((line) => ({
+      productId: line.product.id,
+      qty: line.qty,
+      extraIds: [...line.extraIds],
+      note: line.note,
+    })),
+  };
+
+  const next = [entry, ...readHistory(settings)].slice(
+    0,
+    settings.historyMaxOrders,
+  );
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(next));
+}
+
+function primeReadyAudio() {
+  try {
+    const audioWindow = window as AudioWindow;
+    const AudioContextClass =
+      window.AudioContext ||
+      (window as typeof window & { webkitAudioContext?: typeof AudioContext })
+        .webkitAudioContext;
+
+    if (!AudioContextClass) return;
+
+    const context =
+      audioWindow.__bbSchnellReadyAudioContext || new AudioContextClass();
+    audioWindow.__bbSchnellReadyAudioContext = context;
+    void context.resume();
+
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    gain.gain.value = 0.00001;
+    oscillator.connect(gain);
+    gain.connect(context.destination);
+    oscillator.start();
+    oscillator.stop(context.currentTime + 0.03);
+    sessionStorage.setItem("bb_schnell_ready_audio_primed", "1");
+  } catch {
+    // Sound remains best-effort on mobile browsers.
+  }
+}
+
 export default function SchnellClient() {
   const router = useRouter();
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [catalogSettings, setCatalogSettings] = useState<CatalogSettings>(
+    DEFAULT_CATALOG_SETTINGS,
+  );
   const [cart, setCart] = useState<CartLine[]>([]);
   const [category, setCategory] = useState("");
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
@@ -171,13 +315,15 @@ export default function SchnellClient() {
   const [selectedNote, setSelectedNote] = useState("");
   const [cartOpen, setCartOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [takeaway, setTakeaway] = useState(false);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {
     const saved = localStorage.getItem("bb_schnell_cart");
-
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -188,10 +334,11 @@ export default function SchnellClient() {
     }
 
     const cached = readCachedCatalog();
-
     if (cached?.products.length) {
       setProducts(cached.products);
       setCategories(cached.categories);
+      setCatalogSettings(cached.settings);
+      setHistory(readHistory(cached.settings));
       setCategory(
         cached.categories[0]?.key || cached.products[0]?.category || "",
       );
@@ -202,8 +349,6 @@ export default function SchnellClient() {
 
     void (async () => {
       try {
-        // The catalog endpoint already validates the signed salon session.
-        // Avoiding a separate session request removes one full network round-trip.
         const response = await fetch("/api/schnellbestellung/catalog", {
           credentials: "same-origin",
           cache: "default",
@@ -213,20 +358,23 @@ export default function SchnellClient() {
         if (cancelled) return;
 
         if (response.ok && Array.isArray(data.products)) {
+          const nextProducts = data.products;
           const nextCategories = Array.isArray(data.categories)
             ? data.categories
             : [];
-          const nextProducts = data.products;
+          const nextSettings = normalizeCatalogSettings(data.settings);
 
           setProducts(nextProducts);
           setCategories(nextCategories);
+          setCatalogSettings(nextSettings);
+          setHistory(readHistory(nextSettings));
           setCategory((current) =>
             nextCategories.some((item) => item.key === current)
               ? current
               : nextCategories[0]?.key || nextProducts[0]?.category || "",
           );
           setError("");
-          writeCachedCatalog(nextProducts, nextCategories);
+          writeCachedCatalog(nextProducts, nextCategories, nextSettings);
           return;
         }
 
@@ -234,10 +382,9 @@ export default function SchnellClient() {
           setError(
             "Ihre Schnellbestellung-Sitzung ist abgelaufen. Bitte scannen Sie den QR-Code erneut.",
           );
-          return;
+        } else {
+          setError("Die Speisekarte ist gerade nicht verfügbar.");
         }
-
-        setError("Die Speisekarte ist gerade nicht verfügbar.");
       } catch {
         if (!cancelled && !cached?.products.length) {
           setError("Die Speisekarte ist gerade nicht verfügbar.");
@@ -300,6 +447,45 @@ export default function SchnellClient() {
     );
   }
 
+  function restoreHistory(entry: HistoryEntry) {
+    const productById = new Map(products.map((product) => [product.id, product]));
+    const restored: CartLine[] = [];
+    let skipped = 0;
+
+    for (const item of entry.items) {
+      const product = productById.get(item.productId);
+      if (!product) {
+        skipped += 1;
+        continue;
+      }
+
+      const validExtraIds = item.extraIds.filter((extraId) =>
+        product.extras.some((extra) => extra.id === extraId),
+      );
+      restored.push({
+        key: makeLineKey(product.id, validExtraIds),
+        product,
+        qty: Math.max(1, Math.min(20, Number(item.qty) || 1)),
+        extraIds: validExtraIds,
+        note: String(item.note || "").slice(0, 300),
+      });
+    }
+
+    if (!restored.length) {
+      setError("Die Artikel dieser Bestellung sind momentan nicht verfügbar.");
+      return;
+    }
+
+    setCart(restored);
+    setTakeaway(catalogSettings.takeawayEnabled && entry.takeaway);
+    setHistoryOpen(false);
+    setCartOpen(true);
+
+    if (skipped > 0) {
+      setError("Nicht verfügbare Artikel wurden nicht übernommen.");
+    }
+  }
+
   async function placeOrder() {
     if (!cart.length || busy) return;
 
@@ -307,7 +493,7 @@ export default function SchnellClient() {
     setError("");
 
     try {
-      const idempotencyKey = getStableIdempotencyKey(cart);
+      const idempotencyKey = getStableIdempotencyKey(cart, takeaway);
       const response = await fetch("/api/schnellbestellung/orders", {
         method: "POST",
         headers: {
@@ -316,6 +502,7 @@ export default function SchnellClient() {
         },
         body: JSON.stringify({
           paymentMethod: "cash",
+          takeaway: catalogSettings.takeawayEnabled && takeaway,
           items: cart.map((line) => ({
             productId: line.product.id,
             qty: line.qty,
@@ -333,12 +520,20 @@ export default function SchnellClient() {
             : data.error === "DEVICE_RATE_LIMIT"
               ? "Zu viele Bestellungen. Bitte wenden Sie sich an unser Personal."
               : data.error === "PRODUCT_UNAVAILABLE"
-                ? "Ein Artikel ist nicht mehr verfügbar. Bitte öffnen Sie den Warenkorb erneut."
+                ? "Ein Artikel ist nicht mehr verfügbar."
                 : data.error === "SCHNELL_UNAVAILABLE"
                   ? "Schnellbestellung ist momentan pausiert."
                   : "Die Bestellung konnte nicht gesendet werden.";
         throw new Error(message);
       }
+
+      saveHistoryEntry(
+        catalogSettings,
+        cart,
+        catalogSettings.takeawayEnabled && takeaway,
+        Number(data.customerNumber || 0),
+        Number(data.total || total),
+      );
 
       localStorage.removeItem("bb_schnell_cart");
       localStorage.removeItem("bb_schnell_pending_order");
@@ -369,10 +564,19 @@ export default function SchnellClient() {
             className="h-11 w-11 rounded-full"
             alt="Burger Brothers"
           />
-          <div>
+          <div className="min-w-0 flex-1">
             <h1 className="font-black">Schnellbestellung</h1>
             <p className="text-xs text-stone-400">Direkt im Restaurant bestellen</p>
           </div>
+          {catalogSettings.orderHistoryEnabled && history.length ? (
+            <button
+              type="button"
+              onClick={() => setHistoryOpen(true)}
+              className="shrink-0 rounded-xl bg-white/10 px-3 py-2 text-xs font-bold"
+            >
+              Letzte Bestellungen
+            </button>
+          ) : null}
         </div>
 
         <div className="mx-auto mt-3 flex max-w-3xl gap-2 overflow-x-auto pb-1">
@@ -382,9 +586,7 @@ export default function SchnellClient() {
               type="button"
               onClick={() => setCategory(item.key)}
               className={`whitespace-nowrap rounded-full px-4 py-2 text-sm font-bold ${
-                category === item.key
-                  ? "bg-amber-400 text-black"
-                  : "bg-white/10"
+                category === item.key ? "bg-amber-400 text-black" : "bg-white/10"
               }`}
             >
               {item.label}
@@ -618,32 +820,74 @@ export default function SchnellClient() {
             <div className="mx-auto max-w-xl">
               <div className="flex items-center justify-between">
                 <h2 className="text-2xl font-black">Warenkorb</h2>
-                <button type="button" onClick={() => setCartOpen(false)} className="rounded-full bg-white/10 px-3 py-2 font-bold">✕</button>
+                <button
+                  type="button"
+                  onClick={() => setCartOpen(false)}
+                  className="rounded-full bg-white/10 px-3 py-2 font-bold"
+                >
+                  ✕
+                </button>
               </div>
 
               <div className="mt-5 space-y-3">
                 {cart.map((line) => (
-                  <div key={line.key} className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                  <div
+                    key={line.key}
+                    className="rounded-2xl border border-white/10 bg-white/5 p-4"
+                  >
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <div className="font-black">{line.product.name}</div>
                         {line.extraIds.length ? (
                           <div className="mt-1 text-xs text-stone-400">
-                            Extras: {line.product.extras.filter((extra) => line.extraIds.includes(extra.id)).map((extra) => extra.name).join(", ")}
+                            Extras: {line.product.extras
+                              .filter((extra) => line.extraIds.includes(extra.id))
+                              .map((extra) => extra.name)
+                              .join(", ")}
                           </div>
                         ) : null}
-                        {line.note ? <div className="mt-1 text-xs text-amber-200">Hinweis: {line.note}</div> : null}
+                        {line.note ? (
+                          <div className="mt-1 text-xs text-amber-200">
+                            Hinweis: {line.note}
+                          </div>
+                        ) : null}
                       </div>
-                      <div className="font-black text-amber-300">{euro(lineTotal(line))}</div>
+                      <div className="font-black text-amber-300">
+                        {euro(lineTotal(line))}
+                      </div>
                     </div>
                     <div className="mt-3 flex items-center justify-end gap-2">
-                      <button type="button" onClick={() => changeQty(line.key, -1)} className="h-10 w-10 rounded-xl bg-white/10 text-xl font-black">−</button>
+                      <button
+                        type="button"
+                        onClick={() => changeQty(line.key, -1)}
+                        className="h-10 w-10 rounded-xl bg-white/10 text-xl font-black"
+                      >
+                        −
+                      </button>
                       <span className="min-w-8 text-center font-black">{line.qty}</span>
-                      <button type="button" onClick={() => changeQty(line.key, 1)} className="h-10 w-10 rounded-xl bg-white/10 text-xl font-black">+</button>
+                      <button
+                        type="button"
+                        onClick={() => changeQty(line.key, 1)}
+                        className="h-10 w-10 rounded-xl bg-white/10 text-xl font-black"
+                      >
+                        +
+                      </button>
                     </div>
                   </div>
                 ))}
               </div>
+
+              {catalogSettings.takeawayEnabled ? (
+                <label className="mt-5 flex items-center gap-3 rounded-2xl border border-amber-300/30 bg-amber-300/10 p-4 font-bold">
+                  <input
+                    type="checkbox"
+                    checked={takeaway}
+                    onChange={(event) => setTakeaway(event.target.checked)}
+                    className="h-5 w-5"
+                  />
+                  Zum Mitnehmen
+                </label>
+              ) : null}
 
               <div className="mt-5 flex items-center justify-between border-t border-white/10 pt-4 text-xl font-black">
                 <span>Gesamt</span>
@@ -663,12 +907,67 @@ export default function SchnellClient() {
         </div>
       ) : null}
 
+      {historyOpen ? (
+        <div className="fixed inset-0 z-[60] flex items-end bg-black/75">
+          <div className="max-h-[88dvh] w-full overflow-y-auto rounded-t-3xl bg-stone-900 p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+            <div className="mx-auto max-w-xl">
+              <div className="flex items-center justify-between">
+                <h2 className="text-2xl font-black">Letzte Bestellungen</h2>
+                <button
+                  type="button"
+                  onClick={() => setHistoryOpen(false)}
+                  className="rounded-full bg-white/10 px-3 py-2 font-bold"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="mt-5 space-y-3">
+                {history.map((entry) => (
+                  <article
+                    key={entry.id}
+                    className="rounded-2xl border border-white/10 bg-white/5 p-4"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="font-black">
+                          {new Intl.DateTimeFormat("de-DE", {
+                            dateStyle: "medium",
+                            timeStyle: "short",
+                          }).format(new Date(entry.createdAt))}
+                        </div>
+                        <div className="mt-1 text-sm text-stone-400">
+                          {entry.items.reduce((sum, item) => sum + item.qty, 0)} Artikel
+                          {entry.takeaway ? " · Zum Mitnehmen" : ""}
+                        </div>
+                      </div>
+                      <div className="font-black text-amber-300">
+                        {euro(entry.total)}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => restoreHistory(entry)}
+                      className="mt-4 w-full rounded-xl bg-amber-400 px-4 py-3 font-black text-black"
+                    >
+                      In den Warenkorb
+                    </button>
+                  </article>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {confirmOpen ? (
         <div className="fixed inset-0 z-[70] grid place-items-center bg-black/80 p-5 backdrop-blur-sm">
           <section className="w-full max-w-md rounded-3xl border border-white/15 bg-stone-900 p-6 text-center shadow-2xl">
             <h2 className="text-2xl font-black">Bestellung abschließen?</h2>
             <p className="mt-3 text-stone-300">
-              Möchten Sie diese Bestellung wirklich verbindlich abschließen?
+              {catalogSettings.takeawayEnabled && takeaway
+                ? "Ihre Bestellung wird zum Mitnehmen aufgegeben. Möchten Sie fortfahren?"
+                : "Ihre Bestellung wird zum Verzehr im Restaurant aufgegeben. Möchten Sie fortfahren?"}
             </p>
             <div className="mt-6 grid grid-cols-2 gap-3">
               <button
@@ -682,7 +981,10 @@ export default function SchnellClient() {
               <button
                 type="button"
                 disabled={busy}
-                onClick={() => void placeOrder()}
+                onClick={() => {
+                  primeReadyAudio();
+                  void placeOrder();
+                }}
                 className="rounded-xl bg-emerald-500 p-3 font-black text-black disabled:opacity-50"
               >
                 {busy ? "Wird gesendet …" : "Ja, bestellen"}

@@ -51,6 +51,7 @@ export type OrderCardDisplay = {
   leftMin?: number | null;
   etaBusy?: boolean;
   statusBusy?: boolean;
+  nowMs?: number;
 };
 
 export type OrderCardActions = {
@@ -80,6 +81,7 @@ export function OrderCard({
     leftMin: displayLeftMin,
     etaBusy = false,
     statusBusy = false,
+    nowMs = Date.now(),
   } = display;
 
   const dineIn = order.mode === "dine_in";
@@ -98,6 +100,33 @@ export function OrderCard({
   const paymentBadge = getPaymentBadge(order);
   const addressLine = order.mode === "delivery" ? formatDeliveryLine(order) : "";
   const startTime = outSince ?? order.ts;
+  const takeaway =
+    dineIn &&
+    (order.meta?.takeaway === true || order.meta?.fulfillment === "takeaway");
+  const timeSignalEnabled = dineIn && order.meta?.timeSignalEnabled !== false;
+  const warningMinutes = Math.max(1, Number(order.meta?.timeWarningMinutes) || 10);
+  const criticalMinutes = Math.max(
+    warningMinutes + 1,
+    Number(order.meta?.timeCriticalMinutes) || 15,
+  );
+  const ageMinutes = Math.max(0, Math.floor((nowMs - Number(order.ts || nowMs)) / 60_000));
+  const ageActive =
+    timeSignalEnabled && (order.status === "new" || order.status === "preparing");
+  const ageTone = !ageActive
+    ? "neutral"
+    : ageMinutes >= criticalMinutes
+      ? "critical"
+      : ageMinutes >= warningMinutes
+        ? "warning"
+        : "fresh";
+  const criticalStrength = Math.min(0.42, 0.14 + Math.max(0, ageMinutes - criticalMinutes) * 0.025);
+  const dineInPanelStyle =
+    ageTone === "critical"
+      ? {
+          backgroundColor: `rgba(239, 68, 68, ${criticalStrength})`,
+          borderColor: `rgba(248, 113, 113, ${Math.min(0.9, criticalStrength + 0.35)})`,
+        }
+      : undefined;
 
   return (
     <div className="relative rounded-2xl border border-white/15 bg-white/[0.06] p-4 shadow-[inset_0_1px_0_0_rgba(255,255,255,.20)] ring-1 ring-black/10 backdrop-blur-xl">
@@ -112,6 +141,12 @@ export function OrderCard({
           <span className={`${chip} ${modeChipClass(order.mode)}`}>
             {order.mode === "dine_in" ? "VOR ORT" : order.mode === "pickup" ? "Abholung" : "Lieferung"}
           </span>
+
+          {takeaway ? (
+            <span className={`${chip} border-fuchsia-300/60 bg-fuchsia-500/20 text-fuchsia-100`}>
+              ZUM MITNEHMEN
+            </span>
+          ) : null}
 
           {plannedFuture && (
             <span
@@ -206,11 +241,48 @@ export function OrderCard({
       ) : null}
 
       {dineIn ? (
-        <div className="mt-4 rounded-2xl border border-emerald-400/25 bg-emerald-500/10 p-4 text-center">
-          <div className="text-xs font-black uppercase tracking-[0.18em] text-emerald-200">Kundennummer</div>
-          <div className="mt-1 text-8xl font-black leading-none text-amber-300">{Number(order.meta?.customerNumber || 0) || "–"}</div>
-          <div className="mt-3 text-sm font-semibold text-stone-300">
-            Bestellt um {new Intl.DateTimeFormat("de-DE", { timeZone: "Europe/Berlin", hour: "2-digit", minute: "2-digit" }).format(new Date(order.ts || Date.now()))} Uhr
+        <div
+          style={dineInPanelStyle}
+          className={clsx(
+            "mt-4 rounded-2xl border p-4 text-center transition-colors duration-700",
+            ageTone === "fresh" &&
+              "border-emerald-400/35 bg-emerald-500/15",
+            ageTone === "warning" &&
+              "border-orange-300/60 bg-orange-500/25",
+            ageTone === "critical" && ageMinutes >= criticalMinutes + 5 &&
+              "animate-pulse",
+            ageTone === "neutral" &&
+              "border-emerald-400/25 bg-emerald-500/10",
+          )}
+        >
+          <div
+            className={clsx(
+              "text-xs font-black uppercase tracking-[0.18em]",
+              ageTone === "warning"
+                ? "text-orange-100"
+                : ageTone === "critical"
+                  ? "text-red-100"
+                  : "text-emerald-200",
+            )}
+          >
+            Kundennummer
+          </div>
+          <div className="mt-1 text-8xl font-black leading-none text-amber-300">
+            {Number(order.meta?.customerNumber || 0) || "–"}
+          </div>
+          <div className="mt-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-sm font-semibold text-stone-200">
+            <span>
+              Bestellt um {new Intl.DateTimeFormat("de-DE", {
+                timeZone: "Europe/Berlin",
+                hour: "2-digit",
+                minute: "2-digit",
+              }).format(new Date(order.ts || nowMs))} Uhr
+            </span>
+            {!isFinal ? (
+              <span className="font-black">
+                {ageMinutes < 1 ? "Gerade eben" : `Seit ${ageMinutes} Min.`}
+              </span>
+            ) : null}
           </div>
         </div>
       ) : null}

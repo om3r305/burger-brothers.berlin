@@ -23,6 +23,10 @@ type CatalogPayload = {
     cashEnabled: boolean;
     onlineEnabled: boolean;
     splitEnabled: boolean;
+    takeawayEnabled: boolean;
+    orderHistoryEnabled: boolean;
+    historyMaxOrders: number;
+    historyDays: number;
   };
 };
 
@@ -111,6 +115,10 @@ function settingsCacheKey(settings: Awaited<ReturnType<typeof getSchnellSettings
       settings.cashEnabled,
       settings.onlineEnabled,
       settings.splitEnabled,
+      settings.takeawayEnabled,
+      settings.orderHistoryEnabled,
+      settings.historyMaxOrders,
+      settings.historyDays,
     ],
   });
 }
@@ -230,6 +238,10 @@ export async function GET(req: Request) {
         cashEnabled: settings.cashEnabled,
         onlineEnabled: settings.onlineEnabled,
         splitEnabled: settings.splitEnabled,
+        takeawayEnabled: settings.takeawayEnabled,
+        orderHistoryEnabled: settings.orderHistoryEnabled,
+        historyMaxOrders: settings.historyMaxOrders,
+        historyDays: settings.historyDays,
       },
     };
 

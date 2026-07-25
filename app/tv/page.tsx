@@ -729,6 +729,7 @@ export default function TVPage() {
                   ),
                   etaBusy: etaBusyIds.has(order.id),
                   statusBusy: statusBusyIds.has(order.id),
+                  nowMs,
                 }}
                 actions={{
                   open: () => setSelectedOrderId(order.id),
