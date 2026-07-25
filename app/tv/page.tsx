@@ -97,6 +97,7 @@ export default function TVPage() {
 
   const {
     orders,
+    setOrders,
     refresh,
     etaOverrides,
     etaBusyIds,
@@ -165,12 +166,15 @@ export default function TVPage() {
     const incoming = orders.filter((order) => {
       const pickupReady =
         order.mode === "pickup" && order.status === "ready";
+      const dineInReady =
+        order.mode === "dine_in" && order.status === "ready";
 
       return (
         order.status !== "done" &&
         order.status !== "cancelled" &&
         order.status !== "out_for_delivery" &&
-        !pickupReady
+        !pickupReady &&
+        !dineInReady
       );
     }).length;
 
@@ -182,7 +186,9 @@ export default function TVPage() {
 
     const finished = orders.filter(
       (order) =>
-        order.status === "done" || order.status === "cancelled",
+        order.status === "done" ||
+        order.status === "cancelled" ||
+        (order.mode === "dine_in" && order.status === "ready"),
     ).length;
 
     return { incoming, onroad, finished };
@@ -193,13 +199,16 @@ export default function TVPage() {
       .filter((order) => {
         const pickupReady =
           order.mode === "pickup" && order.status === "ready";
+        const dineInReady =
+          order.mode === "dine_in" && order.status === "ready";
 
         if (view === "incoming") {
           return (
             order.status !== "done" &&
             order.status !== "cancelled" &&
             order.status !== "out_for_delivery" &&
-            !pickupReady
+            !pickupReady &&
+            !dineInReady
           );
         }
 
@@ -208,7 +217,9 @@ export default function TVPage() {
         }
 
         return (
-          order.status === "done" || order.status === "cancelled"
+          order.status === "done" ||
+          order.status === "cancelled" ||
+          dineInReady
         );
       })
       .sort((left, right) => {
@@ -471,6 +482,26 @@ export default function TVPage() {
       statusBusyRef.current.add(order.id);
       setStatusBusyIds(new Set(statusBusyRef.current));
 
+      setOrders((current) =>
+        current.map((item) =>
+          item.id === order.id
+            ? {
+                ...item,
+                status,
+                updatedAt: new Date().toISOString(),
+                meta: {
+                  ...(item.meta || {}),
+                  statusManual: status,
+                },
+              }
+            : item,
+        ),
+      );
+
+      if (order.mode === "dine_in" && status === "ready") {
+        setView("finished");
+      }
+
       try {
         if (status === "out_for_delivery") {
           setDeliveryDeparture(order.id, true);
@@ -495,6 +526,7 @@ export default function TVPage() {
           "error",
           6000,
         );
+        await refresh();
       } finally {
         statusBusyRef.current.delete(order.id);
         setStatusBusyIds(new Set(statusBusyRef.current));
@@ -507,6 +539,7 @@ export default function TVPage() {
       nowMs,
       refresh,
       setDeliveryDeparture,
+      setOrders,
     ],
   );
 

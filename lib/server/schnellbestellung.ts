@@ -736,6 +736,44 @@ function normalizeComparableName(value: unknown) {
     .trim();
 }
 
+function escapeRegex(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export function stripSchnellGroupPrefix(
+  groupNameRaw: unknown,
+  variantNameRaw: unknown,
+) {
+  const groupName = cleanText(groupNameRaw, 160);
+  const variantName = cleanText(variantNameRaw, 160);
+
+  if (!groupName || !variantName) return variantName;
+
+  const groupComparable = normalizeComparableName(groupName);
+  const variantComparable = normalizeComparableName(variantName);
+
+  if (!variantComparable.startsWith(`${groupComparable} `)) {
+    return variantName;
+  }
+
+  const groupWords = groupName
+    .split(/[\s\-–—()]+/g)
+    .map((word) => word.trim())
+    .filter(Boolean);
+
+  if (!groupWords.length) return variantName;
+
+  const prefixPattern = groupWords
+    .map(escapeRegex)
+    .join("[\\s\\-–—()]*");
+  const match = variantName.match(
+    new RegExp(`^${prefixPattern}(?:\\s*[-–—:]\\s*|\\s+)`, "i"),
+  );
+  const cleaned = match ? variantName.slice(match[0].length).trim() : "";
+
+  return cleaned || variantName;
+}
+
 export function cleanSchnellGroupVariantName(
   category: "drinks" | "extras",
   groupNameRaw: unknown,
@@ -744,19 +782,11 @@ export function cleanSchnellGroupVariantName(
   const groupName = cleanText(groupNameRaw, 160);
   const variantName = cleanText(variantNameRaw, 160);
 
-  if (!variantName) return groupName || (category === "drinks" ? "Getränk" : "Extra");
-  if (!groupName) return variantName;
+  if (variantName) {
+    return stripSchnellGroupPrefix(groupName, variantName);
+  }
 
-  const groupComparable = normalizeComparableName(groupName);
-  const variantComparable = normalizeComparableName(variantName);
-
-  if (variantComparable === groupComparable) return groupName;
-  if (variantComparable.startsWith(`${groupComparable} `)) return variantName;
-  if (groupComparable.startsWith(`${variantComparable} `)) return groupName;
-
-  if (category === "extras") return variantName;
-
-  return `${groupName} ${variantName}`.replace(/\s+/g, " ").trim();
+  return groupName || (category === "drinks" ? "Getränk" : "Extra");
 }
 
 function normalizeGroupVariantProducts(
@@ -971,9 +1001,17 @@ function productIsAllowed(
   settings: SchnellSettings,
 ) {
   if (settings.hiddenProductIds.includes(product.id)) return false;
-  // All active restaurant categories are shown by default. The previous
-  // visibleCategories value was never editable in the admin UI and could keep
-  // newly added Getränke/Extras hidden forever.
+
+  // Empty keeps backward compatibility with older saved settings and means
+  // "show every Schnellbestellung category". Once the admin saves explicit
+  // category choices, only those categories are returned.
+  if (
+    settings.visibleCategories.length > 0 &&
+    !settings.visibleCategories.includes(product.category)
+  ) {
+    return false;
+  }
+
   if (isComplimentaryTableSauce(product.category, product.name)) return false;
   return true;
 }

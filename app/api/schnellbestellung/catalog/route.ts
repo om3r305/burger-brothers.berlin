@@ -38,7 +38,7 @@ let memoryCache:
     }
   | null = null;
 
-const CATALOG_MEMORY_TTL_MS = 12_000;
+const CATALOG_MEMORY_TTL_MS = 30_000;
 
 function normalizeExtras(value: unknown) {
   return Array.isArray(value)
@@ -173,7 +173,7 @@ export async function GET(req: Request) {
         },
         {
           headers: {
-            "Cache-Control": "private, max-age=10, stale-while-revalidate=30",
+            "Cache-Control": "private, max-age=30, stale-while-revalidate=120",
           },
         },
       );
@@ -206,6 +206,7 @@ export async function GET(req: Request) {
           originalPrice: campaignPrice.originalPrice,
           campaignBadge: campaignPrice.badgeText,
           campaignName: campaignPrice.campaign?.name,
+          campaignActive: Boolean(campaignPrice.campaign),
           extras: normalizeExtras(product.extrasJson),
           allergens: allergenData.allergens,
           allergenHinweise: allergenData.allergenHinweise,
@@ -217,6 +218,10 @@ export async function GET(req: Request) {
       .sort((left, right) => {
         if (left.categoryOrder !== right.categoryOrder) {
           return left.categoryOrder - right.categoryOrder;
+        }
+
+        if (left.campaignActive !== right.campaignActive) {
+          return Number(right.campaignActive) - Number(left.campaignActive);
         }
 
         return left.name.localeCompare(right.name, "de");
@@ -253,7 +258,7 @@ export async function GET(req: Request) {
 
     return NextResponse.json(payload, {
       headers: {
-        "Cache-Control": "private, max-age=10, stale-while-revalidate=30",
+        "Cache-Control": "private, max-age=30, stale-while-revalidate=120",
         "Server-Timing": "catalog;desc=schnell",
       },
     });

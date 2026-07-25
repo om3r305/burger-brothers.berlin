@@ -20,6 +20,7 @@ type Product = {
   price: number;
   originalPrice?: number;
   campaignBadge?: string;
+  campaignActive?: boolean;
   extras: Extra[];
   allergens: string[];
   allergenHinweise?: string;
@@ -91,8 +92,8 @@ const DEFAULT_CATALOG_SETTINGS: CatalogSettings = {
   historyDays: 90,
 };
 
-const CATALOG_CACHE_KEY = "bb_schnell_catalog_v3";
-const CATALOG_CACHE_MAX_AGE_MS = 10 * 60_000;
+const CATALOG_CACHE_KEY = "bb_schnell_catalog_v4";
+const CATALOG_CACHE_MAX_AGE_MS = 30 * 60_000;
 const HISTORY_KEY = "bb_schnell_order_history_v1";
 
 const ALLERGEN_LEGEND: Record<string, string> = {
@@ -119,6 +120,63 @@ const ALLERGEN_LEGEND: Record<string, string> = {
 
 const euro = (value: number) =>
   value.toLocaleString("de-DE", { style: "currency", currency: "EUR" });
+
+function formatCampaignBadge(value: string) {
+  const text = value.trim().replace(/^🔥\s*|\s*🔥$/g, "").trim() || "Angebot";
+  return `🔥 ${text.toLocaleUpperCase("de-DE")} 🔥`;
+}
+
+function preloadCatalogImages(
+  products: Product[],
+  category: string,
+  limit = 10,
+) {
+  if (typeof window === "undefined" || !category) return;
+
+  products
+    .filter((product) => product.category === category && product.imageUrl)
+    .slice(0, limit)
+    .forEach((product) => {
+      const image = new Image();
+      image.decoding = "async";
+      image.setAttribute("fetchpriority", "high");
+      image.src = product.imageUrl;
+    });
+}
+
+function CatalogProductImage({
+  product,
+  index,
+}: {
+  product: Product;
+  index: number;
+}) {
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    setFailed(false);
+  }, [product.imageUrl]);
+
+  if (!product.imageUrl || failed) {
+    return (
+      <div className="grid h-full w-full place-items-center bg-gradient-to-br from-stone-900 to-black px-3 text-center text-xs font-bold text-stone-500">
+        Burger Brothers
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={product.imageUrl}
+      loading={index < 8 ? "eager" : "lazy"}
+      decoding={index < 4 ? "sync" : "async"}
+      fetchPriority={index < 6 ? "high" : "auto"}
+      onError={() => setFailed(true)}
+      className="h-full w-full object-contain"
+      alt={product.name}
+    />
+  );
+}
 
 function lineTotal(line: CartLine) {
   const extras = line.product.extras
@@ -335,6 +393,9 @@ export default function SchnellClient() {
 
     const cached = readCachedCatalog();
     if (cached?.products.length) {
+      const firstCategory =
+        cached.categories[0]?.key || cached.products[0]?.category || "";
+      preloadCatalogImages(cached.products, firstCategory, 10);
       setProducts(cached.products);
       setCategories(cached.categories);
       setCatalogSettings(cached.settings);
@@ -363,7 +424,10 @@ export default function SchnellClient() {
             ? data.categories
             : [];
           const nextSettings = normalizeCatalogSettings(data.settings);
+          const firstCategory =
+            nextCategories[0]?.key || nextProducts[0]?.category || "";
 
+          preloadCatalogImages(nextProducts, firstCategory, 12);
           setProducts(nextProducts);
           setCategories(nextCategories);
           setCatalogSettings(nextSettings);
@@ -402,6 +466,24 @@ export default function SchnellClient() {
   useEffect(() => {
     localStorage.setItem("bb_schnell_cart", JSON.stringify(cart));
   }, [cart]);
+
+  useEffect(() => {
+    preloadCatalogImages(products, category, 12);
+
+    const currentIndex = categories.findIndex((item) => item.key === category);
+    const nextCategory =
+      currentIndex >= 0 ? categories[currentIndex + 1]?.key : categories[0]?.key;
+    const timer = nextCategory
+      ? window.setTimeout(
+          () => preloadCatalogImages(products, nextCategory, 4),
+          250,
+        )
+      : null;
+
+    return () => {
+      if (timer !== null) window.clearTimeout(timer);
+    };
+  }, [categories, category, products]);
 
   const visibleProducts = useMemo(
     () => products.filter((product) => product.category === category),
@@ -584,6 +666,8 @@ export default function SchnellClient() {
             <button
               key={item.key}
               type="button"
+              onPointerDown={() => preloadCatalogImages(products, item.key, 12)}
+              onMouseEnter={() => preloadCatalogImages(products, item.key, 8)}
               onClick={() => setCategory(item.key)}
               className={`whitespace-nowrap rounded-full px-4 py-2 text-sm font-bold ${
                 category === item.key ? "bg-amber-400 text-black" : "bg-white/10"
@@ -627,22 +711,13 @@ export default function SchnellClient() {
             className="relative overflow-hidden rounded-2xl border border-white/10 bg-white/5 text-left"
           >
             {product.campaignBadge ? (
-              <span className="absolute right-2 top-2 z-10 rounded-full bg-red-600 px-2 py-1 text-[11px] font-black text-white">
-                {product.campaignBadge}
+              <span className="absolute right-2 top-2 z-10 animate-pulse rounded-full border border-yellow-200/70 bg-gradient-to-r from-red-600 via-orange-500 to-amber-400 px-2.5 py-1 text-[11px] font-black text-white shadow-[0_0_22px_rgba(251,146,60,0.75)]">
+                {formatCampaignBadge(product.campaignBadge)}
               </span>
             ) : null}
 
             <div className="aspect-[4/3] bg-stone-900">
-              {product.imageUrl ? (
-                <img
-                  src={product.imageUrl}
-                  loading={index < 4 ? "eager" : "lazy"}
-                  decoding="async"
-                  fetchPriority={index < 2 ? "high" : "auto"}
-                  className="h-full w-full object-contain"
-                  alt={product.name}
-                />
-              ) : null}
+              <CatalogProductImage product={product} index={index} />
             </div>
 
             <div className="p-3">

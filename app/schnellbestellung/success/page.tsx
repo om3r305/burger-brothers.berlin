@@ -40,31 +40,54 @@ function playReadyAlert() {
     const context =
       audioWindow.__bbSchnellReadyAudioContext || new AudioContextClass();
     audioWindow.__bbSchnellReadyAudioContext = context;
-    void context.resume();
 
-    const notes = [880, 1175, 880, 1175, 1320, 1175];
-    notes.forEach((frequency, index) => {
-      const start = context.currentTime + index * 0.23;
-      const oscillator = context.createOscillator();
-      const gain = context.createGain();
-      oscillator.type = "sine";
-      oscillator.frequency.value = frequency;
-      gain.gain.setValueAtTime(0.0001, start);
-      gain.gain.exponentialRampToValueAtTime(0.45, start + 0.025);
-      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.17);
-      oscillator.connect(gain);
-      gain.connect(context.destination);
-      oscillator.start(start);
-      oscillator.stop(start + 0.2);
-    });
+    const schedule = () => {
+      const compressor = context.createDynamicsCompressor();
+      compressor.threshold.value = -18;
+      compressor.knee.value = 12;
+      compressor.ratio.value = 8;
+      compressor.attack.value = 0.003;
+      compressor.release.value = 0.2;
+      compressor.connect(context.destination);
+
+      const roundOffsets = [0, 1.7, 3.4, 5.1];
+      const notes = [988, 1318, 1568, 1318, 1760];
+
+      roundOffsets.forEach((roundOffset) => {
+        notes.forEach((frequency, index) => {
+          const start = context.currentTime + roundOffset + index * 0.18;
+          const oscillator = context.createOscillator();
+          const gain = context.createGain();
+          oscillator.type = index % 2 === 0 ? "square" : "triangle";
+          oscillator.frequency.setValueAtTime(frequency, start);
+          gain.gain.setValueAtTime(0.0001, start);
+          gain.gain.exponentialRampToValueAtTime(0.82, start + 0.018);
+          gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.14);
+          oscillator.connect(gain);
+          gain.connect(compressor);
+          oscillator.start(start);
+          oscillator.stop(start + 0.16);
+        });
+      });
+    };
+
+    if (context.state === "suspended") {
+      void context.resume().then(schedule).catch(() => undefined);
+    } else {
+      schedule();
+    }
   } catch {
     // Audio is best-effort. Visual ready state still works.
   }
 
   try {
-    navigator.vibrate?.([250, 120, 250, 120, 450]);
+    navigator.vibrate?.([
+      450, 140, 450, 180, 700, 350,
+      450, 140, 450, 180, 700, 350,
+      650, 160, 900,
+    ]);
   } catch {
-    // Vibration is not available on every browser.
+    // Vibration is not available on every browser (including iOS Safari).
   }
 }
 
@@ -136,7 +159,6 @@ export default function SuccessPage() {
           ) {
             notifiedRef.current = true;
             playReadyAlert();
-            window.setTimeout(playReadyAlert, 1800);
           }
         } else if (response.status !== 401) {
           setStatusError(true);

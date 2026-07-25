@@ -231,7 +231,7 @@ function newCampaign(): SchnellCampaign {
     active: true,
     targetCategory: "burger",
     percent: 10,
-    badgeText: "Angebot",
+    badgeText: "🔥 Angebot",
   };
 }
 
@@ -287,6 +287,15 @@ export default function SchnellbestellungAdminPage() {
     return { text: "Aktif", className: "border-emerald-500/40 bg-emerald-500/10 text-emerald-100" };
   }, [settings]);
 
+  const effectiveVisibleCategories = useMemo(() => {
+    if (!settings) return [] as SchnellCategory[];
+
+    const saved = new Set(settings.visibleCategories);
+    return settings.visibleCategories.length
+      ? CATEGORY_OPTIONS.map((item) => item.key).filter((key) => saved.has(key))
+      : CATEGORY_OPTIONS.map((item) => item.key);
+  }, [settings]);
+
   function setBoolean(key: BooleanSettingKey, value: boolean) {
     setSettings((current) => (current ? { ...current, [key]: value } : current));
   }
@@ -295,6 +304,29 @@ export default function SchnellbestellungAdminPage() {
     const parsed = Number(value.replace(",", "."));
     if (!Number.isFinite(parsed)) return;
     setSettings((current) => (current ? { ...current, [key]: parsed } : current));
+  }
+
+  function toggleCategory(key: SchnellCategory, visible: boolean) {
+    if (!settings) return;
+
+    setError("");
+    const allKeys = CATEGORY_OPTIONS.map((item) => item.key);
+    const active = new Set(
+      settings.visibleCategories.length ? settings.visibleCategories : allKeys,
+    );
+
+    if (visible) active.add(key);
+    else active.delete(key);
+
+    if (active.size === 0) {
+      setError("En az bir Schnellbestellung kategorisi açık kalmalıdır.");
+      return;
+    }
+
+    setSettings({
+      ...settings,
+      visibleCategories: allKeys.filter((item) => active.has(item)),
+    });
   }
 
   function updateCampaign(id: string, patch: Partial<SchnellCampaign>) {
@@ -424,6 +456,37 @@ export default function SchnellbestellungAdminPage() {
                 />
               </label>
             ))}
+          </div>
+        </section>
+
+        <section className="mt-8 rounded-2xl border border-stone-700 p-5">
+          <h2 className="text-xl font-black">Hızlı menü kategorileri</h2>
+          <p className="mt-2 text-sm text-stone-400">
+            Burada kapattığın kategori yalnız Schnellbestellung ekranından gizlenir. Normal internet menüsü etkilenmez.
+          </p>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {CATEGORY_OPTIONS.map((item) => {
+              const checked = effectiveVisibleCategories.includes(item.key);
+
+              return (
+                <label
+                  key={item.key}
+                  className={`flex items-center justify-between gap-3 rounded-xl border p-4 ${
+                    checked
+                      ? "border-emerald-400/40 bg-emerald-400/10"
+                      : "border-stone-700 bg-black/20 opacity-70"
+                  }`}
+                >
+                  <span className="font-bold">{item.label}</span>
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={(event) => toggleCategory(item.key, event.target.checked)}
+                    className="h-5 w-5"
+                  />
+                </label>
+              );
+            })}
           </div>
         </section>
 

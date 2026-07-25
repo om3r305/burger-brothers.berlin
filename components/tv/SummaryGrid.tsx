@@ -13,10 +13,16 @@ export function SummaryGrid({ orders }: { orders: StoredOrder[] }) {
     const online = orders.filter((order) => getPaymentKind(order) === "online").length;
     const cash = orders.filter((order) => getPaymentKind(order) === "cash").length;
     const active = orders.filter(
-      (order) => order.status !== "done" && order.status !== "cancelled",
+      (order) =>
+        order.status !== "done" &&
+        order.status !== "cancelled" &&
+        !(order.mode === "dine_in" && order.status === "ready"),
     ).length;
     const finished = orders.filter(
-      (order) => order.status === "done" || order.status === "cancelled",
+      (order) =>
+        order.status === "done" ||
+        order.status === "cancelled" ||
+        (order.mode === "dine_in" && order.status === "ready"),
     ).length;
     const onroad = orders.filter(
       (order) =>
