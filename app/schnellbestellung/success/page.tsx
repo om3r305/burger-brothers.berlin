@@ -10,6 +10,9 @@ type StatusResponse = {
   status?: OrderStatus;
   customerNumber?: number;
   liveReadyAlertEnabled?: boolean;
+  readyEventId?: string;
+  readyEventAt?: number;
+  readyEventSequence?: number;
 };
 
 type WakeLockSentinelLike = {
@@ -26,9 +29,43 @@ type NavigatorWithWakeLock = Navigator & {
 type AudioWindow = Window &
   typeof globalThis & {
     __bbSchnellReadyAudioContext?: AudioContext;
+    __bbSchnellReadyMedia?: HTMLAudioElement;
   };
 
+function getReadyMediaElement() {
+  const audioWindow = window as AudioWindow;
+  const media =
+    audioWindow.__bbSchnellReadyMedia || new Audio("/sounds/dine-in.wav");
+  media.preload = "auto";
+  media.volume = 1;
+  media.muted = false;
+  media.setAttribute("playsinline", "true");
+  audioWindow.__bbSchnellReadyMedia = media;
+  return media;
+}
+
+function playReadyMediaRound(media: HTMLAudioElement) {
+  try {
+    media.pause();
+    media.currentTime = 0;
+    media.volume = 1;
+    media.muted = false;
+    void media.play().catch(() => undefined);
+  } catch {
+    // HTML media is best-effort on mobile browsers.
+  }
+}
+
 function playReadyAlert() {
+  try {
+    const media = getReadyMediaElement();
+    [0, 1600, 3200, 4800, 6400, 8000].forEach((delay) => {
+      window.setTimeout(() => playReadyMediaRound(media), delay);
+    });
+  } catch {
+    // Web Audio fallback below still runs.
+  }
+
   try {
     const audioWindow = window as AudioWindow;
     const AudioContextClass =
@@ -43,30 +80,34 @@ function playReadyAlert() {
 
     const schedule = () => {
       const compressor = context.createDynamicsCompressor();
-      compressor.threshold.value = -18;
-      compressor.knee.value = 12;
-      compressor.ratio.value = 8;
-      compressor.attack.value = 0.003;
-      compressor.release.value = 0.2;
-      compressor.connect(context.destination);
+      compressor.threshold.value = -24;
+      compressor.knee.value = 8;
+      compressor.ratio.value = 12;
+      compressor.attack.value = 0.002;
+      compressor.release.value = 0.18;
 
-      const roundOffsets = [0, 1.7, 3.4, 5.1];
-      const notes = [988, 1318, 1568, 1318, 1760];
+      const master = context.createGain();
+      master.gain.value = 1;
+      compressor.connect(master);
+      master.connect(context.destination);
+
+      const roundOffsets = [0, 1.45, 2.9, 4.35, 5.8, 7.25];
+      const notes = [988, 1318, 1568, 1318, 1760, 2093];
 
       roundOffsets.forEach((roundOffset) => {
         notes.forEach((frequency, index) => {
-          const start = context.currentTime + roundOffset + index * 0.18;
+          const start = context.currentTime + roundOffset + index * 0.16;
           const oscillator = context.createOscillator();
           const gain = context.createGain();
-          oscillator.type = index % 2 === 0 ? "square" : "triangle";
+          oscillator.type = index % 2 === 0 ? "square" : "sawtooth";
           oscillator.frequency.setValueAtTime(frequency, start);
           gain.gain.setValueAtTime(0.0001, start);
-          gain.gain.exponentialRampToValueAtTime(0.82, start + 0.018);
-          gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.14);
+          gain.gain.exponentialRampToValueAtTime(0.96, start + 0.012);
+          gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.13);
           oscillator.connect(gain);
           gain.connect(compressor);
           oscillator.start(start);
-          oscillator.stop(start + 0.16);
+          oscillator.stop(start + 0.15);
         });
       });
     };
@@ -82,9 +123,9 @@ function playReadyAlert() {
 
   try {
     navigator.vibrate?.([
-      450, 140, 450, 180, 700, 350,
-      450, 140, 450, 180, 700, 350,
-      650, 160, 900,
+      650, 120, 650, 140, 950, 240,
+      650, 120, 650, 140, 950, 240,
+      800, 140, 800, 140, 1200,
     ]);
   } catch {
     // Vibration is not available on every browser (including iOS Safari).
@@ -100,7 +141,8 @@ export default function SuccessPage() {
   const [closing, setClosing] = useState(false);
   const [closeHint, setCloseHint] = useState(false);
   const [statusError, setStatusError] = useState(false);
-  const notifiedRef = useRef(false);
+  const lastReadyEventRef = useRef("");
+  const legacyReadyActiveRef = useRef(false);
   const wakeLockRef = useRef<WakeLockSentinelLike | null>(null);
 
   const requestWakeLock = useCallback(async () => {
@@ -152,13 +194,23 @@ export default function SuccessPage() {
             setCustomerNumber(String(data.customerNumber));
           }
 
-          if (
-            data.status === "ready" &&
-            data.liveReadyAlertEnabled !== false &&
-            !notifiedRef.current
-          ) {
-            notifiedRef.current = true;
-            playReadyAlert();
+          if (data.status === "ready") {
+            const readyEventId = String(data.readyEventId || "").trim();
+
+            if (data.liveReadyAlertEnabled !== false) {
+              if (readyEventId) {
+                if (lastReadyEventRef.current !== readyEventId) {
+                  lastReadyEventRef.current = readyEventId;
+                  playReadyAlert();
+                }
+              } else if (!legacyReadyActiveRef.current) {
+                // Eski siparişlerde readyEventId yoksa status geçişini kullan.
+                legacyReadyActiveRef.current = true;
+                playReadyAlert();
+              }
+            }
+          } else {
+            legacyReadyActiveRef.current = false;
           }
         } else if (response.status !== 401) {
           setStatusError(true);

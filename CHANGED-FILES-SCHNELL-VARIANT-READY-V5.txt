@@ -1,0 +1,23 @@
+BURGER BROTHERS SCHNELL VARIANT + READY ALERT V5
+
+Değişen proje dosyaları:
+
+lib/server/schnellbestellung.ts
+components/schnellbestellung/SchnellClient.tsx
+app/schnellbestellung/success/page.tsx
+app/api/schnellbestellung/status/route.ts
+app/api/orders/status/route.ts
+tools/schnellbestellung-regression-tests.cjs
+
+Paketlenen mevcut ses varlığı:
+public/sounds/dine-in.wav
+
+Teslimat araçları:
+README-SCHNELL-VARIANT-READY-V5.md
+VERIFY-SCHNELL-VARIANT-READY-V5.md
+CHANGED-FILES-SCHNELL-VARIANT-READY-V5.txt
+SHA256SUMS-SCHNELL-VARIANT-READY-V5.txt
+PUSH-SCHNELL-VARIANT-READY-V5-TO-GITHUB.ps1
+RUN-SCHNELL-VARIANT-READY-V5-GITHUB-PUSH.bat
+
+Prisma migration: YOK

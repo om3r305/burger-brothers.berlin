@@ -782,9 +782,10 @@ export function cleanSchnellGroupVariantName(
   const groupName = cleanText(groupNameRaw, 160);
   const variantName = cleanText(variantNameRaw, 160);
 
-  if (variantName) {
-    return stripSchnellGroupPrefix(groupName, variantName);
-  }
+  // Admin panelindeki "Varianten" alanı müşteri ekranının gerçek ürün adıdır.
+  // SKU ve grup adı yalnız kimliklendirme/gruplama için kullanılır; kart adına
+  // eklenmez ve variant metninden otomatik olarak çıkarılmaz.
+  if (variantName) return variantName;
 
   return groupName || (category === "drinks" ? "Getränk" : "Extra");
 }

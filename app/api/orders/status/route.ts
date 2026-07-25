@@ -735,6 +735,8 @@ function buildStatusUpdateData(
   const isOutForDelivery = next === "out_for_delivery";
 
   const metaObj = ensureObj(row?.meta);
+  const previousStatus =
+    normalizeStatus(metaObj?.statusManual ?? row?.status) || "new";
   const oldHistory = normalizeHistory(row?.history ?? metaObj?.history);
   const by = body?.by ? String(body.by) : "api";
 
@@ -801,6 +803,21 @@ function buildStatusUpdateData(
     nextMeta.lastStatusAt = nowMs;
     nextMeta.lastStatusBy = by;
     nextMeta.lastStatus = next;
+
+    // Her gerçek non-ready -> ready geçişi telefona ayrı bir olay olarak gider.
+    // Böylece Fertig -> Neu/Preparing -> tekrar Fertig akışında müşteri ikinci
+    // kez de sesli/görsel uyarı alır; polling aynı olayı tekrar çalmaz.
+    if (
+      next === "ready" &&
+      previousStatus !== "ready" &&
+      isSchnellOrderLike(row, metaObj)
+    ) {
+      const readyEventSequence =
+        Math.max(0, Math.trunc(toNumber(metaObj?.readyEventSequence, 0))) + 1;
+      nextMeta.readyEventSequence = readyEventSequence;
+      nextMeta.readyEventAt = nowMs;
+      nextMeta.readyEventId = `ready-${readyEventSequence}-${nowMs}`;
+    }
 
     if (next === "preparing" && (body?.acceptAndPrint === true || body?.accepted === true || etaMinPatch)) {
       nextMeta.acceptedAt = nowMs;

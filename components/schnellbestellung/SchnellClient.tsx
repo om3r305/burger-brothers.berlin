@@ -80,6 +80,7 @@ type HistoryEntry = {
 type AudioWindow = Window &
   typeof globalThis & {
     __bbSchnellReadyAudioContext?: AudioContext;
+    __bbSchnellReadyMedia?: HTMLAudioElement;
   };
 
 const DEFAULT_CATALOG_SETTINGS: CatalogSettings = {
@@ -92,7 +93,7 @@ const DEFAULT_CATALOG_SETTINGS: CatalogSettings = {
   historyDays: 90,
 };
 
-const CATALOG_CACHE_KEY = "bb_schnell_catalog_v4";
+const CATALOG_CACHE_KEY = "bb_schnell_catalog_v5";
 const CATALOG_CACHE_MAX_AGE_MS = 30 * 60_000;
 const HISTORY_KEY = "bb_schnell_order_history_v1";
 
@@ -339,20 +340,48 @@ function primeReadyAudio() {
       (window as typeof window & { webkitAudioContext?: typeof AudioContext })
         .webkitAudioContext;
 
-    if (!AudioContextClass) return;
+    if (AudioContextClass) {
+      const context =
+        audioWindow.__bbSchnellReadyAudioContext || new AudioContextClass();
+      audioWindow.__bbSchnellReadyAudioContext = context;
+      void context.resume();
 
-    const context =
-      audioWindow.__bbSchnellReadyAudioContext || new AudioContextClass();
-    audioWindow.__bbSchnellReadyAudioContext = context;
-    void context.resume();
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      gain.gain.value = 0.00001;
+      oscillator.connect(gain);
+      gain.connect(context.destination);
+      oscillator.start();
+      oscillator.stop(context.currentTime + 0.03);
+    }
 
-    const oscillator = context.createOscillator();
-    const gain = context.createGain();
-    gain.gain.value = 0.00001;
-    oscillator.connect(gain);
-    gain.connect(context.destination);
-    oscillator.start();
-    oscillator.stop(context.currentTime + 0.03);
+    // Aynı kullanıcı dokunuşunda HTML media kanalını da hazırla. Next.js
+    // client navigation sırasında window nesnesi korunduğu için başarı ekranı
+    // daha sonra aynı audio elementini tekrar kullanabilir.
+    const media =
+      audioWindow.__bbSchnellReadyMedia ||
+      new Audio("/sounds/dine-in.wav");
+    media.preload = "auto";
+    media.volume = 1;
+    media.muted = false;
+    media.setAttribute("playsinline", "true");
+    audioWindow.__bbSchnellReadyMedia = media;
+
+    const originalVolume = media.volume;
+    media.volume = 0.001;
+    const prime = media.play();
+    if (prime && typeof prime.then === "function") {
+      void prime
+        .then(() => {
+          media.pause();
+          media.currentTime = 0;
+          media.volume = originalVolume;
+        })
+        .catch(() => {
+          media.volume = originalVolume;
+        });
+    }
+
     sessionStorage.setItem("bb_schnell_ready_audio_primed", "1");
   } catch {
     // Sound remains best-effort on mobile browsers.

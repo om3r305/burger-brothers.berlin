@@ -69,6 +69,10 @@ assert(core.includes("isComplimentaryTableSauce"));
 assert(core.includes("cleanSchnellGroupVariantName"));
 assert(core.includes("stripSchnellGroupPrefix"));
 assert(core.includes("prefixPattern"));
+assert(
+  core.includes('if (variantName) return variantName;'),
+  "Group variant cards must use the exact admin Varianten name",
+);
 assert(core.includes("settings.visibleCategories.length > 0"));
 assert(core.includes('fulfillment: takeaway ? "takeaway" : "eat_here"'));
 assert(core.includes("timeWarningMinutes"));
@@ -86,7 +90,10 @@ assert(client.includes("bb_schnell_pending_order"));
 assert(client.includes("bb_schnell_order_history_v1"));
 assert(client.includes("Letzte Bestellungen"));
 assert(client.includes("primeReadyAudio"));
-assert(client.includes("bb_schnell_catalog_v4"));
+assert(client.includes("__bbSchnellReadyMedia"));
+assert(client.includes('new Audio("/sounds/dine-in.wav")'));
+assert(client.includes("bb_schnell_catalog_v5"));
+assert(!client.includes("bb_schnell_catalog_v4"));
 assert(!client.includes("bb_schnell_catalog_v3"));
 assert(!client.includes("bb_schnell_catalog_v2"));
 assert(!client.includes('fetch("/api/schnellbestellung/session"'));
@@ -104,6 +111,10 @@ assert(success.includes("Ihre Bestellung ist fertig!"));
 assert(success.includes("playReadyAlert"));
 assert(success.includes("roundOffsets"));
 assert(success.includes("navigator.vibrate"));
+assert(success.includes("lastReadyEventRef"));
+assert(success.includes("legacyReadyActiveRef"));
+assert(success.includes("playReadyMediaRound"));
+assert(success.includes("__bbSchnellReadyMedia"));
 assert(success.includes("/api/schnellbestellung/status"));
 
 assert(catalog.includes("SCHNELL_CATEGORY_ORDER"));
@@ -164,6 +175,9 @@ assert(ordersList.includes('return "dine_in"'));
 assert(ordersList.includes("isSchnellOrderLike"));
 assert(tvDomain.includes("isSchnellOrderLike"));
 assert(ordersStatus.includes("isSchnellOrderLike"));
+assert(ordersStatus.includes("readyEventSequence"));
+assert(ordersStatus.includes("readyEventId"));
+assert(ordersStatus.includes('previousStatus !== "ready"'));
 assert(tvTypes.includes("takeaway?: boolean"));
 
 assert(pause.includes("dineIn: boolean"));
@@ -179,6 +193,8 @@ assert(accessDisplay.includes("Statischer Druck-QR"));
 
 assert(publicStatusRoute.includes("order_forbidden"));
 assert(publicStatusRoute.includes("liveReadyAlertEnabled"));
+assert(publicStatusRoute.includes("readyEventId"));
+assert(publicStatusRoute.includes("readyEventSequence"));
 assert(middleware.includes('path === "/api/schnellbestellung/status"'));
 assert(printProxy.includes("const isTakeaway"));
 assert(printProxy.includes("ZUM MITNEHMEN"));
