@@ -16,6 +16,10 @@ const requiredFiles = [
   "app/api/schnellbestellung/location/verify/route.ts",
   "app/api/schnellbestellung/orders/route.ts",
   "app/api/schnellbestellung/status/route.ts",
+  "app/api/schnellbestellung/push/route.ts",
+  "lib/server/schnell-push.ts",
+  "lib/client/schnell-push.ts",
+  "public/sw.js",
   "app/admin/schnellbestellung/page.tsx",
   "components/schnellbestellung/SchnellClient.tsx",
   "lib/server/schnellbestellung.ts",
@@ -52,6 +56,10 @@ const enterPage = read("app/schnellbestellung/enter/page.tsx");
 const locationRoute = read("app/api/schnellbestellung/location/verify/route.ts");
 const orderRoute = read("app/api/schnellbestellung/orders/route.ts");
 const publicStatusRoute = read("app/api/schnellbestellung/status/route.ts");
+const pushRoute = read("app/api/schnellbestellung/push/route.ts");
+const pushServer = read("lib/server/schnell-push.ts");
+const pushClient = read("lib/client/schnell-push.ts");
+const serviceWorker = read("public/sw.js");
 const middleware = read("middleware.ts");
 const tvTypes = read("types/tv.ts");
 const printProxy = read("print-proxy/index.cjs");
@@ -78,6 +86,11 @@ assert(core.includes('fulfillment: takeaway ? "takeaway" : "eat_here"'));
 assert(core.includes("timeWarningMinutes"));
 assert(core.includes("timeCriticalMinutes"));
 assert(core.includes("locationCheckEnabled: false"));
+assert(core.includes("backgroundReadyPushEnabled"));
+assert(core.includes("activeStatuses"));
+assert(core.includes("normalizeSchnellOrderStatus"));
+assert(core.includes('activeStatuses.has(status)'));
+assert(core.includes("select: { status: true, meta: true }"));
 
 assert(!client.includes("alert("));
 assert(!client.includes("window.confirm("));
@@ -102,6 +115,9 @@ assert(client.includes("preloadCatalogImages"));
 assert(client.includes("CatalogProductImage"));
 assert(client.includes("formatCampaignBadge"));
 assert(client.includes("🔥"));
+assert(client.includes("prewarmSchnellPush"));
+assert(client.includes("requestSchnellPushPermissionFromGesture"));
+assert(client.includes("bindSchnellPushToOrder"));
 
 assert(success.includes("Seite schließen"));
 assert(!success.includes("Neue Bestellung"));
@@ -116,6 +132,8 @@ assert(success.includes("legacyReadyActiveRef"));
 assert(success.includes("playReadyMediaRound"));
 assert(success.includes("__bbSchnellReadyMedia"));
 assert(success.includes("/api/schnellbestellung/status"));
+assert(success.includes("bindSchnellPushToOrder"));
+assert(success.includes("BB_SCHNELL_READY_PUSH"));
 
 assert(catalog.includes("SCHNELL_CATEGORY_ORDER"));
 assert(catalog.includes("allergenHinweise"));
@@ -141,6 +159,7 @@ assert(orderRoute.includes("takeaway: body.takeaway === true"));
 assert(admin.includes("Konum kontrolü aktif"));
 assert(admin.includes("Zum Mitnehmen seçimi aktif"));
 assert(admin.includes("Telefon hazır uyarısı aktif"));
+assert(admin.includes("Android arka plan bildirimi aktif"));
 assert(admin.includes("TV turuncu uyarı başlangıcı"));
 assert(admin.includes("Statik baskı QR"));
 assert(admin.includes("Dinamik ekran QR"));
@@ -178,6 +197,8 @@ assert(ordersStatus.includes("isSchnellOrderLike"));
 assert(ordersStatus.includes("readyEventSequence"));
 assert(ordersStatus.includes("readyEventId"));
 assert(ordersStatus.includes('previousStatus !== "ready"'));
+assert(ordersStatus.includes("sendEmptySchnellPush"));
+assert(ordersStatus.includes("after(async ()"));
 assert(tvTypes.includes("takeaway?: boolean"));
 
 assert(pause.includes("dineIn: boolean"));
@@ -196,6 +217,18 @@ assert(publicStatusRoute.includes("liveReadyAlertEnabled"));
 assert(publicStatusRoute.includes("readyEventId"));
 assert(publicStatusRoute.includes("readyEventSequence"));
 assert(middleware.includes('path === "/api/schnellbestellung/status"'));
+assert(middleware.includes('path === "/api/schnellbestellung/push"'));
+assert(pushRoute.includes("readyPushSubscription"));
+assert(pushRoute.includes("pending"));
+assert(pushRoute.includes("order_forbidden"));
+assert(pushServer.includes("createVapidJwt"));
+assert(pushServer.includes("Authorization: `vapid"));
+assert(pushClient.includes("Notification.requestPermission"));
+assert(pushClient.includes("pushManager.subscribe"));
+assert(serviceWorker.includes('self.addEventListener("push"'));
+assert(serviceWorker.includes("showNotification"));
+assert(serviceWorker.includes("renotify: true"));
+assert(serviceWorker.includes("vibrate:"));
 assert(printProxy.includes("const isTakeaway"));
 assert(printProxy.includes("ZUM MITNEHMEN"));
 assert(!printProxy.includes("HIER ESSEN"));

@@ -2,6 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import {
+  bindSchnellPushToOrder,
+  prewarmSchnellPush,
+} from "@/lib/client/schnell-push";
 
 type OrderStatus = "new" | "preparing" | "ready" | "done" | "cancelled";
 
@@ -144,6 +148,34 @@ export default function SuccessPage() {
   const lastReadyEventRef = useRef("");
   const legacyReadyActiveRef = useRef(false);
   const wakeLockRef = useRef<WakeLockSentinelLike | null>(null);
+
+  useEffect(() => {
+    prewarmSchnellPush();
+    if (orderId) void bindSchnellPushToOrder(orderId);
+  }, [orderId]);
+
+  useEffect(() => {
+    if (!("serviceWorker" in navigator)) return;
+
+    const onMessage = (messageEvent: MessageEvent) => {
+      const message = messageEvent.data as
+        | { type?: string; event?: { id?: string; customerNumber?: number } }
+        | undefined;
+      if (message?.type !== "BB_SCHNELL_READY_PUSH") return;
+
+      const readyEventId = String(message.event?.id || "").trim();
+      if (readyEventId && lastReadyEventRef.current === readyEventId) return;
+      if (readyEventId) lastReadyEventRef.current = readyEventId;
+      if (Number(message.event?.customerNumber) > 0) {
+        setCustomerNumber(String(message.event?.customerNumber));
+      }
+      setStatus("ready");
+      playReadyAlert();
+    };
+
+    navigator.serviceWorker.addEventListener("message", onMessage);
+    return () => navigator.serviceWorker.removeEventListener("message", onMessage);
+  }, []);
 
   const requestWakeLock = useCallback(async () => {
     try {

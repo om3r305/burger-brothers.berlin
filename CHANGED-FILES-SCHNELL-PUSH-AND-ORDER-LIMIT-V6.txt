@@ -1,0 +1,29 @@
+BURGER BROTHERS SCHNELL PUSH + ORDER LIMIT V6
+
+Değişen/eklenen proje dosyaları:
+
+app/admin/schnellbestellung/page.tsx
+app/api/orders/status/route.ts
+app/api/schnellbestellung/push/route.ts
+app/schnellbestellung/success/page.tsx
+components/schnellbestellung/SchnellClient.tsx
+lib/client/schnell-push.ts
+lib/server/schnell-push.ts
+lib/server/schnellbestellung.ts
+middleware.ts
+package.json
+public/sw.js
+tools/generate-schnell-vapid.mjs
+tools/schnellbestellung-regression-tests.cjs
+
+Teslimat araçları:
+README-SCHNELL-PUSH-AND-ORDER-LIMIT-V6.md
+VERIFY-SCHNELL-PUSH-AND-ORDER-LIMIT-V6.md
+CHANGED-FILES-SCHNELL-PUSH-AND-ORDER-LIMIT-V6.txt
+SHA256SUMS-SCHNELL-PUSH-AND-ORDER-LIMIT-V6.txt
+PUSH-SCHNELL-PUSH-AND-ORDER-LIMIT-V6-TO-GITHUB.ps1
+RUN-SCHNELL-PUSH-AND-ORDER-LIMIT-V6-GITHUB-PUSH.bat
+GENERATE-SCHNELL-PUSH-VAPID-KEYS.bat
+
+Prisma migration: YOK
+Yeni npm bağımlılığı: YOK

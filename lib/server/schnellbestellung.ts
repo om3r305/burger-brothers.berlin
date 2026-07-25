@@ -71,6 +71,7 @@ export type SchnellSettings = {
   takeawayEnabled: boolean;
   orderHistoryEnabled: boolean;
   liveReadyAlertEnabled: boolean;
+  backgroundReadyPushEnabled: boolean;
   timeSignalEnabled: boolean;
   timeWarningMinutes: number;
   timeCriticalMinutes: number;
@@ -108,6 +109,7 @@ export const DEFAULT_SCHNELL_SETTINGS: SchnellSettings = {
   takeawayEnabled: true,
   orderHistoryEnabled: true,
   liveReadyAlertEnabled: true,
+  backgroundReadyPushEnabled: true,
   timeSignalEnabled: true,
   timeWarningMinutes: 10,
   timeCriticalMinutes: 15,
@@ -147,6 +149,24 @@ function clamp(value: unknown, min: number, max: number, fallback: number) {
 
 function cleanText(value: unknown, max = 160) {
   return String(value ?? "").trim().slice(0, max);
+}
+
+function normalizeSchnellOrderStatus(value: unknown) {
+  const status = String(value ?? "").toLowerCase().trim();
+  if (status === "new" || status === "received") return "new";
+  if (status === "preparing" || status === "accepted") return "preparing";
+  if (status === "ready" || status === "abholbereit") return "ready";
+  if (
+    status === "done" ||
+    status === "completed" ||
+    status === "delivered" ||
+    status === "issued" ||
+    status === "cancelled" ||
+    status === "canceled"
+  ) {
+    return "final";
+  }
+  return status;
 }
 
 function normalizeDateText(value: unknown) {
@@ -288,6 +308,7 @@ export function normalizeSchnellSettings(value: unknown): SchnellSettings {
     takeawayEnabled: raw.takeawayEnabled !== false,
     orderHistoryEnabled: raw.orderHistoryEnabled !== false,
     liveReadyAlertEnabled: raw.liveReadyAlertEnabled !== false,
+    backgroundReadyPushEnabled: raw.backgroundReadyPushEnabled !== false,
     timeSignalEnabled: raw.timeSignalEnabled !== false,
     timeWarningMinutes: clamp(
       raw.timeWarningMinutes,
@@ -1105,12 +1126,21 @@ export async function createCashSchnellOrder(params: {
               channel: "schnellbestellung",
               ts: { gte: since },
             },
-            select: { meta: true },
+            select: { status: true, meta: true },
+            orderBy: { ts: "desc" },
             take: 100,
           });
-          const deviceOrderCount = recent.filter(
-            (row) => obj(row.meta).deviceId === params.deviceId,
-          ).length;
+          const activeStatuses = new Set(["new", "preparing", "ready"]);
+          const deviceOrderCount = recent.filter((row) => {
+            const meta = obj(row.meta);
+            const status = normalizeSchnellOrderStatus(
+              meta.statusManual ?? row.status ?? "new",
+            );
+            return (
+              String(meta.deviceId || "") === params.deviceId &&
+              activeStatuses.has(status)
+            );
+          }).length;
 
           if (deviceOrderCount >= settings.maxOrdersPerDevice) {
             throw new Error("DEVICE_RATE_LIMIT");
@@ -1295,6 +1325,8 @@ export async function createCashSchnellOrder(params: {
                 sessionIssuedAt: params.session.iat,
                 printRequested: settings.autoPrint,
                 tvEnabled: settings.tvEnabled,
+                liveReadyAlertEnabled: settings.liveReadyAlertEnabled,
+                backgroundReadyPushEnabled: settings.backgroundReadyPushEnabled,
                 campaigns: campaignDetails,
                 fulfillment: takeaway ? "takeaway" : "eat_here",
                 takeaway,

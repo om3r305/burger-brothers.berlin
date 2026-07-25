@@ -1,8 +1,10 @@
 // app/api/orders/status/route.ts
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma, getTenantId } from "@/lib/db";
 import { refundOrderPayments } from "@/lib/server/payment-refund";
+import { sendEmptySchnellPush } from "@/lib/server/schnell-push";
+import { getSchnellSettings } from "@/lib/server/schnellbestellung";
 import {
   getSessionSubject,
   hasSessionRole,
@@ -1239,6 +1241,40 @@ async function handleStatusUpdate(req: Request) {
       data,
       select: select as any,
     });
+
+    const updatedMeta = ensureObj((updated as any)?.meta);
+    const readyPushCandidate =
+      requestedStatus === "ready" &&
+      currentStatus !== "ready" &&
+      isSchnellOrderLike(updated, updatedMeta) &&
+      Boolean(updatedMeta.readyPushSubscription);
+    const readyPushSettings = readyPushCandidate
+      ? await getSchnellSettings({ includeTvPause: false }).catch(() => null)
+      : null;
+    const shouldSendReadyPush =
+      readyPushCandidate && readyPushSettings?.backgroundReadyPushEnabled === true;
+
+    if (shouldSendReadyPush) {
+      const orderIdForPush = String((updated as any)?.id || "");
+      const subscriptionForPush = updatedMeta.readyPushSubscription;
+
+      after(async () => {
+        const result = await sendEmptySchnellPush(subscriptionForPush);
+
+        if (result.expired && orderIdForPush) {
+          const cleanedMeta = { ...updatedMeta };
+          delete cleanedMeta.readyPushSubscription;
+          cleanedMeta.readyPushExpiredAt = Date.now();
+
+          await prisma.order
+            .update({
+              where: { id: orderIdForPush },
+              data: { meta: sanitizeJson(cleanedMeta) },
+            })
+            .catch(() => undefined);
+        }
+      });
+    }
 
     const serializedOrder = serializeOrder(updated);
     const order = driverSubject

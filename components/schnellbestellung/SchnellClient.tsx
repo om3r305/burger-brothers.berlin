@@ -2,6 +2,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import {
+  bindSchnellPushToOrder,
+  prewarmSchnellPush,
+  requestSchnellPushPermissionFromGesture,
+} from "@/lib/client/schnell-push";
 
 type Extra = {
   id: string;
@@ -410,6 +415,10 @@ export default function SchnellClient() {
   const [error, setError] = useState("");
 
   useEffect(() => {
+    prewarmSchnellPush();
+  }, []);
+
+  useEffect(() => {
     const saved = localStorage.getItem("bb_schnell_cart");
     if (saved) {
       try {
@@ -649,6 +658,7 @@ export default function SchnellClient() {
       localStorage.removeItem("bb_schnell_cart");
       localStorage.removeItem("bb_schnell_pending_order");
       setCart([]);
+      void bindSchnellPushToOrder(String(data.orderId || ""));
       router.push(
         `/schnellbestellung/success?number=${encodeURIComponent(
           data.customerNumber,
@@ -1087,6 +1097,7 @@ export default function SchnellClient() {
                 disabled={busy}
                 onClick={() => {
                   primeReadyAudio();
+                  requestSchnellPushPermissionFromGesture();
                   void placeOrder();
                 }}
                 className="rounded-xl bg-emerald-500 p-3 font-black text-black disabled:opacity-50"

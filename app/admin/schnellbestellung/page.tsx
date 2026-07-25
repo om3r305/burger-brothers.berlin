@@ -44,6 +44,7 @@ type SchnellSettings = {
   takeawayEnabled: boolean;
   orderHistoryEnabled: boolean;
   liveReadyAlertEnabled: boolean;
+  backgroundReadyPushEnabled: boolean;
   timeSignalEnabled: boolean;
   timeWarningMinutes: number;
   timeCriticalMinutes: number;
@@ -96,6 +97,7 @@ type BooleanSettingKey =
   | "takeawayEnabled"
   | "orderHistoryEnabled"
   | "liveReadyAlertEnabled"
+  | "backgroundReadyPushEnabled"
   | "timeSignalEnabled";
 
 type NumberSettingKey =
@@ -166,6 +168,12 @@ const TOGGLES: Array<{
     key: "liveReadyAlertEnabled",
     label: "Telefon hazır uyarısı aktif",
     description: "TV'de Fertig yapılınca açık bekleme ekranında sesli uyarı verir.",
+  },
+  {
+    key: "backgroundReadyPushEnabled",
+    label: "Android arka plan bildirimi aktif",
+    description:
+      "Chrome izin verirse telefon kilitliyken veya tarayıcı arka plandayken sistem bildirimi gönderir.",
   },
   {
     key: "timeSignalEnabled",
