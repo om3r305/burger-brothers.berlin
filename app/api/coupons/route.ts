@@ -1,9 +1,10 @@
 // app/api/coupons/route.ts
 import { randomBytes, randomInt } from "node:crypto";
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma, getTenantId } from "@/lib/db";
 import { enforceRateLimit, forbiddenResponse, hasTrustedMutationOrigin, requireMutationRole, requireSessionRole } from "@/lib/server/request-security";
+import { notifyCouponAssigned } from "@/lib/server/general-push";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -1418,9 +1419,24 @@ export async function POST(req: Request) {
       });
 
       const saved = await readCouponSnapshot();
+      const issuedForNotification = savedIssued || result.issued;
+
+      if (issuedForNotification) {
+        after(async () => {
+          await notifyCouponAssigned({
+            tenantId,
+            phone: issuedForNotification?.assignedToPhone,
+            email: issuedForNotification?.assignedToEmail,
+            code: issuedForNotification?.code || "",
+            expiresAt: issuedForNotification?.expiresAt || null,
+          }).catch((error) => {
+            console.error("[coupons] push notification failed", error);
+          });
+        });
+      }
 
       return responseJson({
-        issued: savedIssued || result.issued,
+        issued: issuedForNotification,
         issuedList: saved.issued,
         coupons: saved.coupons,
         snapshot: saved,

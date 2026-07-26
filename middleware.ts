@@ -81,6 +81,14 @@ export function apiAccess(path: string, methodRaw: string): Access {
   if (path === "/api/pause" && readOnly) return "public";
   if (path === "/api/analytics/collect" && method === "POST") return "public";
 
+  // Genel PWA/Web-Push uçları kendi origin, rate-limit, cihaz çerezi ve
+  // tracking-token kontrollerini route içinde uygular.
+  if (path === "/api/push" && ["GET", "POST", "PATCH", "DELETE"].includes(method)) {
+    return "public";
+  }
+  if (path === "/api/push/pending" && readOnly) return "public";
+  if (path === "/api/push/order" && method === "POST") return "public";
+
   // Schnellbestellung customer routes are public at the middleware layer,
   // while each route applies the controls relevant to it: signed QR or
   // session validation, trusted-origin checks, rate limits, canonical pricing

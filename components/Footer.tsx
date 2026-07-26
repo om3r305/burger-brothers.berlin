@@ -431,7 +431,13 @@ export default function Footer() {
               : "text-sm text-stone-500 md:text-right"
           }
         >
-          © {new Date().getFullYear()} {brandName}
+          <div>© {new Date().getFullYear()} {brandName}</div>
+          <a
+            href="/install?settings=1"
+            className="mt-1 inline-block text-xs text-stone-500 underline-offset-4 transition hover:text-stone-300 hover:underline"
+          >
+            App &amp; Benachrichtigungen
+          </a>
         </div>
       </div>
     </footer>

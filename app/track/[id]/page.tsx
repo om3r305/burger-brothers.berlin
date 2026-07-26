@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { fetchAndApplyRemoteSettings, readSettings } from "@/lib/settings";
+import { bindGeneralPushToOrder } from "@/lib/client/general-push";
 
 /* ---- UI helpers ---- */
 
@@ -627,6 +628,11 @@ export default function TrackDetailPage() {
       stopped = true;
     };
   }, [idStr, applyOrderResult]);
+
+  useEffect(() => {
+    if (!order?.id || !idStr) return;
+    void bindGeneralPushToOrder(order.id, idStr);
+  }, [order?.id, idStr]);
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {

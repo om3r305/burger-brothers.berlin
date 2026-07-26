@@ -6,6 +6,10 @@ import { refundOrderPayments } from "@/lib/server/payment-refund";
 import { sendEmptySchnellPush } from "@/lib/server/schnell-push";
 import { getSchnellSettings } from "@/lib/server/schnellbestellung";
 import {
+  notifyGeneralOrderStatus,
+  notifyNearbyDelivery,
+} from "@/lib/server/general-push";
+import {
   getSessionSubject,
   hasSessionRole,
   requireAnySessionRole,
@@ -1353,6 +1357,25 @@ async function handleStatusUpdate(req: Request) {
               data: { meta: sanitizeJson(cleanedMeta) },
             })
             .catch(() => undefined);
+        }
+      });
+    }
+
+    if (requestedStatus && requestedStatus !== currentStatus) {
+      const orderForNotification = updated;
+      after(async () => {
+        await notifyGeneralOrderStatus(
+          orderForNotification,
+          currentStatus,
+          requestedStatus,
+        ).catch((error) => {
+          console.error("[orders/status] general push failed", error);
+        });
+
+        if (requestedStatus === "out_for_delivery") {
+          await notifyNearbyDelivery(orderForNotification).catch((error) => {
+            console.error("[orders/status] nearby push failed", error);
+          });
         }
       });
     }

@@ -51,6 +51,7 @@ import {
 import PaymentTrustBadges from "@/components/PaymentTrustBadges";
 import { attachPfandToOrderItems, computePfand, resolvePfandUnit } from "@/lib/pfand";
 import { rememberCustomerTracking } from "@/lib/customer-tracking";
+import { bindGeneralPushToOrder } from "@/lib/client/general-push";
 import CheckoutToastViewport from "@/components/checkout/CheckoutToastViewport";
 import type {
   ActivePaymentRecovery,
@@ -4264,6 +4265,7 @@ export default function CheckoutPage() {
 
       if (!emergencyMode && trackingToken) {
         rememberLastDeliveryTrackId(trackingToken, id);
+        void bindGeneralPushToOrder(id, trackingToken);
       }
 
       if (activeCode) {

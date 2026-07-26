@@ -76,11 +76,17 @@ export function normalizeSchnellPushSubscription(
       : {};
   const p256dh = String(rawKeys.p256dh || "").trim().slice(0, 512);
   const auth = String(rawKeys.auth || "").trim().slice(0, 256);
-  const expirationTime = Number(raw.expirationTime);
+  const expirationTime =
+    raw.expirationTime === null || raw.expirationTime === undefined
+      ? null
+      : Number(raw.expirationTime);
 
   return {
     endpoint,
-    expirationTime: Number.isFinite(expirationTime) ? expirationTime : null,
+    expirationTime:
+      expirationTime !== null && Number.isFinite(expirationTime)
+        ? expirationTime
+        : null,
     keys: p256dh || auth ? { p256dh, auth } : undefined,
     createdAt: String(raw.createdAt || "").trim().slice(0, 80) || undefined,
     userAgent: String(raw.userAgent || "").trim().slice(0, 300) || undefined,

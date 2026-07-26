@@ -36,6 +36,12 @@ model Tenant {
   monthlySalesSummaries MonthlySalesSummary[]
   backupLogs            BackupLog[]
   cleanupJobLogs        CleanupJobLog[]
+
+  pushSubscriptions     PushSubscription[]
+  notificationPreferences NotificationPreference[]
+  notificationCampaigns NotificationCampaign[]
+  notificationEvents    NotificationEvent[]
+  notificationDeliveries NotificationDelivery[]
 }
 
 /**
@@ -200,6 +206,8 @@ model Customer {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  pushSubscriptions PushSubscription[]
+
   @@unique([tenantId, phone], map: "customer_phone_tenant_unique")
   @@index([tenantId])
   @@index([tenantId, lastOrderAt])
@@ -274,6 +282,8 @@ model Order {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  notificationEvents NotificationEvent[]
 
   @@index([tenantId, status])
   @@index([tenantId, mode])
@@ -502,4 +512,190 @@ model BrianRouteModel {
   @@unique([tenantId, key])
   @@index([tenantId])
   @@index([tenantId, generatedAt])
+}
+
+/**
+ * ─────────────────────────────────────────
+ * GENERAL WEB PUSH SUBSCRIPTION
+ * ─────────────────────────────────────────
+ * Android ve iOS ana ekran uygulamasındaki push aboneliği.
+ * Endpoint veya anahtarlar hiçbir zaman müşteri arayüzünde tekrar gösterilmez.
+ */
+model PushSubscription {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  endpoint       String
+  p256dh         String
+  auth           String
+  expirationTime DateTime?
+
+  deviceTokenHash String
+  deviceId        String?
+  customerId      String?
+  customer        Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+
+  phone     String?
+  email     String?
+  platform  String?
+  userAgent String?
+  locale    String @default("de")
+
+  active        Boolean  @default(true)
+  lastSeenAt    DateTime @default(now())
+  lastPushAt    DateTime?
+  lastSuccessAt DateTime?
+  lastFailureAt DateTime?
+  failureCount  Int      @default(0)
+
+  preference NotificationPreference?
+  events     NotificationEvent[]
+  deliveries NotificationDelivery[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, endpoint])
+  @@unique([tenantId, deviceTokenHash])
+  @@index([tenantId, active])
+  @@index([tenantId, phone])
+  @@index([tenantId, email])
+  @@index([tenantId, customerId])
+}
+
+/**
+ * Kullanıcı bildirim tercihleri. İşlemsel sipariş bildirimleri ile pazarlama
+ * izinleri birbirinden ayrı tutulur.
+ */
+model NotificationPreference {
+  id             String @id @default(cuid())
+  tenantId       String
+  tenant         Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  subscriptionId String @unique
+  subscription   PushSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  orderUpdates   Boolean @default(true)
+  campaigns      Boolean @default(false)
+  coupons        Boolean @default(false)
+  nearbyDelivery Boolean @default(false)
+
+  consentVersion     String    @default("1")
+  orderConsentedAt   DateTime?
+  marketingConsentedAt DateTime?
+
+  plz    String?
+  street String?
+  lat    Float?
+  lng    Float?
+
+  nearbyRadiusM      Int @default(800)
+  nearbyCooldownDays Int @default(7)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId, campaigns])
+  @@index([tenantId, coupons])
+  @@index([tenantId, nearbyDelivery])
+  @@index([tenantId, plz])
+}
+
+/** Admin tarafından hazırlanan kampanya/duyuru gönderimi. */
+model NotificationCampaign {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  kind     String
+  title    String
+  body     String
+  url      String?
+  imageUrl String?
+  audience Json?
+  metadata Json?
+
+  status         String   @default("draft")
+  scheduledAt    DateTime?
+  sentAt         DateTime?
+  recipientCount Int      @default(0)
+  successCount   Int      @default(0)
+  failureCount   Int      @default(0)
+  createdBy      String?
+
+  events     NotificationEvent[]
+  deliveries NotificationDelivery[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId, status])
+  @@index([tenantId, createdAt])
+  @@index([tenantId, scheduledAt])
+}
+
+/** Service Worker tarafından çekilecek tekil bildirim olayı. */
+model NotificationEvent {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  subscriptionId String
+  subscription   PushSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  campaignId String?
+  campaign   NotificationCampaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+
+  orderId String?
+  order   Order? @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  type      String
+  dedupeKey String?
+  title     String
+  body      String
+  url       String?
+  imageUrl  String?
+  payload   Json?
+
+  status      String   @default("queued")
+  availableAt DateTime @default(now())
+  fetchedAt   DateTime?
+  clickedAt   DateTime?
+
+  deliveries NotificationDelivery[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, dedupeKey])
+  @@index([tenantId, subscriptionId, status, availableAt])
+  @@index([tenantId, orderId])
+  @@index([tenantId, type, createdAt])
+}
+
+/** Push servisinin HTTP deneme ve sonuç kaydı. */
+model NotificationDelivery {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  eventId String
+  event   NotificationEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  subscriptionId String
+  subscription   PushSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  campaignId String?
+  campaign   NotificationCampaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+
+  status     String
+  httpStatus Int?
+  error      String?
+
+  attemptedAt DateTime @default(now())
+  deliveredAt DateTime?
+
+  @@index([tenantId, status])
+  @@index([tenantId, subscriptionId, attemptedAt])
+  @@index([tenantId, campaignId])
 }

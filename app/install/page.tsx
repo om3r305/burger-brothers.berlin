@@ -1,8 +1,17 @@
-// app/install/page.tsx
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import QRCode from "react-qr-code";
+import {
+  activateGeneralPushFromGesture,
+  disableGeneralPush,
+  isIOSDevice,
+  isStandaloneApp,
+  loadGeneralPushState,
+  updateGeneralPushPreferences,
+  type GeneralPushPreferences,
+} from "@/lib/client/general-push";
 
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>;
@@ -12,7 +21,25 @@ type BeforeInstallPromptEvent = Event & {
   }>;
 };
 
-function detectDevice() {
+type DeviceState = {
+  isAndroid: boolean;
+  isIOS: boolean;
+  isStandalone: boolean;
+  isMobile: boolean;
+};
+
+const INSTALL_ONBOARDING_KEY = "bb_general_install_done_v1";
+
+const DEFAULT_PREFERENCES: GeneralPushPreferences = {
+  orderUpdates: true,
+  campaigns: false,
+  coupons: false,
+  nearbyDelivery: false,
+  nearbyRadiusM: 800,
+  nearbyCooldownDays: 7,
+};
+
+function detectDevice(): DeviceState {
   if (typeof window === "undefined") {
     return {
       isAndroid: false,
@@ -22,187 +49,459 @@ function detectDevice() {
     };
   }
 
-  const nav = window.navigator as Navigator & { standalone?: boolean };
-  const ua = nav.userAgent || "";
-
-  const isIOS =
-    /iphone|ipad|ipod/i.test(ua) ||
-    (nav.platform === "MacIntel" && Number(nav.maxTouchPoints || 0) > 1);
-
+  const ua = navigator.userAgent || "";
   const isAndroid = /android/i.test(ua);
-  const isStandalone =
-    window.matchMedia("(display-mode: standalone)").matches ||
-    window.matchMedia("(display-mode: fullscreen)").matches ||
-    nav.standalone === true;
+  const isIOS = isIOSDevice();
+  const standalone = isStandaloneApp();
 
   return {
     isAndroid,
     isIOS,
-    isStandalone,
+    isStandalone: standalone,
     isMobile: isAndroid || isIOS,
   };
 }
 
+function messageForActivation(code: string) {
+  switch (code) {
+    case "ios_home_screen_required":
+      return "Bitte zuerst über Safari zum Home-Bildschirm hinzufügen und Burger Brothers danach über das neue Symbol öffnen.";
+    case "permission_denied":
+      return "Benachrichtigungen wurden blockiert. Bitte in den iPhone-/Android-Einstellungen für Burger Brothers erlauben.";
+    case "not_configured":
+      return "Der Benachrichtigungsdienst ist auf dem Server noch nicht vollständig eingerichtet.";
+    case "disabled":
+      return "Benachrichtigungen sind zurzeit deaktiviert.";
+    case "unsupported":
+      return "Dieser Browser unterstützt keine App-Benachrichtigungen.";
+    case "service_worker_failed":
+      return "Die App-Komponente konnte nicht gestartet werden. Bitte die App schließen und erneut öffnen.";
+    case "subscription_failed":
+      return "Die Geräteanmeldung ist fehlgeschlagen. Bitte erneut versuchen.";
+    default:
+      return "Benachrichtigungen konnten nicht aktiviert werden. Bitte erneut versuchen.";
+  }
+}
+
+function ToggleRow({
+  checked,
+  onChange,
+  title,
+  description,
+  locked,
+}: {
+  checked: boolean;
+  onChange: (next: boolean) => void;
+  title: string;
+  description: string;
+  locked?: boolean;
+}) {
+  return (
+    <label className="flex cursor-pointer items-start gap-4 rounded-2xl border border-white/10 bg-white/[0.055] p-4 text-left transition hover:bg-white/[0.08]">
+      <input
+        type="checkbox"
+        checked={checked}
+        disabled={locked}
+        onChange={(event) => onChange(event.target.checked)}
+        className="mt-1 h-5 w-5 accent-emerald-400"
+      />
+      <span>
+        <span className="block font-black text-white">{title}</span>
+        <span className="mt-1 block text-sm leading-6 text-stone-400">
+          {description}
+        </span>
+      </span>
+    </label>
+  );
+}
+
 export default function InstallPage() {
+  const [device, setDevice] = useState<DeviceState>(() => detectDevice());
   const [installPrompt, setInstallPrompt] =
     useState<BeforeInstallPromptEvent | null>(null);
-  const [device, setDevice] = useState(() => detectDevice());
+  const [installBusy, setInstallBusy] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
+  const [pushSubscribed, setPushSubscribed] = useState(false);
   const [message, setMessage] = useState("");
+  const [messageTone, setMessageTone] = useState<"ok" | "error" | "info">(
+    "info",
+  );
+  const [installUrl, setInstallUrl] = useState("");
+  const [preferences, setPreferences] =
+    useState<GeneralPushPreferences>(DEFAULT_PREFERENCES);
+  const iosStepsRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    setDevice(detectDevice());
+    const currentDevice = detectDevice();
+    setDevice(currentDevice);
+    setInstallUrl(`${window.location.origin}/install`);
+
+    if (currentDevice.isStandalone) {
+      const settingsMode =
+        new URLSearchParams(window.location.search).get("settings") === "1";
+      let onboardingDone = false;
+      try {
+        onboardingDone = localStorage.getItem(INSTALL_ONBOARDING_KEY) === "1";
+      } catch {}
+
+      if (onboardingDone && !settingsMode) {
+        window.location.replace("/menu");
+        return;
+      }
+    }
+
+    if ("serviceWorker" in navigator) {
+      void navigator.serviceWorker
+        .register("/sw.js", { scope: "/" })
+        .catch(() => undefined);
+    }
 
     const onBeforeInstallPrompt = (event: Event) => {
       event.preventDefault();
       setInstallPrompt(event as BeforeInstallPromptEvent);
-      setMessage("");
     };
-
-    const onAppInstalled = () => {
+    const onInstalled = () => {
       setInstallPrompt(null);
       setDevice(detectDevice());
-      setMessage("Fertig! Burger Brothers wurde zum Startbildschirm hinzugefügt.");
+      setMessageTone("ok");
+      setMessage(
+        "Burger Brothers wurde gespeichert. Öffnen Sie jetzt das neue Symbol auf Ihrem Startbildschirm.",
+      );
     };
 
     window.addEventListener("beforeinstallprompt", onBeforeInstallPrompt);
-    window.addEventListener("appinstalled", onAppInstalled);
+    window.addEventListener("appinstalled", onInstalled);
 
     return () => {
       window.removeEventListener("beforeinstallprompt", onBeforeInstallPrompt);
-      window.removeEventListener("appinstalled", onAppInstalled);
+      window.removeEventListener("appinstalled", onInstalled);
     };
   }, []);
 
-  const primaryLabel = useMemo(() => {
-    if (device.isStandalone) return "App ist bereits geöffnet";
-    if (device.isIOS) return "iPhone-Anleitung anzeigen";
-    if (installPrompt) return "Burger Brothers installieren";
-    return "Menü öffnen";
-  }, [device.isIOS, device.isStandalone, installPrompt]);
+  useEffect(() => {
+    if (!device.isStandalone) return;
+
+    void loadGeneralPushState()
+      .then((state) => {
+        setPushSubscribed(state.subscribed === true);
+        if (state.preferences) {
+          setPreferences({
+            ...DEFAULT_PREFERENCES,
+            ...state.preferences,
+          });
+        }
+      })
+      .catch(() => undefined);
+  }, [device.isStandalone]);
+
+  const installationTitle = useMemo(() => {
+    if (device.isStandalone) return "Burger Brothers App";
+    if (device.isIOS) return "Auf dem iPhone speichern";
+    if (device.isAndroid) return "Auf Android installieren";
+    return "Burger Brothers installieren";
+  }, [device]);
+
+  const markOnboardingDone = () => {
+    try {
+      localStorage.setItem(INSTALL_ONBOARDING_KEY, "1");
+    } catch {}
+  };
+
+  const updatePreference = (
+    key: keyof GeneralPushPreferences,
+    value: boolean,
+  ) => {
+    setPreferences((current) => ({ ...current, [key]: value }));
+  };
 
   const handleInstall = async () => {
-    if (device.isStandalone) {
-      setMessage("Die App ist bereits im Standalone-Modus geöffnet.");
-      return;
-    }
+    if (device.isStandalone) return;
 
     if (device.isIOS) {
-      setMessage(
-        "iPhone: In Safari öffnen, Teilen-Symbol antippen und „Zum Home-Bildschirm“ wählen.",
-      );
+      iosStepsRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
       return;
     }
 
     if (!installPrompt) {
+      setMessageTone("info");
       setMessage(
-        "Falls kein Installationsfenster erscheint: Chrome/Edge Menü öffnen und „App installieren“ oder „Zum Startbildschirm hinzufügen“ wählen.",
+        "Öffnen Sie das Browser-Menü und wählen Sie „App installieren“ oder „Zum Startbildschirm hinzufügen“.",
       );
       return;
     }
 
+    setInstallBusy(true);
+    setMessage("");
     try {
       await installPrompt.prompt();
       const choice = await installPrompt.userChoice;
+      setInstallPrompt(null);
 
       if (choice.outcome === "accepted") {
-        setMessage("Danke! Burger Brothers wird als App hinzugefügt.");
+        setMessageTone("ok");
+        setMessage(
+          "Installation bestätigt. Öffnen Sie Burger Brothers anschließend über das neue App-Symbol.",
+        );
       } else {
-        setMessage("Installation abgebrochen. Du kannst es später erneut versuchen.");
+        setMessageTone("info");
+        setMessage("Installation abgebrochen. Sie können es jederzeit erneut versuchen.");
+      }
+    } catch {
+      setMessageTone("error");
+      setMessage(
+        "Das Installationsfenster konnte nicht geöffnet werden. Bitte das Browser-Menü verwenden.",
+      );
+    } finally {
+      setInstallBusy(false);
+    }
+  };
+
+  const handlePush = async () => {
+    setPushBusy(true);
+    setMessage("");
+
+    try {
+      const result = await activateGeneralPushFromGesture(preferences);
+      if (!result.ok) {
+        setMessageTone("error");
+        setMessage(messageForActivation(result.code));
+        return;
       }
 
-      setInstallPrompt(null);
-    } catch {
+      setPushSubscribed(true);
+      markOnboardingDone();
+      setMessageTone("ok");
       setMessage(
-        "Installation konnte nicht automatisch gestartet werden. Bitte Browser-Menü öffnen und „App installieren“ wählen.",
+        "Benachrichtigungen sind aktiviert. Bestellstatus, Angebote und Gutscheine werden entsprechend Ihrer Auswahl angezeigt.",
       );
+    } catch {
+      setMessageTone("error");
+      setMessage(
+        "Benachrichtigungen konnten nicht aktiviert werden. Bitte Verbindung prüfen und erneut versuchen.",
+      );
+    } finally {
+      setPushBusy(false);
+    }
+  };
+
+  const savePreferences = async () => {
+    setPushBusy(true);
+    setMessage("");
+    try {
+      await updateGeneralPushPreferences(preferences);
+      setMessageTone("ok");
+      setMessage("Ihre Benachrichtigungseinstellungen wurden gespeichert.");
+    } catch {
+      setMessageTone("error");
+      setMessage("Einstellungen konnten nicht gespeichert werden. Bitte erneut versuchen.");
+    } finally {
+      setPushBusy(false);
+    }
+  };
+
+  const disablePush = async () => {
+    setPushBusy(true);
+    setMessage("");
+    try {
+      const ok = await disableGeneralPush();
+      if (!ok) throw new Error("unsubscribe_failed");
+      setPushSubscribed(false);
+      setMessageTone("ok");
+      setMessage("Benachrichtigungen wurden für dieses Gerät deaktiviert.");
+    } catch {
+      setMessageTone("error");
+      setMessage("Benachrichtigungen konnten nicht deaktiviert werden. Bitte erneut versuchen.");
+    } finally {
+      setPushBusy(false);
     }
   };
 
   return (
     <main className="min-h-screen overflow-hidden bg-black text-stone-100">
-      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,rgba(251,146,60,0.20),transparent_35%),radial-gradient(circle_at_bottom_right,rgba(239,68,68,0.14),transparent_30%)]" />
+      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,rgba(16,185,129,0.16),transparent_35%),radial-gradient(circle_at_bottom_right,rgba(245,158,11,0.14),transparent_35%)]" />
 
-      <section className="relative mx-auto flex min-h-screen max-w-5xl flex-col items-center justify-center px-5 py-10 text-center">
-        <div className="mb-6 rounded-[2rem] border border-amber-300/20 bg-white/[0.06] p-4 shadow-2xl shadow-orange-950/40 backdrop-blur-xl">
+      <section className="relative mx-auto flex min-h-screen max-w-5xl flex-col items-center px-5 py-10 text-center sm:justify-center">
+        <div className="rounded-[2rem] border border-amber-300/20 bg-white/[0.06] p-3 shadow-2xl shadow-orange-950/40 backdrop-blur-xl">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src="/icon-kurier-512.png?v=5"
+            src="/icon-kurier-512.png?v=6"
             alt="Burger Brothers"
             className="h-24 w-24 rounded-3xl object-cover"
           />
         </div>
 
-        <p className="mb-3 rounded-full border border-amber-300/20 bg-amber-500/10 px-4 py-1.5 text-xs font-bold uppercase tracking-[0.28em] text-amber-200">
+        <p className="mt-5 rounded-full border border-amber-300/20 bg-amber-500/10 px-4 py-1.5 text-xs font-bold uppercase tracking-[0.28em] text-amber-200">
           Burger Brothers Berlin
         </p>
 
-        <h1 className="max-w-3xl text-4xl font-black tracking-tight text-white sm:text-6xl">
-          Als App speichern
+        <h1 className="mt-4 max-w-3xl text-4xl font-black tracking-tight text-white sm:text-6xl">
+          {installationTitle}
         </h1>
 
-        <p className="mt-5 max-w-2xl text-base leading-7 text-stone-300 sm:text-lg">
-          Speichere Burger Brothers direkt auf deinem Handy. Danach kannst du
-          schneller bestellen – wie mit einer normalen App.
-        </p>
+        {!device.isStandalone ? (
+          <>
+            <p className="mt-5 max-w-2xl text-base leading-7 text-stone-300 sm:text-lg">
+              Einmal auf dem Startbildschirm speichern. Danach bestellen Sie
+              wie mit einer normalen App und erhalten auf Wunsch Bestellstatus,
+              Angebote und persönliche Gutscheine.
+            </p>
 
-        <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-          <button
-            type="button"
-            onClick={handleInstall}
-            className="rounded-full bg-gradient-to-r from-orange-400 to-amber-300 px-8 py-4 text-base font-black text-black shadow-xl shadow-orange-950/40 transition hover:scale-[1.02] active:scale-95"
-          >
-            {primaryLabel}
-          </button>
+            <button
+              type="button"
+              onClick={handleInstall}
+              disabled={installBusy}
+              className="mt-8 w-full max-w-md rounded-2xl bg-gradient-to-r from-orange-400 to-amber-300 px-8 py-4 text-lg font-black text-black shadow-xl shadow-orange-950/40 transition hover:scale-[1.01] active:scale-95 disabled:opacity-60"
+            >
+              {installBusy
+                ? "Bitte warten …"
+                : device.isIOS
+                  ? "iPhone-Anleitung anzeigen"
+                  : "Burger Brothers installieren"}
+            </button>
 
-          <Link
-            href="/menu"
-            className="rounded-full border border-white/15 bg-white/10 px-8 py-4 text-base font-bold text-white backdrop-blur transition hover:bg-white/15 active:scale-95"
-          >
-            Menü öffnen
-          </Link>
-        </div>
+            {device.isIOS ? (
+              <div
+                ref={iosStepsRef}
+                className="mt-10 w-full max-w-2xl rounded-[2rem] border border-emerald-300/20 bg-emerald-950/30 p-5 text-left shadow-2xl backdrop-blur"
+              >
+                <div className="text-center text-sm font-black uppercase tracking-[0.2em] text-emerald-300">
+                  iPhone – nur 3 Schritte
+                </div>
+                <div className="mt-5 grid gap-3">
+                  <div className="rounded-2xl bg-white/[0.06] p-4">
+                    <b className="text-white">1. Mit Safari öffnen</b>
+                    <p className="mt-1 text-sm text-stone-400">
+                      Der QR-Code muss in Safari geöffnet sein.
+                    </p>
+                  </div>
+                  <div className="rounded-2xl bg-white/[0.06] p-4">
+                    <b className="text-white">2. Teilen-Symbol antippen</b>
+                    <p className="mt-1 text-sm text-stone-400">
+                      Tippen Sie unten auf das Quadrat mit dem Pfeil nach oben.
+                    </p>
+                    <div className="mt-3 text-center text-4xl motion-safe:animate-bounce">
+                      ⇧
+                    </div>
+                  </div>
+                  <div className="rounded-2xl bg-white/[0.06] p-4">
+                    <b className="text-white">3. „Zum Home-Bildschirm“ wählen</b>
+                    <p className="mt-1 text-sm text-stone-400">
+                      Danach das Burger-Brothers-Symbol auf dem Startbildschirm öffnen.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
+            {!device.isMobile && installUrl ? (
+              <div className="mt-10 rounded-3xl border border-white/10 bg-white p-4">
+                <QRCode value={installUrl} size={180} />
+                <p className="mt-3 text-xs font-bold text-black">
+                  Mit dem Handy scannen
+                </p>
+              </div>
+            ) : null}
+          </>
+        ) : (
+          <div className="mt-7 w-full max-w-2xl">
+            <div className="rounded-[2rem] border border-emerald-300/20 bg-emerald-950/25 p-5 shadow-2xl backdrop-blur sm:p-7">
+              <div className="text-sm font-black uppercase tracking-[0.2em] text-emerald-300">
+                App erfolgreich geöffnet
+              </div>
+              <h2 className="mt-3 text-3xl font-black text-white">
+                Benachrichtigungen auswählen
+              </h2>
+              <p className="mt-3 text-sm leading-6 text-stone-300">
+                Bestellmeldungen sind praktisch. Angebote, Gutscheine und
+                Lieferungen in Ihrer Nähe sind freiwillig und können jederzeit
+                geändert werden.
+              </p>
+
+              <div className="mt-6 grid gap-3">
+                <ToggleRow
+                  checked={preferences.orderUpdates}
+                  onChange={(value) => updatePreference("orderUpdates", value)}
+                  title="Bestellstatus"
+                  description="Eingegangen, in Vorbereitung, abholbereit, unterwegs, geliefert oder storniert."
+                />
+                <ToggleRow
+                  checked={preferences.campaigns}
+                  onChange={(value) => updatePreference("campaigns", value)}
+                  title="Angebote & Kampagnen"
+                  description="Zum Beispiel Vegane Woche, Tagesangebote und besondere Aktionen."
+                />
+                <ToggleRow
+                  checked={preferences.coupons}
+                  onChange={(value) => updatePreference("coupons", value)}
+                  title="Persönliche Gutscheine"
+                  description="Eine Meldung, sobald ein neuer Gutschein für Sie freigeschaltet wurde."
+                />
+                <ToggleRow
+                  checked={preferences.nearbyDelivery}
+                  onChange={(value) => updatePreference("nearbyDelivery", value)}
+                  title="Lieferung in Ihrer Nähe"
+                  description="Eine diskrete Meldung, wenn wir gerade in Ihrer Umgebung liefern. Keine Kundendaten werden angezeigt."
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={pushSubscribed ? savePreferences : handlePush}
+                disabled={pushBusy}
+                className="mt-6 w-full rounded-2xl bg-emerald-400 px-6 py-4 text-lg font-black text-black transition hover:bg-emerald-300 active:scale-[0.98] disabled:opacity-60"
+              >
+                {pushBusy
+                  ? "Bitte warten …"
+                  : pushSubscribed
+                    ? "Einstellungen speichern"
+                    : "Benachrichtigungen aktivieren"}
+              </button>
+
+              <Link
+                href="/menu"
+                onClick={markOnboardingDone}
+                className="mt-3 block w-full rounded-2xl border border-white/15 bg-white/[0.07] px-6 py-4 text-lg font-black text-white transition hover:bg-white/[0.12] active:scale-[0.98]"
+              >
+                Menü öffnen
+              </Link>
+
+              {pushSubscribed ? (
+                <button
+                  type="button"
+                  onClick={() => void disablePush()}
+                  disabled={pushBusy}
+                  className="mt-3 w-full rounded-2xl px-6 py-3 text-sm font-bold text-stone-400 transition hover:bg-white/[0.05] hover:text-white disabled:opacity-60"
+                >
+                  Allgemeine App-Benachrichtigungen deaktivieren
+                </button>
+              ) : null}
+
+              <p className="mt-5 text-xs leading-5 text-stone-500">
+                Marketing-Benachrichtigungen werden nur entsprechend Ihrer
+                Auswahl gesendet. Ihre Zustimmung kann hier jederzeit geändert
+                werden.
+              </p>
+            </div>
+          </div>
+        )}
 
         {message ? (
-          <div className="mt-5 max-w-2xl rounded-2xl border border-amber-300/20 bg-amber-500/10 px-5 py-4 text-sm font-medium text-amber-100">
+          <div
+            className={[
+              "mt-6 w-full max-w-2xl rounded-2xl border px-5 py-4 text-sm font-semibold",
+              messageTone === "ok"
+                ? "border-emerald-400/30 bg-emerald-500/10 text-emerald-100"
+                : messageTone === "error"
+                  ? "border-red-400/30 bg-red-500/10 text-red-100"
+                  : "border-amber-300/20 bg-amber-500/10 text-amber-100",
+            ].join(" ")}
+          >
             {message}
           </div>
         ) : null}
-
-        <div className="mt-10 grid w-full gap-4 text-left md:grid-cols-3">
-          <div className="rounded-3xl border border-white/10 bg-white/[0.06] p-5 backdrop-blur">
-            <div className="text-2xl">🤖</div>
-            <h2 className="mt-3 text-lg font-black text-white">Android</h2>
-            <p className="mt-2 text-sm leading-6 text-stone-300">
-              QR-Code scannen und auf „Burger Brothers installieren“ tippen.
-              Falls kein Fenster erscheint: Chrome-Menü öffnen und „App installieren“ wählen.
-            </p>
-          </div>
-
-          <div className="rounded-3xl border border-white/10 bg-white/[0.06] p-5 backdrop-blur">
-            <div className="text-2xl">🍎</div>
-            <h2 className="mt-3 text-lg font-black text-white">iPhone</h2>
-            <ol className="mt-2 list-inside list-decimal space-y-1 text-sm leading-6 text-stone-300">
-              <li>Mit Safari öffnen</li>
-              <li>Teilen-Symbol antippen</li>
-              <li>„Zum Home-Bildschirm“ wählen</li>
-            </ol>
-          </div>
-
-          <div className="rounded-3xl border border-white/10 bg-white/[0.06] p-5 backdrop-blur">
-            <div className="text-2xl">⚡</div>
-            <h2 className="mt-3 text-lg font-black text-white">Schneller bestellen</h2>
-            <p className="mt-2 text-sm leading-6 text-stone-300">
-              Einmal speichern, danach direkt vom Startbildschirm öffnen und
-              Bestellung schneller abschicken.
-            </p>
-          </div>
-        </div>
-
-        <p className="mt-8 max-w-2xl text-xs leading-6 text-stone-500">
-          Hinweis: Aus Sicherheitsgründen muss jede Installation vom Kunden
-          bestätigt werden. Der QR-Code öffnet die Installationsseite, die App
-          kann danach mit einem Tipp gespeichert werden.
-        </p>
       </section>
     </main>
   );
