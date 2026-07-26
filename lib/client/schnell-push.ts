@@ -20,7 +20,6 @@ function browserSupportsPush() {
   return (
     typeof window !== "undefined" &&
     "serviceWorker" in navigator &&
-    "PushManager" in window &&
     "Notification" in window
   );
 }
@@ -72,6 +71,134 @@ export function prewarmSchnellPush() {
   if (!browserSupportsPush()) return;
   void loadConfig();
   void registerWorker().catch(() => undefined);
+}
+
+export type SchnellPushActivationResult =
+  | { ok: true; code: "subscribed"; permission: NotificationPermission }
+  | {
+      ok: false;
+      code:
+        | "unsupported"
+        | "disabled"
+        | "not_configured"
+        | "permission_denied"
+        | "permission_default"
+        | "service_worker_failed"
+        | "subscription_failed";
+      permission: NotificationPermission;
+    };
+
+export async function activateSchnellPushFromGesture(): Promise<SchnellPushActivationResult> {
+  if (!browserSupportsPush()) {
+    return {
+      ok: false,
+      code: "unsupported",
+      permission: "default",
+    };
+  }
+
+  const currentWindow = pushWindow();
+
+  // Start these before the permission promise resolves. In the installed iOS
+  // web app this function is called directly by the customer's button tap.
+  const configPromise = loadConfig();
+  const registrationPromise = registerWorker();
+
+  let permission = Notification.permission;
+  if (permission === "default") {
+    try {
+      currentWindow.__bbSchnellPushPermissionPromise =
+        Notification.requestPermission();
+      permission = await currentWindow.__bbSchnellPushPermissionPromise;
+    } catch {
+      permission = Notification.permission;
+    }
+  } else {
+    currentWindow.__bbSchnellPushPermissionPromise =
+      Promise.resolve(permission);
+  }
+
+  if (permission === "denied") {
+    return {
+      ok: false,
+      code: "permission_denied",
+      permission,
+    };
+  }
+
+  if (permission !== "granted") {
+    return {
+      ok: false,
+      code: "permission_default",
+      permission,
+    };
+  }
+
+  const config = await configPromise;
+  if (!config.enabled) {
+    return {
+      ok: false,
+      code: "disabled",
+      permission,
+    };
+  }
+  if (!config.configured || !config.publicKey) {
+    return {
+      ok: false,
+      code: "not_configured",
+      permission,
+    };
+  }
+
+  let registration: ServiceWorkerRegistration;
+  try {
+    registration = await registrationPromise;
+  } catch {
+    return {
+      ok: false,
+      code: "service_worker_failed",
+      permission,
+    };
+  }
+
+  try {
+    if (!registration.pushManager) {
+      return {
+        ok: false,
+        code: "unsupported",
+        permission,
+      };
+    }
+
+    const existing = await registration.pushManager.getSubscription();
+    if (!existing) {
+      await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: base64UrlToUint8Array(config.publicKey),
+      });
+    }
+
+    try {
+      window.localStorage.setItem(
+        "bb_schnell_push_activated_v1",
+        String(Date.now()),
+      );
+    } catch {
+      // The subscription itself is the source of truth.
+    }
+
+    return {
+      ok: true,
+      code: "subscribed",
+      permission,
+    };
+  } catch {
+    return {
+      ok: false,
+      code: "subscription_failed",
+      permission,
+    };
+  }
 }
 
 export function requestSchnellPushPermissionFromGesture() {

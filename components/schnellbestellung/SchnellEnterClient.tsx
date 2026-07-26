@@ -2,6 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import {
+  activateSchnellPushFromGesture,
+  prewarmSchnellPush,
+  type SchnellPushActivationResult,
+} from "@/lib/client/schnell-push";
 
 type ProblemKind =
   | "permission_denied"
@@ -15,7 +20,7 @@ type ProblemKind =
   | "server"
   | null;
 
-type EnterScreen = "status" | "choice" | "install";
+type EnterScreen = "status" | "choice" | "install" | "push";
 type RetryMode = "qr" | "homescreen" | null;
 type SessionRequestResult =
   | "done"
@@ -241,6 +246,9 @@ export default function SchnellEnterClient({ token }: { token: string }) {
   const [appleMobile, setAppleMobile] = useState(false);
   const [standalone, setStandalone] = useState(false);
   const [installedHint, setInstalledHint] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
+  const [pushResult, setPushResult] =
+    useState<SchnellPushActivationResult | null>(null);
 
   const setBusyState = useCallback((value: boolean) => {
     busyRef.current = value;
@@ -414,6 +422,32 @@ export default function SchnellEnterClient({ token }: { token: string }) {
     [requestSession, setBusyState, token],
   );
 
+  const showStandalonePushStep = useCallback(
+    (backgroundPushEnabled: boolean | undefined) => {
+      if (!backgroundPushEnabled) {
+        router.replace("/schnellbestellung");
+        return;
+      }
+
+      prewarmSchnellPush();
+
+      if (
+        typeof Notification !== "undefined" &&
+        Notification.permission === "granted"
+      ) {
+        router.replace("/schnellbestellung");
+        return;
+      }
+
+      setProblem(null);
+      setRetryMode(null);
+      setMessage("");
+      setBusyState(false);
+      setScreen("push");
+    },
+    [router, setBusyState],
+  );
+
   useEffect(() => {
     if (startedRef.current) return;
     startedRef.current = true;
@@ -439,8 +473,10 @@ export default function SchnellEnterClient({ token }: { token: string }) {
       // disabled, the signed QR token embedded in the dynamic manifest remains
       // mandatory.
       if (isApple && isStandalone) {
+        prewarmSchnellPush();
+
         if (session?.ok && !session.recheckRequired) {
-          router.replace("/schnellbestellung");
+          showStandalonePushStep(session.backgroundReadyPushEnabled);
           return;
         }
 
@@ -449,12 +485,18 @@ export default function SchnellEnterClient({ token }: { token: string }) {
           session?.iosHomeScreenFlowEnabled &&
           session.locationCheckEnabled
         ) {
-          await start({ homeScreen: true, navigate: true });
+          const result = await start({ homeScreen: true, navigate: false });
+          if (result === "done") {
+            showStandalonePushStep(session.backgroundReadyPushEnabled);
+          }
           return;
         }
 
         if (token) {
-          await start({ navigate: true });
+          const result = await start({ navigate: false });
+          if (result === "done") {
+            showStandalonePushStep(session?.backgroundReadyPushEnabled);
+          }
           return;
         }
 
@@ -495,7 +537,7 @@ export default function SchnellEnterClient({ token }: { token: string }) {
     return () => {
       cancelled = true;
     };
-  }, [router, setBusyState, start, token]);
+  }, [router, setBusyState, showStandalonePushStep, start, token]);
 
   const prepareIosInstall = useCallback(async () => {
     if (!token || busyRef.current) return;
@@ -513,6 +555,23 @@ export default function SchnellEnterClient({ token }: { token: string }) {
     setBusyState(false);
   }, [setBusyState, start, token]);
 
+  const activatePush = useCallback(async () => {
+    if (pushBusy) return;
+
+    setPushBusy(true);
+    setPushResult(null);
+
+    const result = await activateSchnellPushFromGesture();
+    setPushResult(result);
+    setPushBusy(false);
+
+    if (result.ok) {
+      window.setTimeout(() => {
+        router.replace("/schnellbestellung");
+      }, 700);
+    }
+  }, [pushBusy, router]);
+
   const retry = useCallback(() => {
     if (retryMode === "homescreen") {
       void start({ homeScreen: true, navigate: true });
@@ -528,6 +587,86 @@ export default function SchnellEnterClient({ token }: { token: string }) {
     problem === "position_unavailable" ||
     problem === "timeout" ||
     problem === "accuracy_low";
+
+  if (screen === "push") {
+    const pushMessage = pushResult
+      ? pushResult.ok
+        ? "Benachrichtigungen sind aktiviert. Das Menü wird geöffnet …"
+        : pushResult.code === "permission_denied"
+          ? "Benachrichtigungen sind blockiert. Öffnen Sie iPhone-Einstellungen → Mitteilungen → Burger Brothers."
+          : pushResult.code === "not_configured"
+            ? "Der Benachrichtigungsdienst ist auf dem Server noch nicht vollständig eingerichtet."
+            : pushResult.code === "disabled"
+              ? "Die Hintergrundbenachrichtigung ist momentan deaktiviert."
+              : pushResult.code === "service_worker_failed"
+                ? "Der Benachrichtigungsdienst konnte nicht gestartet werden. Bitte schließen und öffnen Sie Burger Brothers erneut."
+                : pushResult.code === "subscription_failed"
+                  ? "Die Push-Anmeldung ist fehlgeschlagen. Bitte prüfen Sie Internetverbindung und iOS-Version."
+                  : "Dieses Gerät unterstützt die benötigte Hintergrundbenachrichtigung nicht."
+      : "";
+
+    return (
+      <main className="grid min-h-dvh place-items-center bg-stone-950 p-5 text-white">
+        <section className="w-full max-w-md rounded-3xl border border-emerald-300/25 bg-white/5 p-6 shadow-2xl shadow-black/30">
+          <div className="text-center">
+            <img
+              src="/schnell-icon-180.png?v=1"
+              className="mx-auto h-24 w-24 rounded-[24px]"
+              alt="Burger Brothers"
+            />
+            <p className="mt-5 text-sm font-black uppercase tracking-[0.18em] text-emerald-300">
+              Home-Bildschirm-App
+            </p>
+            <h1 className="mt-2 text-3xl font-black">
+              Fertig-Meldung aktivieren
+            </h1>
+            <p className="mt-3 leading-6 text-stone-300">
+              Tippen Sie einmal auf den grünen Button. Danach kann Burger
+              Brothers die Fertig-Meldung auch bei gesperrtem Bildschirm
+              anzeigen.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            disabled={pushBusy}
+            onClick={() => void activatePush()}
+            className="mt-7 w-full rounded-2xl bg-emerald-400 px-5 py-4 text-lg font-black text-black disabled:opacity-60"
+          >
+            {pushBusy
+              ? "Wird aktiviert …"
+              : "Benachrichtigungen aktivieren"}
+          </button>
+
+          {pushMessage ? (
+            <div
+              className={`mt-4 rounded-2xl border p-4 text-sm leading-6 ${
+                pushResult?.ok
+                  ? "border-emerald-300/30 bg-emerald-400/10 text-emerald-100"
+                  : "border-red-300/30 bg-red-400/10 text-red-100"
+              }`}
+              aria-live="polite"
+            >
+              {pushMessage}
+            </div>
+          ) : null}
+
+          <button
+            type="button"
+            onClick={() => router.replace("/schnellbestellung")}
+            className="mt-4 w-full rounded-2xl border border-white/15 bg-white/5 px-5 py-4 font-bold text-white"
+          >
+            Ohne Benachrichtigung bestellen
+          </button>
+
+          <p className="mt-5 text-center text-xs leading-5 text-stone-500">
+            Dieser Bildschirm erscheint nur in der installierten
+            Burger-Brothers-App auf iPhone und iPad.
+          </p>
+        </section>
+      </main>
+    );
+  }
 
   if (screen === "choice") {
     return (
