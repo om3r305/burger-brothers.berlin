@@ -30,6 +30,36 @@ type Stats = {
   orderSubscriptions: number;
 };
 
+type NearbyDeliverySettings = {
+  enabled: boolean;
+  sameStreet: boolean;
+  streetGroupsEnabled: boolean;
+  streetGroups: Array<{ id: string; name: string; streets: string[] }>;
+  samePlz: boolean;
+  routeCluster: boolean;
+  radiusEnabled: boolean;
+  radiusM: number;
+  minimumPastOrders: number;
+  maxRecipients: number;
+  cooldownHours: number;
+  opportunityMinutes: number;
+};
+
+const DEFAULT_NEARBY_SETTINGS: NearbyDeliverySettings = {
+  enabled: false,
+  sameStreet: true,
+  streetGroupsEnabled: false,
+  streetGroups: [],
+  samePlz: false,
+  routeCluster: true,
+  radiusEnabled: false,
+  radiusM: 800,
+  minimumPastOrders: 1,
+  maxRecipients: 20,
+  cooldownHours: 168,
+  opportunityMinutes: 10,
+};
+
 const KIND_OPTIONS: Array<{
   value: NotificationKind;
   label: string;
@@ -111,7 +141,9 @@ export default function AdminNotificationsPage() {
   const [imageUrl, setImageUrl] = useState("");
   const [plz, setPlz] = useState("");
   const [phone, setPhone] = useState("");
-  const [busy, setBusy] = useState<"" | "send" | "test">("");
+  const [busy, setBusy] = useState<"" | "send" | "test" | "nearby">("");
+  const [nearbySettings, setNearbySettings] =
+    useState<NearbyDeliverySettings>(DEFAULT_NEARBY_SETTINGS);
   const [message, setMessage] = useState("");
   const [tone, setTone] = useState<"ok" | "error" | "info">("info");
 
@@ -125,6 +157,13 @@ export default function AdminNotificationsPage() {
       const data = await requestJson("/api/admin/notifications");
       setStats(data.stats || {});
       setRecent(Array.isArray(data.recent) ? data.recent : []);
+      setNearbySettings({
+        ...DEFAULT_NEARBY_SETTINGS,
+        ...(data.nearbySettings || {}),
+        streetGroups: Array.isArray(data?.nearbySettings?.streetGroups)
+          ? data.nearbySettings.streetGroups
+          : [],
+      });
     } catch (error) {
       setTone("error");
       setMessage(error instanceof Error ? error.message : "Veriler yüklenemedi.");
@@ -141,6 +180,84 @@ export default function AdminNotificationsPage() {
     if (preset) {
       setTitle(preset.title);
       setBody(preset.body);
+    }
+  };
+
+  const setNearby = <K extends keyof NearbyDeliverySettings>(
+    key: K,
+    value: NearbyDeliverySettings[K],
+  ) => setNearbySettings((current) => ({ ...current, [key]: value }));
+
+  const booleanSettingKeys: Array<{
+    key: "sameStreet" | "streetGroupsEnabled" | "samePlz" | "routeCluster" | "radiusEnabled";
+    label: string;
+  }> = [
+    { key: "sameStreet", label: "Aynı sokak" },
+    { key: "streetGroupsEnabled", label: "Tanımlı sokak grupları" },
+    { key: "samePlz", label: "Aynı PLZ" },
+    { key: "routeCluster", label: "Rota kümesi" },
+    { key: "radiusEnabled", label: "Mesafe yarıçapı" },
+  ];
+
+  const numberSettingKeys: Array<{
+    key: "radiusM" | "minimumPastOrders" | "maxRecipients" | "cooldownHours" | "opportunityMinutes";
+    label: string;
+    min: number;
+    max: number;
+  }> = [
+    { key: "radiusM", label: "Mesafe yarıçapı (metre)", min: 200, max: 5000 },
+    { key: "minimumPastOrders", label: "Minimum geçmiş sipariş", min: 0, max: 100 },
+    { key: "maxRecipients", label: "Maksimum alıcı", min: 1, max: 200 },
+    { key: "cooldownHours", label: "Tekrar bekleme (saat)", min: 1, max: 2160 },
+    { key: "opportunityMinutes", label: "Fırsat süresi (dakika)", min: 1, max: 60 },
+  ];
+
+  const streetGroupsText = nearbySettings.streetGroups
+    .map((group) => `${group.name}: ${group.streets.join("; ")}`)
+    .join("\n");
+
+  const setStreetGroupsText = (value: string) => {
+    const groups = value
+      .split("\n")
+      .map((line, index) => {
+        const [namePart, ...streetParts] = line.split(":");
+        const streets = streetParts
+          .join(":")
+          .split(/[;,]/g)
+          .map((item) => item.trim())
+          .filter(Boolean);
+        return {
+          id: nearbySettings.streetGroups[index]?.id || `group-${index + 1}`,
+          name: namePart.trim() || `Straßengruppe ${index + 1}`,
+          streets,
+        };
+      })
+      .filter((group) => group.streets.length > 0);
+    setNearby("streetGroups", groups);
+  };
+
+  const saveNearbySettings = async () => {
+    setBusy("nearby");
+    setMessage("");
+    try {
+      const data = await requestJson("/api/admin/notifications", {
+        method: "POST",
+        body: JSON.stringify({
+          action: "save_nearby_settings",
+          nearbySettings,
+        }),
+      });
+      setNearbySettings({
+        ...DEFAULT_NEARBY_SETTINGS,
+        ...(data.nearbySettings || nearbySettings),
+      });
+      setTone("ok");
+      setMessage("Yakın teslimat otomasyonu kaydedildi.");
+    } catch (error) {
+      setTone("error");
+      setMessage(error instanceof Error ? error.message : "Ayarlar kaydedilemedi.");
+    } finally {
+      setBusy("");
     }
   };
 
@@ -396,6 +513,79 @@ export default function AdminNotificationsPage() {
             adı, siparişi veya kesin adresi gösterilmez.
           </div>
         </aside>
+      </section>
+
+      <section className="rounded-3xl border border-stone-800 bg-stone-950/70 p-5 shadow-xl sm:p-6">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <div className="text-xs font-black uppercase tracking-[0.2em] text-amber-300">
+              Akıllı ikiz sokak / yakın teslimat
+            </div>
+            <h2 className="mt-2 text-2xl font-black text-white">Otomatik hedefleme ayarları</h2>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-stone-400">
+              Sipariş “Unterwegs” olduğunda yalnız izin vermiş, aktif siparişi olmayan ve tekrar bekleme süresi dolmuş müşteriler değerlendirilir. Bildirimde müşteri adı, sipariş veya açık adres gösterilmez.
+            </p>
+          </div>
+          <label className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-bold text-white">
+            <input
+              type="checkbox"
+              checked={nearbySettings.enabled}
+              onChange={(event) => setNearby("enabled", event.target.checked)}
+              className="h-5 w-5 accent-emerald-400"
+            />
+            Otomasyon aktif
+          </label>
+        </div>
+
+        <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          {booleanSettingKeys.map(({ key, label }) => (
+            <label key={key} className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.04] p-3 text-sm font-bold text-stone-200">
+              <input
+                type="checkbox"
+                checked={nearbySettings[key]}
+                onChange={(event) => setNearby(key, event.target.checked)}
+                className="h-5 w-5 accent-emerald-400"
+              />
+              {label}
+            </label>
+          ))}
+        </div>
+
+        <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {numberSettingKeys.map(({ key, label, min, max }) => (
+            <label key={key} className="block text-sm text-stone-300">
+              {label}
+              <input
+                type="number"
+                min={min}
+                max={max}
+                value={nearbySettings[key]}
+                onChange={(event) => setNearby(key, Number(event.target.value))}
+                className="mt-2 w-full rounded-xl border border-stone-700 bg-stone-900 px-4 py-3 text-white"
+              />
+            </label>
+          ))}
+        </div>
+
+        <label className="mt-5 block text-sm text-stone-300">
+          Sokak grupları — her satır: Grup adı: Sokak 1; Sokak 2
+          <textarea
+            value={streetGroupsText}
+            onChange={(event) => setStreetGroupsText(event.target.value)}
+            rows={5}
+            placeholder={"Tegel Zentrum: Berliner Straße; Schlieperstraße\nBorsigwalde: Holzhauser Straße; Miraustraße"}
+            className="mt-2 w-full rounded-xl border border-stone-700 bg-stone-900 px-4 py-3 text-white"
+          />
+        </label>
+
+        <button
+          type="button"
+          onClick={() => void saveNearbySettings()}
+          disabled={Boolean(busy)}
+          className="mt-5 rounded-xl bg-amber-300 px-6 py-3 font-black text-black transition hover:bg-amber-200 disabled:opacity-50"
+        >
+          {busy === "nearby" ? "Kaydediliyor…" : "Yakın teslimat ayarlarını kaydet"}
+        </button>
       </section>
 
       <section className="rounded-3xl border border-stone-800 bg-stone-950/70 p-5 shadow-xl sm:p-6">

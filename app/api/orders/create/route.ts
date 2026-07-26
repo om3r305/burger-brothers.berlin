@@ -1,5 +1,6 @@
 // app/api/orders/create/route.ts
 import { NextResponse } from "next/server";
+import { runAfterResponse } from "@/lib/server/after-response";
 import { prisma, getTenantId } from "@/lib/db";
 import { enforceRateLimit, forbiddenResponse, hasTrustedMutationOrigin } from "@/lib/server/request-security";
 import { createTrackingToken, readOrderTrackingToken } from "@/lib/server/public-order";
@@ -17,6 +18,7 @@ import { getServerSettings, saveServerSettings } from "@/lib/server/settings";
 import { sendTelegramNewOrder } from "@/lib/telegram";
 import { normalizePlz, routeDealMatchesAddress, routeDealStreetLabel } from "@/lib/streets";
 import { verifyPaymentFinalizeSignature } from "@/lib/server/payment-signature";
+import { notifyGeneralOrderStatus } from "@/lib/server/general-push";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -2032,6 +2034,15 @@ export async function POST(req: Request) {
     }
 
     const serialized = serializeOrder(created);
+
+    // Daha önce bu müşteri/cihaz eşleştirildiyse sipariş oluşturulduğu anda
+    // bildir. İlk siparişte checkout bind işlemi aynı tekil anahtarı kullanır;
+    // böylece iki yol birlikte çalışsa bile ikinci bildirim oluşmaz.
+    runAfterResponse(async () => {
+      await notifyGeneralOrderStatus(created, "", "new").catch((error) => {
+        console.error("[orders/create] general push failed", error);
+      });
+    });
 
     return NextResponse.json(
       {

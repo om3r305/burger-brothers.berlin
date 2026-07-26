@@ -270,7 +270,7 @@ assert(ordersStatus.includes("readyEventSequence"));
 assert(ordersStatus.includes("readyEventId"));
 assert(ordersStatus.includes('previousStatus !== "ready"'));
 assert(ordersStatus.includes("sendEmptySchnellPush"));
-assert(ordersStatus.includes("after(async ()"));
+assert(ordersStatus.includes("runAfterResponse(async ()"));
 assert(ordersStatus.includes("COMPLETED_REOPEN_LOCK_MS = 10 * 60 * 1000"));
 assert(ordersStatus.includes("completed_order_locked"));
 assert(ordersStatus.includes("seit mehr als 10 Minuten abgeschlossen"));

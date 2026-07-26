@@ -1,5 +1,6 @@
 // app/api/orders/status/route.ts
-import { after, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
+import { runAfterResponse } from "@/lib/server/after-response";
 import { Prisma } from "@prisma/client";
 import { prisma, getTenantId } from "@/lib/db";
 import { refundOrderPayments } from "@/lib/server/payment-refund";
@@ -8,6 +9,7 @@ import { getSchnellSettings } from "@/lib/server/schnellbestellung";
 import {
   notifyGeneralOrderStatus,
   notifyNearbyDelivery,
+  notifyOrderRefundExecuted,
 } from "@/lib/server/general-push";
 import {
   getSessionSubject,
@@ -1343,7 +1345,7 @@ async function handleStatusUpdate(req: Request) {
       const orderIdForPush = String((updated as any)?.id || "");
       const subscriptionForPush = updatedMeta.readyPushSubscription;
 
-      after(async () => {
+      runAfterResponse(async () => {
         const result = await sendEmptySchnellPush(subscriptionForPush);
 
         if (result.expired && orderIdForPush) {
@@ -1363,7 +1365,7 @@ async function handleStatusUpdate(req: Request) {
 
     if (requestedStatus && requestedStatus !== currentStatus) {
       const orderForNotification = updated;
-      after(async () => {
+      runAfterResponse(async () => {
         await notifyGeneralOrderStatus(
           orderForNotification,
           currentStatus,
@@ -1371,6 +1373,14 @@ async function handleStatusUpdate(req: Request) {
         ).catch((error) => {
           console.error("[orders/status] general push failed", error);
         });
+
+        if (requestedStatus === "cancelled" && refundResult) {
+          await notifyOrderRefundExecuted(orderForNotification, refundResult).catch(
+            (error) => {
+              console.error("[orders/status] refund push failed", error);
+            },
+          );
+        }
 
         if (requestedStatus === "out_for_delivery") {
           await notifyNearbyDelivery(orderForNotification).catch((error) => {

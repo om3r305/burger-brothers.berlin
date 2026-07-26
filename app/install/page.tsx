@@ -121,6 +121,7 @@ export default function InstallPage() {
     useState<BeforeInstallPromptEvent | null>(null);
   const [installBusy, setInstallBusy] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
+  const [locationBusy, setLocationBusy] = useState(false);
   const [pushSubscribed, setPushSubscribed] = useState(false);
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"ok" | "error" | "info">(
@@ -212,6 +213,34 @@ export default function InstallPage() {
     value: boolean,
   ) => {
     setPreferences((current) => ({ ...current, [key]: value }));
+  };
+
+  const captureLocation = () => {
+    if (!("geolocation" in navigator)) {
+      setMessageTone("error");
+      setMessage("Standortbestimmung wird von diesem Gerät nicht unterstützt.");
+      return;
+    }
+
+    setLocationBusy(true);
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setPreferences((current) => ({
+          ...current,
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+        }));
+        setMessageTone("ok");
+        setMessage("Standort wurde nur für die freiwillige Nähe-Funktion gespeichert.");
+        setLocationBusy(false);
+      },
+      () => {
+        setMessageTone("error");
+        setMessage("Standort konnte nicht übernommen werden. PLZ und Straße können Sie auch manuell eintragen.");
+        setLocationBusy(false);
+      },
+      { enableHighAccuracy: false, timeout: 10_000, maximumAge: 15 * 60_000 },
+    );
   };
 
   const handleInstall = async () => {
@@ -445,6 +474,52 @@ export default function InstallPage() {
                   title="Lieferung in Ihrer Nähe"
                   description="Eine diskrete Meldung, wenn wir gerade in Ihrer Umgebung liefern. Keine Kundendaten werden angezeigt."
                 />
+
+                {preferences.nearbyDelivery ? (
+                  <div className="rounded-2xl border border-amber-300/20 bg-amber-500/[0.06] p-4 text-left">
+                    <div className="font-black text-white">Ihre Umgebung festlegen</div>
+                    <p className="mt-1 text-sm leading-6 text-stone-400">
+                      PLZ und Straße oder der Gerätestandort verbessern die Zuordnung. Diese Angaben erscheinen niemals in einer Benachrichtigung.
+                    </p>
+                    <div className="mt-4 grid gap-3 sm:grid-cols-[140px_1fr]">
+                      <input
+                        value={preferences.plz || ""}
+                        onChange={(event) =>
+                          setPreferences((current) => ({
+                            ...current,
+                            plz: event.target.value.replace(/\D/g, "").slice(0, 5),
+                          }))
+                        }
+                        inputMode="numeric"
+                        placeholder="PLZ"
+                        className="rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-white outline-none"
+                      />
+                      <input
+                        value={preferences.street || ""}
+                        onChange={(event) =>
+                          setPreferences((current) => ({
+                            ...current,
+                            street: event.target.value,
+                          }))
+                        }
+                        placeholder="Straße (ohne Hausnummer ausreichend)"
+                        className="rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-white outline-none"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={captureLocation}
+                      disabled={locationBusy}
+                      className="mt-3 rounded-xl border border-white/15 bg-white/[0.07] px-4 py-3 text-sm font-black text-white disabled:opacity-60"
+                    >
+                      {locationBusy
+                        ? "Standort wird gelesen …"
+                        : preferences.lat != null && preferences.lng != null
+                          ? "Standort aktualisieren ✓"
+                          : "Gerätestandort verwenden"}
+                    </button>
+                  </div>
+                ) : null}
               </div>
 
               <button

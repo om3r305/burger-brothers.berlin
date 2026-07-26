@@ -9,6 +9,7 @@ import {
   type StoredSchnellPushSubscription,
 } from "@/lib/server/schnell-push";
 import { readRequestCookie } from "@/lib/server/request-security";
+import { readNearbyDeliverySettings } from "@/lib/server/nearby-delivery-settings";
 
 export const GENERAL_PUSH_COOKIE = "bb_push_device_v1";
 export const GENERAL_PUSH_CONSENT_VERSION = "1";
@@ -38,6 +39,7 @@ export type GeneralNotificationInput = {
   dedupeKey?: string | null;
   payload?: Record<string, unknown> | null;
   availableAt?: Date;
+  expiresAt?: Date | null;
 };
 
 function plainObject(value: unknown): Record<string, any> {
@@ -91,6 +93,7 @@ function normalizeStreet(value: unknown) {
     .replace(/strasse/g, "str")
     .replace(/straße/g, "str")
     .replace(/[^a-z0-9äöü\s-]/gi, " ")
+    .replace(/\s+\d+[a-z]?(?:\s*[-/]\s*\d+[a-z]?)?\s*$/i, "")
     .replace(/\s+/g, " ")
     .trim() || null;
 }
@@ -384,6 +387,17 @@ export async function queueGeneralNotification(input: GeneralNotificationInput) 
 
   if (!subscription) return null;
 
+  if (input.dedupeKey) {
+    const existing = await (prisma as any).notificationEvent.findFirst({
+      where: {
+        tenantId: subscription.tenantId,
+        dedupeKey: input.dedupeKey,
+      },
+      include: { subscription: true },
+    });
+    if (existing) return { ...existing, __deduped: true };
+  }
+
   try {
     return await (prisma as any).notificationEvent.create({
       data: {
@@ -400,6 +414,7 @@ export async function queueGeneralNotification(input: GeneralNotificationInput) 
         payload: input.payload ? jsonForDb(input.payload) : undefined,
         status: "queued",
         availableAt: input.availableAt || new Date(),
+        expiresAt: input.expiresAt || null,
       },
       include: {
         subscription: true,
@@ -407,13 +422,14 @@ export async function queueGeneralNotification(input: GeneralNotificationInput) 
     });
   } catch (error: any) {
     if (error?.code === "P2002" && input.dedupeKey) {
-      return (prisma as any).notificationEvent.findFirst({
+      const existing = await (prisma as any).notificationEvent.findFirst({
         where: {
           tenantId: subscription.tenantId,
           dedupeKey: input.dedupeKey,
         },
         include: { subscription: true },
       });
+      return existing ? { ...existing, __deduped: true } : null;
     }
     throw error;
   }
@@ -432,6 +448,13 @@ export async function sendGeneralNotificationEvent(eventOrId: any) {
             where: { id: eventOrId?.id },
             include: { subscription: true },
           });
+
+  if (event?.expiresAt && new Date(event.expiresAt) <= new Date()) {
+    await (prisma as any).notificationEvent
+      .update({ where: { id: event.id }, data: { status: "expired" } })
+      .catch(() => undefined);
+    return { ok: false, skipped: true, expired: true };
+  }
 
   if (!event?.subscription?.active) {
     return { ok: false, skipped: true, expired: false };
@@ -504,6 +527,9 @@ export async function queueAndSendGeneralNotification(
 ) {
   const event = await queueGeneralNotification(input);
   if (!event) return { ok: false, skipped: true };
+  if ((event as any).__deduped) {
+    return { ok: true, skipped: true, deduped: true };
+  }
   if (event.status && event.status !== "queued") {
     return { ok: true, skipped: true, deduped: true };
   }
@@ -522,6 +548,7 @@ export async function readPendingGeneralNotifications(req: Request) {
       subscriptionId: subscription.id,
       status: { in: ["queued", "sent"] },
       availableAt: { lte: now },
+      OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
     },
     orderBy: { createdAt: "asc" },
     take: 10,
@@ -546,6 +573,7 @@ export async function readPendingGeneralNotifications(req: Request) {
     imageUrl: event.imageUrl || null,
     tag: `bb-${event.type}-${event.id}`,
     payload: plainObject(event.payload),
+    expiresAt: event.expiresAt || null,
     createdAt: event.createdAt,
   }));
 }
@@ -581,7 +609,7 @@ function statusNotificationText(order: any, status: string) {
       };
     case "preparing":
       return {
-        title: "Ihre Bestellung wird zubereitet 🍔",
+        title: "Bestellung wird vorbereitet 🍔",
         body: "Unsere Küche arbeitet jetzt an Ihrer Bestellung.",
       };
     case "ready":
@@ -591,18 +619,18 @@ function statusNotificationText(order: any, status: string) {
             body: "Ihre Bestellung wartet auf die Abholung durch den Fahrer.",
           }
         : {
-            title: "Ihre Bestellung ist abholbereit!",
+            title: "Bestellung ist abholbereit!",
             body: "Sie können Ihre Bestellung jetzt abholen.",
           };
     case "out_for_delivery":
       return {
-        title: "Ihre Bestellung ist unterwegs! 🚗",
+        title: "Bestellung ist unterwegs! 🚗",
         body: "Unser Fahrer ist mit Ihrer Bestellung auf dem Weg zu Ihnen.",
       };
     case "done":
       return delivery
         ? {
-            title: "Bestellung geliefert ✅",
+            title: "Bestellung wurde geliefert ✅",
             body: "Guten Appetit und vielen Dank für Ihre Bestellung!",
           }
         : {
@@ -616,7 +644,7 @@ function statusNotificationText(order: any, status: string) {
       );
       const refunded = /refund|erstatt/.test(refundStatus.toLowerCase());
       return {
-        title: "Bestellung storniert",
+        title: "Bestellung wurde storniert",
         body: refunded
           ? "Die Rückerstattung wurde veranlasst."
           : "Ihre Bestellung wurde storniert. Bei Fragen rufen Sie uns bitte an.",
@@ -673,30 +701,55 @@ export async function notifyGeneralOrderStatus(
   const text = statusNotificationText(order, nextStatus);
   if (!text) return { queued: 0 };
   const subscriptions = await subscriptionsForOrder(order);
-  const meta = orderMeta(order);
-  const sequence = cleanText(
-    meta.statusUpdatedAt || meta.lastStatusAt || order.updatedAt || Date.now(),
-    80,
-  );
   let queued = 0;
 
   for (const subscription of subscriptions) {
-    await queueAndSendGeneralNotification({
+    const result = await queueAndSendGeneralNotification({
       subscriptionId: subscription.id,
       type: `order_${nextStatus}`,
       title: text.title,
       body: text.body,
       url: trackingUrl(order),
       orderId: order.id,
-      dedupeKey: `order:${order.id}:${nextStatus}:${sequence}:${subscription.id}`,
+      dedupeKey: `order:${order.id}:${nextStatus}:${subscription.id}`,
       payload: {
         orderId: order.id,
         status: nextStatus,
       },
     });
-    queued += 1;
+    if (!(result as any)?.deduped) queued += 1;
   }
 
+  return { queued };
+}
+
+export async function notifyOrderRefundExecuted(order: any, refundResult?: any) {
+  if (cleanText(order?.channel, 60).toLowerCase() === "schnellbestellung") {
+    return { queued: 0 };
+  }
+  const status = cleanText(refundResult?.status, 80).toLowerCase();
+  if (!["refunded", "partially_refunded"].includes(status)) {
+    return { queued: 0 };
+  }
+
+  const subscriptions = await subscriptionsForOrder(order);
+  let queued = 0;
+  for (const subscription of subscriptions) {
+    const result = await queueAndSendGeneralNotification({
+      subscriptionId: subscription.id,
+      type: "order_refunded",
+      title: "Erstattung wurde ausgeführt ✅",
+      body:
+        status === "partially_refunded"
+          ? "Die teilweise Rückerstattung wurde erfolgreich ausgeführt."
+          : "Die Rückerstattung wurde erfolgreich ausgeführt.",
+      url: trackingUrl(order),
+      orderId: order.id,
+      dedupeKey: `order:${order.id}:refunded:${subscription.id}`,
+      payload: { orderId: order.id, status: "refunded" },
+    });
+    if (!(result as any)?.deduped) queued += 1;
+  }
   return { queued };
 }
 
@@ -822,6 +875,61 @@ export async function notifyCouponAssigned(input: {
   return { queued: subscriptions.length };
 }
 
+function identityKeys(value: any) {
+  const customer = orderCustomer(value);
+  return {
+    phone: normalizePhone(customer.phone || value?.phone),
+    email: normalizeEmail(customer.email || value?.email),
+  };
+}
+
+function pastOrderCount(statsValue: unknown) {
+  const stats = plainObject(statsValue);
+  const values = [
+    stats.orderCount,
+    stats.orders,
+    stats.totalOrders,
+    stats.completedOrders,
+    stats.count,
+  ];
+  for (const value of values) {
+    const number = Number(value);
+    if (Number.isFinite(number) && number >= 0) return Math.floor(number);
+  }
+  return 0;
+}
+
+function distanceMeters(
+  latA: number,
+  lngA: number,
+  latB: number,
+  lngB: number,
+) {
+  const toRad = (value: number) => (value * Math.PI) / 180;
+  const earth = 6_371_000;
+  const dLat = toRad(latB - latA);
+  const dLng = toRad(lngB - lngA);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(latA)) * Math.cos(toRad(latB)) * Math.sin(dLng / 2) ** 2;
+  return 2 * earth * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function streetClusterMap(value: unknown) {
+  const model = plainObject(value);
+  const clusters = Array.isArray(model.clusters) ? model.clusters : [];
+  const map = new Map<string, string>();
+  clusters.forEach((cluster: any, index: number) => {
+    const id = cleanText(cluster?.id, 100) || `cluster-${index + 1}`;
+    const streets = Array.isArray(cluster?.streets) ? cluster.streets : [];
+    streets.forEach((street: unknown) => {
+      const normalized = normalizeStreet(street);
+      if (normalized) map.set(normalized, id);
+    });
+  });
+  return map;
+}
+
 export async function notifyNearbyDelivery(order: any) {
   const status = cleanText(order?.status, 40).toLowerCase();
   if (status !== "out_for_delivery" || orderMode(order) !== "delivery") {
@@ -829,73 +937,229 @@ export async function notifyNearbyDelivery(order: any) {
   }
 
   const tenantId = order.tenantId || (await getTenantId());
+  const settings = await readNearbyDeliverySettings(tenantId);
+  if (!settings.enabled) return { queued: 0 };
+
   const customer = orderCustomer(order);
   const meta = orderMeta(order);
   const plz = normalizePlz(customer.plz || customer.zip || order.plz);
   const street = normalizeStreet(
     customer.street || customer.address || customer.addressLine,
   );
-  if (!plz && !street) return { queued: 0 };
-
-  const excludedSubscriptionId = cleanText(meta.generalPushSubscriptionId, 100);
   const currentPhone = normalizePhone(customer.phone);
   const currentEmail = normalizeEmail(customer.email);
-  const exclusionFilters: Array<Record<string, unknown>> = [];
-  if (excludedSubscriptionId) exclusionFilters.push({ id: { not: excludedSubscriptionId } });
-  if (currentPhone) exclusionFilters.push({ OR: [{ phone: null }, { phone: { not: currentPhone } }] });
-  if (currentEmail) exclusionFilters.push({ OR: [{ email: null }, { email: { not: currentEmail } }] });
+  const excludedSubscriptionId = cleanText(meta.generalPushSubscriptionId, 100);
+
+  const sourceLat = finiteNumber(
+    customer.lat ?? customer.latitude ?? meta.deliveryLat ?? meta.lat,
+    -90,
+    90,
+  );
+  const sourceLng = finiteNumber(
+    customer.lng ?? customer.longitude ?? meta.deliveryLng ?? meta.lng,
+    -180,
+    180,
+  );
+  const ownerSubscription = excludedSubscriptionId
+    ? await (prisma as any).pushSubscription.findFirst({
+        where: { tenantId, id: excludedSubscriptionId },
+        include: { preference: true },
+      })
+    : null;
+  const effectiveSourceLat = sourceLat ?? finiteNumber(ownerSubscription?.preference?.lat, -90, 90);
+  const effectiveSourceLng = sourceLng ?? finiteNumber(ownerSubscription?.preference?.lng, -180, 180);
 
   const candidates = await (prisma as any).pushSubscription.findMany({
     where: {
       tenantId,
       active: true,
-      ...(exclusionFilters.length ? { AND: exclusionFilters } : {}),
+      ...(excludedSubscriptionId ? { id: { not: excludedSubscriptionId } } : {}),
       preference: {
         is: {
           nearbyDelivery: true,
           marketingConsentedAt: { not: null },
-          ...(street ? { OR: [{ street }, ...(plz ? [{ plz }] : [])] } : { plz }),
         },
       },
     },
-    include: { preference: true },
-    take: 100,
+    include: { preference: true, customer: true },
+    take: 500,
+  });
+  if (!candidates.length) return { queued: 0 };
+
+  const activeOrders = await (prisma as any).order.findMany({
+    where: {
+      tenantId,
+      status: { notIn: ["done", "cancelled"] },
+      id: { not: order.id },
+    },
+    select: { customer: true },
+    take: 5_000,
+  });
+  const activePhones = new Set<string>();
+  const activeEmails = new Set<string>();
+  activeOrders.forEach((activeOrder: any) => {
+    const identity = identityKeys(activeOrder);
+    if (identity.phone) activePhones.add(identity.phone);
+    if (identity.email) activeEmails.add(identity.email);
   });
 
-  let queued = 0;
-  const now = Date.now();
+  const completedCountsByPhone = new Map<string, number>();
+  const completedCountsByEmail = new Map<string, number>();
+  if (settings.minimumPastOrders > 0) {
+    const completedOrders = await (prisma as any).order.findMany({
+      where: { tenantId, status: "done" },
+      select: { customer: true },
+      orderBy: { ts: "desc" },
+      take: 10_000,
+    });
+    completedOrders.forEach((completedOrder: any) => {
+      const identity = identityKeys(completedOrder);
+      if (identity.phone) {
+        completedCountsByPhone.set(
+          identity.phone,
+          (completedCountsByPhone.get(identity.phone) || 0) + 1,
+        );
+      }
+      if (identity.email) {
+        completedCountsByEmail.set(
+          identity.email,
+          (completedCountsByEmail.get(identity.email) || 0) + 1,
+        );
+      }
+    });
+  }
 
+  const brianModel = settings.routeCluster
+    ? await (prisma as any).brianRouteModel.findFirst({
+        where: { tenantId, key: "current" },
+        orderBy: { generatedAt: "desc" },
+        select: { model: true },
+      })
+    : null;
+  const clusters = streetClusterMap(brianModel?.model);
+  const sourceCluster = street ? clusters.get(street) || null : null;
+
+  const normalizedGroups = settings.streetGroups.map((group) => ({
+    id: group.id,
+    streets: new Set(group.streets.map(normalizeStreet).filter(Boolean) as string[]),
+  }));
+  const sourceGroups = street
+    ? normalizedGroups.filter((group) => group.streets.has(street)).map((group) => group.id)
+    : [];
+
+  const ranked: Array<{ subscription: any; rank: number; matchType: string }> = [];
   for (const subscription of candidates) {
-    const cooldownDays = boundedInteger(
-      subscription.preference?.nearbyCooldownDays,
-      7,
-      1,
-      60,
+    const phone = normalizePhone(subscription.phone);
+    const email = normalizeEmail(subscription.email);
+    if ((currentPhone && phone === currentPhone) || (currentEmail && email === currentEmail)) {
+      continue;
+    }
+    if ((phone && activePhones.has(phone)) || (email && activeEmails.has(email))) {
+      continue;
+    }
+
+    const statsCount = pastOrderCount(subscription.customer?.stats);
+    const historyCount = Math.max(
+      statsCount,
+      phone ? completedCountsByPhone.get(phone) || 0 : 0,
+      email ? completedCountsByEmail.get(email) || 0 : 0,
     );
+    if (historyCount < settings.minimumPastOrders) continue;
+
+    const candidateStreet = normalizeStreet(subscription.preference?.street);
+    const candidatePlz = normalizePlz(subscription.preference?.plz);
+    let rank = 0;
+    let matchType = "";
+
+    if (settings.sameStreet && street && candidateStreet === street) {
+      rank = 500;
+      matchType = "same_street";
+    }
+
+    if (settings.streetGroupsEnabled && street && candidateStreet && sourceGroups.length) {
+      const sameGroup = normalizedGroups.some(
+        (group) => sourceGroups.includes(group.id) && group.streets.has(candidateStreet),
+      );
+      if (sameGroup && rank < 400) {
+        rank = 400;
+        matchType = "street_group";
+      }
+    }
+
+    if (
+      settings.radiusEnabled &&
+      effectiveSourceLat != null &&
+      effectiveSourceLng != null
+    ) {
+      const candidateLat = finiteNumber(subscription.preference?.lat, -90, 90);
+      const candidateLng = finiteNumber(subscription.preference?.lng, -180, 180);
+      if (candidateLat != null && candidateLng != null) {
+        const distance = distanceMeters(
+          effectiveSourceLat,
+          effectiveSourceLng,
+          candidateLat,
+          candidateLng,
+        );
+        if (distance <= settings.radiusM && rank < 350) {
+          rank = 350 - Math.min(99, Math.round(distance / 100));
+          matchType = "radius";
+        }
+      }
+    }
+
+    if (
+      settings.routeCluster &&
+      sourceCluster &&
+      candidateStreet &&
+      clusters.get(candidateStreet) === sourceCluster &&
+      rank < 300
+    ) {
+      rank = 300;
+      matchType = "route_cluster";
+    }
+
+    if (settings.samePlz && plz && candidatePlz === plz && rank < 200) {
+      rank = 200;
+      matchType = "same_plz";
+    }
+
+    if (rank > 0) ranked.push({ subscription, rank, matchType });
+  }
+
+  ranked.sort((a, b) => b.rank - a.rank);
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + settings.opportunityMinutes * 60_000);
+  let queued = 0;
+
+  for (const candidate of ranked.slice(0, settings.maxRecipients)) {
     const recent = await (prisma as any).notificationEvent.findFirst({
       where: {
         tenantId,
-        subscriptionId: subscription.id,
+        subscriptionId: candidate.subscription.id,
         type: "nearby_delivery",
         createdAt: {
-          gte: new Date(now - cooldownDays * 24 * 60 * 60_000),
+          gte: new Date(now.getTime() - settings.cooldownHours * 60 * 60_000),
         },
       },
       select: { id: true },
     });
     if (recent) continue;
 
-    await queueAndSendGeneralNotification({
-      subscriptionId: subscription.id,
+    const result = await queueAndSendGeneralNotification({
+      subscriptionId: candidate.subscription.id,
       type: "nearby_delivery",
       title: "Wir liefern gerade in Ihre Nähe! 🍔",
-      body: "Jetzt direkt bei Burger Brothers bestellen – unser Fahrer ist bereits in Ihrer Umgebung.",
+      body: `Nur für die nächsten ${settings.opportunityMinutes} Minuten: Jetzt direkt bei Burger Brothers bestellen.`,
       url: "/menu",
       orderId: order.id,
-      dedupeKey: `nearby:${order.id}:${subscription.id}`,
-      payload: { plz, area: street ? "street_or_plz" : "plz" },
+      dedupeKey: `nearby:${order.id}:${candidate.subscription.id}`,
+      expiresAt,
+      payload: {
+        matchType: candidate.matchType,
+        expiresAt: expiresAt.toISOString(),
+      },
     });
-    queued += 1;
+    if (!(result as any)?.deduped) queued += 1;
   }
 
   return { queued };

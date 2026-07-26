@@ -1,4 +1,5 @@
-import { after, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
+import { runAfterResponse } from "@/lib/server/after-response";
 import { prisma, getTenantId } from "@/lib/db";
 import {
   createAdminBroadcast,
@@ -6,6 +7,11 @@ import {
   findGeneralPushSubscriptionForRequest,
   queueAndSendGeneralNotification,
 } from "@/lib/server/general-push";
+import { processDueAutomaticNotifications } from "@/lib/server/automatic-notifications";
+import {
+  readNearbyDeliverySettings,
+  saveNearbyDeliverySettings,
+} from "@/lib/server/nearby-delivery-settings";
 import {
   enforceRateLimit,
   getSessionSubject,
@@ -44,7 +50,7 @@ export async function GET(req: Request) {
   if (rate) return rate;
 
   const tenantId = await getTenantId();
-  const [activeSubscriptions, marketingSubscriptions, orderSubscriptions, recent] =
+  const [activeSubscriptions, marketingSubscriptions, orderSubscriptions, recent, nearbySettings] =
     await Promise.all([
       (prisma as any).pushSubscription.count({
         where: { tenantId, active: true },
@@ -77,7 +83,14 @@ export async function GET(req: Request) {
         orderBy: { createdAt: "desc" },
         take: 20,
       }),
+      readNearbyDeliverySettings(tenantId),
     ]);
+
+  runAfterResponse(async () => {
+    await processDueAutomaticNotifications(tenantId).catch((error) => {
+      console.error("[admin/notifications] scheduled dispatch failed", error);
+    });
+  });
 
   return json({
     ok: true,
@@ -86,6 +99,7 @@ export async function GET(req: Request) {
       marketingSubscriptions,
       orderSubscriptions,
     },
+    nearbySettings,
     recent: recent.map((item: any) => ({
       id: item.id,
       kind: item.kind,
@@ -110,6 +124,15 @@ export async function POST(req: Request) {
 
   const body = await req.json().catch(() => ({}));
   const action = cleanText(body?.action, 30) || "send";
+  if (action === "save_nearby_settings") {
+    const tenantId = await getTenantId();
+    const nearbySettings = await saveNearbyDeliverySettings(
+      body?.nearbySettings,
+      tenantId,
+    );
+    return json({ ok: true, nearbySettings });
+  }
+
   const title = cleanText(body?.title, 160);
   const message = cleanText(body?.body, 600);
 
@@ -180,7 +203,7 @@ export async function POST(req: Request) {
     return json({ ok: false, error: code }, status);
   }
 
-  after(async () => {
+  runAfterResponse(async () => {
     await deliverAdminBroadcast(
       broadcast.campaign.id,
       broadcast.eventIds,

@@ -1,0 +1,28 @@
+Burger Brothers Otomatik Android/iOS Web Push - Doğrulama Raporu
+Tarih: 2026-07-26
+
+BAŞARILI KONTROLLER
+- Yüklenen ZIP SHA256 değeri verilen SHA256 dosyasıyla eşleşti.
+- Bildirim regresyon paketi: npm run notifications:test -> BAŞARILI.
+- Değiştirilen TS/TSX/JS kaynaklarında TypeScript transpile/sözdizimi kontrolü -> BAŞARILI.
+- Güvenli eklemeli migration kontrolü; DROP/TRUNCATE/DELETE yok -> BAŞARILI.
+- İlk migration dosyasının içeriği korunup yeni genişletme ayrı migration olarak eklendi -> BAŞARILI.
+- Sipariş durumu tekilleştirme, kampanya/Angebot/duyuru/kupon tetikleri, yakın teslimat filtreleri,
+  iOS/Android kurulum ve mevcut Schnellbestellung fallback statik regresyonları -> BAŞARILI.
+- Mevcut pakette bağımsız koşabilen eski regresyonlardan order pricing, canonical pricing,
+  order access, route scope, TV refactor ve checkout safety -> BAŞARILI.
+
+ORTAM / GİRDİ SINIRLARI
+- Yüklenen paket EXPORT-INFO.txt içeriğine göre C:\Web\burger içinden seçilerek hazırlanmış 470 dosyalık
+  bir kaynak paketidir; .gitignore, app/layout.tsx, print-proxy/index.cjs ve bazı diğer canlı repo dosyaları
+  pakette yoktur.
+- Bu nedenle paket içinde tüm eski test zinciri ve gerçek Next.js production build eksiksiz çalıştırılamaz.
+- Sandbox npm kurulumu kurum içi npm proxy'sinin 503 yanıtları nedeniyle tamamlanamadı; bağımlılığa dayalı
+  tam typecheck/build burada doğrulanamadı.
+- Ayrı PowerShell yayın scripti gerçek C:\Web\burger-github tam klonunda npm ci, typecheck, güvenlik testleri,
+  Schnellbestellung testi, bildirim testi ve production build adımlarını zorunlu olarak çalıştırır.
+
+SONUÇ
+- Sağlanan kaynak paketindeki bildirim sistemi tamamlandı ve kendi regresyon kapısı geçti.
+- Gerçek canlı tam repo için son kesin kapı, teslim edilen PowerShell scriptinin tüm kontrolleri başarıyla
+  tamamlamasıdır; kontroller geçmeden script commit veya push yapmaz.

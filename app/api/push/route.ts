@@ -38,6 +38,8 @@ function publicPreference(value: any) {
     nearbyDelivery: normalized.nearbyDelivery,
     plz: normalized.plz || "",
     street: normalized.street || "",
+    lat: normalized.lat,
+    lng: normalized.lng,
     nearbyRadiusM: normalized.nearbyRadiusM,
     nearbyCooldownDays: normalized.nearbyCooldownDays,
   };

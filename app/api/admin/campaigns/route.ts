@@ -1,8 +1,13 @@
 // app/api/admin/campaigns/route.ts
 import { NextResponse } from "next/server";
+import { runAfterResponse } from "@/lib/server/after-response";
 import { Prisma } from "@prisma/client";
 import { prisma, getTenantId } from "@/lib/db";
 import { requireMutationRole, requireSessionRole } from "@/lib/server/request-security";
+import {
+  processDueAutomaticNotifications,
+  reconcileCatalogCampaignNotifications,
+} from "@/lib/server/automatic-notifications";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -217,6 +222,11 @@ export async function GET(req: Request) {
   try {
     const tenantId = await getTenantId();
     const items = await listCampaigns(tenantId);
+    runAfterResponse(async () => {
+      await processDueAutomaticNotifications(tenantId).catch((error) => {
+        console.error("[campaigns] scheduled push dispatch failed", error);
+      });
+    });
 
     return jsonResponse({
       ok: true,
@@ -244,6 +254,7 @@ export async function POST(req: Request) {
   try {
     const tenantId = await getTenantId();
     const body = await readBody(req);
+    const beforeCampaigns = await listCampaigns(tenantId);
 
     const replace = body?.replace === true;
     const items = readItems(body);
@@ -307,6 +318,16 @@ export async function POST(req: Request) {
 
     const campaigns = await listCampaigns(tenantId);
 
+    runAfterResponse(async () => {
+      await reconcileCatalogCampaignNotifications(
+        tenantId,
+        beforeCampaigns,
+        campaigns,
+      ).catch((error) => {
+        console.error("[campaigns] automatic notification reconcile failed", error);
+      });
+    });
+
     return jsonResponse({
       ok: true,
       source: "db",
@@ -333,6 +354,7 @@ export async function DELETE(req: Request) {
 
   try {
     const tenantId = await getTenantId();
+    const beforeCampaigns = await listCampaigns(tenantId);
     const { searchParams } = new URL(req.url);
 
     const id = searchParams.get("id");
@@ -358,6 +380,16 @@ export async function DELETE(req: Request) {
     });
 
     const campaigns = await listCampaigns(tenantId);
+
+    runAfterResponse(async () => {
+      await reconcileCatalogCampaignNotifications(
+        tenantId,
+        beforeCampaigns,
+        campaigns,
+      ).catch((error) => {
+        console.error("[campaigns] automatic notification cancel failed", error);
+      });
+    });
 
     return jsonResponse({
       ok: true,

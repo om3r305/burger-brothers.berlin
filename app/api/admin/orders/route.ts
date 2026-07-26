@@ -1,8 +1,13 @@
 // app/api/admin/orders/route.ts
 import { NextResponse } from "next/server";
+import { runAfterResponse } from "@/lib/server/after-response";
 import { prisma, getTenantId } from "@/lib/db";
 import { requireMutationRole, requireSessionRole } from "@/lib/server/request-security";
 import { generateOrderId } from "@/lib/order-id";
+import {
+  notifyGeneralOrderStatus,
+  notifyNearbyDelivery,
+} from "@/lib/server/general-push";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -1098,6 +1103,23 @@ async function handlePost(req: Request, bodyOverride?: any) {
       });
 
       const order = serializeOrder(updated);
+      const previousStatus = normalizeStatus((row as any)?.status);
+      const nextStatus = normalizeStatus(status);
+      if (nextStatus && previousStatus !== nextStatus) {
+        runAfterResponse(async () => {
+          await notifyGeneralOrderStatus(order, previousStatus, nextStatus).catch(
+            (error) => {
+              console.error("[admin/orders] general push failed", error);
+            },
+          );
+          if (nextStatus === "out_for_delivery") {
+            await notifyNearbyDelivery(order).catch((error) => {
+              console.error("[admin/orders] nearby push failed", error);
+            });
+          }
+        });
+      }
+
       const orders = await listOrders(tenantId, req);
 
       return jsonResponse({

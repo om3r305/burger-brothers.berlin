@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useCart } from "@/components/store";
 
@@ -11,6 +11,7 @@ type ExtraInput =
 
 type Props = {
   sku: string;
+  productId?: string;
   name: string;
   price: number;
   originalPrice?: number;
@@ -19,6 +20,7 @@ type Props = {
   image?: string;
   images?: string[];
   coverRatio?: string;
+  normalizeTransparentImage?: boolean;
   compact?: boolean;
   category?: "burger" | "vegan" | "extras" | "sauces" | "drinks" | "hotdogs";
   outOfStock?: boolean;
@@ -187,8 +189,155 @@ function MedalBadgeImage({
 }
 /* ====================================================== */
 
+
+type NormalizedImageLayout = {
+  left: number;
+  top: number;
+  scale: number;
+};
+
+const DEFAULT_NORMALIZED_IMAGE_LAYOUT: NormalizedImageLayout = {
+  left: 0,
+  top: 0,
+  scale: 1,
+};
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function NormalizedTransparentImage({
+  src,
+  alt,
+  onError,
+}: {
+  src: string;
+  alt: string;
+  onError: () => void;
+}) {
+  const [layout, setLayout] = useState<NormalizedImageLayout>(
+    DEFAULT_NORMALIZED_IMAGE_LAYOUT,
+  );
+
+  const analyzeImage = (element: HTMLImageElement) => {
+    try {
+      const naturalWidth = element.naturalWidth;
+      const naturalHeight = element.naturalHeight;
+
+      if (!naturalWidth || !naturalHeight) return;
+
+      const sampleWidth = Math.min(360, naturalWidth);
+      const sampleHeight = Math.max(
+        1,
+        Math.round((sampleWidth / naturalWidth) * naturalHeight),
+      );
+      const canvas = document.createElement("canvas");
+      canvas.width = sampleWidth;
+      canvas.height = sampleHeight;
+
+      const context = canvas.getContext("2d", {
+        willReadFrequently: true,
+      });
+      if (!context) return;
+
+      context.clearRect(0, 0, sampleWidth, sampleHeight);
+      context.drawImage(element, 0, 0, sampleWidth, sampleHeight);
+
+      const pixels = context.getImageData(
+        0,
+        0,
+        sampleWidth,
+        sampleHeight,
+      ).data;
+      const columnHits = new Uint16Array(sampleWidth);
+      const rowHits = new Uint16Array(sampleHeight);
+      let opaquePixelCount = 0;
+
+      for (let y = 0; y < sampleHeight; y += 1) {
+        for (let x = 0; x < sampleWidth; x += 1) {
+          const alpha = pixels[(y * sampleWidth + x) * 4 + 3];
+          if (alpha < 24) continue;
+
+          columnHits[x] += 1;
+          rowHits[y] += 1;
+          opaquePixelCount += 1;
+        }
+      }
+
+      // Görsel gerçekten şeffaf değilse mevcut davranışı koru.
+      if (opaquePixelCount > sampleWidth * sampleHeight * 0.96) return;
+
+      const minColumnHits = Math.max(2, Math.floor(sampleHeight * 0.004));
+      const minRowHits = Math.max(2, Math.floor(sampleWidth * 0.004));
+
+      let minX = 0;
+      while (minX < sampleWidth && columnHits[minX] < minColumnHits) minX += 1;
+
+      let maxX = sampleWidth - 1;
+      while (maxX >= 0 && columnHits[maxX] < minColumnHits) maxX -= 1;
+
+      let minY = 0;
+      while (minY < sampleHeight && rowHits[minY] < minRowHits) minY += 1;
+
+      let maxY = sampleHeight - 1;
+      while (maxY >= 0 && rowHits[maxY] < minRowHits) maxY -= 1;
+
+      if (minX >= maxX || minY >= maxY) return;
+
+      const x0 = minX / sampleWidth;
+      const x1 = (maxX + 1) / sampleWidth;
+      const y0 = minY / sampleHeight;
+      const y1 = (maxY + 1) / sampleHeight;
+      const visibleWidth = x1 - x0;
+      const visibleHeight = y1 - y0;
+
+      if (visibleWidth <= 0 || visibleHeight <= 0) return;
+
+      // Menü kartlarında bütün burgerler yaklaşık aynı görünür alanı kaplar.
+      const targetWidth = 0.82;
+      const targetHeight = 0.84;
+      const targetBottom = 0.92;
+      const scale = clamp(
+        Math.min(targetWidth / visibleWidth, targetHeight / visibleHeight),
+        0.72,
+        2.35,
+      );
+      const left = (1 - visibleWidth * scale) / 2 - x0 * scale;
+      const top = targetBottom - y1 * scale;
+
+      setLayout({ left, top, scale });
+    } catch {
+      // Uzak görsel CORS nedeniyle okunamazsa güvenli object-contain fallback'i kalır.
+      setLayout(DEFAULT_NORMALIZED_IMAGE_LAYOUT);
+    }
+  };
+
+  return (
+    <div
+      className="absolute"
+      style={{
+        left: `${layout.left * 100}%`,
+        top: `${layout.top * 100}%`,
+        width: `${layout.scale * 100}%`,
+        height: `${layout.scale * 100}%`,
+      }}
+    >
+      <Image
+        src={src}
+        alt={alt}
+        fill
+        sizes="(max-width: 768px) 100vw, 33vw"
+        className="select-none object-fill"
+        onLoad={(event) => analyzeImage(event.currentTarget)}
+        onError={onError}
+      />
+    </div>
+  );
+}
+
 export default function ProductCard({
   sku,
+  productId,
   name,
   price,
   originalPrice,
@@ -197,6 +346,7 @@ export default function ProductCard({
   image,
   images,
   coverRatio = "16/10",
+  normalizeTransparentImage = false,
   compact = false,
   category,
   outOfStock = false,
@@ -214,10 +364,29 @@ export default function ProductCard({
   const [useNativeImg, setUseNativeImg] = useState(false);
   const [showLegend, setShowLegend] = useState(false);
   const [portalReady, setPortalReady] = useState(false);
+  const cardRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     setPortalReady(true);
   }, []);
+
+  useEffect(() => {
+    const target = new URLSearchParams(window.location.search).get("product");
+    if (!target) return;
+
+    const normalizedTarget = target.trim().toLowerCase();
+    const matches = [productId, sku]
+      .filter(Boolean)
+      .some((value) => String(value).trim().toLowerCase() === normalizedTarget);
+    if (!matches) return;
+
+    const timer = window.setTimeout(() => {
+      cardRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      if (!outOfStock) setOpen(true);
+    }, 250);
+
+    return () => window.clearTimeout(timer);
+  }, [outOfStock, productId, sku]);
 
   /*
    * Modal açıkken arka sayfayı sabit tutar. Özellikle iPhone Safari/PWA'da
@@ -383,8 +552,29 @@ export default function ProductCard({
     .filter(Boolean)
     .slice(0, 3);
 
-  const CoverSingle = ({ src }: { src: string }) =>
-    useNativeImg ? (
+  const CoverSingle = ({ src }: { src: string }) => {
+    if (normalizeTransparentImage) {
+      if (useNativeImg) {
+        return (
+          <img
+            src={src}
+            alt={name}
+            loading="lazy"
+            className="absolute inset-0 h-full w-full object-contain"
+          />
+        );
+      }
+
+      return (
+        <NormalizedTransparentImage
+          src={src}
+          alt={name}
+          onError={() => setUseNativeImg(true)}
+        />
+      );
+    }
+
+    return useNativeImg ? (
       <img src={src} alt={name} loading="lazy" className="absolute inset-0 h-full w-full object-cover" />
     ) : (
       <Image
@@ -396,6 +586,7 @@ export default function ProductCard({
         onError={() => setUseNativeImg(true)}
       />
     );
+  };
 
   const CoverCollage = () => {
     if (imgs.length === 2) {
@@ -430,12 +621,18 @@ export default function ProductCard({
     topSellerRank === 1 ? "" : topSellerRank === 2 ? "" : topSellerRank === 3 ? "" : "";
 
   return (
-    <article className={`card product-card ${compact ? "p-3" : "p-4"} h-full flex flex-col`} data-sku={sku}>
+    <article
+      ref={cardRef}
+      id={`product-${encodeURIComponent(String(productId || sku))}`}
+      className={`card product-card ${compact ? "p-3" : "p-4"} h-full flex flex-col`}
+      data-product-id={productId || undefined}
+      data-sku={sku}
+    >
       {/* ==== BODY ==== */}
       <div className="product-card__body flex-1 flex flex-col">
         {/* Kapak */}
         <div
-          className={`cover relative ${compact ? "mb-2" : "mb-3"} overflow-hidden rounded-xl bg-stone-800/50`}
+          className={`cover relative ${compact ? "mb-2" : "mb-3"} ${normalizeTransparentImage ? "bb-menu-product-cover" : "bg-stone-800/50"} overflow-hidden rounded-xl`}
           style={{ aspectRatio: coverRatio }}
         >
           {imgs.length === 0 ? (

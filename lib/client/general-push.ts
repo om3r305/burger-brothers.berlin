@@ -7,6 +7,8 @@ export type GeneralPushPreferences = {
   nearbyDelivery: boolean;
   plz?: string;
   street?: string;
+  lat?: number | null;
+  lng?: number | null;
   nearbyRadiusM?: number;
   nearbyCooldownDays?: number;
 };

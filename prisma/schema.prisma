@@ -607,13 +607,15 @@ model NotificationCampaign {
   tenantId String
   tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  kind     String
-  title    String
-  body     String
-  url      String?
-  imageUrl String?
-  audience Json?
-  metadata Json?
+  kind       String
+  sourceKey  String?
+  sourceHash String?
+  title      String
+  body       String
+  url        String?
+  imageUrl   String?
+  audience   Json?
+  metadata   Json?
 
   status         String   @default("draft")
   scheduledAt    DateTime?
@@ -629,9 +631,11 @@ model NotificationCampaign {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@unique([tenantId, sourceKey])
   @@index([tenantId, status])
   @@index([tenantId, createdAt])
   @@index([tenantId, scheduledAt])
+  @@index([tenantId, kind, sourceKey])
 }
 
 /** Service Worker tarafından çekilecek tekil bildirim olayı. */
@@ -659,6 +663,7 @@ model NotificationEvent {
 
   status      String   @default("queued")
   availableAt DateTime @default(now())
+  expiresAt   DateTime?
   fetchedAt   DateTime?
   clickedAt   DateTime?
 
@@ -699,3 +704,4 @@ model NotificationDelivery {
   @@index([tenantId, subscriptionId, attemptedAt])
   @@index([tenantId, campaignId])
 }
+

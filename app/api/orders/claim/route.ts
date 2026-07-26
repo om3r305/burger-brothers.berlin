@@ -1,5 +1,6 @@
 // app/api/orders/claim/route.ts
 import { NextResponse } from "next/server";
+import { runAfterResponse } from "@/lib/server/after-response";
 import { prisma, getTenantId } from "@/lib/db";
 import {
   getSessionSubject,
@@ -8,6 +9,10 @@ import {
   securityJson,
 } from "@/lib/server/request-security";
 import { sanitizeOrderForDriver } from "@/lib/server/driver-order";
+import {
+  notifyGeneralOrderStatus,
+  notifyNearbyDelivery,
+} from "@/lib/server/general-push";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -847,6 +852,7 @@ export async function POST(req: Request) {
           return {
             type: "ok",
             alreadyMine: true,
+            previousStatus: status,
             order,
           };
         }
@@ -926,6 +932,7 @@ export async function POST(req: Request) {
       return {
         type: "ok",
         alreadyMine: false,
+        previousStatus: status,
         order: updatedOrder,
       };
     });
@@ -940,6 +947,23 @@ export async function POST(req: Request) {
         Number(result.status || 409),
         visibleOrder ?? null,
       );
+    }
+
+    if (!result.alreadyMine && result.order) {
+      const orderForNotification = result.order;
+      const previousStatus = String(result.previousStatus || "");
+      runAfterResponse(async () => {
+        await notifyGeneralOrderStatus(
+          orderForNotification,
+          previousStatus,
+          "out_for_delivery",
+        ).catch((error) => {
+          console.error("[orders/claim] general push failed", error);
+        });
+        await notifyNearbyDelivery(orderForNotification).catch((error) => {
+          console.error("[orders/claim] nearby push failed", error);
+        });
+      });
     }
 
     const visibleOrder = driverSubject

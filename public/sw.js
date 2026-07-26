@@ -71,6 +71,8 @@ function isOrderType(type) {
 
 async function showGeneralEvent(event) {
   const eventId = String(event && event.id ? event.id : "");
+  const expiresAt = event && event.expiresAt ? Date.parse(String(event.expiresAt)) : NaN;
+  if (Number.isFinite(expiresAt) && expiresAt <= Date.now()) return;
   if (!eventId || (await wasSeen(eventId))) return;
   await markSeen(eventId).catch(() => undefined);
 

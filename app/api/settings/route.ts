@@ -1,5 +1,6 @@
 // app/api/settings/route.ts
 import { NextResponse } from "next/server";
+import { runAfterResponse } from "@/lib/server/after-response";
 import { prisma, getTenantId } from "@/lib/db";
 import {
   hasPersistentFallbackStore,
@@ -9,6 +10,10 @@ import {
 import { createDefaultThemeSettings } from "@/lib/themes";
 import { verifySessionToken } from "@/lib/server/session";
 import { enforceRateLimit, forbiddenResponse, hasTrustedMutationOrigin } from "@/lib/server/request-security";
+import {
+  processDueAutomaticNotifications,
+  reconcileSettingsAutomaticNotifications,
+} from "@/lib/server/automatic-notifications";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -829,6 +834,11 @@ export async function GET(req: Request) {
 
     if (cached) {
       const visible = (await hasAdminSession(req)) ? cached : publicSettingsView(cached);
+      runAfterResponse(async () => {
+        await processDueAutomaticNotifications().catch((error) => {
+          console.error("[settings:GET] scheduled notification dispatch failed", error);
+        });
+      });
       return NextResponse.json(
         {
           ...visible,
@@ -845,6 +855,11 @@ export async function GET(req: Request) {
     const tenantId = await getTenantId();
     const settings = await readSettingsMap(tenantId);
     writeSettingsMemoryCache(settings);
+    runAfterResponse(async () => {
+      await processDueAutomaticNotifications(tenantId).catch((error) => {
+        console.error("[settings:GET] scheduled notification dispatch failed", error);
+      });
+    });
     const visibleSettings = (await hasAdminSession(req)) ? settings : publicSettingsView(settings);
 
     const fallbackSaved = shouldWriteRuntimeSnapshot()
@@ -897,6 +912,7 @@ export async function POST(req: Request) {
     const payload = normalizeIncomingSettings(body);
     const replace = body?.replace === true;
     const isAdmin = await hasAdminSession(req);
+    const previousSettings = isAdmin ? await readSettingsMap(tenantId) : null;
     const isWholeAdminSave = isAdmin && isPlainObject(body?.settings);
 
     if (!isAdmin && (!(await hasTvSession(req)) || !isTvWritableSettingsPayload(payload, replace))) {
@@ -918,6 +934,18 @@ export async function POST(req: Request) {
       : await readSettingsMap(tenantId);
 
     writeSettingsMemoryCache(settings);
+
+    if (isAdmin && previousSettings) {
+      runAfterResponse(async () => {
+        await reconcileSettingsAutomaticNotifications(
+          tenantId,
+          previousSettings,
+          settings,
+        ).catch((error) => {
+          console.error("[settings] automatic notification reconcile failed", error);
+        });
+      });
+    }
 
     const fallbackSaved = shouldWriteRuntimeSnapshot()
       ? await writeSettingsFallback(snapshotSafeSettingsView(settings))
@@ -950,6 +978,7 @@ export async function PUT(req: Request) {
     const payload = normalizeIncomingSettings(body);
     const replace = body?.replace === true;
     const isAdmin = await hasAdminSession(req);
+    const previousSettings = isAdmin ? await readSettingsMap(tenantId) : null;
     const isWholeAdminSave = isAdmin && isPlainObject(body?.settings);
 
     if (!isAdmin && (!(await hasTvSession(req)) || !isTvWritableSettingsPayload(payload, replace))) {
@@ -967,6 +996,18 @@ export async function PUT(req: Request) {
       : await readSettingsMap(tenantId);
 
     writeSettingsMemoryCache(settings);
+
+    if (isAdmin && previousSettings) {
+      runAfterResponse(async () => {
+        await reconcileSettingsAutomaticNotifications(
+          tenantId,
+          previousSettings,
+          settings,
+        ).catch((error) => {
+          console.error("[settings] automatic notification reconcile failed", error);
+        });
+      });
+    }
 
     const fallbackSaved = shouldWriteRuntimeSnapshot()
       ? await writeSettingsFallback(snapshotSafeSettingsView(settings))

@@ -173,6 +173,7 @@ export type CouponRule = {
 };
 
 export type AnnItem = {
+  id?: string;
   title: string;
   text?: string;
   imageUrl?: string;
@@ -901,7 +902,8 @@ function normalizeAnnouncements(value: any) {
   return {
     enabled: bool(raw.enabled, false),
     items: Array.isArray(raw.items)
-      ? raw.items.map((item: any) => ({
+      ? raw.items.map((item: any, index: number) => ({
+          id: cleanString(item?.id, "") || `announcement-${index + 1}`,
           title: cleanString(item?.title, ""),
           text: cleanString(item?.text, ""),
           imageUrl: cleanString(item?.imageUrl, ""),

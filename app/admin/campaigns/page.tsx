@@ -94,6 +94,7 @@ const LS_CAMPAIGNS = "bb_campaigns_v1";
 const LS_SETTINGS = "bb_settings_v6";
 
 const API_CATALOG = "/api/catalog";
+const API_CAMPAIGNS = "/api/admin/campaigns";
 const API_PRODUCTS = "/api/products";
 const API_SETTINGS = "/api/settings";
 
@@ -559,7 +560,7 @@ function loadCampaignsFromLocal(): Campaign[] {
 
 async function saveCampaignsToDb(rows: Campaign[]) {
   try {
-    const res = await fetch(API_CATALOG, {
+    const res = await fetch(API_CAMPAIGNS, {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",

@@ -725,7 +725,8 @@ function normalizeForSave(raw: any) {
     ...(next.announcements || {}),
     enabled: bool(next.announcements?.enabled, false),
     items: Array.isArray(next.announcements?.items)
-      ? next.announcements.items.map((item: any) => ({
+      ? next.announcements.items.map((item: any, index: number) => ({
+          id: item?.id || `announcement-${index + 1}`,
           title: item?.title || "",
           text: item?.text || "",
           imageUrl: item?.imageUrl || "",
@@ -3554,6 +3555,7 @@ function AnnouncementsEditor({
   onChange,
 }: {
   value: Array<{
+    id?: string;
     title?: string;
     text?: string;
     imageUrl?: string;
@@ -3565,6 +3567,7 @@ function AnnouncementsEditor({
   }>;
   onChange: (
     value: Array<{
+      id?: string;
       title?: string;
       text?: string;
       imageUrl?: string;
@@ -3582,6 +3585,10 @@ function AnnouncementsEditor({
     onChange([
       ...list,
       {
+        id:
+          typeof crypto !== "undefined" && "randomUUID" in crypto
+            ? crypto.randomUUID()
+            : `announcement-${Date.now()}`,
         title: "",
         text: "",
         imageUrl: "",
@@ -3608,7 +3615,7 @@ function AnnouncementsEditor({
         <div className="text-sm opacity-70">Noch kein Banner vorhanden.</div>
       ) : (
         list.map((item, index) => (
-          <div key={index} className="rounded-md border border-stone-700/60 p-3">
+          <div key={item.id || index} className="rounded-md border border-stone-700/60 p-3">
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               <Field label="Titel">
                 <input

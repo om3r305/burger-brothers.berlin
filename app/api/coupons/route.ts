@@ -1,6 +1,7 @@
 // app/api/coupons/route.ts
 import { randomBytes, randomInt } from "node:crypto";
-import { after, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
+import { runAfterResponse } from "@/lib/server/after-response";
 import { Prisma } from "@prisma/client";
 import { prisma, getTenantId } from "@/lib/db";
 import { enforceRateLimit, forbiddenResponse, hasTrustedMutationOrigin, requireMutationRole, requireSessionRole } from "@/lib/server/request-security";
@@ -1422,7 +1423,7 @@ export async function POST(req: Request) {
       const issuedForNotification = savedIssued || result.issued;
 
       if (issuedForNotification) {
-        after(async () => {
+        runAfterResponse(async () => {
           await notifyCouponAssigned({
             tenantId,
             phone: issuedForNotification?.assignedToPhone,

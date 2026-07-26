@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { readPendingGeneralNotifications } from "@/lib/server/general-push";
+import { processDueAutomaticNotifications } from "@/lib/server/automatic-notifications";
 import { enforceRateLimit } from "@/lib/server/request-security";
 
 export const runtime = "nodejs";
@@ -9,6 +10,10 @@ export const revalidate = 0;
 export async function GET(req: Request) {
   const rate = await enforceRateLimit(req, "push:pending", 180, 10 * 60_000);
   if (rate) return rate;
+
+  await processDueAutomaticNotifications().catch((error) => {
+    console.error("[push/pending] automatic dispatch", error);
+  });
 
   const events = await readPendingGeneralNotifications(req).catch((error) => {
     console.error("[push/pending]", error);
