@@ -1,13 +1,11 @@
 import { NextResponse } from "next/server";
-import {
-  getSchnellSettings,
-  verifyAccessToken,
-} from "@/lib/server/schnellbestellung";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-function manifestResponse(startUrl: string) {
+const START_URL = "/schnellbestellung/enter?homescreen=1";
+
+export async function GET() {
   return NextResponse.json(
     {
       id: "/schnellbestellung/?app=schnellbestellung",
@@ -15,7 +13,7 @@ function manifestResponse(startUrl: string) {
       short_name: "Burger Brothers",
       description:
         "Direkt im Restaurant bestellen und eine Fertig-Benachrichtigung erhalten.",
-      start_url: startUrl,
+      start_url: START_URL,
       scope: "/schnellbestellung/",
       display: "standalone",
       display_override: ["standalone", "minimal-ui"],
@@ -41,7 +39,7 @@ function manifestResponse(startUrl: string) {
         {
           name: "Schnellbestellung öffnen",
           short_name: "Bestellen",
-          url: startUrl,
+          url: START_URL,
           icons: [
             {
               src: "/schnell-icon-192.png?v=1",
@@ -59,18 +57,4 @@ function manifestResponse(startUrl: string) {
       },
     },
   );
-}
-
-export async function GET(req: Request) {
-  const settings = await getSchnellSettings({ includeTvPause: false });
-  const url = new URL(req.url);
-  const token = url.searchParams.get("t")?.trim() || "";
-  const validToken = token ? verifyAccessToken(token, settings) : null;
-
-  const search = new URLSearchParams({ homescreen: "1" });
-  if (settings.iosHomeScreenFlowEnabled && validToken) {
-    search.set("t", token);
-  }
-
-  return manifestResponse(`/schnellbestellung/enter?${search.toString()}`);
 }

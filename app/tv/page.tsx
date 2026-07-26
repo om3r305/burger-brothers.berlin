@@ -471,7 +471,7 @@ export default function TVPage() {
     async (order: StoredOrder, status: OrderStatus) => {
       if (isDoneLocked(order, nowMs)) {
         notify(
-          "Diese Bestellung ist abgeschlossen und nach 3 Minuten gesperrt.",
+          "Diese Bestellung ist abgeschlossen und nach 10 Minuten gesperrt.",
           "warning",
         );
         return;
@@ -547,7 +547,7 @@ export default function TVPage() {
     async (order: StoredOrder) => {
       if (isDoneLocked(order, nowMs)) {
         notify(
-          "Diese Bestellung ist abgeschlossen und nach 3 Minuten gesperrt.",
+          "Diese Bestellung ist abgeschlossen und nach 10 Minuten gesperrt.",
           "warning",
         );
         return;

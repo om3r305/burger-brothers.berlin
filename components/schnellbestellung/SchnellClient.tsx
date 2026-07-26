@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { saveSchnellActiveOrder } from "@/lib/client/schnell-active-order";
 import {
   bindSchnellPushToOrder,
   prewarmSchnellPush,
@@ -658,7 +659,10 @@ export default function SchnellClient() {
       localStorage.removeItem("bb_schnell_cart");
       localStorage.removeItem("bb_schnell_pending_order");
       setCart([]);
-      void bindSchnellPushToOrder(String(data.orderId || ""));
+      const createdOrderId = String(data.orderId || "");
+      const createdCustomerNumber = Number(data.customerNumber || 0);
+      saveSchnellActiveOrder(createdOrderId, createdCustomerNumber);
+      void bindSchnellPushToOrder(createdOrderId);
       router.push(
         `/schnellbestellung/success?number=${encodeURIComponent(
           data.customerNumber,

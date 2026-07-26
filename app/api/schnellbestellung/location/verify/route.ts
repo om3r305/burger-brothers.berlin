@@ -12,11 +12,6 @@ import {
   hasTrustedMutationOrigin,
 } from "@/lib/server/request-security";
 
-function isAppleMobileRequest(req: Request) {
-  const userAgent = String(req.headers.get("user-agent") || "");
-  return /iPhone|iPad|iPod/i.test(userAgent) || /Macintosh.*Mobile/i.test(userAgent);
-}
-
 export async function POST(req: Request) {
   if (!hasTrustedMutationOrigin(req)) {
     return forbiddenResponse("origin_not_allowed");
@@ -32,17 +27,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "unavailable" }, { status: 503 });
   }
 
+  // Every new Schnellbestellung session requires a currently valid restaurant
+  // QR. Home Screen/PWA, GPS permission and an existing old session never act
+  // as a tokenless bypass. Static and dynamic QR tokens are both verified by
+  // the same server helper.
   const accessToken = verifyAccessToken(String(body.token || ""), settings);
-  const homeScreenLocationAccess =
-    body.homeScreen === true &&
-    settings.iosHomeScreenFlowEnabled &&
-    settings.locationCheckEnabled &&
-    isAppleMobileRequest(req);
-
-  // Normal browser requests always need the signed QR token. The only tokenless
-  // exception is an enabled iOS Home Screen web app that proves physical
-  // presence with the same strict GPS radius/accuracy checks below.
-  if (!accessToken && !homeScreenLocationAccess) {
+  if (!accessToken) {
     return NextResponse.json({ ok: false, error: "invalid_qr" }, { status: 401 });
   }
 
@@ -55,12 +45,6 @@ export async function POST(req: Request) {
   }
 
   if (!settings.locationCheckEnabled) {
-    // Tokenless Home Screen access is deliberately impossible while location
-    // checks are disabled. A current signed QR token is required in this mode.
-    if (!accessToken) {
-      return NextResponse.json({ ok: false, error: "invalid_qr" }, { status: 401 });
-    }
-
     const sessionToken = createSessionToken(settings, {
       deviceId,
       locationVerified: false,
@@ -68,6 +52,7 @@ export async function POST(req: Request) {
     const response = NextResponse.json({
       ok: true,
       locationSkipped: true,
+      homeScreen: body.homeScreen === true,
       expiresIn: settings.sessionMinutes * 60,
     });
 
@@ -129,7 +114,7 @@ export async function POST(req: Request) {
   const response = NextResponse.json({
     ok: true,
     distance,
-    homeScreen: homeScreenLocationAccess,
+    homeScreen: body.homeScreen === true,
     expiresIn: settings.sessionMinutes * 60,
   });
 

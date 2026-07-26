@@ -176,6 +176,35 @@ function loadDomain() {
 
 const domain = loadDomain();
 
+assert.strictEqual(
+  domain.DONE_LOCK_AFTER_MS,
+  10 * 60 * 1000,
+  "Completed-order reopen lock must be 10 minutes",
+);
+
+const lockNow = Date.now();
+assert.strictEqual(
+  domain.isDoneLocked(
+    { status: "done", doneAt: new Date(lockNow - 9 * 60 * 1000).toISOString() },
+    lockNow,
+  ),
+  false,
+  "A completed order must remain reopenable during the first 10 minutes",
+);
+assert.strictEqual(
+  domain.isDoneLocked(
+    { status: "done", doneAt: new Date(lockNow - 11 * 60 * 1000).toISOString() },
+    lockNow,
+  ),
+  true,
+  "A completed order must lock after 10 minutes",
+);
+assert.strictEqual(
+  domain.isDoneLocked({ status: "done" }, lockNow),
+  true,
+  "Legacy completed orders without a timestamp must stay locked",
+);
+
 const normalized = domain.normalizeOrders({
   orders: [
     {

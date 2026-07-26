@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { clearSchnellActiveOrder } from "@/lib/client/schnell-active-order";
 import {
   bindSchnellPushToOrder,
   prewarmSchnellPush,
@@ -60,11 +61,40 @@ function playReadyMediaRound(media: HTMLAudioElement) {
   }
 }
 
-function playReadyAlert() {
+function stopReadyAlert(timeoutIds: Set<number>) {
+  timeoutIds.forEach((timeoutId) => window.clearTimeout(timeoutId));
+  timeoutIds.clear();
+
+  try {
+    const audioWindow = window as AudioWindow;
+    const media = audioWindow.__bbSchnellReadyMedia;
+    if (media) {
+      media.pause();
+      media.currentTime = 0;
+    }
+    void audioWindow.__bbSchnellReadyAudioContext?.suspend().catch(() => undefined);
+  } catch {
+    // Audio cleanup is best-effort.
+  }
+
+  try {
+    navigator.vibrate?.(0);
+  } catch {
+    // Vibration is not available on every browser.
+  }
+}
+
+function playReadyAlert(timeoutIds: Set<number>) {
+  stopReadyAlert(timeoutIds);
+
   try {
     const media = getReadyMediaElement();
     [0, 1600, 3200, 4800, 6400, 8000].forEach((delay) => {
-      window.setTimeout(() => playReadyMediaRound(media), delay);
+      const timeoutId = window.setTimeout(() => {
+        timeoutIds.delete(timeoutId);
+        playReadyMediaRound(media);
+      }, delay);
+      timeoutIds.add(timeoutId);
     });
   } catch {
     // Web Audio fallback below still runs.
@@ -140,14 +170,17 @@ export default function SuccessPage() {
   const searchParams = useSearchParams();
   const orderId = searchParams.get("order")?.trim() || "";
   const initialNumber = searchParams.get("number") || "–";
+
   const [customerNumber, setCustomerNumber] = useState(initialNumber);
   const [status, setStatus] = useState<OrderStatus>("new");
-  const [closing, setClosing] = useState(false);
-  const [closeHint, setCloseHint] = useState(false);
+  const [ended, setEnded] = useState(false);
   const [statusError, setStatusError] = useState(false);
+
+  const endedRef = useRef(false);
   const lastReadyEventRef = useRef("");
   const legacyReadyActiveRef = useRef(false);
   const wakeLockRef = useRef<WakeLockSentinelLike | null>(null);
+  const readyTimeoutIdsRef = useRef(new Set<number>());
 
   useEffect(() => {
     prewarmSchnellPush();
@@ -158,6 +191,8 @@ export default function SuccessPage() {
     if (!("serviceWorker" in navigator)) return;
 
     const onMessage = (messageEvent: MessageEvent) => {
+      if (endedRef.current) return;
+
       const message = messageEvent.data as
         | { type?: string; event?: { id?: string; customerNumber?: number } }
         | undefined;
@@ -170,7 +205,7 @@ export default function SuccessPage() {
         setCustomerNumber(String(message.event?.customerNumber));
       }
       setStatus("ready");
-      playReadyAlert();
+      playReadyAlert(readyTimeoutIdsRef.current);
     };
 
     navigator.serviceWorker.addEventListener("message", onMessage);
@@ -180,7 +215,11 @@ export default function SuccessPage() {
   const requestWakeLock = useCallback(async () => {
     try {
       const navigatorWithWakeLock = navigator as NavigatorWithWakeLock;
-      if (!navigatorWithWakeLock.wakeLock || document.visibilityState !== "visible") {
+      if (
+        endedRef.current ||
+        !navigatorWithWakeLock.wakeLock ||
+        document.visibilityState !== "visible"
+      ) {
         return;
       }
       wakeLockRef.current = await navigatorWithWakeLock.wakeLock.request("screen");
@@ -189,27 +228,42 @@ export default function SuccessPage() {
     }
   }, []);
 
+  const releaseWakeLock = useCallback(async () => {
+    const sentinel = wakeLockRef.current;
+    wakeLockRef.current = null;
+    try {
+      await sentinel?.release();
+    } catch {
+      // Wake Lock may already have been released by the browser.
+    }
+  }, []);
+
   useEffect(() => {
     void requestWakeLock();
 
     const onVisibility = () => {
-      if (document.visibilityState === "visible") void requestWakeLock();
+      if (document.visibilityState === "visible" && !endedRef.current) {
+        void requestWakeLock();
+      }
     };
     document.addEventListener("visibilitychange", onVisibility);
 
     return () => {
       document.removeEventListener("visibilitychange", onVisibility);
-      void wakeLockRef.current?.release().catch(() => undefined);
+      stopReadyAlert(readyTimeoutIdsRef.current);
+      void releaseWakeLock();
     };
-  }, [requestWakeLock]);
+  }, [releaseWakeLock, requestWakeLock]);
 
   useEffect(() => {
-    if (!orderId) return;
+    if (!orderId || ended) return;
 
     let cancelled = false;
     let timer: number | null = null;
 
     const poll = async () => {
+      if (endedRef.current) return;
+
       try {
         const response = await fetch(
           `/api/schnellbestellung/status?order=${encodeURIComponent(orderId)}`,
@@ -217,7 +271,7 @@ export default function SuccessPage() {
         );
         const data = (await response.json().catch(() => ({}))) as StatusResponse;
 
-        if (cancelled) return;
+        if (cancelled || endedRef.current) return;
 
         if (response.ok && data.ok && data.status) {
           setStatus(data.status);
@@ -233,12 +287,12 @@ export default function SuccessPage() {
               if (readyEventId) {
                 if (lastReadyEventRef.current !== readyEventId) {
                   lastReadyEventRef.current = readyEventId;
-                  playReadyAlert();
+                  playReadyAlert(readyTimeoutIdsRef.current);
                 }
               } else if (!legacyReadyActiveRef.current) {
                 // Eski siparişlerde readyEventId yoksa status geçişini kullan.
                 legacyReadyActiveRef.current = true;
-                playReadyAlert();
+                playReadyAlert(readyTimeoutIdsRef.current);
               }
             }
           } else {
@@ -248,9 +302,9 @@ export default function SuccessPage() {
           setStatusError(true);
         }
       } catch {
-        if (!cancelled) setStatusError(true);
+        if (!cancelled && !endedRef.current) setStatusError(true);
       } finally {
-        if (!cancelled && status !== "done" && status !== "cancelled") {
+        if (!cancelled && !endedRef.current) {
           timer = window.setTimeout(poll, 2500);
         }
       }
@@ -262,31 +316,67 @@ export default function SuccessPage() {
       cancelled = true;
       if (timer !== null) window.clearTimeout(timer);
     };
-  }, [orderId, status]);
+  }, [ended, orderId]);
 
-  function finish() {
-    setClosing(true);
-    setCloseHint(false);
+  const finish = useCallback(() => {
+    endedRef.current = true;
+    setEnded(true);
+    setStatusError(false);
+    clearSchnellActiveOrder(orderId);
 
     try {
-      window.close();
+      window.localStorage.removeItem("bb_schnell_pending_order");
+      window.localStorage.removeItem("bb_schnell_cart");
     } catch {
-      // Safari normally blocks closing a camera-opened tab.
+      // The order marker was already cleared when storage is unavailable.
     }
 
-    window.setTimeout(() => {
-      setClosing(false);
-      setCloseHint(true);
-    }, 450);
+    stopReadyAlert(readyTimeoutIdsRef.current);
+    void releaseWakeLock();
+  }, [orderId, releaseWakeLock]);
+
+  if (ended) {
+    return (
+      <main className="grid min-h-dvh place-items-center bg-stone-950 p-6 text-white">
+        <section className="w-full max-w-lg text-center">
+          <div className="mx-auto grid h-24 w-24 place-items-center rounded-full border border-emerald-300/30 bg-emerald-400/10 text-5xl text-emerald-300">
+            ✓
+          </div>
+          <h1 className="mt-7 text-3xl font-black text-emerald-300 sm:text-4xl">
+            Bestellung abgeschlossen
+          </h1>
+          <p className="mx-auto mt-4 max-w-sm text-lg leading-7 text-stone-300">
+            Sie können Burger Brothers jetzt schließen.
+          </p>
+
+          <div className="mx-auto mt-10 w-full max-w-sm rounded-3xl border border-white/10 bg-white/5 p-6">
+            <div className="animate-bounce text-5xl text-amber-300">↑</div>
+            <p className="mt-3 font-bold text-white">
+              Vom unteren Bildschirmrand nach oben wischen
+            </p>
+            <p className="mt-2 text-sm leading-6 text-stone-400">
+              Beim nächsten Besuch öffnen Sie Burger Brothers und scannen den
+              QR-Code im Restaurant direkt in der App.
+            </p>
+          </div>
+        </section>
+      </main>
+    );
   }
 
   const ready = status === "ready";
+  const done = status === "done";
   const cancelled = status === "cancelled";
+  const terminal = ready || done || cancelled;
 
   return (
     <main
       className={`grid min-h-dvh place-items-center p-6 text-white transition-colors duration-500 ${
-        ready ? "bg-emerald-950" : cancelled ? "bg-red-950" : "bg-stone-950"
+        ready || done
+          ? "bg-emerald-950"
+          : cancelled
+            ? "bg-red-950"
+            : "bg-stone-950"
       }`}
     >
       <section className="w-full max-w-lg text-center">
@@ -294,16 +384,20 @@ export default function SuccessPage() {
           className={`text-2xl font-black sm:text-3xl ${
             ready
               ? "animate-pulse text-emerald-300"
-              : cancelled
-                ? "text-red-300"
-                : "text-emerald-400"
+              : done
+                ? "text-emerald-300"
+                : cancelled
+                  ? "text-red-300"
+                  : "text-emerald-400"
           }`}
         >
           {ready
             ? "Ihre Bestellung ist fertig!"
-            : cancelled
-              ? "Bestellung storniert"
-              : "Bestellung aufgenommen"}
+            : done
+              ? "Bestellung ausgegeben"
+              : cancelled
+                ? "Bestellung storniert"
+                : "Bestellung aufgenommen"}
         </p>
 
         <p className="mt-8 text-xl text-stone-300">Ihre Nummer</p>
@@ -314,12 +408,14 @@ export default function SuccessPage() {
         <p className="mx-auto max-w-sm text-xl text-stone-300">
           {ready
             ? "Bitte holen Sie Ihre Bestellung ab."
-            : cancelled
-              ? "Bitte wenden Sie sich an unser Personal."
-              : "Bitte lassen Sie diese Seite geöffnet. Wir melden uns, sobald Ihre Bestellung fertig ist."}
+            : done
+              ? "Ihre Bestellung wurde ausgegeben. Vielen Dank!"
+              : cancelled
+                ? "Bitte wenden Sie sich an unser Personal."
+                : "Bitte lassen Sie diese Seite geöffnet. Wir melden uns, sobald Ihre Bestellung fertig ist."}
         </p>
 
-        {!ready && !cancelled ? (
+        {!terminal ? (
           <div className="mx-auto mt-7 flex w-fit items-center gap-3 rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm text-stone-300">
             <span className="h-3 w-3 animate-pulse rounded-full bg-emerald-400" />
             {status === "preparing" ? "In Vorbereitung" : "Wird angenommen"}
@@ -336,19 +432,14 @@ export default function SuccessPage() {
           </p>
         ) : null}
 
-        <button
-          type="button"
-          onClick={finish}
-          disabled={closing}
-          className="mt-10 w-full rounded-2xl bg-amber-400 px-5 py-4 text-lg font-black text-black disabled:opacity-60"
-        >
-          {closing ? "Wird geschlossen …" : "Seite schließen"}
-        </button>
-
-        {closeHint ? (
-          <p className="mt-4 rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-stone-300">
-            Safari konnte den Tab nicht automatisch schließen. Sie können diese Seite jetzt schließen.
-          </p>
+        {terminal ? (
+          <button
+            type="button"
+            onClick={finish}
+            className="mt-10 w-full rounded-2xl bg-amber-400 px-5 py-4 text-lg font-black text-black"
+          >
+            Bestellung beenden
+          </button>
         ) : null}
       </section>
     </main>

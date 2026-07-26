@@ -30,7 +30,7 @@ export const BRIAN_FORCE: "on" | "off" | undefined = undefined;
 export const TV_CLOCK_KEY = "bb_tv_order_clock_v4";
 export const TV_FIRST_SEEN_KEY = "bb_tv_order_first_seen_v1";
 export const UNKNOWN_ORDER_GRACE_MS = 6 * 60 * 60 * 1000;
-export const DONE_LOCK_AFTER_MS = 3 * 60 * 1000;
+export const DONE_LOCK_AFTER_MS = 10 * 60 * 1000;
 
 export const TV_SOUND_ENABLED_KEY = "bb_tv_sound_enabled_v1";
 export const TV_SOUND_VOLUME_KEY = "bb_tv_sound_volume_v1";
@@ -560,7 +560,9 @@ export function isDoneLocked(order: Partial<StoredOrder>, nowMs = Date.now()) {
   if (normalizeStatus(order?.status) !== "done") return false;
 
   const doneAt = getDoneAtMs(order);
-  if (doneAt == null) return false;
+  // Legacy completed orders without a reliable completion timestamp are
+  // treated as old and therefore locked.
+  if (doneAt == null) return true;
 
   return nowMs - doneAt >= DONE_LOCK_AFTER_MS;
 }
@@ -568,12 +570,12 @@ export function isDoneLocked(order: Partial<StoredOrder>, nowMs = Date.now()) {
 export function doneLockTitle(order: Partial<StoredOrder>, nowMs = Date.now()) {
   if (normalizeStatus(order?.status) !== "done") return undefined;
   if (isDoneLocked(order, nowMs)) {
-    return "Diese Bestellung ist abgeschlossen und nach 3 Minuten gesperrt.";
+    return "Diese Bestellung ist abgeschlossen und nach 10 Minuten gesperrt.";
   }
 
-  const seconds = Math.ceil(doneLockRemainingMs(order, nowMs) / 1000);
-  return seconds > 0
-    ? `Änderungen noch ca. ${seconds} Sek. möglich. Danach gesperrt.`
+  const minutes = Math.ceil(doneLockRemainingMs(order, nowMs) / 60_000);
+  return minutes > 0
+    ? `Änderungen noch ca. ${minutes} Min. möglich. Danach gesperrt.`
     : undefined;
 }
 
@@ -1187,7 +1189,9 @@ export async function persistStatusToDb(
   const primaryData = await primary.json().catch(() => ({}));
 
   if (!primary.ok || primaryData?.ok === false) {
-    throw new Error(primaryData?.error || `HTTP ${primary.status}`);
+    throw new Error(
+      primaryData?.message || primaryData?.error || `HTTP ${primary.status}`,
+    );
   }
 
   return primaryData;

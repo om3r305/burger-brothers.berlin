@@ -10,18 +10,9 @@ function firstValue(value: SearchValue) {
   return Array.isArray(value) ? value[0] || "" : value || "";
 }
 
-export async function generateMetadata({
-  searchParams,
-}: EnterPageProps): Promise<Metadata> {
-  const params = await searchParams;
-  const token = firstValue(params.t).trim();
-
-  return {
-    manifest: token
-      ? `/api/schnellbestellung/manifest?t=${encodeURIComponent(token)}&v=1`
-      : "/manifest-schnellbestellung.webmanifest?v=1",
-  };
-}
+export const metadata: Metadata = {
+  manifest: "/api/schnellbestellung/manifest?v=2",
+};
 
 export default async function EnterPage({ searchParams }: EnterPageProps) {
   const params = await searchParams;

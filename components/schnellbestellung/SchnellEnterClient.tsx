@@ -2,6 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import SchnellQrScanner from "@/components/schnellbestellung/SchnellQrScanner";
+import {
+  clearSchnellActiveOrder,
+  readSchnellActiveOrder,
+} from "@/lib/client/schnell-active-order";
 import {
   activateSchnellPushFromGesture,
   prewarmSchnellPush,
@@ -20,8 +25,7 @@ type ProblemKind =
   | "server"
   | null;
 
-type EnterScreen = "status" | "choice" | "install" | "push";
-type RetryMode = "qr" | "homescreen" | null;
+type EnterScreen = "status" | "choice" | "install" | "scanner" | "push";
 type SessionRequestResult =
   | "done"
   | "location_required"
@@ -46,6 +50,17 @@ type SessionResponse = {
   locationCheckEnabled?: boolean;
   iosHomeScreenFlowEnabled?: boolean;
   backgroundReadyPushEnabled?: boolean;
+};
+
+type ActiveStatusResponse = {
+  ok?: boolean;
+  status?: string;
+  customerNumber?: number;
+};
+
+type StartOptions = {
+  homeScreen?: boolean;
+  navigate?: boolean;
 };
 
 const TARGET_ACCURACY_METERS = 75;
@@ -201,10 +216,8 @@ function writeInstallMarker() {
   }
 }
 
-function installManifestForToken(token: string) {
-  const href = token
-    ? `/api/schnellbestellung/manifest?t=${encodeURIComponent(token)}&v=1`
-    : "/manifest-schnellbestellung.webmanifest?v=1";
+function installSchnellManifest() {
+  const href = "/api/schnellbestellung/manifest?v=2";
   const links = Array.from(
     document.querySelectorAll<HTMLLinkElement>('link[rel="manifest"]'),
   );
@@ -233,19 +246,56 @@ async function loadSessionInfo() {
   }
 }
 
+async function resumeActiveOrder(router: ReturnType<typeof useRouter>) {
+  const active = readSchnellActiveOrder();
+  if (!active) return false;
+
+  try {
+    const response = await fetch(
+      `/api/schnellbestellung/status?order=${encodeURIComponent(active.orderId)}`,
+      { credentials: "same-origin", cache: "no-store" },
+    );
+    const data = (await response.json().catch(() => ({}))) as ActiveStatusResponse;
+
+    if (response.ok && data.ok) {
+      const number = Math.max(
+        0,
+        Math.trunc(Number(data.customerNumber) || active.customerNumber || 0),
+      );
+      router.replace(
+        `/schnellbestellung/success?number=${encodeURIComponent(number || "–")}&order=${encodeURIComponent(active.orderId)}`,
+      );
+      return true;
+    }
+
+    if ([401, 403, 404].includes(response.status)) {
+      clearSchnellActiveOrder(active.orderId);
+    }
+  } catch {
+    // A temporary network failure must not block the QR scanner forever.
+  }
+
+  return false;
+}
+
 export default function SchnellEnterClient({ token }: { token: string }) {
   const router = useRouter();
 
   const startedRef = useRef(false);
   const busyRef = useRef(false);
+  const retryTokenRef = useRef("");
+  const retryOptionsRef = useRef<StartOptions>({});
+
   const [busy, setBusy] = useState(true);
-  const [message, setMessage] = useState("Menü wird geöffnet …");
+  const [message, setMessage] = useState("Schnellbestellung wird vorbereitet …");
   const [problem, setProblem] = useState<ProblemKind>(null);
   const [screen, setScreen] = useState<EnterScreen>("status");
-  const [retryMode, setRetryMode] = useState<RetryMode>(null);
+  const [canRetry, setCanRetry] = useState(false);
   const [appleMobile, setAppleMobile] = useState(false);
   const [standalone, setStandalone] = useState(false);
   const [installedHint, setInstalledHint] = useState(false);
+  const [scannerError, setScannerError] = useState("");
+  const [backgroundPushEnabled, setBackgroundPushEnabled] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
   const [pushResult, setPushResult] =
     useState<SchnellPushActivationResult | null>(null);
@@ -257,8 +307,9 @@ export default function SchnellEnterClient({ token }: { token: string }) {
 
   const requestSession = useCallback(
     async (
+      accessToken: string,
       location?: GeolocationPosition,
-      options: { homeScreen?: boolean; navigate?: boolean } = {},
+      options: StartOptions = {},
     ) => {
       const controller = new AbortController();
       const timeoutId = window.setTimeout(() => controller.abort(), 15_000);
@@ -271,7 +322,7 @@ export default function SchnellEnterClient({ token }: { token: string }) {
           cache: "no-store",
           signal: controller.signal,
           body: JSON.stringify({
-            token,
+            token: accessToken,
             deviceId: getDeviceId(),
             homeScreen: options.homeScreen === true,
             ...(location
@@ -310,9 +361,7 @@ export default function SchnellEnterClient({ token }: { token: string }) {
           setMessage("Schnellbestellungen sind nur direkt im Restaurant möglich.");
         } else if (data.error === "invalid_qr") {
           setMessage(
-            options.homeScreen
-              ? "Bitte scannen Sie den aktuellen QR-Code im Restaurant erneut."
-              : "Der QR-Code ist ungültig. Bitte scannen Sie den aktuellen QR-Code erneut.",
+            "Der QR-Code ist ungültig oder abgelaufen. Bitte scannen Sie den aktuellen QR-Code im Restaurant.",
           );
           return "invalid_qr" as const;
         } else if (data.error === "unavailable") {
@@ -335,34 +384,41 @@ export default function SchnellEnterClient({ token }: { token: string }) {
         window.clearTimeout(timeoutId);
       }
     },
-    [router, setBusyState, token],
+    [router, setBusyState],
   );
 
   const start = useCallback(
-    async (options: { homeScreen?: boolean; navigate?: boolean } = {}) => {
+    async (accessToken: string, options: StartOptions = {}) => {
+      const cleanToken = String(accessToken || "").trim();
       if (busyRef.current) return "failed" as const;
-      if (!token && options.homeScreen !== true) {
+
+      if (!cleanToken) {
         setBusyState(false);
         setProblem("server");
-        setRetryMode(null);
+        setCanRetry(false);
         setMessage(
-          "Ungültiger QR-Code. Bitte scannen Sie den aktuellen QR-Code erneut.",
+          "Ungültiger QR-Code. Bitte scannen Sie den aktuellen QR-Code im Restaurant.",
         );
         return "invalid_qr" as const;
       }
 
+      retryTokenRef.current = cleanToken;
+      retryOptionsRef.current = options;
       setScreen("status");
       setBusyState(true);
       setProblem(null);
-      setRetryMode(options.homeScreen ? "homescreen" : "qr");
-      setMessage("Menü wird geöffnet …");
+      setCanRetry(false);
+      setMessage("QR-Code wird geprüft …");
 
-      const directResult = await requestSession(undefined, options);
+      const directResult = await requestSession(cleanToken, undefined, options);
       if (directResult === "done") {
         if (options.navigate === false) setBusyState(false);
         return directResult;
       }
-      if (directResult !== "location_required") return directResult;
+      if (directResult !== "location_required") {
+        setCanRetry(directResult !== "invalid_qr");
+        return directResult;
+      }
 
       setMessage("Standort wird geprüft …");
 
@@ -370,18 +426,21 @@ export default function SchnellEnterClient({ token }: { token: string }) {
         setBusyState(false);
         setProblem("insecure_context");
         setMessage("Der Standortzugriff ist nur über HTTPS möglich.");
+        setCanRetry(false);
         return "failed" as const;
       }
       if (!("geolocation" in navigator)) {
         setBusyState(false);
         setProblem("unsupported");
         setMessage("Dieser Browser unterstützt keine Standortbestimmung.");
+        setCanRetry(false);
         return "failed" as const;
       }
       if (!geolocationAllowedByDocumentPolicy()) {
         setBusyState(false);
         setProblem("policy_blocked");
         setMessage("Der Browser blockiert den Standortzugriff auf dieser Seite.");
+        setCanRetry(false);
         return "failed" as const;
       }
 
@@ -389,24 +448,27 @@ export default function SchnellEnterClient({ token }: { token: string }) {
       if (permission === "denied") {
         setBusyState(false);
         setProblem("permission_denied");
-        setMessage("Der Standortzugriff ist für diese Website blockiert.");
+        setMessage("Der Standortzugriff ist für Burger Brothers blockiert.");
+        setCanRetry(true);
         return "failed" as const;
       }
 
       try {
         const position = await getBestPosition();
         setMessage("Menü wird geöffnet …");
-        const result = await requestSession(position, options);
+        const result = await requestSession(cleanToken, position, options);
         if (result === "done" && options.navigate === false) {
           setBusyState(false);
         }
+        if (result !== "done") setCanRetry(result !== "invalid_qr");
         return result;
       } catch (error) {
         const failure = error as GeoFailure;
         setBusyState(false);
+        setCanRetry(true);
         if (failure.code === 1) {
           setProblem("permission_denied");
-          setMessage("Der Standortzugriff ist für diese Website blockiert.");
+          setMessage("Der Standortzugriff ist für Burger Brothers blockiert.");
         } else if (failure.code === 3) {
           setProblem("timeout");
           setMessage(
@@ -419,12 +481,12 @@ export default function SchnellEnterClient({ token }: { token: string }) {
         return "failed" as const;
       }
     },
-    [requestSession, setBusyState, token],
+    [requestSession, setBusyState],
   );
 
   const showStandalonePushStep = useCallback(
-    (backgroundPushEnabled: boolean | undefined) => {
-      if (!backgroundPushEnabled) {
+    (pushEnabled: boolean | undefined) => {
+      if (!pushEnabled) {
         router.replace("/schnellbestellung");
         return;
       }
@@ -440,13 +502,36 @@ export default function SchnellEnterClient({ token }: { token: string }) {
       }
 
       setProblem(null);
-      setRetryMode(null);
+      setCanRetry(false);
       setMessage("");
       setBusyState(false);
       setScreen("push");
     },
     [router, setBusyState],
   );
+
+  const handleScannedToken = useCallback(
+    async (scannedToken: string) => {
+      setScannerError("");
+      busyRef.current = false;
+      const result = await start(scannedToken, {
+        homeScreen: true,
+        navigate: false,
+      });
+
+      if (result === "done") {
+        showStandalonePushStep(backgroundPushEnabled);
+        return;
+      }
+
+      if (result === "invalid_qr") {
+        setScannerError(
+          "Der QR-Code ist ungültig oder abgelaufen. Bitte scannen Sie den aktuellen QR-Code im Restaurant.",
+        );
+        setScreen("scanner");
+        setBusyState(false);
+      }
+    }, [backgroundPushEnabled, setBusyState, showStandalonePushStep, start]);
 
   useEffect(() => {
     if (startedRef.current) return;
@@ -463,54 +548,32 @@ export default function SchnellEnterClient({ token }: { token: string }) {
       setAppleMobile(isApple);
       setStandalone(isStandalone);
       setInstalledHint(marker);
-      installManifestForToken(token);
+      installSchnellManifest();
 
       const session = await loadSessionInfo();
       if (cancelled) return;
 
-      // Home Screen mode is a separate iOS web-app context. Reuse a valid
-      // session, otherwise re-prove restaurant presence by GPS. When GPS is
-      // disabled, the signed QR token embedded in the dynamic manifest remains
-      // mandatory.
-      if (isApple && isStandalone) {
+      const pushEnabled = session?.backgroundReadyPushEnabled === true;
+      setBackgroundPushEnabled(pushEnabled);
+
+      // The installed Home Screen app never starts a new order from GPS alone.
+      // A current static/dynamic restaurant QR is mandatory for every new order.
+      if (isStandalone) {
         prewarmSchnellPush();
 
-        if (session?.ok && !session.recheckRequired) {
-          showStandalonePushStep(session.backgroundReadyPushEnabled);
-          return;
-        }
+        if (session?.ok && (await resumeActiveOrder(router))) return;
+        if (cancelled) return;
 
-        busyRef.current = false;
-        if (
-          session?.iosHomeScreenFlowEnabled &&
-          session.locationCheckEnabled
-        ) {
-          const result = await start({ homeScreen: true, navigate: false });
-          if (result === "done") {
-            showStandalonePushStep(session.backgroundReadyPushEnabled);
-          }
-          return;
-        }
-
-        if (token) {
-          const result = await start({ navigate: false });
-          if (result === "done") {
-            showStandalonePushStep(session?.backgroundReadyPushEnabled);
-          }
-          return;
-        }
-
+        setScannerError("");
+        setProblem(null);
+        setMessage("");
         setBusyState(false);
-        setProblem("server");
-        setRetryMode(null);
-        setMessage(
-          "Bitte scannen Sie den QR-Code im Restaurant erneut. Öffnen Sie danach Burger Brothers über das Symbol auf Ihrem Home-Bildschirm.",
-        );
+        setScreen("scanner");
         return;
       }
 
-      // Only iPhone/iPad receives the optional setup choice. Android and every
-      // other browser keep the original automatic QR flow unchanged.
+      // iPhone/iPad browser gets the optional Home Screen setup guide. Android
+      // and other browsers keep the direct QR flow.
       if (isApple && session?.iosHomeScreenFlowEnabled) {
         if (!token) {
           setBusyState(false);
@@ -524,32 +587,32 @@ export default function SchnellEnterClient({ token }: { token: string }) {
         setScreen("choice");
         setBusyState(false);
         setProblem(null);
-        setRetryMode(null);
+        setCanRetry(false);
         setMessage("");
         return;
       }
 
       busyRef.current = false;
-      await start({ navigate: true });
+      await start(token, { navigate: true });
     };
 
     void initialize();
     return () => {
       cancelled = true;
     };
-  }, [router, setBusyState, showStandalonePushStep, start, token]);
+  }, [router, setBusyState, start, token]);
 
   const prepareIosInstall = useCallback(async () => {
     if (!token || busyRef.current) return;
 
-    installManifestForToken(token);
-    const result = await start({ navigate: false });
+    installSchnellManifest();
+    const result = await start(token, { navigate: false });
     if (result !== "done") return;
 
     writeInstallMarker();
     setInstalledHint(true);
     setProblem(null);
-    setRetryMode(null);
+    setCanRetry(false);
     setMessage("");
     setScreen("install");
     setBusyState(false);
@@ -573,20 +636,36 @@ export default function SchnellEnterClient({ token }: { token: string }) {
   }, [pushBusy, router]);
 
   const retry = useCallback(() => {
-    if (retryMode === "homescreen") {
-      void start({ homeScreen: true, navigate: true });
-      return;
-    }
-    if (retryMode === "qr") {
-      void start({ navigate: true });
-    }
-  }, [retryMode, start]);
+    const retryToken = retryTokenRef.current;
+    if (!retryToken) return;
+    busyRef.current = false;
+    void start(retryToken, retryOptionsRef.current);
+  }, [start]);
+
+  const backToScanner = useCallback(() => {
+    setProblem(null);
+    setCanRetry(false);
+    setMessage("");
+    setScannerError("");
+    setBusyState(false);
+    setScreen("scanner");
+  }, [setBusyState]);
 
   const showInstructions =
     problem === "permission_denied" ||
     problem === "position_unavailable" ||
     problem === "timeout" ||
     problem === "accuracy_low";
+
+  if (screen === "scanner") {
+    return (
+      <SchnellQrScanner
+        busy={busy}
+        errorMessage={scannerError}
+        onToken={handleScannedToken}
+      />
+    );
+  }
 
   if (screen === "push") {
     const pushMessage = pushResult
@@ -687,15 +766,15 @@ export default function SchnellEnterClient({ token }: { token: string }) {
           {installedHint ? (
             <div className="mt-6 rounded-2xl border border-emerald-400/30 bg-emerald-400/10 p-4 text-sm leading-6 text-emerald-100">
               <strong className="block">Burger Brothers bereits eingerichtet?</strong>
-              Schließen Sie den Browser und öffnen Sie das Burger-Brothers-Symbol
-              auf Ihrem Home-Bildschirm. Die aktuelle QR-Berechtigung wird beim
-              Öffnen geprüft.
+              Schließen Sie Safari, öffnen Sie Burger Brothers auf dem
+              Home-Bildschirm und scannen Sie den Restaurant-QR direkt in der
+              App.
             </div>
           ) : null}
 
           <button
             type="button"
-            onClick={() => void start({ navigate: true })}
+            onClick={() => void start(token, { navigate: true })}
             className="mt-6 w-full rounded-2xl bg-amber-400 px-5 py-4 text-left text-black shadow-lg shadow-amber-500/10"
           >
             <span className="block text-xl font-black">Direkt bestellen</span>
@@ -727,6 +806,14 @@ export default function SchnellEnterClient({ token }: { token: string }) {
   }
 
   if (screen === "install") {
+    const steps = [
+      ["1", "Tippen Sie unten in Safari auf das Teilen-Symbol □↑."],
+      ["2", "Scrollen Sie im Menü nach unten und wählen Sie „Zum Home-Bildschirm“."],
+      ["3", "Tippen Sie oben rechts auf „Hinzufügen“."],
+      ["4", "Schließen Sie Safari und öffnen Sie Burger Brothers über das neue Symbol."],
+      ["5", "Tippen Sie dort auf „QR-Code scannen“ und scannen Sie den Restaurant-QR erneut."],
+    ];
+
     return (
       <main className="grid min-h-dvh place-items-center bg-stone-950 p-5 text-white">
         <section className="w-full max-w-md rounded-3xl border border-emerald-300/30 bg-white/5 p-6 shadow-2xl shadow-black/30">
@@ -741,18 +828,12 @@ export default function SchnellEnterClient({ token }: { token: string }) {
             </p>
             <h1 className="mt-2 text-3xl font-black">Zum Home-Bildschirm</h1>
             <p className="mt-3 text-stone-300">
-              Danach kann Burger Brothers Ihnen die Fertig-Meldung auch bei
-              gesperrtem Bildschirm anzeigen.
+              So erhalten Sie die Fertig-Meldung auch bei gesperrtem Bildschirm.
             </p>
           </div>
 
           <ol className="mt-7 space-y-3 text-left">
-            {[
-              ["1", "Tippen Sie im Browser auf das Teilen-Symbol □↑."],
-              ["2", "Wählen Sie „Zum Home-Bildschirm“ aus."],
-              ["3", "Tippen Sie oben rechts auf „Hinzufügen“."],
-              ["4", "Schließen Sie den Browser und öffnen Sie Burger Brothers auf dem Home-Bildschirm."],
-            ].map(([number, text]) => (
+            {steps.map(([number, text]) => (
               <li
                 key={number}
                 className="flex gap-3 rounded-2xl border border-white/10 bg-black/20 p-4"
@@ -768,9 +849,9 @@ export default function SchnellEnterClient({ token }: { token: string }) {
           </ol>
 
           <div className="mt-6 rounded-2xl border border-amber-300/25 bg-amber-300/10 p-4 text-sm leading-6 text-amber-100">
-            Öffnen Sie die Bestellung anschließend unbedingt über das neue
-            Burger-Brothers-Symbol. Die Benachrichtigungsfrage erscheint beim
-            Abschicken der Bestellung.
+            Wichtig: Jede neue Bestellung beginnt in der Burger-Brothers-App
+            mit dem aktuellen QR-Code im Restaurant. Danach folgen
+            Standortprüfung und Benachrichtigungsfreigabe.
           </div>
 
           <button
@@ -789,7 +870,11 @@ export default function SchnellEnterClient({ token }: { token: string }) {
     <main className="grid min-h-dvh place-items-center bg-stone-950 p-6 text-white">
       <section className="w-full max-w-md rounded-3xl border border-white/10 bg-white/5 p-7 text-center shadow-2xl shadow-black/30">
         <img
-          src={appleMobile ? "/schnell-icon-180.png?v=1" : "/logo-burger-brothers.png"}
+          src={
+            appleMobile
+              ? "/schnell-icon-180.png?v=1"
+              : "/logo-burger-brothers.png"
+          }
           className={
             appleMobile
               ? "mx-auto h-24 w-24 rounded-[24px]"
@@ -812,27 +897,29 @@ export default function SchnellEnterClient({ token }: { token: string }) {
             <p className="font-bold text-amber-200">Standort erlauben</p>
             <p className="mt-2">
               {appleMobile
-                ? "Öffnen Sie die Website-Einstellungen und stellen Sie „Standort“ auf „Fragen“ oder „Erlauben“."
+                ? "Öffnen Sie die App-/Website-Einstellungen und stellen Sie „Standort“ auf „Fragen“ oder „Erlauben“. Aktivieren Sie außerdem „Genauer Standort“."
                 : "Öffnen Sie die Website-Berechtigungen und erlauben Sie den Standortzugriff."}
             </p>
           </div>
         ) : null}
 
-        {standalone && !busy && !retryMode ? (
-          <div className="mt-5 rounded-2xl border border-white/10 bg-black/20 p-4 text-left text-sm leading-6 text-stone-300">
-            Der Home-Bildschirm kann einen abgelaufenen QR nicht automatisch
-            erneuern. Scannen Sie den QR im Restaurant erneut und öffnen Sie
-            danach Burger Brothers über das Home-Bildschirm-Symbol.
-          </div>
-        ) : null}
-
-        {!busy && retryMode ? (
+        {!busy && canRetry ? (
           <button
             type="button"
             onClick={retry}
             className="mt-7 w-full rounded-2xl bg-amber-400 px-5 py-4 text-lg font-black text-black"
           >
             Erneut versuchen
+          </button>
+        ) : null}
+
+        {!busy && standalone ? (
+          <button
+            type="button"
+            onClick={backToScanner}
+            className="mt-3 w-full rounded-2xl border border-white/15 bg-white/5 px-5 py-4 font-bold text-white"
+          >
+            Anderen QR-Code scannen
           </button>
         ) : null}
       </section>

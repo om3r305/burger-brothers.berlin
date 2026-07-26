@@ -51,6 +51,14 @@ const NO_STORE_HEADERS = {
   "Cache-Control": "no-store, no-cache, must-revalidate",
 };
 
+const COMPLETED_REOPEN_LOCK_MS = 10 * 60 * 1000;
+const REOPENABLE_OPERATIONAL_STATUSES = new Set<OrderStatus>([
+  "new",
+  "preparing",
+  "ready",
+  "out_for_delivery",
+]);
+
 function hasOrderField(fieldName: string) {
   try {
     const model = Prisma.dmmf.datamodel.models.find((item: any) => item.name === "Order");
@@ -212,6 +220,54 @@ function normalizeStatus(input: any): OrderStatus | null {
   }
 
   return null;
+}
+
+function historyDoneAtMs(value: any): number | null {
+  const history = ensureArr(value);
+
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    const entry = ensureObj(history[index]);
+    const action = String(entry?.action ?? entry?.status ?? "")
+      .toLowerCase()
+      .trim();
+
+    if (
+      action === "done" ||
+      action === "completed" ||
+      action === "delivered" ||
+      action === "status:done" ||
+      action === "status:completed" ||
+      action === "status:delivered"
+    ) {
+      const date = toDate(entry?.ts ?? entry?.at ?? entry?.createdAt);
+      if (date) return date.getTime();
+    }
+  }
+
+  return null;
+}
+
+function completedAtMs(row: any, meta: Record<string, any>): number | null {
+  const candidates = [
+    row?.doneAt,
+    row?.completedAt,
+    row?.deliveredAt,
+    meta?.doneAt,
+    meta?.completedAt,
+    meta?.deliveredAt,
+  ];
+
+  for (const candidate of candidates) {
+    const date = toDate(candidate);
+    if (date) return date.getTime();
+  }
+
+  return (
+    historyDoneAtMs(row?.history) ??
+    historyDoneAtMs(meta?.history) ??
+    toDate(row?.updatedAt)?.getTime() ??
+    null
+  );
 }
 
 function toLegacyStatus(input: any): LegacyOrderStatus {
@@ -1106,6 +1162,31 @@ async function handleStatusUpdate(req: Request) {
       ...body,
       by: isAdmin ? cleanText(body?.by, "admin") : isTv ? "tv" : "driver",
     };
+
+    if (
+      !isAdmin &&
+      currentStatus === "done" &&
+      requestedStatus &&
+      REOPENABLE_OPERATIONAL_STATUSES.has(requestedStatus)
+    ) {
+      const completedAt = completedAtMs(row, metaObj);
+      const lockExpired =
+        completedAt == null || Date.now() - completedAt >= COMPLETED_REOPEN_LOCK_MS;
+
+      if (lockExpired) {
+        return jsonResponse(
+          {
+            ok: false,
+            source: "db",
+            error: "completed_order_locked",
+            message:
+              "Diese Bestellung ist seit mehr als 10 Minuten abgeschlossen und kann nicht erneut geöffnet werden.",
+            lockMinutes: 10,
+          },
+          409,
+        );
+      }
+    }
 
     if (
       String((row as any)?.status || "").toLowerCase().startsWith("payment_") &&
