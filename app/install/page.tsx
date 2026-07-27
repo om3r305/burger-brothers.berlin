@@ -71,11 +71,6 @@ function saveDecision(decision: Exclude<NotificationDecision, null>) {
   } catch {}
 }
 
-function wait(milliseconds: number) {
-  return new Promise<void>((resolve) => {
-    window.setTimeout(resolve, milliseconds);
-  });
-}
 
 function messageForActivation(code: string) {
   switch (code) {
@@ -181,10 +176,15 @@ export default function InstallPage() {
         typeof Notification !== "undefined" &&
         Notification.permission === "granted"
       ) {
-        await Promise.race([
-          ensureCustomerAppPushRegistration(),
-          wait(1_200),
-        ]).catch(() => undefined);
+        const registered = await ensureCustomerAppPushRegistration().catch(
+          () => false,
+        );
+
+        if (!registered) {
+          console.warn(
+            "Customer app push registration will be retried on the next launch.",
+          );
+        }
       }
 
       if (!cancelled) window.location.replace(HOME_URL);

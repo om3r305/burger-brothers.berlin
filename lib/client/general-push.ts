@@ -94,6 +94,12 @@ async function parseJson(response: Response) {
   return response.json().catch(() => ({}));
 }
 
+function delay(milliseconds: number) {
+  return new Promise<void>((resolve) => {
+    window.setTimeout(resolve, Math.max(0, milliseconds));
+  });
+}
+
 export async function loadGeneralPushState(): Promise<GeneralPushState> {
   if (!supportsPush()) return { ok: false, enabled: false, configured: false };
 
@@ -122,23 +128,48 @@ async function saveSubscription(
   subscription: PushSubscription,
   preferences: GeneralPushPreferences,
 ) {
-  const response = await fetch("/api/push", {
-    method: "POST",
-    credentials: "same-origin",
-    headers: {
-      "content-type": "application/json",
-      accept: "application/json",
-    },
-    body: JSON.stringify({
-      subscription: subscription.toJSON(),
-      preferences,
-    }),
+  const requestBody = JSON.stringify({
+    subscription: subscription.toJSON(),
+    preferences,
   });
-  const data = await parseJson(response);
-  if (!response.ok || data?.ok === false) {
-    throw new Error(String(data?.error || `push_http_${response.status}`));
+
+  let lastError: unknown = new Error("push_save_failed");
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const response = await fetch("/api/push", {
+        method: "POST",
+        credentials: "same-origin",
+        keepalive: true,
+        cache: "no-store",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json",
+        },
+        body: requestBody,
+      });
+
+      const data = await parseJson(response);
+
+      if (!response.ok || data?.ok === false) {
+        throw new Error(
+          String(data?.error || `push_http_${response.status}`),
+        );
+      }
+
+      return data as GeneralPushState;
+    } catch (error) {
+      lastError = error;
+
+      if (attempt < 2) {
+        await delay(500 * (attempt + 1));
+      }
+    }
   }
-  return data as GeneralPushState;
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("push_save_failed");
 }
 
 export async function activateGeneralPushFromGesture(
@@ -214,21 +245,33 @@ export async function activateGeneralPushFromGesture(
 export async function ensureCustomerAppPushRegistration(): Promise<boolean> {
   if (!supportsPush() || Notification.permission !== "granted") return false;
 
-  try {
-    const config = await loadGeneralPushState();
-    if (!config.enabled || !config.configured || !config.publicKey) return false;
-
-    const subscription = await currentSubscription(config.publicKey);
-    await saveSubscription(subscription, ALL_GENERAL_PUSH_PREFERENCES);
-
+  for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
-      localStorage.setItem("bb_general_push_activated_v1", String(Date.now()));
-    } catch {}
+      const config = await loadGeneralPushState();
 
-    return true;
-  } catch {
-    return false;
+      if (!config.enabled || !config.configured || !config.publicKey) {
+        return false;
+      }
+
+      const subscription = await currentSubscription(config.publicKey);
+      await saveSubscription(subscription, ALL_GENERAL_PUSH_PREFERENCES);
+
+      try {
+        localStorage.setItem(
+          "bb_general_push_activated_v1",
+          String(Date.now()),
+        );
+      } catch {}
+
+      return true;
+    } catch {
+      if (attempt < 2) {
+        await delay(700 * (attempt + 1));
+      }
+    }
   }
+
+  return false;
 }
 
 

@@ -1461,18 +1461,34 @@ export default function CheckoutPage() {
 
   useEffect(() => {
     let stop = false;
+    let refreshing = false;
 
     const refreshRemoteSettings = async () => {
+      if (stop || refreshing) return;
+      refreshing = true;
+
       try {
         await fetchAndApplyRemoteSettings();
         if (!stop) setCfgTick((tick) => tick + 1);
       } catch (error: unknown) {
         reportCheckoutError("settings-sync", error);
         if (!stop) setCfgTick((tick) => tick + 1);
+      } finally {
+        refreshing = false;
       }
     };
 
-    refreshRemoteSettings();
+    void refreshRemoteSettings();
+
+    /*
+      Siparis baska cihazdan geldiginde aktif rota firsatini checkout acikken
+      de al. 10 saniye, canli banner icin hizli fakat DB icin hafif bir araliktir.
+    */
+    const settingsPollId = window.setInterval(() => {
+      if (document.visibilityState === "visible") {
+        void refreshRemoteSettings();
+      }
+    }, 10_000);
 
     const onStorage = (event: StorageEvent) => {
       if (!event.key || event.key === LS_SETTINGS) {
@@ -1481,12 +1497,12 @@ export default function CheckoutPage() {
     };
 
     const onFocus = () => {
-      refreshRemoteSettings();
+      void refreshRemoteSettings();
     };
 
     const onVisibility = () => {
       if (document.visibilityState === "visible") {
-        refreshRemoteSettings();
+        void refreshRemoteSettings();
       }
     };
 
@@ -1502,6 +1518,7 @@ export default function CheckoutPage() {
 
     return () => {
       stop = true;
+      window.clearInterval(settingsPollId);
       window.removeEventListener("storage", onStorage);
       window.removeEventListener("focus", onFocus);
       window.removeEventListener("bb_settings_changed", onSettingsSync as EventListener);

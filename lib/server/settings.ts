@@ -507,19 +507,111 @@ async function saveSettingKey(tx: any, tenantId: string, key: string, value: any
 
 async function writeSettingsToDb(settings: ServerSettings) {
   const tenantId = await getTenantId();
-  const normalized = normalizeSettingsObject(settings);
+  const patch = normalizeSettingsObject(settings);
 
-  const entries = Object.entries(normalized).filter(([key, value]) => {
-    if (!isSafeKey(key)) return false;
-    if (value === undefined) return false;
-    return true;
-  });
-
-  if (!entries.length) return;
+  if (!Object.keys(patch).length) return;
 
   await prisma.$transaction(async (tx: any) => {
-    for (const [key, value] of entries) {
-      await saveSettingKey(tx, tenantId, key, value);
+    const wholeKey = "bb_settings_v6";
+    const wholeRows = await tx.setting.findMany({
+      where: {
+        tenantId,
+        key: wholeKey,
+      },
+      orderBy: {
+        id: "asc",
+      },
+      select: {
+        id: true,
+        value: true,
+      },
+    });
+
+    let currentWhole: ServerSettings = {};
+
+    for (const row of wholeRows) {
+      if (!isPlainObject(row?.value)) continue;
+      currentWhole = deepMerge(
+        currentWhole,
+        normalizeSettingsObject(row.value),
+      );
+    }
+
+    /*
+      Eski kurulumda bb_settings_v6 henuz yoksa mevcut ayarlari kaybetmemek
+      icin legacy satirlari ilk ana kayda tasiyoruz.
+    */
+    if (!wholeRows.length) {
+      const legacyRows = await tx.setting.findMany({
+        where: {
+          tenantId,
+        },
+        orderBy: {
+          key: "asc",
+        },
+        select: {
+          key: true,
+          value: true,
+        },
+      });
+
+      for (const row of legacyRows) {
+        if (!isSafeKey(row.key) || WHOLE_SETTINGS_KEYS.has(row.key)) continue;
+        currentWhole[row.key] = sanitizeJson(row.value);
+      }
+    }
+
+    const nextWhole = deepMerge(currentWhole, patch);
+    const primary = wholeRows[0];
+
+    if (primary?.id) {
+      await tx.setting.update({
+        where: {
+          id: primary.id,
+        },
+        data: {
+          value: jsonForDb(nextWhole) as any,
+        },
+      });
+
+      if (wholeRows.length > 1) {
+        await tx.setting.deleteMany({
+          where: {
+            tenantId,
+            key: wholeKey,
+            id: {
+              not: primary.id,
+            },
+          },
+        });
+      }
+    } else {
+      await tx.setting.create({
+        data: {
+          tenantId,
+          key: wholeKey,
+          value: jsonForDb(nextWhole) as any,
+        },
+      });
+    }
+
+    /*
+      Ayni patch'in eski ayri key satiri ana kaydi bir daha golgelemesin.
+      Ana kaynak artik bb_settings_v6'dir.
+    */
+    const legacyPatchKeys = Object.keys(patch).filter(
+      (key) => !WHOLE_SETTINGS_KEYS.has(key),
+    );
+
+    if (legacyPatchKeys.length > 0) {
+      await tx.setting.deleteMany({
+        where: {
+          tenantId,
+          key: {
+            in: legacyPatchKeys,
+          },
+        },
+      });
     }
   });
 }

@@ -830,7 +830,9 @@ async function readRequestBody(req: Request) {
 
 export async function GET(req: Request) {
   try {
-    const cached = readSettingsMemoryCache();
+    const requestUrl = new URL(req.url);
+    const forceFresh = requestUrl.searchParams.get("fresh") === "1";
+    const cached = forceFresh ? null : readSettingsMemoryCache();
 
     if (cached) {
       const visible = (await hasAdminSession(req)) ? cached : publicSettingsView(cached);

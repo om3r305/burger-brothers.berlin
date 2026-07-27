@@ -1310,7 +1310,7 @@ export function writeSettings(patch?: Partial<SettingsV6> | null) {
 
 export async function fetchServerSettings(): Promise<Partial<SettingsV6> | null> {
   try {
-    const res = await fetch(`${SETTINGS_REMOTE_URL}?ts=${Date.now()}`, {
+    const res = await fetch(`${SETTINGS_REMOTE_URL}?ts=${Date.now()}&fresh=1`, {
       method: "GET",
       cache: "no-store",
       headers: {
