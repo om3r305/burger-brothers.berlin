@@ -167,6 +167,7 @@ function activeDeals(settings: any, now: Date) {
       return Boolean(
         text(deal?.id, 160) &&
           text(deal?.orderId, 160) &&
+          text(deal?.status, 30) !== "closed" &&
           expiresAt &&
           expiresAt > now,
       );
@@ -178,38 +179,105 @@ function activeDeals(settings: any, now: Date) {
     );
 }
 
-export async function findEligibleRouteDealForCustomer(
+function recentlyClosedDeals(settings: any, now: Date) {
+  const config = object(settings?.routeDeals);
+  if (config.enabled !== true) return [];
+
+  return array(config.closed)
+    .filter((deal) => {
+      const noticeExpiresAt = date(
+        deal?.noticeExpiresAt ?? deal?.closedAt,
+      );
+      return Boolean(
+        text(deal?.id, 160) &&
+          text(deal?.orderId, 160) &&
+          text(deal?.closedReason, 80) ===
+            "source_order_out_for_delivery" &&
+          noticeExpiresAt &&
+          noticeExpiresAt > now,
+      );
+    })
+    .sort(
+      (left, right) =>
+        Number(date(right?.closedAt)?.valueOf() || 0) -
+        Number(date(left?.closedAt)?.valueOf() || 0),
+    );
+}
+
+export type RouteDealEvaluationReason =
+  | "source_customer"
+  | "source_order_out_for_delivery"
+  | "active_order"
+  | "active_order_out_for_delivery"
+  | "consumed"
+  | null;
+
+export type RouteDealEvaluation = {
+  deal: any | null;
+  reason: RouteDealEvaluationReason;
+  activeOrderStatus: string | null;
+};
+
+function normalizedOrderStatus(order: any) {
+  const meta = object(order?.meta);
+  const raw = text(meta.statusManual ?? order?.status, 60).toLowerCase();
+
+  if (["on_the_way", "unterwegs"].includes(raw)) {
+    return "out_for_delivery";
+  }
+  if (["delivered", "completed"].includes(raw)) {
+    return "done";
+  }
+
+  return raw;
+}
+
+export async function evaluateRouteDealForCustomer(
   params: RouteDealEligibilityParams,
-) {
-  if (params.mode !== "delivery") return null;
+): Promise<RouteDealEvaluation> {
+  const empty = {
+    deal: null,
+    reason: null,
+    activeOrderStatus: null,
+  } satisfies RouteDealEvaluation;
+
+  if (params.mode !== "delivery") return empty;
 
   const candidateIdentity = identity(params.customer);
   if (!candidateIdentity.phone && !candidateIdentity.email) {
-    return null;
+    return empty;
   }
 
   const now = params.now ?? new Date();
   const candidates = activeDeals(params.settings, now).filter((deal) =>
     dealMatchesAddress(deal, params.customer, params.order),
   );
-  if (!candidates.length) return null;
+  const closedCandidates = recentlyClosedDeals(
+    params.settings,
+    now,
+  ).filter((deal) =>
+    dealMatchesAddress(deal, params.customer, params.order),
+  );
 
+  if (!candidates.length && !closedCandidates.length) return empty;
+
+  const relevantDeals = [...candidates, ...closedCandidates];
   const sourceOrderIds = Array.from(
     new Set(
-      candidates
+      relevantDeals
         .map((deal) => text(deal?.orderId, 160))
         .filter(Boolean),
     ),
   );
 
   const earliestStartedAt =
-    candidates
-      .map((deal) => date(deal?.startedAt))
+    relevantDeals
+      .map((deal) => date(deal?.startedAt ?? deal?.closedAt))
       .filter((value): value is Date => Boolean(value))
       .sort((left, right) => left.valueOf() - right.valueOf())[0] ??
     new Date(now.getTime() - 60 * 60_000);
 
-  const [sourceOrders, recentOrders] = await Promise.all([
+  const [sourceOrders, recentOrders, activeOrders] = await Promise.all([
     sourceOrderIds.length
       ? (prisma as any).order.findMany({
           where: {
@@ -219,8 +287,10 @@ export async function findEligibleRouteDealForCustomer(
           select: {
             id: true,
             customer: true,
+            status: true,
+            meta: true,
           },
-          take: 20,
+          take: 50,
         })
       : [],
     (prisma as any).order.findMany({
@@ -233,6 +303,7 @@ export async function findEligibleRouteDealForCustomer(
         id: true,
         customer: true,
         meta: true,
+        status: true,
         ts: true,
       },
       orderBy: {
@@ -240,39 +311,117 @@ export async function findEligibleRouteDealForCustomer(
       },
       take: 2_000,
     }),
+    (prisma as any).order.findMany({
+      where: {
+        tenantId: params.tenantId,
+        status: { notIn: ["done", "cancelled"] },
+      },
+      select: {
+        id: true,
+        customer: true,
+        meta: true,
+        status: true,
+        planned: true,
+        ts: true,
+      },
+      orderBy: {
+        ts: "desc",
+      },
+      take: 5_000,
+    }),
   ]);
 
   const sourceById = new Map<string, any>(
     sourceOrders.map((order: any) => [String(order.id), order]),
   );
 
-  for (const deal of candidates) {
+  /*
+    Kaynak sipariş sahibi, aktif veya yeni kapanmış fırsatı kendi kampanyası
+    gibi görmez.
+  */
+  const isSourceCustomer = relevantDeals.some((deal) => {
+    const sourceOrder = sourceById.get(text(deal?.orderId, 160));
+    return Boolean(
+      sourceOrder &&
+        sameIdentity(candidateIdentity, identity(sourceOrder)),
+    );
+  });
+
+  if (isSourceCustomer) {
+    return {
+      deal: null,
+      reason: "source_customer",
+      activeOrderStatus: null,
+    };
+  }
+
+  /*
+    Aktif siparişi olan müşteri yeni ikiz-sokak indirimi kullanamaz.
+    Kendi siparişi yoldaysa mevcut “Bestellung unterwegs” bilgi kutusu korunur.
+  */
+  const blockingOrder = activeOrders.find((order: any) =>
+    sameIdentity(candidateIdentity, identity(order)),
+  );
+
+  if (blockingOrder) {
+    const status = normalizedOrderStatus(blockingOrder);
+
+    return {
+      deal: null,
+      reason:
+        status === "out_for_delivery"
+          ? "active_order_out_for_delivery"
+          : "active_order",
+      activeOrderStatus: status || null,
+    };
+  }
+
+  const dealWasConsumed = (deal: any) => {
     const dealId = text(deal?.id, 160);
-    const sourceOrderId = text(deal?.orderId, 160);
-    const sourceOrder = sourceById.get(sourceOrderId);
-
-    /*
-      Fırsatı oluşturan ilk müşteri, aynı telefon/e-posta ile başka cihazdan
-      girse bile kendi teslimatını "ikiz sokak" fırsatı olarak göremez.
-    */
-    if (sourceOrder && sameIdentity(candidateIdentity, identity(sourceOrder))) {
-      continue;
-    }
-
-    /*
-      Aynı müşteri bu fırsatla daha önce sipariş verdiyse fırsat o müşteri için
-      tüketilmiştir. Global fırsat diğer uygun müşteriler için süresi bitene
-      kadar açık kalabilir.
-    */
-    const consumed = recentOrders.some((order: any) => {
+    return recentOrders.some((order: any) => {
       if (!sameIdentity(candidateIdentity, identity(order))) return false;
       return routeDealWasApplied(order, dealId);
     });
+  };
 
-    if (consumed) continue;
+  for (const deal of candidates) {
+    if (dealWasConsumed(deal)) continue;
 
-    return deal;
+    return {
+      deal,
+      reason: null,
+      activeOrderStatus: null,
+    };
   }
 
-  return null;
+  /*
+    Kaynak teslimat restorandan çıktıysa indirim artık geçerli değildir.
+    Müşteri bu fırsatı kullanmadıysa kısa süreli açıklayıcı bilgi gösterilir.
+  */
+  const unusedClosedDeal = closedCandidates.find(
+    (deal) => !dealWasConsumed(deal),
+  );
+
+  if (unusedClosedDeal) {
+    return {
+      deal: null,
+      reason: "source_order_out_for_delivery",
+      activeOrderStatus: null,
+    };
+  }
+
+  const consumedAny = relevantDeals.some(dealWasConsumed);
+
+  return {
+    deal: null,
+    reason: consumedAny ? "consumed" : null,
+    activeOrderStatus: null,
+  };
+}
+
+export async function findEligibleRouteDealForCustomer(
+  params: RouteDealEligibilityParams,
+) {
+  const result = await evaluateRouteDealForCustomer(params);
+  return result.deal;
 }

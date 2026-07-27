@@ -2108,7 +2108,10 @@ export default function CheckoutPage() {
   const couponAmount = Math.min(afterDiscount, Math.max(0, coupon.amount || 0));
 
   const routeDealStreetValue = (addr.street || streetQuery || "").trim();
-  const { deal: eligibleRouteDeal } = useEligibleRouteDeal({
+  const {
+    deal: eligibleRouteDeal,
+    notice: routeDealNotice,
+  } = useEligibleRouteDeal({
     enabled: settingsRaw?.routeDeals?.enabled === true,
     mode: orderMode,
     zip: addr.zip || plzStore || "",
@@ -2730,7 +2733,23 @@ export default function CheckoutPage() {
         </div>
       )}
 
-      {orderMode === "delivery" && routeDealBenefit.deal && (
+      {orderMode === "delivery" && routeDealNotice && (
+        <div className="rounded-2xl border border-amber-400/40 bg-amber-400/10 p-3 text-sm text-amber-100">
+          <div className="flex items-start gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-300 text-xl text-black">
+              🚗
+            </div>
+            <div>
+              <div className="font-semibold">{routeDealNotice.title}</div>
+              <div className="mt-1 leading-relaxed">
+                {routeDealNotice.message}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {orderMode === "delivery" && !routeDealNotice && routeDealBenefit.deal && (
         <div className="rounded-2xl border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm text-emerald-100">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-start gap-3">

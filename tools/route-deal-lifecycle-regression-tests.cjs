@@ -22,13 +22,14 @@ const middleware = read("middleware.ts");
 const manifest = read("app/manifest.webmanifest");
 
 assert(
-  eligibility.includes("Fırsatı oluşturan ilk müşteri") &&
+  eligibility.includes("Kaynak sipariş sahibi") &&
     eligibility.includes("sameIdentity(candidateIdentity, identity(sourceOrder))"),
   "Source customer exclusion is missing",
 );
 assert(
   eligibility.includes("routeDealWasApplied(order, dealId)") &&
-    eligibility.includes("if (consumed) continue"),
+    eligibility.includes("unusedClosedDeal") &&
+    eligibility.includes('"consumed"'),
   "Per-customer route deal consumption is missing",
 );
 assert(
@@ -56,10 +57,38 @@ assert(
     client.includes("ROUTE_DEAL_CHANGED_EVENT"),
   "Route deal client eligibility refresh is missing",
 );
+
 assert(
-  lifecycle.includes("refreshRouteDealOpportunityForOrder") &&
-    pushServer.includes("refreshRouteDealOpportunityForOrder"),
-  "Underwegs does not refresh the opportunity window",
+  createRoute.includes("notifyNearbyDelivery(created)") &&
+    createRoute.includes("if (routeDealActivated)") &&
+    pushServer.includes('["new", "preparing", "ready"].includes(status)'),
+  "Nearby push is not sent while the source order is still in the restaurant",
+);
+assert(
+  pushServer.includes('if (status === "out_for_delivery")') &&
+    pushServer.includes("closeRouteDealOpportunityForOrder") &&
+    lifecycle.includes('closedReason: text(reason, 80)') &&
+    lifecycle.includes('status: "closed"') &&
+    !pushServer.includes("refreshedRouteDeal.durationMinutes"),
+  "Unterwegs must close the opportunity instead of refreshing it",
+);
+assert(
+  createRoute.includes("Geplant sipariş teslimat rotasına henüz çıkmamıştır") &&
+    pushServer.includes("if (orderIsPlanned(order))") &&
+    pushServer.includes('reason: "planned_order"'),
+  "Planned orders can still start a route deal or nearby push",
+);
+assert(
+  eligibility.includes('"source_order_out_for_delivery"') &&
+    client.includes('"opportunity_ended"') &&
+    checkout.includes("routeDealNotice &&") &&
+    cart.includes("if (notice)"),
+  "Closed-opportunity information banner is missing",
+);
+assert(
+  pushServer.includes("Bestellen Sie, solange die Lieferung noch im Restaurant ist.") &&
+    pushServer.includes("activeRouteDeal.durationMinutes"),
+  "Nearby push text or route-rule countdown source is incorrect",
 );
 assert(
   pushClient.includes("repairGeneralPushOrderBindingFromLastOrder") &&
@@ -89,4 +118,4 @@ assert(
   "Middleware route-deal access or legacy app redirect is missing",
 );
 
-console.log("Route deal + nearby push + PWA lifecycle regression tests: OK");
+console.log("Route deal in-restaurant push + Unterwegs close + PWA lifecycle tests: OK");

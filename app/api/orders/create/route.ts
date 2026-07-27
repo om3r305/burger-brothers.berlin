@@ -18,7 +18,10 @@ import { getServerSettings, saveServerSettings } from "@/lib/server/settings";
 import { sendTelegramNewOrder } from "@/lib/telegram";
 import { normalizePlz, routeDealMatchesAddress, routeDealStreetLabel } from "@/lib/streets";
 import { verifyPaymentFinalizeSignature } from "@/lib/server/payment-signature";
-import { notifyGeneralOrderStatus } from "@/lib/server/general-push";
+import {
+  notifyGeneralOrderStatus,
+  notifyNearbyDelivery,
+} from "@/lib/server/general-push";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -675,6 +678,19 @@ async function activateRouteDealIfNeeded(params: {
   if (mode !== "delivery") return null;
 
   const orderMeta = ensureObj(order?.meta);
+
+  /*
+    Geplant sipariş teslimat rotasına henüz çıkmamıştır. Bu nedenle fırsat
+    create aşamasında başlamaz; sipariş gerçekten Unterwegs yapıldığında
+    route-deal lifecycle tarafından oluşturulur.
+  */
+  if (
+    cleanText(order?.planned) ||
+    cleanText(orderMeta?.planned) ||
+    cleanText(orderMeta?.confirmedPlanned)
+  ) {
+    return null;
+  }
   const canonicalRouteDeal = ensureObj(ensureObj(orderMeta?.pricing)?.routeDeal);
 
   /*
@@ -2057,6 +2073,17 @@ export async function POST(req: Request) {
       await notifyGeneralOrderStatus(created, "", "new").catch((error) => {
         console.error("[orders/create] general push failed", error);
       });
+
+      /*
+        İkiz-sokak push'u sipariş restorandayken gönderilir. Geplant siparişte
+        routeDealActivated null olduğu için push çalışmaz. Status Unterwegs
+        olduğunda aynı notify fonksiyonu fırsatı kapatır; yeni indirim göndermez.
+      */
+      if (routeDealActivated) {
+        await notifyNearbyDelivery(created).catch((error) => {
+          console.error("[orders/create] nearby route-deal push failed", error);
+        });
+      }
     });
 
     return NextResponse.json(

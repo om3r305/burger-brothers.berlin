@@ -360,7 +360,12 @@ assertContains(
 assertContains(
   generalServer,
   [
-    'status !== "out_for_delivery"',
+    'status === "out_for_delivery"',
+    "closeRouteDealOpportunityForOrder",
+    "source_order_out_for_delivery",
+    '!["new", "preparing", "ready"].includes(status)',
+    "orderIsPlanned(order)",
+    'reason: "planned_order"',
     'orderMode(order) !== "delivery"',
     "excludedSubscriptionId",
     "activePhones",
@@ -379,9 +384,10 @@ assertContains(
     "recentEmails",
     "maxRecipients",
     "opportunityMinutes",
-    "Wir liefern gerade in Ihre Nähe! 🍔",
+    "Unser Fahrer fährt bald in Ihre Nähe! 🍔",
+    "solange die Lieferung noch im Restaurant ist",
   ],
-  "Nearby-delivery matching",
+  "Nearby-delivery matching and source-order closure",
 );
 assertContains(
   nearbyMatcher,

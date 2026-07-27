@@ -18,7 +18,10 @@ import {
   rankNearbyDeliveryMatch,
   type NearbyAddressSnapshot,
 } from "@/lib/server/nearby-delivery-matcher";
-import { refreshRouteDealOpportunityForOrder } from "@/lib/server/route-deal-lifecycle";
+import {
+  closeRouteDealOpportunityForOrder,
+  findActiveRouteDealOpportunityForOrder,
+} from "@/lib/server/route-deal-lifecycle";
 
 export const GENERAL_PUSH_COOKIE = "bb_push_device_v1";
 export const GENERAL_PUSH_CONSENT_VERSION = "3-single-prompt";
@@ -615,6 +618,16 @@ function orderMode(order: any) {
   return cleanText(order?.mode, 30).toLowerCase();
 }
 
+function orderIsPlanned(order: any) {
+  const meta = orderMeta(order);
+  return Boolean(
+    cleanText(order?.planned, 80) ||
+      cleanText(meta.planned, 80) ||
+      cleanText(meta.confirmedPlanned, 80) ||
+      cleanText(meta.acceptedPlanned, 80),
+  );
+}
+
 function statusNotificationText(order: any, status: string) {
   const delivery = orderMode(order) === "delivery";
   const meta = orderMeta(order);
@@ -980,8 +993,48 @@ function addDeliveryHistory(
 
 export async function notifyNearbyDelivery(order: any) {
   const status = cleanText(order?.status, 40).toLowerCase();
-  if (status !== "out_for_delivery" || orderMode(order) !== "delivery") {
-    return { queued: 0 };
+
+  if (orderMode(order) !== "delivery") {
+    return { queued: 0, reason: "not_delivery" };
+  }
+
+  /*
+    Unterwegs = sipariş restorandan çıktı. Bu anda fırsat yenilenmez; tam tersine
+    kapanır. Status API mevcut fonksiyonu zaten bu geçişte çağırdığı için TV ve
+    driver akışına dokunmadan indirim server-side anında sona erer.
+  */
+  if (status === "out_for_delivery") {
+    const closedDeal = await closeRouteDealOpportunityForOrder(
+      order,
+      "source_order_out_for_delivery",
+    ).catch((error) => {
+      console.error("[nearby-delivery] route deal close failed", error);
+      return null;
+    });
+
+    console.info("[nearby-delivery] source order left restaurant", {
+      orderId: order?.id || null,
+      closedRouteDealId: closedDeal?.id || null,
+    });
+
+    return {
+      queued: 0,
+      closed: Boolean(closedDeal),
+      reason: closedDeal
+        ? "source_order_out_for_delivery"
+        : "route_deal_not_active",
+    };
+  }
+
+  /*
+    Yakın teslimat fırsatı yalnız sipariş restorandayken duyurulur.
+    Geplant siparişler ve diğer operasyon durumları push üretmez.
+  */
+  if (!["new", "preparing", "ready"].includes(status)) {
+    return { queued: 0, reason: "status_not_eligible" };
+  }
+  if (orderIsPlanned(order)) {
+    return { queued: 0, reason: "planned_order" };
   }
 
   const tenantId = order.tenantId || (await getTenantId());
@@ -989,21 +1042,15 @@ export async function notifyNearbyDelivery(order: any) {
     readNearbyDeliverySettings(tenantId),
     readAdminRouteStreetGroups(),
   ]);
-  if (!settings.enabled) return { queued: 0 };
+  if (!settings.enabled) return { queued: 0, reason: "automation_disabled" };
 
   const sourceAddress = orderAddressSnapshot(order);
-  if (!sourceAddress) return { queued: 0 };
+  if (!sourceAddress) return { queued: 0, reason: "source_address_missing" };
 
-  /*
-    Fırsat sipariş oluşturulduğunda açılmış olsa bile mutfak hazırlığı sırasında
-    süresi dolmuş olabilir. Kurye Unterwegs olduğunda aynı kaynak siparişin
-    fırsat süresini yeniden başlat; push alan müşteri geçerli banner/indirimi
-    mutlaka görebilsin.
-  */
-  const refreshedRouteDeal = await refreshRouteDealOpportunityForOrder(
-    order.id,
+  const activeRouteDeal = await findActiveRouteDealOpportunityForOrder(
+    order,
   ).catch((error) => {
-    console.error("[nearby-delivery] route deal refresh failed", error);
+    console.error("[nearby-delivery] active route deal lookup failed", error);
     return null;
   });
 
@@ -1186,7 +1233,7 @@ export async function notifyNearbyDelivery(order: any) {
     if (email) recentEmails.add(email);
   });
 
-  if (!refreshedRouteDeal?.id) {
+  if (!activeRouteDeal?.id) {
     console.warn(
       "[nearby-delivery] active route deal not found; push was not sent",
       { orderId: order.id },
@@ -1195,23 +1242,26 @@ export async function notifyNearbyDelivery(order: any) {
   }
 
   const opportunityMinutes = boundedInteger(
-    refreshedRouteDeal.durationMinutes,
+    activeRouteDeal.durationMinutes,
     10,
     1,
     60,
   );
   const refreshedExpiresAtMs = Date.parse(
-    cleanText(refreshedRouteDeal?.expiresAt, 80),
+    cleanText(activeRouteDeal?.expiresAt, 80),
   );
   const expiresAt =
     Number.isFinite(refreshedExpiresAtMs) && refreshedExpiresAtMs > now.getTime()
       ? new Date(refreshedExpiresAtMs)
       : new Date(now.getTime() + opportunityMinutes * 60_000);
-  const routeDealId = cleanText(refreshedRouteDeal.id, 160);
+  const routeDealId = cleanText(activeRouteDeal.id, 160);
   const notificationUrl = routeDealId
     ? `/menu?routeDeal=${encodeURIComponent(routeDealId)}`
     : "/menu";
   let queued = 0;
+  let accepted = 0;
+  let failed = 0;
+  let deduped = 0;
 
   for (const candidate of ranked) {
     if (queued >= settings.maxRecipients) break;
@@ -1235,8 +1285,8 @@ export async function notifyNearbyDelivery(order: any) {
     const result = await queueAndSendGeneralNotification({
       subscriptionId: candidate.subscription.id,
       type: "nearby_delivery",
-      title: "Wir liefern gerade in Ihre Nähe! 🍔",
-      body: `Ihr Nachbarschafts-Angebot ist ${opportunityMinutes} Minuten gültig. Jetzt öffnen und den Live-Countdown ansehen.`,
+      title: "Unser Fahrer fährt bald in Ihre Nähe! 🍔",
+      body: `Ihr Nachbarschafts-Angebot ist ${opportunityMinutes} Minuten gültig. Bestellen Sie, solange die Lieferung noch im Restaurant ist.`,
       url: notificationUrl,
       orderId: order.id,
       dedupeKey: `nearby:${order.id}:${candidate.subscription.id}`,
@@ -1245,14 +1295,43 @@ export async function notifyNearbyDelivery(order: any) {
         matchType: candidate.matchType,
         expiresAt: expiresAt.toISOString(),
         durationMinutes: opportunityMinutes,
-        durationSource: refreshedRouteDeal.durationSource || "route_rule",
+        durationSource: activeRouteDeal.durationSource || "route_rule",
         routeDealId: routeDealId || null,
       },
     });
-    if (!(result as any)?.deduped) queued += 1;
+    if ((result as any)?.deduped) {
+      deduped += 1;
+      continue;
+    }
+
+    queued += 1;
+    if ((result as any)?.ok === true) {
+      accepted += 1;
+    } else {
+      failed += 1;
+    }
   }
 
-  return { queued };
+  console.info("[nearby-delivery] dispatch result", {
+    orderId: order.id,
+    routeDealId,
+    durationMinutes: opportunityMinutes,
+    candidates: candidates.length,
+    matched: ranked.length,
+    queued,
+    accepted,
+    failed,
+    deduped,
+  });
+
+  return {
+    queued,
+    accepted,
+    failed,
+    deduped,
+    matched: ranked.length,
+    routeDealId,
+  };
 }
 
 export type AdminBroadcastInput = {

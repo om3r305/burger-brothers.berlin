@@ -3207,11 +3207,13 @@ function RouteDealsEditor({
       <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-100">
         <div className="font-medium">Mantık</div>
         <p className="mt-1 leading-relaxed">
-          Lieferung siparişi oluşturulduğunda fırsat hazırlanır. Sipariş
-          Unterwegs olduğunda bu kuraldaki Fırsat süresi dakika değeri yeniden
-          başlatılır ve uygun eski müşterilere push gider. Bildirimde yazan süre,
-          son geçerlilik zamanı ve uygulamadaki canlı geri sayım aynı değeri
-          kullanır. İlk sipariş sahibi kendi fırsatını göremez.
+          Normal Lieferung siparişi oluşturulduğunda, sipariş restorandayken
+          fırsat başlar ve uygun eski müşterilere push gönderilir. Bildirimdeki
+          süre ve uygulamadaki canlı geri sayım bu kuralın Fırsat süresi dakika
+          değerini kullanır. Geplant siparişlerde fırsat ve push hiç başlamaz.
+          Kaynak sipariş Unterwegs olduğunda fırsat anında kapanır; bundan sonra
+          yeni indirim verilmez. İlk sipariş sahibi kendi fırsatını göremez ve
+          aktif siparişi olan müşteri yeni ikiz-sokak indirimi kullanamaz.
         </p>
       </div>
 

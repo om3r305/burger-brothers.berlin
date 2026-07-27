@@ -11,8 +11,15 @@ export type EligibleRouteDealInput = {
   email?: string;
 };
 
+export type RouteDealNotice = {
+  type: "order_underway" | "opportunity_ended";
+  title: string;
+  message: string;
+};
+
 export type EligibleRouteDealState = {
   deal: Record<string, any> | null;
+  notice: RouteDealNotice | null;
   loading: boolean;
 };
 
@@ -91,10 +98,15 @@ export function markRouteDealConsumedOnDevice(dealId: unknown) {
   } catch {}
 }
 
-export async function loadEligibleRouteDeal(
+export async function loadEligibleRouteDealState(
   input: EligibleRouteDealInput,
-): Promise<Record<string, any> | null> {
-  if (!input.enabled || input.mode !== "delivery") return null;
+): Promise<{
+  deal: Record<string, any> | null;
+  notice: RouteDealNotice | null;
+}> {
+  if (!input.enabled || input.mode !== "delivery") {
+    return { deal: null, notice: null };
+  }
 
   const zip = normalizeZip(input.zip);
   const phone = normalizePhone(input.phone);
@@ -104,7 +116,9 @@ export async function loadEligibleRouteDeal(
     Telefon/e-posta henüz local profile'da yoksa server, yalnız customer_app
     cihaz çereziyle doğrulanmış PushSubscription kimliğini kullanabilir.
   */
-  if (zip.length !== 5) return null;
+  if (zip.length !== 5) {
+    return { deal: null, notice: null };
+  }
 
   const response = await fetch("/api/route-deals/eligible", {
     method: "POST",
@@ -127,21 +141,61 @@ export async function loadEligibleRouteDeal(
   });
 
   const payload = await response.json().catch(() => ({}));
-  if (!response.ok || payload?.ok === false) return null;
+  if (!response.ok || payload?.ok === false) {
+    return { deal: null, notice: null };
+  }
+
+  const notice =
+    payload?.notice &&
+    typeof payload.notice === "object" &&
+    !Array.isArray(payload.notice) &&
+    ["order_underway", "opportunity_ended"].includes(
+      String(payload.notice.type || ""),
+    )
+      ? {
+          type:
+            payload.notice.type === "opportunity_ended"
+              ? ("opportunity_ended" as const)
+              : ("order_underway" as const),
+          title: String(
+            payload.notice.title ||
+              (payload.notice.type === "opportunity_ended"
+                ? "Das Nachbarschafts-Angebot ist beendet"
+                : "Ihre Bestellung ist bereits unterwegs"),
+          ),
+          message: String(
+            payload.notice.message ||
+              (payload.notice.type === "opportunity_ended"
+                ? "Die zugehörige Lieferung hat das Restaurant bereits verlassen. Für neue Bestellungen kann dieser Rabatt nicht mehr genutzt werden."
+                : "Das Nachbarschafts-Angebot kann für diese Bestellung nicht mehr genutzt werden."),
+          ),
+        }
+      : null;
 
   const deal =
     payload?.deal && typeof payload.deal === "object" && !Array.isArray(payload.deal)
       ? payload.deal
       : null;
 
-  if (!deal || routeDealWasConsumedOnDevice(deal.id)) return null;
-  return deal;
+  if (!deal || routeDealWasConsumedOnDevice(deal.id)) {
+    return { deal: null, notice };
+  }
+
+  return { deal, notice: null };
+}
+
+export async function loadEligibleRouteDeal(
+  input: EligibleRouteDealInput,
+): Promise<Record<string, any> | null> {
+  const state = await loadEligibleRouteDealState(input);
+  return state.deal;
 }
 
 export function useEligibleRouteDeal(
   input: EligibleRouteDealInput,
 ): EligibleRouteDealState & { refresh: () => Promise<void> } {
   const [deal, setDeal] = useState<Record<string, any> | null>(null);
+  const [notice, setNotice] = useState<RouteDealNotice | null>(null);
   const [loading, setLoading] = useState(false);
 
   const refresh = useCallback(async () => {
@@ -151,14 +205,18 @@ export function useEligibleRouteDeal(
       normalizeZip(input.zip).length !== 5
     ) {
       setDeal(null);
+      setNotice(null);
       return;
     }
 
     setLoading(true);
     try {
-      setDeal(await loadEligibleRouteDeal(input));
+      const next = await loadEligibleRouteDealState(input);
+      setDeal(next.deal);
+      setNotice(next.notice);
     } catch {
       setDeal(null);
+      setNotice(null);
     } finally {
       setLoading(false);
     }
@@ -179,10 +237,16 @@ export function useEligibleRouteDeal(
       if (!active || running) return;
       running = true;
       try {
-        const next = await loadEligibleRouteDeal(input);
-        if (active) setDeal(next);
+        const next = await loadEligibleRouteDealState(input);
+        if (active) {
+          setDeal(next.deal);
+          setNotice(next.notice);
+        }
       } catch {
-        if (active) setDeal(null);
+        if (active) {
+          setDeal(null);
+          setNotice(null);
+        }
       } finally {
         running = false;
         if (active) setLoading(false);
@@ -233,5 +297,5 @@ export function useEligibleRouteDeal(
     input.email,
   ]);
 
-  return { deal, loading, refresh };
+  return { deal, notice, loading, refresh };
 }

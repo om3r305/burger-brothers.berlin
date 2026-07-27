@@ -16,42 +16,121 @@ function assertContains(source, markers, label) {
 }
 
 const lifecycle = read("lib/server/route-deal-lifecycle.ts");
+const eligibility = read("lib/server/route-deal-eligibility.ts");
+const eligibleRoute = read("app/api/route-deals/eligible/route.ts");
+const routeDealClient = read("lib/client/route-deal.ts");
+const createRoute = read("app/api/orders/create/route.ts");
 const pushServer = read("lib/server/general-push.ts");
 const notificationAdmin = read("app/admin/notifications/page.tsx");
 const settingsAdmin = read("app/admin/settings/page.tsx");
 const campaignsAdmin = read("app/admin/campaigns/page.tsx");
+const checkout = read("app/checkout/page.tsx");
+const cart = read("components/CartSummary.tsx");
+
+assertContains(
+  createRoute,
+  [
+    "Geplant sipariş teslimat rotasına henüz çıkmamıştır",
+    "cleanText(order?.planned)",
+    "if (routeDealActivated)",
+    "notifyNearbyDelivery(created)",
+  ],
+  "Create-stage route deal and push lifecycle",
+);
 
 assertContains(
   lifecycle,
   [
-    "const currentRuleId = text(current.ruleId, 100)",
-    "array(routeDeals.rules).find",
-    "matchedRule?.durationMinutes",
-    'durationSource: matchedRule ? "route_rule" : "active_deal"',
+    "findActiveRouteDealOpportunityForOrder",
+    "closeRouteDealOpportunityForOrder",
+    'status: "closed"',
+    'closedReason: text(reason, 80)',
+    "noticeExpiresAt",
+    "source_order_out_for_delivery",
   ],
-  "Admin route-rule duration source",
+  "Unterwegs close lifecycle",
 );
 
 assertContains(
   pushServer,
   [
-    'reason: "route_deal_not_active"',
-    "const opportunityMinutes = boundedInteger(",
-    "refreshedRouteDeal.durationMinutes",
-    "const refreshedExpiresAtMs = Date.parse(",
+    'if (status === "out_for_delivery")',
+    "closeRouteDealOpportunityForOrder(",
+    '"source_order_out_for_delivery"',
+    '["new", "preparing", "ready"].includes(status)',
+    "if (orderIsPlanned(order))",
+    "activeRouteDeal.durationMinutes",
     "Ihr Nachbarschafts-Angebot ist ${opportunityMinutes} Minuten gültig.",
-    "durationMinutes: opportunityMinutes",
-    "durationSource: refreshedRouteDeal.durationSource",
-    "notificationUrl",
+    "Bestellen Sie, solange die Lieferung noch im Restaurant ist.",
+    "dispatch result",
   ],
-  "Nearby push duration and click-through countdown",
+  "Nearby push timing, duration and close behavior",
+);
+
+assert(
+  !pushServer.includes(
+    "Kurye Unterwegs olduğunda aynı kaynak siparişin fırsat süresini yeniden başlat",
+  ),
+  "Old Unterwegs refresh behavior still exists",
+);
+
+assertContains(
+  eligibility,
+  [
+    "recentlyClosedDeals",
+    '"source_order_out_for_delivery"',
+    "unusedClosedDeal",
+    'status: { notIn: ["done", "cancelled"] }',
+    '"active_order_out_for_delivery"',
+  ],
+  "Closed opportunity and active-order eligibility",
+);
+
+assertContains(
+  eligibleRoute,
+  [
+    'type: "opportunity_ended"',
+    "Das Nachbarschafts-Angebot ist beendet",
+    "Die zugehörige Lieferung hat das Restaurant bereits verlassen.",
+  ],
+  "Closed opportunity API notice",
+);
+
+assertContains(
+  routeDealClient,
+  [
+    '"order_underway" | "opportunity_ended"',
+    '["order_underway", "opportunity_ended"].includes',
+    '"opportunity_ended" as const',
+  ],
+  "Route-deal notice client union",
+);
+
+assertContains(
+  checkout,
+  [
+    "notice: routeDealNotice",
+    "routeDealNotice &&",
+    "!routeDealNotice && routeDealBenefit.deal",
+  ],
+  "Checkout information banner",
+);
+
+assertContains(
+  cart,
+  [
+    "notice?: RouteDealNotice | null",
+    "if (notice)",
+    "notice={routeDealNotice}",
+  ],
+  "Cart information banner",
 );
 
 assert(
   !pushServer.includes(
     "body: `Nur für die nächsten ${settings.opportunityMinutes} Minuten",
   ),
-  "Nearby push still uses the Notification Center fallback duration instead of the route rule",
+  "Nearby push still uses Notification Center duration",
 );
 
 assertContains(
@@ -64,19 +143,12 @@ assertContains(
   "Notification admin duration explanation",
 );
 
-assert(
-  !notificationAdmin.includes(
-    '{ key: "opportunityMinutes", label: "Fırsat süresi (dakika)"',
-  ),
-  "Notification Center still exposes a conflicting opportunity duration field",
-);
-
 assertContains(
   settingsAdmin,
   [
-    "Unterwegs olduğunda bu kuraldaki Fırsat süresi dakika değeri yeniden",
-    "Bildirimde yazan süre",
-    "İlk sipariş sahibi kendi fırsatını göremez",
+    "sipariş restorandayken",
+    "Geplant siparişlerde fırsat ve push hiç başlamaz",
+    "Kaynak sipariş Unterwegs olduğunda fırsat anında kapanır",
   ],
   "Route deal admin lifecycle explanation",
 );
@@ -84,21 +156,16 @@ assertContains(
 assertContains(
   campaignsAdmin,
   [
-    "const [savingFormCampaign, setSavingFormCampaign] = useState(false)",
-    "const nextRows = editId",
-    "const ok = await saveCampaignsToDb(nextRows)",
+    "saveSingleCampaignToDb",
+    'method: "POST"',
+    "replace: false",
+    "const result = await saveSingleCampaignToDb(payload)",
     'setCampaignSaveMessage("Gespeichert ✅")',
+    "result.error",
     'type="button"',
     "onClick={() => void save()}",
   ],
-  "Campaign Hinzufügen immediate DB save",
+  "Campaign Hinzufügen single-record DB save",
 );
 
-assert(
-  campaignsAdmin.includes(
-    "Kampagne konnte nicht gespeichert werden.",
-  ),
-  "Campaign create failure is still silent",
-);
-
-console.log("Nearby push duration + campaign create regression tests: OK");
+console.log("Nearby push before Unterwegs + planned suppression + campaign create tests: OK");

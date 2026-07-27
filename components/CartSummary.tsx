@@ -21,6 +21,7 @@ import type { FreebieEvaluation, FreebieUnit } from "@/lib/freebies";
 import { evaluateConditionalCartCampaign } from "@/lib/conditional-campaign";
 import { computePfand } from "@/lib/pfand";
 import { useEligibleRouteDeal } from "@/lib/client/route-deal";
+import type { RouteDealNotice } from "@/lib/client/route-deal";
 
 /* LS Keys */
 const LS_CHECKOUT = "bb_checkout_info_v1";
@@ -332,7 +333,33 @@ function computeRouteDealBenefit(params: {
   };
 }
 
-function RouteDealMiniBanner({ benefit, nowMs }: { benefit: RouteDealBenefit; nowMs: number }) {
+function RouteDealMiniBanner({
+  benefit,
+  nowMs,
+  notice,
+}: {
+  benefit: RouteDealBenefit;
+  nowMs: number;
+  notice?: RouteDealNotice | null;
+}) {
+  if (notice) {
+    return (
+      <div className="mb-3 rounded-xl border border-amber-400/35 bg-amber-400/10 p-3 text-sm text-amber-100">
+        <div className="flex items-start gap-3">
+          <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-amber-300 text-lg text-black">
+            🚗
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="font-semibold">{notice.title}</div>
+            <div className="mt-1 text-xs leading-relaxed opacity-95">
+              {notice.message}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (!benefit.deal) return null;
 
   return (
@@ -1042,7 +1069,7 @@ export default function CartSummary() {
   const couponAmount = Math.min(afterDiscount, Math.max(0, coupon.amount || 0));
   const routeDealBaseTotal = +((afterDiscount - couponAmount) + surcharges).toFixed(2);
 
-  const { deal: activeRouteDeal } = useEligibleRouteDeal({
+  const { deal: activeRouteDeal, notice: routeDealNotice } = useEligibleRouteDeal({
     enabled: settingsRaw?.routeDeals?.enabled === true,
     mode: orderMode,
     zip: String(plzEffective || ""),
@@ -1210,7 +1237,11 @@ export default function CartSummary() {
 
         {/* Akıllı Rota Fırsatı */}
         <ConditionalCampaignBanner result={conditionalCampaign} />
-        <RouteDealMiniBanner benefit={routeDealBenefit} nowMs={routeDealNowMs} />
+        <RouteDealMiniBanner
+          benefit={routeDealBenefit}
+          nowMs={routeDealNowMs}
+          notice={routeDealNotice}
+        />
 
         {/* Lines */}
         <div className="max-h-[50vh] space-y-4 overflow-auto pr-1">
@@ -1451,7 +1482,7 @@ export function CartSummaryMobile() {
   const couponAmount = Math.min(afterDiscount, Math.max(0, coupon.amount || 0));
   const routeDealBaseTotal = +((afterDiscount - couponAmount) + surcharges).toFixed(2);
 
-  const { deal: activeRouteDeal } = useEligibleRouteDeal({
+  const { deal: activeRouteDeal, notice: routeDealNotice } = useEligibleRouteDeal({
     enabled: settingsRaw?.routeDeals?.enabled === true,
     mode: orderMode,
     zip: String(plzEffective || ""),
@@ -1674,7 +1705,11 @@ export function CartSummaryMobile() {
 
             {/* Akıllı Rota Fırsatı */}
             <ConditionalCampaignBanner result={conditionalCampaign} />
-        <RouteDealMiniBanner benefit={routeDealBenefit} nowMs={routeDealNowMs} />
+        <RouteDealMiniBanner
+          benefit={routeDealBenefit}
+          nowMs={routeDealNowMs}
+          notice={routeDealNotice}
+        />
 
             {/* Lines */}
             {isEmpty && <div className="mb-3 text-sm text-stone-400">Noch keine Artikel im Warenkorb.</div>}

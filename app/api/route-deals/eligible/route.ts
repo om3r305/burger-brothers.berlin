@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getTenantId } from "@/lib/db";
 import { findGeneralPushSubscriptionForRequest } from "@/lib/server/general-push";
 import { getServerSettings } from "@/lib/server/settings";
-import { findEligibleRouteDealForCustomer } from "@/lib/server/route-deal-eligibility";
+import { evaluateRouteDealForCustomer } from "@/lib/server/route-deal-eligibility";
 import {
   enforceRateLimit,
   forbiddenResponse,
@@ -104,7 +104,7 @@ export async function POST(req: Request) {
     street: submittedCustomer.street || preference.street || undefined,
   };
 
-  const deal = await findEligibleRouteDealForCustomer({
+  const evaluation = await evaluateRouteDealForCustomer({
     tenantId,
     settings,
     mode,
@@ -113,9 +113,28 @@ export async function POST(req: Request) {
     now: new Date(),
   });
 
+  const notice =
+    evaluation.reason === "active_order_out_for_delivery"
+      ? {
+          type: "order_underway",
+          title: "Ihre Bestellung ist bereits unterwegs",
+          message:
+            "Das Nachbarschafts-Angebot kann für diese Bestellung nicht mehr genutzt werden.",
+        }
+      : evaluation.reason === "source_order_out_for_delivery"
+        ? {
+            type: "opportunity_ended",
+            title: "Das Nachbarschafts-Angebot ist beendet",
+            message:
+              "Die zugehörige Lieferung hat das Restaurant bereits verlassen. Für neue Bestellungen kann dieser Rabatt nicht mehr genutzt werden.",
+          }
+        : null;
+
   return json({
     ok: true,
-    eligible: Boolean(deal),
-    deal: publicDeal(deal),
+    eligible: Boolean(evaluation.deal),
+    deal: publicDeal(evaluation.deal),
+    reason: evaluation.reason,
+    notice,
   });
 }

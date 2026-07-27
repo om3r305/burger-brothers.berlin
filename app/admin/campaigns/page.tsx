@@ -562,6 +562,8 @@ async function saveCampaignsToDb(rows: Campaign[]) {
   try {
     const res = await fetch(API_CAMPAIGNS, {
       method: "PUT",
+      credentials: "same-origin",
+      cache: "no-store",
       headers: {
         "Content-Type": "application/json",
         accept: "application/json",
@@ -586,6 +588,73 @@ async function saveCampaignsToDb(rows: Campaign[]) {
   } catch (error) {
     console.error("saveCampaignsToDb failed:", error);
     return false;
+  }
+}
+
+
+type SingleCampaignSaveResult = {
+  ok: boolean;
+  campaigns: Campaign[];
+  error?: string;
+};
+
+async function saveSingleCampaignToDb(
+  campaign: Campaign,
+): Promise<SingleCampaignSaveResult> {
+  try {
+    /*
+      Hinzufügen yalnız düzenlenen tek kampanyayı kaydeder. Böylece eski listede
+      bozuk/stale bir kayıt varsa yeni kampanyanın transaction'ını engellemez.
+      API başarılı cevabında güncel DB listesini geri döndürür.
+    */
+    const res = await fetch(API_CAMPAIGNS, {
+      method: "POST",
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: {
+        "Content-Type": "application/json",
+        accept: "application/json",
+      },
+      body: JSON.stringify({
+        item: campaignForDb(campaign),
+        replace: false,
+      }),
+    });
+
+    const json = await res.json().catch(() => ({}));
+
+    if (!res.ok || json?.ok === false) {
+      const message = String(
+        json?.message ||
+          json?.error ||
+          `CAMPAIGN_SAVE_${res.status}`,
+      );
+      throw new Error(message);
+    }
+
+    const campaigns = normalizeCampaignList(json);
+
+    try {
+      window.dispatchEvent(new CustomEvent("bb:refresh-catalog"));
+    } catch {}
+
+    return {
+      ok: true,
+      campaigns,
+    };
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Kampagne konnte nicht gespeichert werden.";
+
+    console.error("saveSingleCampaignToDb failed:", error);
+
+    return {
+      ok: false,
+      campaigns: [],
+      error: message,
+    };
   }
 }
 
@@ -866,27 +935,30 @@ export default function AdminCampaignsPage() {
       maxQtyPerOrder: maxQtyPerOrder ? Number(maxQtyPerOrder) : null,
     };
 
-    const nextRows = editId
-      ? rows.map((row) => (row.id === editId ? payload : row))
-      : [...rows, payload];
-
     setSavingFormCampaign(true);
     setCampaignSaveMessage("Wird gespeichert…");
 
-    const ok = await saveCampaignsToDb(nextRows);
+    const result = await saveSingleCampaignToDb(payload);
 
-    if (!ok) {
+    if (!result.ok) {
       setCampaignSaveMessage("Speichern fehlgeschlagen");
       setSavingFormCampaign(false);
       alert(
-        "Kampagne konnte nicht gespeichert werden. Bitte Anmeldung, Verbindung und Pflichtfelder prüfen.",
+        `Kampagne konnte nicht gespeichert werden.\n${result.error || "Bitte Anmeldung und Verbindung prüfen."}`,
       );
       return;
     }
 
-    setRows(nextRows);
+    const savedRows =
+      result.campaigns.length > 0
+        ? result.campaigns
+        : editId
+          ? rows.map((row) => (row.id === editId ? payload : row))
+          : [...rows, payload];
+
+    setRows(savedRows);
     setCampaignSource("server");
-    writeLocalCache(LS_CAMPAIGNS, nextRows);
+    writeLocalCache(LS_CAMPAIGNS, savedRows);
     setCampaignsDirty(false);
     setCampaignSaveMessage("Gespeichert ✅");
     setSavingFormCampaign(false);
