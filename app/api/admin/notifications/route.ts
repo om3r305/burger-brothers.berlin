@@ -9,6 +9,7 @@ import {
 } from "@/lib/server/general-push";
 import { processDueAutomaticNotifications } from "@/lib/server/automatic-notifications";
 import {
+  readAdminRouteStreetGroups,
   readNearbyDeliverySettings,
   saveNearbyDeliverySettings,
 } from "@/lib/server/nearby-delivery-settings";
@@ -50,8 +51,14 @@ export async function GET(req: Request) {
   if (rate) return rate;
 
   const tenantId = await getTenantId();
-  const [activeSubscriptions, marketingSubscriptions, orderSubscriptions, recent, nearbySettings] =
-    await Promise.all([
+  const [
+    activeSubscriptions,
+    marketingSubscriptions,
+    orderSubscriptions,
+    recent,
+    nearbySettings,
+    adminRouteStreetGroups,
+  ] = await Promise.all([
       (prisma as any).pushSubscription.count({
         where: { tenantId, active: true },
       }),
@@ -63,6 +70,7 @@ export async function GET(req: Request) {
             is: {
               marketingConsentedAt: { not: null },
               OR: [
+                { allNotifications: true },
                 { campaigns: true },
                 { coupons: true },
                 { nearbyDelivery: true },
@@ -75,7 +83,7 @@ export async function GET(req: Request) {
         where: {
           tenantId,
           active: true,
-          preference: { is: { orderUpdates: true } },
+          preference: { is: { OR: [{ allNotifications: true }, { orderUpdates: true }] } },
         },
       }),
       (prisma as any).notificationCampaign.findMany({
@@ -84,6 +92,7 @@ export async function GET(req: Request) {
         take: 20,
       }),
       readNearbyDeliverySettings(tenantId),
+      readAdminRouteStreetGroups(),
     ]);
 
   runAfterResponse(async () => {
@@ -100,6 +109,7 @@ export async function GET(req: Request) {
       orderSubscriptions,
     },
     nearbySettings,
+    adminRouteStreetGroups,
     recent: recent.map((item: any) => ({
       id: item.id,
       kind: item.kind,

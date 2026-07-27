@@ -1,16 +1,15 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import QRCode from "react-qr-code";
 import {
   activateGeneralPushFromGesture,
+  ALL_GENERAL_PUSH_PREFERENCES,
   disableGeneralPush,
+  ensureCustomerAppPushRegistration,
   isIOSDevice,
   isStandaloneApp,
   loadGeneralPushState,
-  updateGeneralPushPreferences,
-  type GeneralPushPreferences,
 } from "@/lib/client/general-push";
 
 type BeforeInstallPromptEvent = Event & {
@@ -28,16 +27,11 @@ type DeviceState = {
   isMobile: boolean;
 };
 
-const INSTALL_ONBOARDING_KEY = "bb_general_install_done_v1";
+type NotificationDecision = "accepted" | "declined" | null;
 
-const DEFAULT_PREFERENCES: GeneralPushPreferences = {
-  orderUpdates: true,
-  campaigns: false,
-  coupons: false,
-  nearbyDelivery: false,
-  nearbyRadiusM: 800,
-  nearbyCooldownDays: 7,
-};
+const NOTIFICATION_DECISION_KEY = "bb_notification_prompt_decision_v1";
+const LEGACY_ONBOARDING_KEY = "bb_general_install_done_v1";
+const HOME_URL = "/";
 
 function detectDevice(): DeviceState {
   if (typeof window === "undefined") {
@@ -62,12 +56,31 @@ function detectDevice(): DeviceState {
   };
 }
 
+function readDecision(): NotificationDecision {
+  try {
+    const stored = localStorage.getItem(NOTIFICATION_DECISION_KEY);
+    if (stored === "accepted" || stored === "declined") return stored;
+  } catch {}
+  return null;
+}
+
+function saveDecision(decision: Exclude<NotificationDecision, null>) {
+  try {
+    localStorage.setItem(NOTIFICATION_DECISION_KEY, decision);
+    localStorage.setItem(LEGACY_ONBOARDING_KEY, "1");
+  } catch {}
+}
+
+function wait(milliseconds: number) {
+  return new Promise<void>((resolve) => {
+    window.setTimeout(resolve, milliseconds);
+  });
+}
+
 function messageForActivation(code: string) {
   switch (code) {
     case "ios_home_screen_required":
       return "Bitte zuerst über Safari zum Home-Bildschirm hinzufügen und Burger Brothers danach über das neue Symbol öffnen.";
-    case "permission_denied":
-      return "Benachrichtigungen wurden blockiert. Bitte in den iPhone-/Android-Einstellungen für Burger Brothers erlauben.";
     case "not_configured":
       return "Der Benachrichtigungsdienst ist auf dem Server noch nicht vollständig eingerichtet.";
     case "disabled":
@@ -75,44 +88,13 @@ function messageForActivation(code: string) {
     case "unsupported":
       return "Dieser Browser unterstützt keine App-Benachrichtigungen.";
     case "service_worker_failed":
-      return "Die App-Komponente konnte nicht gestartet werden. Bitte die App schließen und erneut öffnen.";
+      return "Die App-Komponente konnte nicht gestartet werden.";
     case "subscription_failed":
-      return "Die Geräteanmeldung ist fehlgeschlagen. Bitte erneut versuchen.";
+    case "server_failed":
+      return "Die Geräteanmeldung konnte noch nicht abgeschlossen werden.";
     default:
-      return "Benachrichtigungen konnten nicht aktiviert werden. Bitte erneut versuchen.";
+      return "Benachrichtigungen wurden nicht aktiviert.";
   }
-}
-
-function ToggleRow({
-  checked,
-  onChange,
-  title,
-  description,
-  locked,
-}: {
-  checked: boolean;
-  onChange: (next: boolean) => void;
-  title: string;
-  description: string;
-  locked?: boolean;
-}) {
-  return (
-    <label className="flex cursor-pointer items-start gap-4 rounded-2xl border border-white/10 bg-white/[0.055] p-4 text-left transition hover:bg-white/[0.08]">
-      <input
-        type="checkbox"
-        checked={checked}
-        disabled={locked}
-        onChange={(event) => onChange(event.target.checked)}
-        className="mt-1 h-5 w-5 accent-emerald-400"
-      />
-      <span>
-        <span className="block font-black text-white">{title}</span>
-        <span className="mt-1 block text-sm leading-6 text-stone-400">
-          {description}
-        </span>
-      </span>
-    </label>
-  );
 }
 
 export default function InstallPage() {
@@ -121,41 +103,94 @@ export default function InstallPage() {
     useState<BeforeInstallPromptEvent | null>(null);
   const [installBusy, setInstallBusy] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
-  const [locationBusy, setLocationBusy] = useState(false);
+  const [routingHome, setRoutingHome] = useState(false);
+  const [decision, setDecision] = useState<NotificationDecision>(null);
   const [pushSubscribed, setPushSubscribed] = useState(false);
+  const [settingsMode, setSettingsMode] = useState(false);
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"ok" | "error" | "info">(
     "info",
   );
   const [installUrl, setInstallUrl] = useState("");
-  const [preferences, setPreferences] =
-    useState<GeneralPushPreferences>(DEFAULT_PREFERENCES);
   const iosStepsRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
     const currentDevice = detectDevice();
+    const currentSettingsMode =
+      new URLSearchParams(window.location.search).get("settings") === "1";
+
     setDevice(currentDevice);
+    setSettingsMode(currentSettingsMode);
     setInstallUrl(`${window.location.origin}/install`);
-
-    if (currentDevice.isStandalone) {
-      const settingsMode =
-        new URLSearchParams(window.location.search).get("settings") === "1";
-      let onboardingDone = false;
-      try {
-        onboardingDone = localStorage.getItem(INSTALL_ONBOARDING_KEY) === "1";
-      } catch {}
-
-      if (onboardingDone && !settingsMode) {
-        window.location.replace("/menu");
-        return;
-      }
-    }
 
     if ("serviceWorker" in navigator) {
       void navigator.serviceWorker
         .register("/sw.js", { scope: "/" })
         .catch(() => undefined);
     }
+
+    const initializeStandalone = async () => {
+      if (!currentDevice.isStandalone) return;
+
+      let storedDecision = readDecision();
+
+      if (!storedDecision) {
+        let legacyDone = false;
+        try {
+          legacyDone = localStorage.getItem(LEGACY_ONBOARDING_KEY) === "1";
+        } catch {}
+
+        if (legacyDone) {
+          storedDecision =
+            typeof Notification !== "undefined" &&
+            Notification.permission === "granted"
+              ? "accepted"
+              : "declined";
+          saveDecision(storedDecision);
+        } else if (
+          typeof Notification !== "undefined" &&
+          Notification.permission === "granted"
+        ) {
+          try {
+            const state = await loadGeneralPushState();
+            if (state.subscribed) {
+              storedDecision = "accepted";
+              saveDecision("accepted");
+            }
+          } catch {}
+        }
+      }
+
+      if (cancelled) return;
+      setDecision(storedDecision);
+
+      if (currentSettingsMode) {
+        try {
+          const state = await loadGeneralPushState();
+          if (!cancelled) setPushSubscribed(state.subscribed === true);
+        } catch {}
+        return;
+      }
+
+      if (!storedDecision) return;
+
+      setRoutingHome(true);
+      if (
+        storedDecision === "accepted" &&
+        typeof Notification !== "undefined" &&
+        Notification.permission === "granted"
+      ) {
+        await Promise.race([
+          ensureCustomerAppPushRegistration(),
+          wait(1_200),
+        ]).catch(() => undefined);
+      }
+
+      if (!cancelled) window.location.replace(HOME_URL);
+    };
+
+    void initializeStandalone();
 
     const onBeforeInstallPrompt = (event: Event) => {
       event.preventDefault();
@@ -174,74 +209,18 @@ export default function InstallPage() {
     window.addEventListener("appinstalled", onInstalled);
 
     return () => {
+      cancelled = true;
       window.removeEventListener("beforeinstallprompt", onBeforeInstallPrompt);
       window.removeEventListener("appinstalled", onInstalled);
     };
   }, []);
 
-  useEffect(() => {
-    if (!device.isStandalone) return;
-
-    void loadGeneralPushState()
-      .then((state) => {
-        setPushSubscribed(state.subscribed === true);
-        if (state.preferences) {
-          setPreferences({
-            ...DEFAULT_PREFERENCES,
-            ...state.preferences,
-          });
-        }
-      })
-      .catch(() => undefined);
-  }, [device.isStandalone]);
-
   const installationTitle = useMemo(() => {
-    if (device.isStandalone) return "Burger Brothers App";
+    if (device.isStandalone) return "Burger Brothers";
     if (device.isIOS) return "Auf dem iPhone speichern";
     if (device.isAndroid) return "Auf Android installieren";
     return "Burger Brothers installieren";
   }, [device]);
-
-  const markOnboardingDone = () => {
-    try {
-      localStorage.setItem(INSTALL_ONBOARDING_KEY, "1");
-    } catch {}
-  };
-
-  const updatePreference = (
-    key: keyof GeneralPushPreferences,
-    value: boolean,
-  ) => {
-    setPreferences((current) => ({ ...current, [key]: value }));
-  };
-
-  const captureLocation = () => {
-    if (!("geolocation" in navigator)) {
-      setMessageTone("error");
-      setMessage("Standortbestimmung wird von diesem Gerät nicht unterstützt.");
-      return;
-    }
-
-    setLocationBusy(true);
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        setPreferences((current) => ({
-          ...current,
-          lat: position.coords.latitude,
-          lng: position.coords.longitude,
-        }));
-        setMessageTone("ok");
-        setMessage("Standort wurde nur für die freiwillige Nähe-Funktion gespeichert.");
-        setLocationBusy(false);
-      },
-      () => {
-        setMessageTone("error");
-        setMessage("Standort konnte nicht übernommen werden. PLZ und Straße können Sie auch manuell eintragen.");
-        setLocationBusy(false);
-      },
-      { enableHighAccuracy: false, timeout: 10_000, maximumAge: 15 * 60_000 },
-    );
-  };
 
   const handleInstall = async () => {
     if (device.isStandalone) return;
@@ -288,65 +267,82 @@ export default function InstallPage() {
     }
   };
 
-  const handlePush = async () => {
+  const goHome = () => {
+    setRoutingHome(true);
+    window.location.replace(HOME_URL);
+  };
+
+  const handleNotificationYes = async () => {
+    if (pushBusy) return;
+
     setPushBusy(true);
     setMessage("");
+    saveDecision("accepted");
+    setDecision("accepted");
 
     try {
-      const result = await activateGeneralPushFromGesture(preferences);
-      if (!result.ok) {
-        setMessageTone("error");
-        setMessage(messageForActivation(result.code));
-        return;
+      const result = await activateGeneralPushFromGesture(
+        ALL_GENERAL_PUSH_PREFERENCES,
+      );
+
+      if (result.ok) {
+        setPushSubscribed(true);
+      } else if (
+        result.code === "permission_denied" ||
+        result.code === "permission_default" ||
+        result.code === "unsupported"
+      ) {
+        saveDecision("declined");
+        setDecision("declined");
+      } else {
+        // The user already chose Yes. Keep that choice and silently repair the
+        // customer-app registration on a later launch if the server was temporary unavailable.
+        console.warn(messageForActivation(result.code));
       }
-
-      setPushSubscribed(true);
-      markOnboardingDone();
-      setMessageTone("ok");
-      setMessage(
-        "Benachrichtigungen sind aktiviert. Bestellstatus, Angebote und Gutscheine werden entsprechend Ihrer Auswahl angezeigt.",
-      );
     } catch {
-      setMessageTone("error");
-      setMessage(
-        "Benachrichtigungen konnten nicht aktiviert werden. Bitte Verbindung prüfen und erneut versuchen.",
-      );
+      // Preserve the user's Yes choice. A later app launch retries silently.
     } finally {
-      setPushBusy(false);
+      goHome();
     }
   };
 
-  const savePreferences = async () => {
-    setPushBusy(true);
-    setMessage("");
-    try {
-      await updateGeneralPushPreferences(preferences);
-      setMessageTone("ok");
-      setMessage("Ihre Benachrichtigungseinstellungen wurden gespeichert.");
-    } catch {
-      setMessageTone("error");
-      setMessage("Einstellungen konnten nicht gespeichert werden. Bitte erneut versuchen.");
-    } finally {
-      setPushBusy(false);
-    }
+  const handleNotificationNo = () => {
+    saveDecision("declined");
+    setDecision("declined");
+    goHome();
   };
 
-  const disablePush = async () => {
+  const handleDisable = async () => {
     setPushBusy(true);
     setMessage("");
     try {
       const ok = await disableGeneralPush();
       if (!ok) throw new Error("unsubscribe_failed");
+      saveDecision("declined");
+      setDecision("declined");
       setPushSubscribed(false);
       setMessageTone("ok");
-      setMessage("Benachrichtigungen wurden für dieses Gerät deaktiviert.");
+      setMessage("Benachrichtigungen wurden deaktiviert.");
     } catch {
       setMessageTone("error");
-      setMessage("Benachrichtigungen konnten nicht deaktiviert werden. Bitte erneut versuchen.");
+      setMessage("Benachrichtigungen konnten nicht deaktiviert werden.");
     } finally {
       setPushBusy(false);
     }
   };
+
+  if (routingHome) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-black text-white">
+        <div className="text-center">
+          <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-white/20 border-t-emerald-400" />
+          <p className="mt-4 text-sm font-semibold text-stone-300">
+            Burger Brothers wird geöffnet …
+          </p>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="min-h-screen overflow-hidden bg-black text-stone-100">
@@ -373,9 +369,8 @@ export default function InstallPage() {
         {!device.isStandalone ? (
           <>
             <p className="mt-5 max-w-2xl text-base leading-7 text-stone-300 sm:text-lg">
-              Einmal auf dem Startbildschirm speichern. Danach bestellen Sie
-              wie mit einer normalen App und erhalten auf Wunsch Bestellstatus,
-              Angebote und persönliche Gutscheine.
+              Einmal auf dem Startbildschirm speichern. Danach öffnen und bestellen
+              Sie wie mit einer normalen App.
             </p>
 
             <button
@@ -435,130 +430,67 @@ export default function InstallPage() {
             ) : null}
           </>
         ) : (
-          <div className="mt-7 w-full max-w-2xl">
-            <div className="rounded-[2rem] border border-emerald-300/20 bg-emerald-950/25 p-5 shadow-2xl backdrop-blur sm:p-7">
-              <div className="text-sm font-black uppercase tracking-[0.2em] text-emerald-300">
-                App erfolgreich geöffnet
-              </div>
-              <h2 className="mt-3 text-3xl font-black text-white">
-                Benachrichtigungen auswählen
-              </h2>
-              <p className="mt-3 text-sm leading-6 text-stone-300">
-                Bestellmeldungen sind praktisch. Angebote, Gutscheine und
-                Lieferungen in Ihrer Nähe sind freiwillig und können jederzeit
-                geändert werden.
-              </p>
+          <div className="mt-7 w-full max-w-md">
+            <div className="rounded-[2rem] border border-white/10 bg-white/[0.06] p-6 shadow-2xl backdrop-blur sm:p-8">
+              {settingsMode && decision === "accepted" && pushSubscribed ? (
+                <>
+                  <h2 className="text-2xl font-black text-white">
+                    Benachrichtigungen sind aktiv
+                  </h2>
+                  <p className="mt-3 text-sm leading-6 text-stone-300">
+                    Sie können diese Einstellung jederzeit wieder ändern.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => void handleDisable()}
+                    disabled={pushBusy}
+                    className="mt-6 w-full rounded-2xl border border-white/15 bg-white/[0.08] px-6 py-4 text-base font-black text-white transition hover:bg-white/[0.14] disabled:opacity-60"
+                  >
+                    Benachrichtigungen deaktivieren
+                  </button>
+                  <button
+                    type="button"
+                    onClick={goHome}
+                    className="mt-3 w-full rounded-2xl bg-emerald-400 px-6 py-4 text-base font-black text-black transition hover:bg-emerald-300"
+                  >
+                    Zur Startseite
+                  </button>
+                </>
+              ) : (
+                <>
+                  <h2 className="text-3xl font-black text-white">
+                    Benachrichtigungen aktivieren?
+                  </h2>
+                  <p className="mt-3 text-sm leading-6 text-stone-300">
+                    Wir informieren Sie über Ihre Bestellung und Neuigkeiten von
+                    Burger Brothers.
+                  </p>
 
-              <div className="mt-6 grid gap-3">
-                <ToggleRow
-                  checked={preferences.orderUpdates}
-                  onChange={(value) => updatePreference("orderUpdates", value)}
-                  title="Bestellstatus"
-                  description="Eingegangen, in Vorbereitung, abholbereit, unterwegs, geliefert oder storniert."
-                />
-                <ToggleRow
-                  checked={preferences.campaigns}
-                  onChange={(value) => updatePreference("campaigns", value)}
-                  title="Angebote & Kampagnen"
-                  description="Zum Beispiel Vegane Woche, Tagesangebote und besondere Aktionen."
-                />
-                <ToggleRow
-                  checked={preferences.coupons}
-                  onChange={(value) => updatePreference("coupons", value)}
-                  title="Persönliche Gutscheine"
-                  description="Eine Meldung, sobald ein neuer Gutschein für Sie freigeschaltet wurde."
-                />
-                <ToggleRow
-                  checked={preferences.nearbyDelivery}
-                  onChange={(value) => updatePreference("nearbyDelivery", value)}
-                  title="Lieferung in Ihrer Nähe"
-                  description="Eine diskrete Meldung, wenn wir gerade in Ihrer Umgebung liefern. Keine Kundendaten werden angezeigt."
-                />
-
-                {preferences.nearbyDelivery ? (
-                  <div className="rounded-2xl border border-amber-300/20 bg-amber-500/[0.06] p-4 text-left">
-                    <div className="font-black text-white">Ihre Umgebung festlegen</div>
-                    <p className="mt-1 text-sm leading-6 text-stone-400">
-                      PLZ und Straße oder der Gerätestandort verbessern die Zuordnung. Diese Angaben erscheinen niemals in einer Benachrichtigung.
-                    </p>
-                    <div className="mt-4 grid gap-3 sm:grid-cols-[140px_1fr]">
-                      <input
-                        value={preferences.plz || ""}
-                        onChange={(event) =>
-                          setPreferences((current) => ({
-                            ...current,
-                            plz: event.target.value.replace(/\D/g, "").slice(0, 5),
-                          }))
-                        }
-                        inputMode="numeric"
-                        placeholder="PLZ"
-                        className="rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-white outline-none"
-                      />
-                      <input
-                        value={preferences.street || ""}
-                        onChange={(event) =>
-                          setPreferences((current) => ({
-                            ...current,
-                            street: event.target.value,
-                          }))
-                        }
-                        placeholder="Straße (ohne Hausnummer ausreichend)"
-                        className="rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-white outline-none"
-                      />
-                    </div>
+                  <div className="mt-7 grid grid-cols-2 gap-3">
                     <button
                       type="button"
-                      onClick={captureLocation}
-                      disabled={locationBusy}
-                      className="mt-3 rounded-xl border border-white/15 bg-white/[0.07] px-4 py-3 text-sm font-black text-white disabled:opacity-60"
+                      onClick={() => void handleNotificationYes()}
+                      disabled={pushBusy}
+                      className="rounded-2xl bg-emerald-400 px-5 py-4 text-lg font-black text-black transition hover:bg-emerald-300 active:scale-[0.98] disabled:opacity-60"
                     >
-                      {locationBusy
-                        ? "Standort wird gelesen …"
-                        : preferences.lat != null && preferences.lng != null
-                          ? "Standort aktualisieren ✓"
-                          : "Gerätestandort verwenden"}
+                      {pushBusy ? "Bitte warten …" : "Ja"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleNotificationNo}
+                      disabled={pushBusy}
+                      className="rounded-2xl border border-white/15 bg-white/[0.08] px-5 py-4 text-lg font-black text-white transition hover:bg-white/[0.14] active:scale-[0.98] disabled:opacity-60"
+                    >
+                      Nein
                     </button>
                   </div>
-                ) : null}
-              </div>
 
-              <button
-                type="button"
-                onClick={pushSubscribed ? savePreferences : handlePush}
-                disabled={pushBusy}
-                className="mt-6 w-full rounded-2xl bg-emerald-400 px-6 py-4 text-lg font-black text-black transition hover:bg-emerald-300 active:scale-[0.98] disabled:opacity-60"
-              >
-                {pushBusy
-                  ? "Bitte warten …"
-                  : pushSubscribed
-                    ? "Einstellungen speichern"
-                    : "Benachrichtigungen aktivieren"}
-              </button>
-
-              <Link
-                href="/menu"
-                onClick={markOnboardingDone}
-                className="mt-3 block w-full rounded-2xl border border-white/15 bg-white/[0.07] px-6 py-4 text-lg font-black text-white transition hover:bg-white/[0.12] active:scale-[0.98]"
-              >
-                Menü öffnen
-              </Link>
-
-              {pushSubscribed ? (
-                <button
-                  type="button"
-                  onClick={() => void disablePush()}
-                  disabled={pushBusy}
-                  className="mt-3 w-full rounded-2xl px-6 py-3 text-sm font-bold text-stone-400 transition hover:bg-white/[0.05] hover:text-white disabled:opacity-60"
-                >
-                  Allgemeine App-Benachrichtigungen deaktivieren
-                </button>
-              ) : null}
-
-              <p className="mt-5 text-xs leading-5 text-stone-500">
-                Marketing-Benachrichtigungen werden nur entsprechend Ihrer
-                Auswahl gesendet. Ihre Zustimmung kann hier jederzeit geändert
-                werden.
-              </p>
+                  <p className="mt-5 text-xs leading-5 text-stone-500">
+                    Die Auswahl wird gespeichert und beim nächsten Öffnen nicht erneut
+                    angezeigt.
+                  </p>
+                </>
+              )}
             </div>
           </div>
         )}

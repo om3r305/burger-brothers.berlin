@@ -542,6 +542,10 @@ model PushSubscription {
   userAgent String?
   locale    String @default("de")
 
+  /// Only customer-installed Burger Brothers apps receive general notifications.
+  /// Operational screens (TV, driver, admin, dashboard, visit, print) stay outside.
+  appScope String @default("unknown")
+
   active        Boolean  @default(true)
   lastSeenAt    DateTime @default(now())
   lastPushAt    DateTime?
@@ -559,14 +563,15 @@ model PushSubscription {
   @@unique([tenantId, endpoint])
   @@unique([tenantId, deviceTokenHash])
   @@index([tenantId, active])
+  @@index([tenantId, appScope, active])
   @@index([tenantId, phone])
   @@index([tenantId, email])
   @@index([tenantId, customerId])
 }
 
 /**
- * Kullanıcı bildirim tercihleri. İşlemsel sipariş bildirimleri ile pazarlama
- * izinleri birbirinden ayrı tutulur.
+ * Kullanıcı bildirim onayı. Tek ana onay mevcut bütün bildirim türlerini açar;
+ * eski kategori alanları geriye uyumluluk ve ileride toplu kapatma için korunur.
  */
 model NotificationPreference {
   id             String @id @default(cuid())
@@ -575,10 +580,11 @@ model NotificationPreference {
   subscriptionId String @unique
   subscription   PushSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
 
-  orderUpdates   Boolean @default(true)
-  campaigns      Boolean @default(false)
-  coupons        Boolean @default(false)
-  nearbyDelivery Boolean @default(false)
+  allNotifications Boolean @default(false)
+  orderUpdates     Boolean @default(true)
+  campaigns        Boolean @default(false)
+  coupons          Boolean @default(false)
+  nearbyDelivery   Boolean @default(false)
 
   consentVersion     String    @default("1")
   orderConsentedAt   DateTime?
@@ -595,6 +601,7 @@ model NotificationPreference {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@index([tenantId, allNotifications])
   @@index([tenantId, campaigns])
   @@index([tenantId, coupons])
   @@index([tenantId, nearbyDelivery])

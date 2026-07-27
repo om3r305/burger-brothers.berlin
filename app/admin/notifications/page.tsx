@@ -34,7 +34,7 @@ type NearbyDeliverySettings = {
   enabled: boolean;
   sameStreet: boolean;
   streetGroupsEnabled: boolean;
-  streetGroups: Array<{ id: string; name: string; streets: string[] }>;
+  streetGroups: Array<{ id: string; name: string; plz: string[]; streets: string[] }>;
   samePlz: boolean;
   routeCluster: boolean;
   radiusEnabled: boolean;
@@ -144,6 +144,7 @@ export default function AdminNotificationsPage() {
   const [busy, setBusy] = useState<"" | "send" | "test" | "nearby">("");
   const [nearbySettings, setNearbySettings] =
     useState<NearbyDeliverySettings>(DEFAULT_NEARBY_SETTINGS);
+  const [adminRouteStreetGroups, setAdminRouteStreetGroups] = useState<NearbyDeliverySettings["streetGroups"]>([]);
   const [message, setMessage] = useState("");
   const [tone, setTone] = useState<"ok" | "error" | "info">("info");
 
@@ -164,6 +165,11 @@ export default function AdminNotificationsPage() {
           ? data.nearbySettings.streetGroups
           : [],
       });
+      setAdminRouteStreetGroups(
+        Array.isArray(data?.adminRouteStreetGroups)
+          ? data.adminRouteStreetGroups
+          : [],
+      );
     } catch (error) {
       setTone("error");
       setMessage(error instanceof Error ? error.message : "Veriler yüklenemedi.");
@@ -213,14 +219,24 @@ export default function AdminNotificationsPage() {
   ];
 
   const streetGroupsText = nearbySettings.streetGroups
-    .map((group) => `${group.name}: ${group.streets.join("; ")}`)
+    .map((group) =>
+      `${group.name}${group.plz?.length ? ` [${group.plz.join(", ")}]` : ""}: ${group.streets.join("; ")}`,
+    )
     .join("\n");
 
   const setStreetGroupsText = (value: string) => {
     const groups = value
       .split("\n")
       .map((line, index) => {
-        const [namePart, ...streetParts] = line.split(":");
+        const [labelPart, ...streetParts] = line.split(":");
+        const plzMatch = labelPart.match(/\[([^\]]+)\]\s*$/);
+        const plz = plzMatch
+          ? plzMatch[1]
+              .split(/[;,]/g)
+              .map((item) => item.replace(/\D/g, "").slice(0, 5))
+              .filter((item) => item.length === 5)
+          : [];
+        const namePart = labelPart.replace(/\s*\[[^\]]+\]\s*$/, "").trim();
         const streets = streetParts
           .join(":")
           .split(/[;,]/g)
@@ -228,7 +244,8 @@ export default function AdminNotificationsPage() {
           .filter(Boolean);
         return {
           id: nearbySettings.streetGroups[index]?.id || `group-${index + 1}`,
-          name: namePart.trim() || `Straßengruppe ${index + 1}`,
+          name: namePart || `Straßengruppe ${index + 1}`,
+          plz,
           streets,
         };
       })
@@ -567,13 +584,22 @@ export default function AdminNotificationsPage() {
           ))}
         </div>
 
+        <div className="mt-5 rounded-2xl border border-emerald-400/20 bg-emerald-500/[0.06] p-4 text-sm leading-6 text-stone-300">
+          <div className="font-black text-emerald-200">Admin Settings adresleri otomatik kullanılıyor</div>
+          <p className="mt-1">
+            Admin → Settings → Rota Fırsatları bölümündeki PLZ ve sokak kuralları
+            yakın teslimat eşleştirmesine doğrudan dahil edilir. Tanımlı aktif grup:
+            <strong className="ml-1 text-white">{adminRouteStreetGroups.length}</strong>
+          </p>
+        </div>
+
         <label className="mt-5 block text-sm text-stone-300">
-          Sokak grupları — her satır: Grup adı: Sokak 1; Sokak 2
+          Ek özel sokak grupları — Grup [PLZ]: Sokak 1; Sokak 2
           <textarea
             value={streetGroupsText}
             onChange={(event) => setStreetGroupsText(event.target.value)}
             rows={5}
-            placeholder={"Tegel Zentrum: Berliner Straße; Schlieperstraße\nBorsigwalde: Holzhauser Straße; Miraustraße"}
+            placeholder={"Tegel Zentrum [13507]: Berliner Straße; Schlieperstraße\nBorsigwalde [13509]: Holzhauser Straße; Miraustraße"}
             className="mt-2 w-full rounded-xl border border-stone-700 bg-stone-900 px-4 py-3 text-white"
           />
         </label>

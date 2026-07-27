@@ -27,10 +27,12 @@ const required = [
   "lib/server/general-push.ts",
   "lib/server/automatic-notifications.ts",
   "lib/server/nearby-delivery-settings.ts",
+  "lib/server/nearby-delivery-matcher.ts",
   "public/sw.js",
-  "public/burger-brothers-install-qr.png",
   "prisma/migrations/20260726210000_add_general_notifications/migration.sql",
   "prisma/migrations/20260726223000_extend_general_notification_automation/migration.sql",
+  "prisma/migrations/20260727090000_add_all_notifications_consent/migration.sql",
+  "prisma/migrations/20260727120000_add_customer_app_push_scope/migration.sql",
 ];
 
 for (const file of required) {
@@ -51,9 +53,12 @@ for (const model of [
 assertContains(
   schema,
   [
-    "campaigns      Boolean @default(false)",
-    "coupons        Boolean @default(false)",
-    "nearbyDelivery Boolean @default(false)",
+    "allNotifications Boolean @default(false)",
+    'appScope String @default("unknown")',
+    "@@index([tenantId, appScope, active])",
+    "campaigns        Boolean @default(false)",
+    "coupons          Boolean @default(false)",
+    "nearbyDelivery   Boolean @default(false)",
     "sourceKey  String?",
     "sourceHash String?",
     "expiresAt   DateTime?",
@@ -92,7 +97,34 @@ assertContains(
   ],
   "Automation extension migration",
 );
-for (const migration of [baseMigration, extensionMigration]) {
+const allConsentMigration = read(
+  "prisma/migrations/20260727090000_add_all_notifications_consent/migration.sql",
+);
+assertContains(
+  allConsentMigration,
+  [
+    'ADD COLUMN IF NOT EXISTS "allNotifications" BOOLEAN NOT NULL DEFAULT false',
+    'CREATE INDEX IF NOT EXISTS "NotificationPreference_tenantId_allNotifications_idx"',
+  ],
+  "All-notifications consent migration",
+);
+const customerAppScopeMigration = read(
+  "prisma/migrations/20260727120000_add_customer_app_push_scope/migration.sql",
+);
+assertContains(
+  customerAppScopeMigration,
+  [
+    'ADD COLUMN IF NOT EXISTS "appScope" TEXT NOT NULL DEFAULT \'unknown\'',
+    'CREATE INDEX IF NOT EXISTS "PushSubscription_tenantId_appScope_active_idx"',
+  ],
+  "Customer-app push scope migration",
+);
+for (const migration of [
+  baseMigration,
+  extensionMigration,
+  allConsentMigration,
+  customerAppScopeMigration,
+]) {
   assert(
     !/\b(DROP\s+TABLE|DROP\s+COLUMN|TRUNCATE|DELETE\s+FROM)\b/i.test(migration),
     "Notification migration contains destructive SQL",
@@ -134,6 +166,9 @@ assertContains(
     "notifyNearbyDelivery",
     "createAdminBroadcast",
     "marketingConsentedAt",
+    'GENERAL_PUSH_APP_SCOPE = "customer_app"',
+    "appScope: GENERAL_PUSH_APP_SCOPE",
+    "event.subscription.appScope !== GENERAL_PUSH_APP_SCOPE",
   ],
   "General push server",
 );
@@ -238,8 +273,10 @@ assertContains(
     "scheduledAt: { lte: now }",
     "existing?.sentAt",
     "automatic:${campaign.id}:${subscription.id}",
+    "allNotifications: true",
     "campaigns: true",
     "marketingConsentedAt: { not: null }",
+    "appScope: GENERAL_PUSH_APP_SCOPE",
     "resolveCampaignProduct",
     "targetProductSku",
     "categoryPath",
@@ -300,12 +337,15 @@ assert(
 
 /* Nearby-delivery matching controls, exclusions and privacy. */
 const nearbySettings = read("lib/server/nearby-delivery-settings.ts");
+const nearbyMatcher = read("lib/server/nearby-delivery-matcher.ts");
 assertContains(
   nearbySettings,
   [
     "sameStreet",
     "streetGroupsEnabled",
     "streetGroups",
+    "readAdminRouteStreetGroups",
+    "plz: plzList(rule?.plz)",
     "samePlz",
     "routeCluster",
     "radiusEnabled",
@@ -326,18 +366,36 @@ assertContains(
     "activePhones",
     "activeEmails",
     "minimumPastOrders",
-    "same_street",
-    "street_group",
-    "same_plz",
-    "route_cluster",
-    'matchType = "radius"',
+    "readAdminRouteStreetGroups",
+    "previous completed delivery orders",
+    "historyByPhone",
+    "historyByEmail",
+    "mode: true",
+    "orderMode(completedOrder) !== \"delivery\"",
     'type: "nearby_delivery"',
     "cooldownHours",
+    "recentCustomerIds",
+    "recentPhones",
+    "recentEmails",
     "maxRecipients",
     "opportunityMinutes",
     "Wir liefern gerade in Ihre Nähe! 🍔",
   ],
   "Nearby-delivery matching",
+);
+assertContains(
+  nearbyMatcher,
+  [
+    "group.plz.size === 0 && group.streets.size === 0",
+    "groupAcceptsNearbyAddress",
+    "rankNearbyDeliveryMatch",
+    'matchType = "same_street"',
+    'matchType = "street_group"',
+    'matchType = "same_plz"',
+    'matchType = "route_cluster"',
+    'matchType = "radius"',
+  ],
+  "Nearby-delivery pure matcher",
 );
 assert(
   !/body:\s*`[^`]*\$\{\s*(customer|currentPhone|currentEmail|street|plz)/.test(generalServer),
@@ -367,6 +425,11 @@ assertContains(
 );
 
 /* Install/onboarding and preference defaults. */
+const pushRoute = read("app/api/push/route.ts");
+assert(pushRoute.includes("allNotifications: normalized.allNotifications"));
+assert(!pushRoute.includes("plz: normalized.plz"), "Push API still exposes stored PLZ");
+assert(!pushRoute.includes("street: normalized.street"), "Push API still exposes stored street");
+
 const install = read("app/install/page.tsx");
 assertContains(
   install,
@@ -374,33 +437,71 @@ assertContains(
     "beforeinstallprompt",
     "Burger Brothers installieren",
     "Zum Home-Bildschirm",
-    "Benachrichtigungen aktivieren",
-    "Bestellstatus",
-    "Angebote & Kampagnen",
-    "Persönliche Gutscheine",
-    "Lieferung in Ihrer Nähe",
-    'window.location.replace("/menu")',
-    "campaigns: false",
-    "coupons: false",
-    "nearbyDelivery: false",
+    "Benachrichtigungen aktivieren?",
+    '"Ja"',
+    "Nein",
+    "NOTIFICATION_DECISION_KEY",
+    'window.location.replace(HOME_URL)',
+    'const HOME_URL = "/"',
+    "ensureCustomerAppPushRegistration",
+    "Die Auswahl wird gespeichert",
   ],
-  "Install and consent page",
+  "Install and one-time consent page",
 );
 
-const productCard = read("components/menu/ProductCard.tsx");
-assertContains(
-  productCard,
-  [
-    'get("product")',
-    "productId",
-    "scrollIntoView",
-    "setOpen(true)",
-    "data-product-id",
-  ],
-  "Product offer deep link",
+assert(!install.includes('placeholder="PLZ"'), "Install page still asks for PLZ");
+assert(!install.includes("Gerätestandort verwenden"), "Install page still asks for location");
+assert(!install.includes("ToggleRow"), "Install page still exposes separate notification toggles");
+assert(
+  !install.includes("Alle Benachrichtigungen aktivieren"),
+  "Install page still uses the confusing all-notifications wording",
 );
-const categoryRedirect = read("components/RouteCatRedirect.tsx");
-assertContains(categoryRedirect, ['sp.get("cat")', "router.replace"], "Category offer deep link");
+assert(
+  !install.includes('window.location.replace("/menu")'),
+  "Installed app still redirects to menu instead of the home page",
+);
+
+const pushClient = read("lib/client/general-push.ts");
+assertContains(
+  pushClient,
+  [
+    "ensureCustomerAppPushRegistration",
+    "Notification.permission !== \"granted\"",
+    "saveSubscription(subscription, ALL_GENERAL_PUSH_PREFERENCES)",
+  ],
+  "Silent customer-app registration repair",
+);
+
+
+assertContains(
+  generalServer,
+  [
+    "allNotifications",
+    'GENERAL_PUSH_CONSENT_VERSION = "3-single-prompt"',
+    'GENERAL_PUSH_APP_SCOPE = "customer_app"',
+    "Address/location values are never accepted from the permission screen",
+  ],
+  "Master notification consent",
+);
+
+if (exists("components/menu/ProductCard.tsx")) {
+  const productCard = read("components/menu/ProductCard.tsx");
+  assertContains(
+    productCard,
+    [
+      'get("product")',
+      "productId",
+      "scrollIntoView",
+      "setOpen(true)",
+      "data-product-id",
+    ],
+    "Product offer deep link",
+  );
+}
+if (exists("components/RouteCatRedirect.tsx")) {
+  const categoryRedirect = read("components/RouteCatRedirect.tsx");
+  assertContains(categoryRedirect, ['sp.get("cat")', "router.replace"], "Category offer deep link");
+}
 
 /* Order binding remains in both customer recovery paths. */
 const checkout = read("app/checkout/page.tsx");

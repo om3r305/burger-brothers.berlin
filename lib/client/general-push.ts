@@ -1,16 +1,19 @@
 "use client";
 
 export type GeneralPushPreferences = {
+  allNotifications: boolean;
   orderUpdates: boolean;
   campaigns: boolean;
   coupons: boolean;
   nearbyDelivery: boolean;
-  plz?: string;
-  street?: string;
-  lat?: number | null;
-  lng?: number | null;
-  nearbyRadiusM?: number;
-  nearbyCooldownDays?: number;
+};
+
+export const ALL_GENERAL_PUSH_PREFERENCES: GeneralPushPreferences = {
+  allNotifications: true,
+  orderUpdates: true,
+  campaigns: true,
+  coupons: true,
+  nearbyDelivery: true,
 };
 
 export type GeneralPushState = {
@@ -139,7 +142,7 @@ async function saveSubscription(
 }
 
 export async function activateGeneralPushFromGesture(
-  preferences: GeneralPushPreferences,
+  preferences: GeneralPushPreferences = ALL_GENERAL_PUSH_PREFERENCES,
 ): Promise<GeneralPushActivationResult> {
   if (!supportsPush()) {
     return { ok: false, code: "unsupported", permission: "default" };
@@ -206,6 +209,28 @@ export async function activateGeneralPushFromGesture(
     return { ok: false, code: "server_failed", permission };
   }
 }
+
+
+export async function ensureCustomerAppPushRegistration(): Promise<boolean> {
+  if (!supportsPush() || Notification.permission !== "granted") return false;
+
+  try {
+    const config = await loadGeneralPushState();
+    if (!config.enabled || !config.configured || !config.publicKey) return false;
+
+    const subscription = await currentSubscription(config.publicKey);
+    await saveSubscription(subscription, ALL_GENERAL_PUSH_PREFERENCES);
+
+    try {
+      localStorage.setItem("bb_general_push_activated_v1", String(Date.now()));
+    } catch {}
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 
 export async function updateGeneralPushPreferences(
   preferences: GeneralPushPreferences,

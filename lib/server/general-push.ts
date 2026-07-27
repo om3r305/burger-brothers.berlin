@@ -9,12 +9,22 @@ import {
   type StoredSchnellPushSubscription,
 } from "@/lib/server/schnell-push";
 import { readRequestCookie } from "@/lib/server/request-security";
-import { readNearbyDeliverySettings } from "@/lib/server/nearby-delivery-settings";
+import {
+  readAdminRouteStreetGroups,
+  readNearbyDeliverySettings,
+} from "@/lib/server/nearby-delivery-settings";
+import {
+  groupAcceptsNearbyAddress,
+  rankNearbyDeliveryMatch,
+  type NearbyAddressSnapshot,
+} from "@/lib/server/nearby-delivery-matcher";
 
 export const GENERAL_PUSH_COOKIE = "bb_push_device_v1";
-export const GENERAL_PUSH_CONSENT_VERSION = "1";
+export const GENERAL_PUSH_CONSENT_VERSION = "3-single-prompt";
+export const GENERAL_PUSH_APP_SCOPE = "customer_app";
 
 export type GeneralPushPreferences = {
+  allNotifications: boolean;
   orderUpdates: boolean;
   campaigns: boolean;
   coupons: boolean;
@@ -148,40 +158,41 @@ export function normalizeGeneralPushPreferences(
 ): GeneralPushPreferences {
   const raw = plainObject(value);
   const prev = previous || {};
+  const allNotifications =
+    typeof raw.allNotifications === "boolean"
+      ? raw.allNotifications
+      : prev.allNotifications === true;
 
   return {
-    orderUpdates:
-      typeof raw.orderUpdates === "boolean"
+    allNotifications,
+    orderUpdates: allNotifications
+      ? true
+      : typeof raw.orderUpdates === "boolean"
         ? raw.orderUpdates
         : prev.orderUpdates !== false,
-    campaigns:
-      typeof raw.campaigns === "boolean"
+    campaigns: allNotifications
+      ? true
+      : typeof raw.campaigns === "boolean"
         ? raw.campaigns
         : prev.campaigns === true,
-    coupons:
-      typeof raw.coupons === "boolean"
+    coupons: allNotifications
+      ? true
+      : typeof raw.coupons === "boolean"
         ? raw.coupons
         : prev.coupons === true,
-    nearbyDelivery:
-      typeof raw.nearbyDelivery === "boolean"
+    nearbyDelivery: allNotifications
+      ? true
+      : typeof raw.nearbyDelivery === "boolean"
         ? raw.nearbyDelivery
         : prev.nearbyDelivery === true,
-    plz: normalizePlz(raw.plz ?? prev.plz),
-    street: normalizeStreet(raw.street ?? prev.street),
-    lat: finiteNumber(raw.lat ?? prev.lat, -90, 90),
-    lng: finiteNumber(raw.lng ?? prev.lng, -180, 180),
-    nearbyRadiusM: boundedInteger(
-      raw.nearbyRadiusM ?? prev.nearbyRadiusM,
-      800,
-      200,
-      5_000,
-    ),
-    nearbyCooldownDays: boundedInteger(
-      raw.nearbyCooldownDays ?? prev.nearbyCooldownDays,
-      7,
-      1,
-      60,
-    ),
+    // Address/location values are never accepted from the permission screen.
+    // They are populated only from real delivery orders.
+    plz: normalizePlz(prev.plz),
+    street: normalizeStreet(prev.street),
+    lat: finiteNumber(prev.lat, -90, 90),
+    lng: finiteNumber(prev.lng, -180, 180),
+    nearbyRadiusM: boundedInteger(prev.nearbyRadiusM, 800, 200, 5_000),
+    nearbyCooldownDays: boundedInteger(prev.nearbyCooldownDays, 7, 1, 60),
   };
 }
 
@@ -197,6 +208,7 @@ export async function findGeneralPushSubscriptionForRequest(
     where: {
       tenantId,
       deviceTokenHash: tokenHash(token),
+      appScope: GENERAL_PUSH_APP_SCOPE,
       active: true,
     },
     include: {
@@ -267,6 +279,7 @@ export async function upsertGeneralPushSubscription(
           platform: platformFromUserAgent(userAgent),
           userAgent,
           locale,
+          appScope: GENERAL_PUSH_APP_SCOPE,
           active: true,
           lastSeenAt: new Date(),
           failureCount: 0,
@@ -287,6 +300,7 @@ export async function upsertGeneralPushSubscription(
           platform: platformFromUserAgent(userAgent),
           userAgent,
           locale,
+          appScope: GENERAL_PUSH_APP_SCOPE,
           active: true,
           lastSeenAt: new Date(),
         },
@@ -377,6 +391,7 @@ export async function queueGeneralNotification(input: GeneralNotificationInput) 
   const subscription = await (prisma as any).pushSubscription.findFirst({
     where: {
       id: input.subscriptionId,
+      appScope: GENERAL_PUSH_APP_SCOPE,
       active: true,
     },
     select: {
@@ -456,7 +471,10 @@ export async function sendGeneralNotificationEvent(eventOrId: any) {
     return { ok: false, skipped: true, expired: true };
   }
 
-  if (!event?.subscription?.active) {
+  if (
+    !event?.subscription?.active ||
+    event.subscription.appScope !== GENERAL_PUSH_APP_SCOPE
+  ) {
     return { ok: false, skipped: true, expired: false };
   }
 
@@ -664,9 +682,10 @@ async function subscriptionsForOrder(order: any) {
   const email = normalizeEmail(customer.email);
   const where: Record<string, any> = {
     tenantId,
+    appScope: GENERAL_PUSH_APP_SCOPE,
     active: true,
     preference: {
-      is: { orderUpdates: true },
+      is: { OR: [{ allNotifications: true }, { orderUpdates: true }] },
     },
   };
 
@@ -780,6 +799,7 @@ export async function bindGeneralPushToOrder(
         customerId: customerRow?.id || subscription.customerId || null,
         phone,
         email,
+        appScope: GENERAL_PUSH_APP_SCOPE,
         lastSeenAt: new Date(),
       },
     }),
@@ -792,6 +812,7 @@ export async function bindGeneralPushToOrder(
       create: {
         tenantId,
         subscriptionId: subscription.id,
+        allNotifications: false,
         orderUpdates: true,
         orderConsentedAt: new Date(),
         plz,
@@ -840,6 +861,7 @@ export async function notifyCouponAssigned(input: {
   const subscriptions = await (prisma as any).pushSubscription.findMany({
     where: {
       tenantId,
+      appScope: GENERAL_PUSH_APP_SCOPE,
       active: true,
       OR: [
         ...(phone ? [{ phone }] : []),
@@ -847,8 +869,8 @@ export async function notifyCouponAssigned(input: {
       ],
       preference: {
         is: {
-          coupons: true,
           marketingConsentedAt: { not: null },
+          OR: [{ allNotifications: true }, { coupons: true }],
         },
       },
     },
@@ -883,38 +905,6 @@ function identityKeys(value: any) {
   };
 }
 
-function pastOrderCount(statsValue: unknown) {
-  const stats = plainObject(statsValue);
-  const values = [
-    stats.orderCount,
-    stats.orders,
-    stats.totalOrders,
-    stats.completedOrders,
-    stats.count,
-  ];
-  for (const value of values) {
-    const number = Number(value);
-    if (Number.isFinite(number) && number >= 0) return Math.floor(number);
-  }
-  return 0;
-}
-
-function distanceMeters(
-  latA: number,
-  lngA: number,
-  latB: number,
-  lngB: number,
-) {
-  const toRad = (value: number) => (value * Math.PI) / 180;
-  const earth = 6_371_000;
-  const dLat = toRad(latB - latA);
-  const dLng = toRad(lngB - lngA);
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(latA)) * Math.cos(toRad(latB)) * Math.sin(dLng / 2) ** 2;
-  return 2 * earth * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
 function streetClusterMap(value: unknown) {
   const model = plainObject(value);
   const clusters = Array.isArray(model.clusters) ? model.clusters : [];
@@ -930,6 +920,63 @@ function streetClusterMap(value: unknown) {
   return map;
 }
 
+type DeliveryAddressSnapshot = NearbyAddressSnapshot & {
+  ts: number;
+};
+
+type DeliveryHistory = {
+  count: number;
+  addresses: DeliveryAddressSnapshot[];
+};
+
+function orderAddressSnapshot(order: any): DeliveryAddressSnapshot | null {
+  const customer = orderCustomer(order);
+  const meta = orderMeta(order);
+  const plz = normalizePlz(customer.plz || customer.zip || order?.plz);
+  const street = normalizeStreet(
+    customer.street || customer.address || customer.addressLine,
+  );
+  if (!plz && !street) return null;
+
+  return {
+    plz,
+    street,
+    lat: finiteNumber(
+      customer.lat ?? customer.latitude ?? meta.deliveryLat ?? meta.lat,
+      -90,
+      90,
+    ),
+    lng: finiteNumber(
+      customer.lng ?? customer.longitude ?? meta.deliveryLng ?? meta.lng,
+      -180,
+      180,
+    ),
+    ts: new Date(order?.ts || order?.createdAt || 0).valueOf() || 0,
+  };
+}
+
+function addDeliveryHistory(
+  map: Map<string, DeliveryHistory>,
+  key: string | null,
+  address: DeliveryAddressSnapshot | null,
+) {
+  if (!key) return;
+  const current = map.get(key) || { count: 0, addresses: [] };
+  current.count += 1;
+
+  if (address) {
+    const addressKey = `${address.plz || ""}|${address.street || ""}`;
+    const exists = current.addresses.some(
+      (item) => `${item.plz || ""}|${item.street || ""}` === addressKey,
+    );
+    if (!exists) current.addresses.push(address);
+    current.addresses.sort((left, right) => right.ts - left.ts);
+    current.addresses = current.addresses.slice(0, 20);
+  }
+
+  map.set(key, current);
+}
+
 export async function notifyNearbyDelivery(order: any) {
   const status = cleanText(order?.status, 40).toLowerCase();
   if (status !== "out_for_delivery" || orderMode(order) !== "delivery") {
@@ -937,47 +984,31 @@ export async function notifyNearbyDelivery(order: any) {
   }
 
   const tenantId = order.tenantId || (await getTenantId());
-  const settings = await readNearbyDeliverySettings(tenantId);
+  const [settings, adminRouteGroups] = await Promise.all([
+    readNearbyDeliverySettings(tenantId),
+    readAdminRouteStreetGroups(),
+  ]);
   if (!settings.enabled) return { queued: 0 };
+
+  const sourceAddress = orderAddressSnapshot(order);
+  if (!sourceAddress) return { queued: 0 };
 
   const customer = orderCustomer(order);
   const meta = orderMeta(order);
-  const plz = normalizePlz(customer.plz || customer.zip || order.plz);
-  const street = normalizeStreet(
-    customer.street || customer.address || customer.addressLine,
-  );
   const currentPhone = normalizePhone(customer.phone);
   const currentEmail = normalizeEmail(customer.email);
   const excludedSubscriptionId = cleanText(meta.generalPushSubscriptionId, 100);
 
-  const sourceLat = finiteNumber(
-    customer.lat ?? customer.latitude ?? meta.deliveryLat ?? meta.lat,
-    -90,
-    90,
-  );
-  const sourceLng = finiteNumber(
-    customer.lng ?? customer.longitude ?? meta.deliveryLng ?? meta.lng,
-    -180,
-    180,
-  );
-  const ownerSubscription = excludedSubscriptionId
-    ? await (prisma as any).pushSubscription.findFirst({
-        where: { tenantId, id: excludedSubscriptionId },
-        include: { preference: true },
-      })
-    : null;
-  const effectiveSourceLat = sourceLat ?? finiteNumber(ownerSubscription?.preference?.lat, -90, 90);
-  const effectiveSourceLng = sourceLng ?? finiteNumber(ownerSubscription?.preference?.lng, -180, 180);
-
   const candidates = await (prisma as any).pushSubscription.findMany({
     where: {
       tenantId,
+      appScope: GENERAL_PUSH_APP_SCOPE,
       active: true,
       ...(excludedSubscriptionId ? { id: { not: excludedSubscriptionId } } : {}),
       preference: {
         is: {
-          nearbyDelivery: true,
           marketingConsentedAt: { not: null },
+          OR: [{ allNotifications: true }, { nearbyDelivery: true }],
         },
       },
     },
@@ -1003,31 +1034,28 @@ export async function notifyNearbyDelivery(order: any) {
     if (identity.email) activeEmails.add(identity.email);
   });
 
-  const completedCountsByPhone = new Map<string, number>();
-  const completedCountsByEmail = new Map<string, number>();
-  if (settings.minimumPastOrders > 0) {
-    const completedOrders = await (prisma as any).order.findMany({
-      where: { tenantId, status: "done" },
-      select: { customer: true },
-      orderBy: { ts: "desc" },
-      take: 10_000,
-    });
-    completedOrders.forEach((completedOrder: any) => {
-      const identity = identityKeys(completedOrder);
-      if (identity.phone) {
-        completedCountsByPhone.set(
-          identity.phone,
-          (completedCountsByPhone.get(identity.phone) || 0) + 1,
-        );
-      }
-      if (identity.email) {
-        completedCountsByEmail.set(
-          identity.email,
-          (completedCountsByEmail.get(identity.email) || 0) + 1,
-        );
-      }
-    });
-  }
+  // The recipient address is derived only from previous completed delivery orders.
+  // No street, PLZ or device location is requested during notification permission.
+  const completedOrders = await (prisma as any).order.findMany({
+    where: {
+      tenantId,
+      status: "done",
+      id: { not: order.id },
+    },
+    select: { customer: true, meta: true, mode: true, ts: true, createdAt: true },
+    orderBy: { ts: "desc" },
+    take: 20_000,
+  });
+
+  const historyByPhone = new Map<string, DeliveryHistory>();
+  const historyByEmail = new Map<string, DeliveryHistory>();
+  completedOrders.forEach((completedOrder: any) => {
+    if (orderMode(completedOrder) !== "delivery") return;
+    const identity = identityKeys(completedOrder);
+    const address = orderAddressSnapshot(completedOrder);
+    addDeliveryHistory(historyByPhone, identity.phone, address);
+    addDeliveryHistory(historyByEmail, identity.email, address);
+  });
 
   const brianModel = settings.routeCluster
     ? await (prisma as any).brianRouteModel.findFirst({
@@ -1037,20 +1065,28 @@ export async function notifyNearbyDelivery(order: any) {
       })
     : null;
   const clusters = streetClusterMap(brianModel?.model);
-  const sourceCluster = street ? clusters.get(street) || null : null;
+  const sourceCluster = sourceAddress.street
+    ? clusters.get(sourceAddress.street) || null
+    : null;
 
-  const normalizedGroups = settings.streetGroups.map((group) => ({
+  const allGroups = [...adminRouteGroups, ...settings.streetGroups];
+  const normalizedGroups = allGroups.map((group) => ({
     id: group.id,
-    streets: new Set(group.streets.map(normalizeStreet).filter(Boolean) as string[]),
+    plz: new Set(group.plz || []),
+    streets: new Set(
+      group.streets.map(normalizeStreet).filter(Boolean) as string[],
+    ),
   }));
-  const sourceGroups = street
-    ? normalizedGroups.filter((group) => group.streets.has(street)).map((group) => group.id)
-    : [];
+  const sourceGroups = normalizedGroups
+    .filter((group) => groupAcceptsNearbyAddress(group, sourceAddress))
+    .map((group) => group.id);
+  const streetGroupsEnabled =
+    settings.streetGroupsEnabled || adminRouteGroups.length > 0;
 
   const ranked: Array<{ subscription: any; rank: number; matchType: string }> = [];
   for (const subscription of candidates) {
-    const phone = normalizePhone(subscription.phone);
-    const email = normalizeEmail(subscription.email);
+    const phone = normalizePhone(subscription.phone || subscription.customer?.phone);
+    const email = normalizeEmail(subscription.email || subscription.customer?.email);
     if ((currentPhone && phone === currentPhone) || (currentEmail && email === currentEmail)) {
       continue;
     }
@@ -1058,92 +1094,104 @@ export async function notifyNearbyDelivery(order: any) {
       continue;
     }
 
-    const statsCount = pastOrderCount(subscription.customer?.stats);
-    const historyCount = Math.max(
-      statsCount,
-      phone ? completedCountsByPhone.get(phone) || 0 : 0,
-      email ? completedCountsByEmail.get(email) || 0 : 0,
-    );
+    const phoneHistory = phone ? historyByPhone.get(phone) : null;
+    const emailHistory = email ? historyByEmail.get(email) : null;
+    const historyCount = Math.max(phoneHistory?.count || 0, emailHistory?.count || 0);
     if (historyCount < settings.minimumPastOrders) continue;
 
-    const candidateStreet = normalizeStreet(subscription.preference?.street);
-    const candidatePlz = normalizePlz(subscription.preference?.plz);
-    let rank = 0;
-    let matchType = "";
+    const addressMap = new Map<string, DeliveryAddressSnapshot>();
+    for (const address of [
+      ...(phoneHistory?.addresses || []),
+      ...(emailHistory?.addresses || []),
+    ]) {
+      addressMap.set(`${address.plz || ""}|${address.street || ""}`, address);
+    }
+    const addresses = Array.from(addressMap.values());
+    if (!addresses.length) continue;
 
-    if (settings.sameStreet && street && candidateStreet === street) {
-      rank = 500;
-      matchType = "same_street";
+    let bestMatch = { rank: 0, matchType: "" };
+    for (const candidateAddress of addresses) {
+      const match = rankNearbyDeliveryMatch({
+        source: sourceAddress,
+        candidate: candidateAddress,
+        settings: {
+          sameStreet: settings.sameStreet,
+          streetGroupsEnabled,
+          samePlz: settings.samePlz,
+          routeCluster: settings.routeCluster,
+          radiusEnabled: settings.radiusEnabled,
+          radiusM: settings.radiusM,
+        },
+        groups: normalizedGroups,
+        sourceGroupIds: sourceGroups,
+        sourceCluster,
+        clusterByStreet: clusters,
+      });
+      if (match.rank > bestMatch.rank) bestMatch = match;
     }
 
-    if (settings.streetGroupsEnabled && street && candidateStreet && sourceGroups.length) {
-      const sameGroup = normalizedGroups.some(
-        (group) => sourceGroups.includes(group.id) && group.streets.has(candidateStreet),
-      );
-      if (sameGroup && rank < 400) {
-        rank = 400;
-        matchType = "street_group";
-      }
+    if (bestMatch.rank > 0) {
+      ranked.push({
+        subscription,
+        rank: bestMatch.rank,
+        matchType: bestMatch.matchType,
+      });
     }
-
-    if (
-      settings.radiusEnabled &&
-      effectiveSourceLat != null &&
-      effectiveSourceLng != null
-    ) {
-      const candidateLat = finiteNumber(subscription.preference?.lat, -90, 90);
-      const candidateLng = finiteNumber(subscription.preference?.lng, -180, 180);
-      if (candidateLat != null && candidateLng != null) {
-        const distance = distanceMeters(
-          effectiveSourceLat,
-          effectiveSourceLng,
-          candidateLat,
-          candidateLng,
-        );
-        if (distance <= settings.radiusM && rank < 350) {
-          rank = 350 - Math.min(99, Math.round(distance / 100));
-          matchType = "radius";
-        }
-      }
-    }
-
-    if (
-      settings.routeCluster &&
-      sourceCluster &&
-      candidateStreet &&
-      clusters.get(candidateStreet) === sourceCluster &&
-      rank < 300
-    ) {
-      rank = 300;
-      matchType = "route_cluster";
-    }
-
-    if (settings.samePlz && plz && candidatePlz === plz && rank < 200) {
-      rank = 200;
-      matchType = "same_plz";
-    }
-
-    if (rank > 0) ranked.push({ subscription, rank, matchType });
   }
 
   ranked.sort((a, b) => b.rank - a.rank);
   const now = new Date();
+  const cooldownSince = new Date(
+    now.getTime() - settings.cooldownHours * 60 * 60_000,
+  );
+  const recentEvents = await (prisma as any).notificationEvent.findMany({
+    where: {
+      tenantId,
+      type: "nearby_delivery",
+      createdAt: { gte: cooldownSince },
+    },
+    include: {
+      subscription: {
+        select: { id: true, phone: true, email: true, customerId: true },
+      },
+    },
+    take: 5_000,
+  });
+  const recentSubscriptionIds = new Set<string>();
+  const recentCustomerIds = new Set<string>();
+  const recentPhones = new Set<string>();
+  const recentEmails = new Set<string>();
+  recentEvents.forEach((event: any) => {
+    const recentSubscription = event.subscription;
+    if (recentSubscription?.id) recentSubscriptionIds.add(recentSubscription.id);
+    if (recentSubscription?.customerId) recentCustomerIds.add(recentSubscription.customerId);
+    const phone = normalizePhone(recentSubscription?.phone);
+    const email = normalizeEmail(recentSubscription?.email);
+    if (phone) recentPhones.add(phone);
+    if (email) recentEmails.add(email);
+  });
+
   const expiresAt = new Date(now.getTime() + settings.opportunityMinutes * 60_000);
   let queued = 0;
 
-  for (const candidate of ranked.slice(0, settings.maxRecipients)) {
-    const recent = await (prisma as any).notificationEvent.findFirst({
-      where: {
-        tenantId,
-        subscriptionId: candidate.subscription.id,
-        type: "nearby_delivery",
-        createdAt: {
-          gte: new Date(now.getTime() - settings.cooldownHours * 60 * 60_000),
-        },
-      },
-      select: { id: true },
-    });
-    if (recent) continue;
+  for (const candidate of ranked) {
+    if (queued >= settings.maxRecipients) break;
+
+    const candidatePhone = normalizePhone(
+      candidate.subscription.phone || candidate.subscription.customer?.phone,
+    );
+    const candidateEmail = normalizeEmail(
+      candidate.subscription.email || candidate.subscription.customer?.email,
+    );
+    const recentlyNotified =
+      recentSubscriptionIds.has(candidate.subscription.id) ||
+      Boolean(
+        candidate.subscription.customerId &&
+          recentCustomerIds.has(candidate.subscription.customerId),
+      ) ||
+      Boolean(candidatePhone && recentPhones.has(candidatePhone)) ||
+      Boolean(candidateEmail && recentEmails.has(candidateEmail));
+    if (recentlyNotified) continue;
 
     const result = await queueAndSendGeneralNotification({
       subscriptionId: candidate.subscription.id,
@@ -1193,14 +1241,15 @@ export async function createAdminBroadcast(input: AdminBroadcastInput) {
   if (audience === "phone" && !phone) throw new Error("invalid_phone");
 
   const relationFilter: Record<string, any> = {
-    [preferenceField]: true,
     marketingConsentedAt: { not: null },
+    OR: [{ allNotifications: true }, { [preferenceField]: true }],
   };
   if (audience === "plz") relationFilter.plz = plz;
 
   const subscriptions = await (prisma as any).pushSubscription.findMany({
     where: {
       tenantId,
+      appScope: GENERAL_PUSH_APP_SCOPE,
       active: true,
       ...(audience === "phone" && phone ? { phone } : {}),
       preference: { is: relationFilter },

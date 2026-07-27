@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma, getTenantId } from "@/lib/db";
 import {
+  GENERAL_PUSH_APP_SCOPE,
   queueGeneralNotification,
   sendGeneralNotificationEvent,
 } from "@/lib/server/general-push";
@@ -494,11 +495,12 @@ export async function processDueAutomaticNotifications(tenantIdInput?: string) {
       const subscriptions = await (prisma as any).pushSubscription.findMany({
         where: {
           tenantId,
+          appScope: GENERAL_PUSH_APP_SCOPE,
           active: true,
           preference: {
             is: {
-              campaigns: true,
               marketingConsentedAt: { not: null },
+              OR: [{ allNotifications: true }, { campaigns: true }],
             },
           },
         },

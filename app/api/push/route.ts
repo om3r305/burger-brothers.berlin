@@ -32,16 +32,11 @@ function response(payload: Record<string, unknown>, status = 200) {
 function publicPreference(value: any) {
   const normalized = normalizeGeneralPushPreferences(value, value);
   return {
+    allNotifications: normalized.allNotifications,
     orderUpdates: normalized.orderUpdates,
     campaigns: normalized.campaigns,
     coupons: normalized.coupons,
     nearbyDelivery: normalized.nearbyDelivery,
-    plz: normalized.plz || "",
-    street: normalized.street || "",
-    lat: normalized.lat,
-    lng: normalized.lng,
-    nearbyRadiusM: normalized.nearbyRadiusM,
-    nearbyCooldownDays: normalized.nearbyCooldownDays,
   };
 }
 
@@ -62,7 +57,7 @@ export async function GET(req: Request) {
     platform: subscription?.platform || null,
     preferences: subscription
       ? publicPreference(subscription.preference)
-      : publicPreference({ orderUpdates: true }),
+      : publicPreference({ allNotifications: true }),
   });
 }
 

@@ -1,10 +1,13 @@
 import { Prisma } from "@prisma/client";
 import { prisma, getTenantId } from "@/lib/db";
+import { getServerSettings } from "@/lib/server/settings";
 
 export type NearbyStreetGroup = {
   id: string;
   name: string;
+  plz: string[];
   streets: string[];
+  source?: "notification" | "route_deal";
 };
 
 export type NearbyDeliverySettings = {
@@ -58,13 +61,27 @@ function cleanText(value: unknown, max = 180) {
   return String(value ?? "").trim().slice(0, max);
 }
 
-function streetList(value: unknown) {
+function textList(value: unknown, maxItems = 200) {
   const rows = Array.isArray(value)
     ? value
     : typeof value === "string"
       ? value.split(/[\n,;]/g)
       : [];
-  return Array.from(new Set(rows.map((row) => cleanText(row)).filter(Boolean))).slice(0, 200);
+  return Array.from(new Set(rows.map((row) => cleanText(row)).filter(Boolean))).slice(0, maxItems);
+}
+
+function streetList(value: unknown) {
+  return textList(value, 200);
+}
+
+function plzList(value: unknown) {
+  return Array.from(
+    new Set(
+      textList(value, 50)
+        .map((row) => row.replace(/\D/g, "").slice(0, 5))
+        .filter((row) => row.length === 5),
+    ),
+  );
 }
 
 export function normalizeNearbyDeliverySettings(value: unknown): NearbyDeliverySettings {
@@ -78,12 +95,14 @@ export function normalizeNearbyDeliverySettings(value: unknown): NearbyDeliveryS
       DEFAULT_NEARBY_DELIVERY_SETTINGS.streetGroupsEnabled,
     ),
     streetGroups: groups
-      .map((group: any, index: number) => ({
+      .map<NearbyStreetGroup>((group: any, index: number): NearbyStreetGroup => ({
         id: cleanText(group?.id, 100) || `group-${index + 1}`,
         name: cleanText(group?.name, 120) || `Straßengruppe ${index + 1}`,
+        plz: plzList(group?.plz ?? group?.postalCodes),
         streets: streetList(group?.streets),
+        source: group?.source === "route_deal" ? "route_deal" : "notification",
       }))
-      .filter((group) => group.streets.length > 0)
+      .filter((group) => group.streets.length > 0 || group.plz.length > 0)
       .slice(0, 50),
     samePlz: bool(raw.samePlz, DEFAULT_NEARBY_DELIVERY_SETTINGS.samePlz),
     routeCluster: bool(raw.routeCluster, DEFAULT_NEARBY_DELIVERY_SETTINGS.routeCluster),
@@ -119,6 +138,23 @@ export function normalizeNearbyDeliverySettings(value: unknown): NearbyDeliveryS
 function extractFromWholeSettings(value: unknown) {
   const root = object(value);
   return object(object(root.notifications).nearbyDelivery);
+}
+
+export async function readAdminRouteStreetGroups(): Promise<NearbyStreetGroup[]> {
+  const settings = await getServerSettings();
+  const rules = Array.isArray(settings.routeDeals?.rules) ? settings.routeDeals.rules : [];
+
+  return rules
+    .filter((rule) => rule?.enabled !== false)
+    .map((rule, index) => ({
+      id: cleanText(rule?.id, 100) || `route-deal-${index + 1}`,
+      name: cleanText(rule?.name, 120) || `Rota grubu ${index + 1}`,
+      plz: plzList(rule?.plz),
+      streets: streetList(rule?.streets),
+      source: "route_deal" as const,
+    }))
+    .filter((group) => group.streets.length > 0 || group.plz.length > 0)
+    .slice(0, 100);
 }
 
 export async function readNearbyDeliverySettings(tenantIdInput?: string) {
