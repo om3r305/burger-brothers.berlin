@@ -3,7 +3,7 @@
   "name": "Burger Brothers Berlin",
   "short_name": "Burger Brothers",
   "description": "Burger Brothers Berlin – bestellen, Status verfolgen und Angebote erhalten.",
-  "start_url": "/install?app=1",
+  "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait-primary",

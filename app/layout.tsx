@@ -10,6 +10,7 @@ import { LS_SETTINGS } from "@/lib/settings";
 import AnalyticsPing from "@/components/AnalyticsPing";
 import AppRouteTransition from "@/components/AppRouteTransition";
 import CatalogProvider from "@/components/catalog/CatalogProvider";
+import CustomerAppBootstrap from "@/components/CustomerAppBootstrap";
 
 /* 🔧 SSG yerine runtime render (prerender hatalarını engelle) */
 export const dynamic = "force-dynamic";
@@ -73,6 +74,45 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           paddingBottom: "env(safe-area-inset-bottom)",
         }}
       >
+        {/* Eski /install ana ekran kısayollarını hydration beklemeden ana sayfaya geçir */}
+        <script
+          id="bb-customer-app-legacy-launch"
+          nonce={nonce}
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{
+            __html: `
+(function () {
+  try {
+    if (location.pathname !== "/install") return;
+    if (new URLSearchParams(location.search).get("settings") === "1") return;
+
+    var decisionKey = "bb_notification_prompt_decision_v1";
+    var legacyKey = "bb_general_install_done_v1";
+    var decision = localStorage.getItem(decisionKey);
+    var legacyDone = localStorage.getItem(legacyKey) === "1";
+    var permission =
+      typeof Notification !== "undefined"
+        ? Notification.permission
+        : "default";
+
+    if (decision !== "accepted" && decision !== "declined") {
+      if (permission === "granted") decision = "accepted";
+      else if (permission === "denied" || legacyDone) decision = "declined";
+    }
+
+    if (decision === "accepted" || decision === "declined") {
+      localStorage.setItem(decisionKey, decision);
+      localStorage.setItem(legacyKey, "1");
+      document.cookie =
+        decisionKey + "=" + decision +
+        "; Path=/; Max-Age=31536000; SameSite=Lax; Secure";
+      location.replace("/");
+    }
+  } catch (_) {}
+})();`,
+          }}
+        />
+
         {/* 🔐 Bakım Modu – ADMIN hariç tüm sayfaları kapatır + LOGO */}
         <script
           id="bb-maintenance-gate"
@@ -238,6 +278,9 @@ body:has(#bb-landing-page) .bb-mobile-footer-gap {
 `,
           }}
         />
+
+        {/* Kurulu müşteri app'inde tek seferlik bildirim sorusu + sessiz push onarımı */}
+        <CustomerAppBootstrap />
 
         {/* Uygulama hissi veren merkezi route geçiş katmanı */}
         <AppRouteTransition />

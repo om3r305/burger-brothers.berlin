@@ -674,6 +674,21 @@ async function activateRouteDealIfNeeded(params: {
 
   if (mode !== "delivery") return null;
 
+  const orderMeta = ensureObj(order?.meta);
+  const canonicalRouteDeal = ensureObj(ensureObj(orderMeta?.pricing)?.routeDeal);
+
+  /*
+    Bir rota fırsatını kullanan ikinci müşterinin siparişi yeni bir fırsat
+    üretmez. Aksi halde ikinci sipariş yeni "kaynak sipariş" olur, sayaç yeniden
+    başlar ve müşteri kendi adresini tekrar ikiz sokak gibi görür.
+  */
+  if (
+    canonicalRouteDeal?.applied === true ||
+    toNum(canonicalRouteDeal?.discount, 0) > 0
+  ) {
+    return null;
+  }
+
   const cfg = ensureObj(settings?.routeDeals);
   if (cfg?.enabled !== true) return null;
 
@@ -1983,7 +1998,7 @@ export async function POST(req: Request) {
     try {
       routeDealActivated = await activateRouteDealIfNeeded({
         settings,
-        order,
+        order: created,
         customer,
         orderId: id,
         mode,

@@ -31,7 +31,7 @@
     "canonical:pricing:test": "node tools/canonical-pricing-regression-tests.cjs",
     "schnell:test": "node tools/schnellbestellung-regression-tests.cjs",
     "schnell:vapid": "node tools/generate-schnell-vapid.mjs",
-    "notifications:test": "node tools/general-notifications-regression-tests.cjs && node tools/nearby-delivery-matcher-tests.cjs"
+    "notifications:test": "node tools/general-notifications-regression-tests.cjs && node tools/nearby-delivery-matcher-tests.cjs && node tools/route-deal-lifecycle-regression-tests.cjs"
   },
   "prisma": {
     "seed": "ts-node prisma/seed.ts"

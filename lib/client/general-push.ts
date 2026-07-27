@@ -1,5 +1,7 @@
 "use client";
 
+import { readLastCustomerTracking } from "@/lib/customer-tracking";
+
 export type GeneralPushPreferences = {
   allNotifications: boolean;
   orderUpdates: boolean;
@@ -235,6 +237,9 @@ export async function activateGeneralPushFromGesture(
     try {
       localStorage.setItem("bb_general_push_activated_v1", String(Date.now()));
     } catch {}
+
+    await repairGeneralPushOrderBindingFromLastOrder().catch(() => false);
+
     return { ok: true, code: "subscribed", permission, state };
   } catch {
     return { ok: false, code: "server_failed", permission };
@@ -262,6 +267,8 @@ export async function ensureCustomerAppPushRegistration(): Promise<boolean> {
           String(Date.now()),
         );
       } catch {}
+
+      await repairGeneralPushOrderBindingFromLastOrder().catch(() => false);
 
       return true;
     } catch {
@@ -311,6 +318,15 @@ export async function bindGeneralPushToOrder(
   } catch {
     return false;
   }
+}
+
+export async function repairGeneralPushOrderBindingFromLastOrder() {
+  if (!supportsPush() || Notification.permission !== "granted") return false;
+
+  const last = readLastCustomerTracking();
+  if (!last.orderId || !last.trackingToken) return false;
+
+  return bindGeneralPushToOrder(last.orderId, last.trackingToken);
 }
 
 export async function disableGeneralPush() {

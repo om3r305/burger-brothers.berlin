@@ -18,6 +18,7 @@ import {
   rankNearbyDeliveryMatch,
   type NearbyAddressSnapshot,
 } from "@/lib/server/nearby-delivery-matcher";
+import { refreshRouteDealOpportunityForOrder } from "@/lib/server/route-deal-lifecycle";
 
 export const GENERAL_PUSH_COOKIE = "bb_push_device_v1";
 export const GENERAL_PUSH_CONSENT_VERSION = "3-single-prompt";
@@ -993,6 +994,20 @@ export async function notifyNearbyDelivery(order: any) {
   const sourceAddress = orderAddressSnapshot(order);
   if (!sourceAddress) return { queued: 0 };
 
+  /*
+    Fırsat sipariş oluşturulduğunda açılmış olsa bile mutfak hazırlığı sırasında
+    süresi dolmuş olabilir. Kurye Unterwegs olduğunda aynı kaynak siparişin
+    fırsat süresini yeniden başlat; push alan müşteri geçerli banner/indirimi
+    mutlaka görebilsin.
+  */
+  const refreshedRouteDeal = await refreshRouteDealOpportunityForOrder(
+    order.id,
+    settings.opportunityMinutes,
+  ).catch((error) => {
+    console.error("[nearby-delivery] route deal refresh failed", error);
+    return null;
+  });
+
   const customer = orderCustomer(order);
   const meta = orderMeta(order);
   const currentPhone = normalizePhone(customer.phone);
@@ -1148,6 +1163,7 @@ export async function notifyNearbyDelivery(order: any) {
     where: {
       tenantId,
       type: "nearby_delivery",
+      status: { in: ["sent", "fetched", "clicked"] },
       createdAt: { gte: cooldownSince },
     },
     include: {
@@ -1205,6 +1221,7 @@ export async function notifyNearbyDelivery(order: any) {
       payload: {
         matchType: candidate.matchType,
         expiresAt: expiresAt.toISOString(),
+        routeDealId: refreshedRouteDeal?.id || null,
       },
     });
     if (!(result as any)?.deduped) queued += 1;

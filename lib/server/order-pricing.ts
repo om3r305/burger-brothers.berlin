@@ -5,6 +5,7 @@ import {
   type FreebieUnit,
 } from "@/lib/freebies";
 import { prisma } from "@/lib/db";
+import { findEligibleRouteDealForCustomer } from "@/lib/server/route-deal-eligibility";
 
 type OrderMode = "pickup" | "delivery";
 
@@ -1419,11 +1420,16 @@ export async function rebuildOrderPricingFromDatabase(params: {
 
   const plz = normalizePlz(customer?.plz ?? customer?.zip ?? order?.plz);
   const street = String(customer?.street ?? "").trim();
-  const routeDeal = findRouteDeal({
+  const routeDeal = await findEligibleRouteDealForCustomer({
+    tenantId: params.tenantId,
     settings: params.settings,
     mode,
-    plz,
-    street,
+    customer,
+    order: {
+      ...order,
+      plz,
+      street,
+    },
     now,
   });
   const routeBaseCents =

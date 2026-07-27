@@ -4,6 +4,8 @@ import { verifySessionToken } from "@/lib/server/session";
 const ADMIN_COOKIE = process.env.ADMIN_COOKIE_NAME || "bb_admin_sess";
 const TV_COOKIE = "bb_tv_auth";
 const DRIVER_COOKIE = "bb_driver_sess";
+const CUSTOMER_NOTIFICATION_DECISION_COOKIE =
+  "bb_notification_prompt_decision_v1";
 
 const PUBLIC_PATHS = new Set([
   "/admin/login",
@@ -88,6 +90,7 @@ export function apiAccess(path: string, methodRaw: string): Access {
   }
   if (path === "/api/push/pending" && readOnly) return "public";
   if (path === "/api/push/order" && method === "POST") return "public";
+  if (path === "/api/route-deals/eligible" && method === "POST") return "public";
 
   // Schnellbestellung customer routes are public at the middleware layer,
   // while each route applies the controls relevant to it: signed QR or
@@ -259,6 +262,28 @@ function allowRequest(req: NextRequest) {
 
 export async function middleware(req: NextRequest) {
   const path = req.nextUrl.pathname;
+
+  /*
+    Eski ana ekran kısayolları /install?app=1 URL'sini açabilir. Kullanıcı daha
+    önce karar verdiyse yükleme ekranını hiç render etmeden ana sayfaya gönder.
+    /install?settings=1 bildirim ayarları için açık kalır.
+  */
+  if (
+    path === "/install" &&
+    req.nextUrl.searchParams.get("settings") !== "1"
+  ) {
+    const decision = req.cookies.get(
+      CUSTOMER_NOTIFICATION_DECISION_COOKIE,
+    )?.value;
+
+    if (decision === "accepted" || decision === "declined") {
+      const url = req.nextUrl.clone();
+      url.pathname = "/";
+      url.search = "";
+      return NextResponse.redirect(url);
+    }
+  }
+
   if (publicAsset(path)) return NextResponse.next();
 
   const adminPage = child(path, "/admin") || child(path, "/dashboard");

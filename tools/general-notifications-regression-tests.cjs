@@ -443,7 +443,6 @@ assertContains(
     "NOTIFICATION_DECISION_KEY",
     'window.location.replace(HOME_URL)',
     'const HOME_URL = "/"',
-    "ensureCustomerAppPushRegistration",
     "Die Auswahl wird gespeichert",
   ],
   "Install and one-time consent page",
@@ -461,6 +460,23 @@ assert(
   "Installed app still redirects to menu instead of the home page",
 );
 
+const customerAppBootstrap = read("components/CustomerAppBootstrap.tsx");
+assertContains(
+  customerAppBootstrap,
+  [
+    "Benachrichtigungen aktivieren?",
+    "ensureCustomerAppPushRegistration",
+    "repairCustomerPushInBackground",
+    "saveDecision",
+  ],
+  "Direct-home customer app bootstrap",
+);
+const customerManifest = JSON.parse(read("app/manifest.webmanifest"));
+assert(
+  customerManifest.start_url === "/",
+  "Customer PWA must open the home page directly",
+);
+
 const pushClient = read("lib/client/general-push.ts");
 assertContains(
   pushClient,
@@ -468,6 +484,8 @@ assertContains(
     "ensureCustomerAppPushRegistration",
     "Notification.permission !== \"granted\"",
     "saveSubscription(subscription, ALL_GENERAL_PUSH_PREFERENCES)",
+    "repairGeneralPushOrderBindingFromLastOrder",
+    "readLastCustomerTracking",
   ],
   "Silent customer-app registration repair",
 );

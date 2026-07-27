@@ -6,7 +6,6 @@ import {
   activateGeneralPushFromGesture,
   ALL_GENERAL_PUSH_PREFERENCES,
   disableGeneralPush,
-  ensureCustomerAppPushRegistration,
   isIOSDevice,
   isStandaloneApp,
   loadGeneralPushState,
@@ -69,6 +68,10 @@ function saveDecision(decision: Exclude<NotificationDecision, null>) {
     localStorage.setItem(NOTIFICATION_DECISION_KEY, decision);
     localStorage.setItem(LEGACY_ONBOARDING_KEY, "1");
   } catch {}
+
+  try {
+    document.cookie = `${NOTIFICATION_DECISION_KEY}=${decision}; Path=/; Max-Age=31536000; SameSite=Lax; Secure`;
+  } catch {}
 }
 
 
@@ -98,7 +101,6 @@ export default function InstallPage() {
     useState<BeforeInstallPromptEvent | null>(null);
   const [installBusy, setInstallBusy] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
-  const [routingHome, setRoutingHome] = useState(false);
   const [decision, setDecision] = useState<NotificationDecision>(null);
   const [pushSubscribed, setPushSubscribed] = useState(false);
   const [settingsMode, setSettingsMode] = useState(false);
@@ -136,7 +138,11 @@ export default function InstallPage() {
           legacyDone = localStorage.getItem(LEGACY_ONBOARDING_KEY) === "1";
         } catch {}
 
-        if (legacyDone) {
+        if (
+          legacyDone ||
+          (typeof Notification !== "undefined" &&
+            Notification.permission === "granted")
+        ) {
           storedDecision =
             typeof Notification !== "undefined" &&
             Notification.permission === "granted"
@@ -145,15 +151,10 @@ export default function InstallPage() {
           saveDecision(storedDecision);
         } else if (
           typeof Notification !== "undefined" &&
-          Notification.permission === "granted"
+          Notification.permission === "denied"
         ) {
-          try {
-            const state = await loadGeneralPushState();
-            if (state.subscribed) {
-              storedDecision = "accepted";
-              saveDecision("accepted");
-            }
-          } catch {}
+          storedDecision = "declined";
+          saveDecision("declined");
         }
       }
 
@@ -168,26 +169,15 @@ export default function InstallPage() {
         return;
       }
 
-      if (!storedDecision) return;
-
-      setRoutingHome(true);
-      if (
-        storedDecision === "accepted" &&
-        typeof Notification !== "undefined" &&
-        Notification.permission === "granted"
-      ) {
-        const registered = await ensureCustomerAppPushRegistration().catch(
-          () => false,
-        );
-
-        if (!registered) {
-          console.warn(
-            "Customer app push registration will be retried on the next launch.",
-          );
-        }
+      /*
+        Eski iPhone/Android ana ekran kısayolu hâlâ /install URL'sini açsa bile
+        daha önce karar verilmişse hiçbir push ağ isteğini beklemeden ana sayfaya
+        geç. Sessiz kayıt onarımı ana sayfada arka planda çalışır.
+      */
+      if (storedDecision && !cancelled) {
+        saveDecision(storedDecision);
+        window.location.replace(HOME_URL);
       }
-
-      if (!cancelled) window.location.replace(HOME_URL);
     };
 
     void initializeStandalone();
@@ -268,7 +258,6 @@ export default function InstallPage() {
   };
 
   const goHome = () => {
-    setRoutingHome(true);
     window.location.replace(HOME_URL);
   };
 
@@ -330,19 +319,6 @@ export default function InstallPage() {
       setPushBusy(false);
     }
   };
-
-  if (routingHome) {
-    return (
-      <main className="flex min-h-screen items-center justify-center bg-black text-white">
-        <div className="text-center">
-          <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-white/20 border-t-emerald-400" />
-          <p className="mt-4 text-sm font-semibold text-stone-300">
-            Burger Brothers wird geöffnet …
-          </p>
-        </div>
-      </main>
-    );
-  }
 
   return (
     <main className="min-h-screen overflow-hidden bg-black text-stone-100">

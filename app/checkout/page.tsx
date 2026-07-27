@@ -52,6 +52,11 @@ import PaymentTrustBadges from "@/components/PaymentTrustBadges";
 import { attachPfandToOrderItems, computePfand, resolvePfandUnit } from "@/lib/pfand";
 import { rememberCustomerTracking } from "@/lib/customer-tracking";
 import { bindGeneralPushToOrder } from "@/lib/client/general-push";
+import {
+  loadEligibleRouteDeal,
+  markRouteDealConsumedOnDevice,
+  useEligibleRouteDeal,
+} from "@/lib/client/route-deal";
 import CheckoutToastViewport from "@/components/checkout/CheckoutToastViewport";
 import type {
   ActivePaymentRecovery,
@@ -2103,24 +2108,15 @@ export default function CheckoutPage() {
   const couponAmount = Math.min(afterDiscount, Math.max(0, coupon.amount || 0));
 
   const routeDealStreetValue = (addr.street || streetQuery || "").trim();
-  const activeRouteDeal = useMemo(
-    () =>
-      findActiveRouteDealForCheckout({
-        routeDeals: settingsRaw?.routeDeals,
-        mode: orderMode,
-        zip: addr.zip || plzStore || "",
-        street: routeDealStreetValue,
-        nowMs: routeDealNowMs,
-      }),
-    [
-      settingsRaw?.routeDeals,
-      orderMode,
-      addr.zip,
-      plzStore,
-      routeDealStreetValue,
-      routeDealNowMs,
-    ],
-  );
+  const { deal: eligibleRouteDeal } = useEligibleRouteDeal({
+    enabled: settingsRaw?.routeDeals?.enabled === true,
+    mode: orderMode,
+    zip: addr.zip || plzStore || "",
+    street: routeDealStreetValue,
+    phone: addr.phone,
+    email: addr.email,
+  });
+  const activeRouteDeal = eligibleRouteDeal as ActiveRouteDeal | null;
 
   const routeDealBaseTotal = +((afterDiscount - couponAmount) + surcharges).toFixed(2);
   const routeDealBenefit = useMemo(
@@ -4259,6 +4255,12 @@ export default function CheckoutPage() {
 
       const orderBase = await buildCheckoutOrderDraft(payment);
       const result = await createOrderWithRetryAndEmergency(orderBase);
+
+      const submittedRouteDeal = recordValue(recordValue(orderBase.meta).routeDeal);
+      if (submittedRouteDeal.id) {
+        markRouteDealConsumedOnDevice(submittedRouteDeal.id);
+      }
+
       if (result.pricingAdjustment?.payableChanged && result.canonicalPricing) {
         showCheckoutToast(
           `Der Gesamtbetrag wurde sicher auf ${fmt(
@@ -4400,13 +4402,15 @@ export default function CheckoutPage() {
       Math.max(0, latestCoupon.amount || 0),
     );
 
-    const latestRouteDeal = findActiveRouteDealForCheckout({
-      routeDeals: settingsRaw?.routeDeals,
+    const latestRouteDealRaw = await loadEligibleRouteDeal({
+      enabled: settingsRaw?.routeDeals?.enabled === true,
       mode: orderMode,
       zip: addr.zip || plzStore || "",
       street: streetFinal,
-      nowMs: ts,
+      phone: addr.phone,
+      email: addr.email,
     });
+    const latestRouteDeal = latestRouteDealRaw as ActiveRouteDeal | null;
 
     const latestRouteDealBaseTotal = +((afterDiscount - latestCouponAmount) + surcharges).toFixed(2);
     const latestRouteDealBenefit = computeRouteDealBenefit({

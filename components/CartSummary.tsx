@@ -20,12 +20,14 @@ import {
 import type { FreebieEvaluation, FreebieUnit } from "@/lib/freebies";
 import { evaluateConditionalCartCampaign } from "@/lib/conditional-campaign";
 import { computePfand } from "@/lib/pfand";
+import { useEligibleRouteDeal } from "@/lib/client/route-deal";
 
 /* LS Keys */
 const LS_CHECKOUT = "bb_checkout_info_v1";
 const LS_PRODUCTS = "bb_products_v1";
 const LS_ACTIVE_COUPON = "bb_active_coupon_code";
 const LS_ORDERS = "bb_orders_v1"; // önceki siparişler (son siparişi bulmak için)
+const CHECKOUT_PROFILE_KEY = "bb_checkout_profile_v2";
 
 /* ───────── Pause (global) ───────── */
 const LS_PAUSE = "bb_pause_v1";
@@ -745,16 +747,32 @@ function computePricingFromSettings_CS(
   };
 }
 
-function getCheckoutZipAndPhone(): { zip: string; phone: string; street: string } {
+function getCheckoutZipAndPhone(): {
+  zip: string;
+  phone: string;
+  email: string;
+  street: string;
+} {
   try {
-    const raw = localStorage.getItem(LS_CHECKOUT);
-    if (!raw) return { zip: "", phone: "", street: "" };
-    const obj = JSON.parse(raw);
-    const zip = (obj?.addr?.zip || "").trim();
-    const phone = String(obj?.addr?.phone || "").replace(/\D/g, "");
-    const street = String(obj?.addr?.street || "").trim();
-    return { zip, phone, street };
-  } catch { return { zip: "", phone: "", street: "" }; }
+    const rawCheckout = localStorage.getItem(LS_CHECKOUT);
+    const checkout = rawCheckout ? JSON.parse(rawCheckout) : {};
+    const rawProfile = localStorage.getItem(`${CHECKOUT_PROFILE_KEY}:delivery`);
+    const profile = rawProfile ? JSON.parse(rawProfile) : {};
+    const addr =
+      checkout?.addr && typeof checkout.addr === "object"
+        ? checkout.addr
+        : profile && typeof profile === "object"
+          ? profile
+          : {};
+
+    const zip = String(addr?.zip || "").trim();
+    const phone = String(addr?.phone || "").replace(/\D/g, "");
+    const email = String(addr?.email || "").trim().toLowerCase();
+    const street = String(addr?.street || "").trim();
+    return { zip, phone, email, street };
+  } catch {
+    return { zip: "", phone: "", email: "", street: "" };
+  }
 }
 
 function updateCheckoutZipFromCart(zip: string) {
@@ -995,7 +1013,12 @@ export default function CartSummary() {
   const pausedPickup = !!pause.pickup;
   const pausedDelivery = !!pause.delivery;
 
-  const { zip: checkoutZip, phone: checkoutPhone, street: checkoutStreet } = useMemo(() => getCheckoutZipAndPhone(), [lsTick]);
+  const {
+    zip: checkoutZip,
+    phone: checkoutPhone,
+    email: checkoutEmail,
+    street: checkoutStreet,
+  } = useMemo(() => getCheckoutZipAndPhone(), [lsTick]);
   const plzEffective = (String(plz ?? "").trim().length === 5 ? plz : (checkoutZip || null));
 
   const groups = useMemo(() => groupItems(items), [items]);
@@ -1019,17 +1042,14 @@ export default function CartSummary() {
   const couponAmount = Math.min(afterDiscount, Math.max(0, coupon.amount || 0));
   const routeDealBaseTotal = +((afterDiscount - couponAmount) + surcharges).toFixed(2);
 
-  const activeRouteDeal = useMemo(
-    () =>
-      findActiveRouteDealForCart({
-        routeDeals: settingsRaw?.routeDeals,
-        mode: orderMode,
-        zip: String(plzEffective || ""),
-        street: checkoutStreet,
-        nowMs: routeDealNowMs,
-      }),
-    [settingsRaw?.routeDeals, orderMode, plzEffective, checkoutStreet, routeDealNowMs],
-  );
+  const { deal: activeRouteDeal } = useEligibleRouteDeal({
+    enabled: settingsRaw?.routeDeals?.enabled === true,
+    mode: orderMode,
+    zip: String(plzEffective || ""),
+    street: checkoutStreet,
+    phone: checkoutPhone,
+    email: checkoutEmail,
+  });
 
   const routeDealBenefit = useMemo(
     () =>
@@ -1399,7 +1419,12 @@ export function CartSummaryMobile() {
   const pausedPickup = !!pause.pickup;
   const pausedDelivery = !!pause.delivery;
 
-  const { zip: checkoutZip, phone: checkoutPhone, street: checkoutStreet } = useMemo(() => getCheckoutZipAndPhone(), [lsTick]);
+  const {
+    zip: checkoutZip,
+    phone: checkoutPhone,
+    email: checkoutEmail,
+    street: checkoutStreet,
+  } = useMemo(() => getCheckoutZipAndPhone(), [lsTick]);
   const plzEffective =
     String(plz ?? "").trim().length === 5
       ? String(plz).trim()
@@ -1426,17 +1451,14 @@ export function CartSummaryMobile() {
   const couponAmount = Math.min(afterDiscount, Math.max(0, coupon.amount || 0));
   const routeDealBaseTotal = +((afterDiscount - couponAmount) + surcharges).toFixed(2);
 
-  const activeRouteDeal = useMemo(
-    () =>
-      findActiveRouteDealForCart({
-        routeDeals: settingsRaw?.routeDeals,
-        mode: orderMode,
-        zip: String(plzEffective || ""),
-        street: checkoutStreet,
-        nowMs: routeDealNowMs,
-      }),
-    [settingsRaw?.routeDeals, orderMode, plzEffective, checkoutStreet, routeDealNowMs],
-  );
+  const { deal: activeRouteDeal } = useEligibleRouteDeal({
+    enabled: settingsRaw?.routeDeals?.enabled === true,
+    mode: orderMode,
+    zip: String(plzEffective || ""),
+    street: checkoutStreet,
+    phone: checkoutPhone,
+    email: checkoutEmail,
+  });
 
   const routeDealBenefit = useMemo(
     () =>
