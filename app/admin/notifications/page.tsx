@@ -206,7 +206,7 @@ export default function AdminNotificationsPage() {
   ];
 
   const numberSettingKeys: Array<{
-    key: "radiusM" | "minimumPastOrders" | "maxRecipients" | "cooldownHours" | "opportunityMinutes";
+    key: "radiusM" | "minimumPastOrders" | "maxRecipients" | "cooldownHours";
     label: string;
     min: number;
     max: number;
@@ -215,7 +215,6 @@ export default function AdminNotificationsPage() {
     { key: "minimumPastOrders", label: "Minimum geçmiş sipariş", min: 0, max: 100 },
     { key: "maxRecipients", label: "Maksimum alıcı", min: 1, max: 200 },
     { key: "cooldownHours", label: "Tekrar bekleme (saat)", min: 1, max: 2160 },
-    { key: "opportunityMinutes", label: "Fırsat süresi (dakika)", min: 1, max: 60 },
   ];
 
   const streetGroupsText = nearbySettings.streetGroups
@@ -587,8 +586,11 @@ export default function AdminNotificationsPage() {
         <div className="mt-5 rounded-2xl border border-emerald-400/20 bg-emerald-500/[0.06] p-4 text-sm leading-6 text-stone-300">
           <div className="font-black text-emerald-200">Admin Settings adresleri otomatik kullanılıyor</div>
           <p className="mt-1">
-            Admin → Settings → Rota Fırsatları bölümündeki PLZ ve sokak kuralları
-            yakın teslimat eşleştirmesine doğrudan dahil edilir. Tanımlı aktif grup:
+            Admin → Settings → Rota Fırsatları bölümündeki PLZ, sokak ve her
+            kuralın <strong className="text-white">Fırsat süresi dakika</strong>
+            değeri doğrudan kullanılır. Sipariş Unterwegs olduğunda push metni,
+            bildirimin son geçerlilik zamanı ve uygulamadaki canlı geri sayım aynı
+            süreden yeniden başlar. Tanımlı aktif grup:
             <strong className="ml-1 text-white">{adminRouteStreetGroups.length}</strong>
           </p>
         </div>

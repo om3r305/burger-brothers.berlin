@@ -725,6 +725,7 @@ export default function AdminCampaignsPage() {
   const [campaignsDirty, setCampaignsDirty] = useState(false);
   const [savingCampaigns, setSavingCampaigns] = useState(false);
   const [campaignSaveMessage, setCampaignSaveMessage] = useState("");
+  const [savingFormCampaign, setSavingFormCampaign] = useState(false);
 
   const [editId, setEditId] = useState<string | null>(null);
   const [name, setName] = useState("");
@@ -837,7 +838,9 @@ export default function AdminCampaignsPage() {
     return null;
   };
 
-  const save = () => {
+  const save = async () => {
+    if (savingFormCampaign || savingCampaigns) return;
+
     const err = validate();
 
     if (err) {
@@ -863,12 +866,30 @@ export default function AdminCampaignsPage() {
       maxQtyPerOrder: maxQtyPerOrder ? Number(maxQtyPerOrder) : null,
     };
 
-    setRows((prev) =>
-      editId ? prev.map((r) => (r.id === editId ? payload : r)) : [...prev, payload],
-    );
-    setCampaignsDirty(true);
-    setCampaignSaveMessage("Nicht gespeicherte Änderungen");
+    const nextRows = editId
+      ? rows.map((row) => (row.id === editId ? payload : row))
+      : [...rows, payload];
 
+    setSavingFormCampaign(true);
+    setCampaignSaveMessage("Wird gespeichert…");
+
+    const ok = await saveCampaignsToDb(nextRows);
+
+    if (!ok) {
+      setCampaignSaveMessage("Speichern fehlgeschlagen");
+      setSavingFormCampaign(false);
+      alert(
+        "Kampagne konnte nicht gespeichert werden. Bitte Anmeldung, Verbindung und Pflichtfelder prüfen.",
+      );
+      return;
+    }
+
+    setRows(nextRows);
+    setCampaignSource("server");
+    writeLocalCache(LS_CAMPAIGNS, nextRows);
+    setCampaignsDirty(false);
+    setCampaignSaveMessage("Gespeichert ✅");
+    setSavingFormCampaign(false);
     resetForm();
   };
 
@@ -1635,8 +1656,17 @@ export default function AdminCampaignsPage() {
         </div>
 
         <div className="mt-5 flex items-center gap-2">
-          <button className="card-cta card-cta--lg" onClick={save}>
-            {editId ? "Speichern" : "Hinzufügen"}
+          <button
+            type="button"
+            className="card-cta card-cta--lg"
+            onClick={() => void save()}
+            disabled={savingFormCampaign || savingCampaigns}
+          >
+            {savingFormCampaign
+              ? "Speichert…"
+              : editId
+                ? "Speichern"
+                : "Hinzufügen"}
           </button>
           {editId && (
             <button className="btn-ghost" onClick={resetForm}>

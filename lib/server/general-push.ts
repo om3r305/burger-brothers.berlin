@@ -1002,7 +1002,6 @@ export async function notifyNearbyDelivery(order: any) {
   */
   const refreshedRouteDeal = await refreshRouteDealOpportunityForOrder(
     order.id,
-    settings.opportunityMinutes,
   ).catch((error) => {
     console.error("[nearby-delivery] route deal refresh failed", error);
     return null;
@@ -1187,7 +1186,31 @@ export async function notifyNearbyDelivery(order: any) {
     if (email) recentEmails.add(email);
   });
 
-  const expiresAt = new Date(now.getTime() + settings.opportunityMinutes * 60_000);
+  if (!refreshedRouteDeal?.id) {
+    console.warn(
+      "[nearby-delivery] active route deal not found; push was not sent",
+      { orderId: order.id },
+    );
+    return { queued: 0, reason: "route_deal_not_active" };
+  }
+
+  const opportunityMinutes = boundedInteger(
+    refreshedRouteDeal.durationMinutes,
+    10,
+    1,
+    60,
+  );
+  const refreshedExpiresAtMs = Date.parse(
+    cleanText(refreshedRouteDeal?.expiresAt, 80),
+  );
+  const expiresAt =
+    Number.isFinite(refreshedExpiresAtMs) && refreshedExpiresAtMs > now.getTime()
+      ? new Date(refreshedExpiresAtMs)
+      : new Date(now.getTime() + opportunityMinutes * 60_000);
+  const routeDealId = cleanText(refreshedRouteDeal.id, 160);
+  const notificationUrl = routeDealId
+    ? `/menu?routeDeal=${encodeURIComponent(routeDealId)}`
+    : "/menu";
   let queued = 0;
 
   for (const candidate of ranked) {
@@ -1213,15 +1236,17 @@ export async function notifyNearbyDelivery(order: any) {
       subscriptionId: candidate.subscription.id,
       type: "nearby_delivery",
       title: "Wir liefern gerade in Ihre Nähe! 🍔",
-      body: `Nur für die nächsten ${settings.opportunityMinutes} Minuten: Jetzt direkt bei Burger Brothers bestellen.`,
-      url: "/menu",
+      body: `Ihr Nachbarschafts-Angebot ist ${opportunityMinutes} Minuten gültig. Jetzt öffnen und den Live-Countdown ansehen.`,
+      url: notificationUrl,
       orderId: order.id,
       dedupeKey: `nearby:${order.id}:${candidate.subscription.id}`,
       expiresAt,
       payload: {
         matchType: candidate.matchType,
         expiresAt: expiresAt.toISOString(),
-        routeDealId: refreshedRouteDeal?.id || null,
+        durationMinutes: opportunityMinutes,
+        durationSource: refreshedRouteDeal.durationSource || "route_rule",
+        routeDealId: routeDealId || null,
       },
     });
     if (!(result as any)?.deduped) queued += 1;

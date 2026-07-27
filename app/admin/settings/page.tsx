@@ -3207,9 +3207,11 @@ function RouteDealsEditor({
       <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-100">
         <div className="font-medium">Mantık</div>
         <p className="mt-1 leading-relaxed">
-          Örnek: 13469 veya seçtiğin sokaktan uzak sipariş geldiğinde sistem
-          bu bölge için 10-15 dakikalık fırsat açar. Aynı PLZ/sokak ile siteye
-          giren müşteri banner görür ve indirim sepete otomatik düşer.
+          Lieferung siparişi oluşturulduğunda fırsat hazırlanır. Sipariş
+          Unterwegs olduğunda bu kuraldaki Fırsat süresi dakika değeri yeniden
+          başlatılır ve uygun eski müşterilere push gider. Bildirimde yazan süre,
+          son geçerlilik zamanı ve uygulamadaki canlı geri sayım aynı değeri
+          kullanır. İlk sipariş sahibi kendi fırsatını göremez.
         </p>
       </div>
 

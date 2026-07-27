@@ -21,7 +21,7 @@ function number(value: unknown, fallback: number) {
 
 export async function refreshRouteDealOpportunityForOrder(
   orderIdInput: unknown,
-  opportunityMinutesInput: unknown,
+  opportunityMinutesInput?: unknown,
 ) {
   const orderId = text(orderIdInput, 160);
   if (!orderId) return null;
@@ -36,20 +36,31 @@ export async function refreshRouteDealOpportunityForOrder(
   if (index < 0) return null;
 
   const now = new Date();
+  const current = object(active[index]);
+  const currentRuleId = text(current.ruleId, 100);
+  const matchedRule = array(routeDeals.rules).find(
+    (rule) => text(rule?.id, 100) === currentRuleId,
+  );
+  const fallbackMinutes = number(
+    current.durationMinutes,
+    number(
+      routeDeals.defaultDurationMinutes,
+      number(opportunityMinutesInput, 10),
+    ),
+  );
+  /*
+    Push ve yeniden baslayan geri sayim icin tek kaynak Admin -> Settings ->
+    Rota Firsatlari -> Firsat suresi dakika alanidir. Aktif firsatin kuralini
+    tekrar okuyarak admin tarafindaki guncel sureyi kullaniriz.
+  */
   const opportunityMinutes = Math.max(
     1,
     Math.min(
       60,
-      Math.round(
-        number(
-          opportunityMinutesInput,
-          number(routeDeals.defaultDurationMinutes, 10),
-        ),
-      ),
+      Math.round(number(matchedRule?.durationMinutes, fallbackMinutes)),
     ),
   );
 
-  const current = object(active[index]);
   const refreshed: Record<string, any> = {
     ...current,
     availableAt: now.toISOString(),
@@ -57,6 +68,7 @@ export async function refreshRouteDealOpportunityForOrder(
       now.getTime() + opportunityMinutes * 60_000,
     ).toISOString(),
     durationMinutes: opportunityMinutes,
+    durationSource: matchedRule ? "route_rule" : "active_deal",
     lastRefreshedAt: now.toISOString(),
     trigger: {
       ...object(current.trigger),
