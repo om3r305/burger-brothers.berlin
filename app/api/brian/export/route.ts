@@ -247,7 +247,6 @@ async function readDbEntries(): Promise<LearnEntry[]> {
     },
     select: {
       occurredAt: true,
-      mode: true,
       orderId: true,
       driverId: true,
       driverName: true,
@@ -269,7 +268,7 @@ async function readDbEntries(): Promise<LearnEntry[]> {
         occurredAt: row?.occurredAt
           ? new Date(row.occurredAt).toISOString()
           : raw?.occurredAt || new Date().toISOString(),
-        mode: raw?.mode || row?.mode,
+        mode: raw?.mode,
         host: raw?.host,
         ip: raw?.ip,
         ua: raw?.ua,
