@@ -56,6 +56,8 @@ export type ShowcaseBestseller = {
 };
 
 export type ShowcaseTransition = "fade" | "slide" | "zoom" | "none";
+export type ShowcaseWeekday = 1 | 2 | 3 | 4 | 5 | 6 | 7;
+export type ShowcaseVideoPlaybackMode = "loop" | "hold";
 export type ShowcaseMediaFit = "cover" | "contain";
 export type ShowcasePreviewAspect = "landscape" | "portrait" | "ultrawide";
 export type ShowcaseMenuColumns = 2 | 3;
@@ -112,6 +114,15 @@ export type ShowcaseScene = {
   showQr?: boolean;
   showPrice?: boolean;
   muted?: boolean;
+  /** Sahne süresi dolana kadar video tekrarı veya tek oynatıp son karede bekleme. */
+  videoPlaybackMode?: ShowcaseVideoPlaybackMode;
+
+  /** Haftalık gün/saat bazlı yayın programı. 1=Pazartesi, 7=Pazar. */
+  weeklyScheduleEnabled?: boolean;
+  weeklyScheduleDays?: ShowcaseWeekday[];
+  weeklyStartTime?: string;
+  weeklyEndTime?: string;
+  scheduleTimezone?: string;
 
   /** Birleşik sahne tiplerinin alt görünümü. Eski tipler normalize edilir. */
   videoVariant?: "standard" | "social";

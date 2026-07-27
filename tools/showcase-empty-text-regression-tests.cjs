@@ -54,6 +54,13 @@ function loadShowcaseConfig() {
       if (request === "./presets") {
         return { specialDayPresetIsActive() { return true; } };
       }
+      if (request === "./schedule") {
+        return {
+          DEFAULT_SHOWCASE_WEEKDAYS: [1, 2, 3, 4, 5],
+          SHOWCASE_SCHEDULE_TIMEZONE: "Europe/Berlin",
+          weeklyScheduleIsActive() { return true; },
+        };
+      }
       throw new Error(`Unexpected require in showcase config test: ${request}`);
     },
     console,

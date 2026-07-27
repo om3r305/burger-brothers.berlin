@@ -8,6 +8,7 @@ import type {
 import { normalizeShowcaseCategory } from "./runtime";
 import { canonicalSceneType } from "./editor";
 import { specialDayPresetIsActive, type WeatherCopyKey } from "./presets";
+import { DEFAULT_SHOWCASE_WEEKDAYS, SHOWCASE_SCHEDULE_TIMEZONE, weeklyScheduleIsActive } from "./schedule";
 
 const SCENE_TYPES = new Set<ShowcaseSceneType>([
   "hero",
@@ -71,6 +72,24 @@ function cleanDate(value: any) {
   if (!value) return "";
   const date = new Date(value);
   return Number.isFinite(date.valueOf()) ? date.toISOString() : "";
+}
+
+function cleanClockTime(value: any, fallback: string) {
+  const text = cleanText(value, 5);
+  return /^([01]\d|2[0-3]):[0-5]\d$/.test(text) ? text : fallback;
+}
+
+function cleanWeekdays(value: any, fallback = DEFAULT_SHOWCASE_WEEKDAYS) {
+  if (!Array.isArray(value)) return [...fallback];
+  return Array.from(
+    new Set(
+      value
+        .map(Number)
+        .filter((day): day is 1 | 2 | 3 | 4 | 5 | 6 | 7 =>
+          Number.isInteger(day) && day >= 1 && day <= 7,
+        ),
+    ),
+  ).sort((a, b) => a - b);
 }
 
 function bool(value: any, fallback: boolean) {
@@ -230,6 +249,14 @@ export function normalizeShowcaseScene(value: any, fallbackDuration = 45): Showc
     showQr: bool(value?.showQr, false),
     showPrice: bool(value?.showPrice, true),
     muted: bool(value?.muted, true),
+    videoPlaybackMode: value?.videoPlaybackMode === "hold" ? "hold" : "loop",
+    weeklyScheduleEnabled: bool(value?.weeklyScheduleEnabled, false),
+    weeklyScheduleDays: hasOwn(value, "weeklyScheduleDays")
+      ? cleanWeekdays(value?.weeklyScheduleDays, [])
+      : [...DEFAULT_SHOWCASE_WEEKDAYS],
+    weeklyStartTime: cleanClockTime(value?.weeklyStartTime, "10:00"),
+    weeklyEndTime: cleanClockTime(value?.weeklyEndTime, "16:00"),
+    scheduleTimezone: cleanText(value?.scheduleTimezone, 80) || SHOWCASE_SCHEDULE_TIMEZONE,
     videoVariant,
     qrVariant,
     campaignVariant,
@@ -339,6 +366,7 @@ function specialPresetIsActive(scene: ShowcaseScene, now: number) {
 export function sceneIsActive(scene: ShowcaseScene, now = Date.now()) {
   if (!scene.enabled) return false;
   if (!specialPresetIsActive(scene, now)) return false;
+  if (!weeklyScheduleIsActive(scene, now)) return false;
   const start = scene.startAt ? Date.parse(scene.startAt) : NaN;
   const end = scene.endAt ? Date.parse(scene.endAt) : NaN;
   if (Number.isFinite(start) && now < start) return false;

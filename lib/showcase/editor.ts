@@ -86,6 +86,12 @@ export function createShowcaseScene(
     qrLabel: document.settings.qrLabel,
     showPrice: true,
     muted: true,
+    videoPlaybackMode: "loop",
+    weeklyScheduleEnabled: false,
+    weeklyScheduleDays: [1, 2, 3, 4, 5],
+    weeklyStartTime: "10:00",
+    weeklyEndTime: "16:00",
+    scheduleTimezone: "Europe/Berlin",
   };
 
   switch (type) {
@@ -186,6 +192,11 @@ export function replaceSceneType(
     transition: scene.transition,
     startAt: scene.startAt,
     endAt: scene.endAt,
+    weeklyScheduleEnabled: scene.weeklyScheduleEnabled,
+    weeklyScheduleDays: scene.weeklyScheduleDays,
+    weeklyStartTime: scene.weeklyStartTime,
+    weeklyEndTime: scene.weeklyEndTime,
+    scheduleTimezone: scene.scheduleTimezone,
     accent: scene.accent || fresh.accent,
   };
 }
@@ -260,6 +271,20 @@ export type ShowcaseValidationResult =
   | { ok: false; sceneId?: string; message: string };
 
 export function validateShowcaseDocument(document: ShowcaseDocument): ShowcaseValidationResult {
+  const invalidWeeklySchedule = document.scenes.find(
+    (scene) =>
+      scene.enabled &&
+      scene.weeklyScheduleEnabled &&
+      (!Array.isArray(scene.weeklyScheduleDays) || scene.weeklyScheduleDays.length === 0),
+  );
+  if (invalidWeeklySchedule) {
+    return {
+      ok: false,
+      sceneId: invalidWeeklySchedule.id,
+      message: `“${invalidWeeklySchedule.name}” için en az bir yayın günü seçmelisin.`,
+    };
+  }
+
   const invalidCountdown = document.scenes.find((scene) => {
     const isCountdown = scene.type === "countdown" || (scene.type === "campaign" && scene.campaignVariant === "countdown");
     return scene.enabled && isCountdown && !scene.countdownTargetAt && !scene.endAt;

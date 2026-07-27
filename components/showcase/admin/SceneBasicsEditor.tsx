@@ -11,6 +11,7 @@ import {
   type CanonicalShowcaseSceneType,
 } from "@/lib/showcase/editor";
 import type { ShowcaseCampaign, ShowcaseDocument, ShowcaseProduct, ShowcaseScene } from "@/lib/showcase/types";
+import WeeklyScheduleEditor from "./WeeklyScheduleEditor";
 
 type Props = {
   scene: ShowcaseScene;
@@ -57,6 +58,8 @@ export default function SceneBasicsEditor({ scene, document, products, campaigns
         onChange(variant === "social" ? socialVideoPatch() : { videoVariant: "standard", name: "Video" }, true);
       }}><option value="standard">Normal video</option><option value="social">Instagram / TikTok videosu</option></select></Field> : null}
 
+      {scene.type === "video" ? <Field label="Video oynatma" hint="Video dosyasının uzunluğu sahne süresini değiştirmez."><select className={inputClass} value={scene.videoPlaybackMode || "loop"} onChange={(event) => onChange({ videoPlaybackMode: event.target.value as "loop" | "hold" }, true)}><option value="loop">Sahne süresi boyunca tekrarla</option><option value="hold">Bir kez oynat, son karede beklet</option></select></Field> : null}
+
       {scene.type === "qr" ? <Field label="QR kullanım türü"><select className={inputClass} value={scene.qrVariant || "order"} onChange={(event) => {
         const variant = event.target.value as "order" | "google-review" | "custom";
         if (variant === "google-review") onChange(reviewQrPatch(document), true);
@@ -79,7 +82,7 @@ export default function SceneBasicsEditor({ scene, document, products, campaigns
       <Field label="Başlık" hint="Boş bırakırsan ekranda başlık gösterilmez."><input className={inputClass} value={scene.title ?? ""} onChange={(event) => onChange({ title: event.target.value })} /></Field>
       <Field label="Alt başlık" hint="Boş bırakırsan ekranda alt başlık gösterilmez."><input className={inputClass} value={scene.subtitle ?? ""} onChange={(event) => onChange({ subtitle: event.target.value })} /></Field>
       <Field label="Rozet / küçük başlık" hint="Boş bırakırsan rozet gösterilmez."><input className={inputClass} value={scene.badge ?? ""} onChange={(event) => onChange({ badge: event.target.value })} /></Field>
-      {scene.type === "product" || scene.type === "menu" ? <Field label="Toplam sahne süresi" hint="İçeriğe göre hesaplanır ve güvenli limitler uygulanır."><div className={`${inputClass} cursor-default text-stone-300`}>{sceneDuration} saniye</div></Field> : <Field label="Süre (saniye)" hint="Videolarda aynı zamanda güvenlik süresidir."><input type="number" min={5} max={3600} className={inputClass} value={scene.durationSeconds} onChange={(event) => onChange({ durationSeconds: Number(event.target.value) })} /></Field>}
+      {scene.type === "product" || scene.type === "menu" ? <Field label="Toplam sahne süresi" hint="İçeriğe göre hesaplanır ve güvenli limitler uygulanır."><div className={`${inputClass} cursor-default text-stone-300`}>{sceneDuration} saniye</div></Field> : <Field label="Süre (saniye)" hint={scene.type === "video" ? "Video 15 saniye olsa bile burada 60 yazarsan sahne 60 saniye kalır." : "Bu sahnenin ekranda kalacağı toplam süre."}><input type="number" min={5} max={3600} className={inputClass} value={scene.durationSeconds} onChange={(event) => onChange({ durationSeconds: Number(event.target.value) })} /></Field>}
 
       <div className="md:col-span-2"><Field label={scene.type === "message" ? "Duyuru metni" : "Ek metin"} hint="Boş bırakırsan bu alan ekranda görünmez."><textarea rows={scene.type === "message" ? 5 : 3} className={inputClass} value={scene.body ?? ""} onChange={(event) => onChange({ body: event.target.value })} /></Field></div>
       {scene.type === "message" ? <div className="md:col-span-2 rounded-xl border border-orange-500/25 bg-orange-500/5 p-3 text-xs leading-5 text-stone-300">Standart duyuru veya özel gün seçebilirsin. Özel gün seçildiğinde hazır tema, emoji, logo ve otomatik tarih ayarları aşağıda açılır.</div> : null}
@@ -105,6 +108,8 @@ export default function SceneBasicsEditor({ scene, document, products, campaigns
       {scene.type !== "product" && scene.type !== "menu" ? <Field label="Medya yerleşimi"><select className={inputClass} value={scene.fit || "cover"} onChange={(event) => onChange({ fit: event.target.value as "cover" | "contain" })}><option value="cover">Ekranı tamamen doldur</option><option value="contain">Dosyanın tamamını göster</option></select></Field> : null}
       <Field label="Başlangıç zamanı (isteğe bağlı)"><input type="datetime-local" className={inputClass} value={localDate(scene.startAt)} onChange={(event) => onChange({ startAt: isoDate(event.target.value) })} /></Field>
       <Field label="Bitiş zamanı (isteğe bağlı)"><input type="datetime-local" className={inputClass} value={localDate(scene.endAt)} onChange={(event) => onChange({ endAt: isoDate(event.target.value) })} /></Field>
+
+      <WeeklyScheduleEditor scene={scene} inputClass={inputClass} onChange={onChange} />
 
       <div className="md:col-span-2 rounded-xl border border-stone-800 bg-stone-950/60 p-3"><div className="grid gap-3 sm:grid-cols-4">
         {scene.type === "product" || scene.type === "menu" || scene.type === "hero" ? <div className="flex items-center justify-between gap-3 text-sm text-stone-400"><span>Logo</span><span className="rounded-full border border-stone-700 bg-stone-900 px-2 py-1 text-[11px] font-bold text-stone-300">{scene.type === "hero" ? "Girişte sabit" : "Bu sahnede kapalı"}</span></div> : <label className="flex items-center justify-between gap-3 text-sm">Logoyu göster<input type="checkbox" checked={scene.showLogo !== false} onChange={(event) => onChange({ showLogo: event.target.checked })} /></label>}

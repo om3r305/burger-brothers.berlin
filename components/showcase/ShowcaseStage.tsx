@@ -322,6 +322,7 @@ function VideoScene({
           autoPlay
           playsInline
           preload="auto"
+          loop={scene.videoPlaybackMode !== "hold"}
           className={scene.fit === "contain" ? styles.videoContain : styles.videoCover}
           onEnded={onEnded}
           onError={onError}

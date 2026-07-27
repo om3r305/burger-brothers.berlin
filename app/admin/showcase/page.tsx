@@ -550,13 +550,10 @@ export default function ShowcaseAdminPage() {
             ? {
                 ...scene,
                 mediaUrl: registered.item.url,
-                durationSeconds: metadata.durationSeconds
-                  ? Math.max(5, Math.ceil(metadata.durationSeconds))
-                  : scene.durationSeconds,
               }
             : scene),
         }, { coalesceKey: "" });
-        setMessage(`${file.name} yüklendi ve yüklemeyi başlattığın sahneye atandı.`);
+        setMessage(`${file.name} yüklendi ve sahneye atandı. Sahne süresi video uzunluğundan bağımsız kaldı.`);
       } else {
         setMessage(`${file.name} Cloudinary’ye yüklendi. Ekran veya sahne değiştiği için otomatik atanmadı.`);
       }

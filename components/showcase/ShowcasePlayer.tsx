@@ -153,6 +153,7 @@ export default function ShowcasePlayer({ screenSlug = "main" }: { screenSlug?: s
   const [snapshot, setSnapshot] = useState<ShowcaseSnapshot | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [online, setOnline] = useState(true);
+  const [scheduleNow, setScheduleNow] = useState(() => Date.now());
   const [resolvedMedia, setResolvedMedia] = useState<{
     playbackKey: string;
     mediaUrl?: string;
@@ -165,13 +166,32 @@ export default function ShowcasePlayer({ screenSlug = "main" }: { screenSlug?: s
   const persistVisibleMediaRef = useRef<() => void>(() => {});
   snapshotRef.current = snapshot;
 
+  useEffect(() => {
+    let interval = 0;
+    const update = () => setScheduleNow(Date.now());
+    const delay = 60_000 - (Date.now() % 60_000) + 120;
+    const alignment = window.setTimeout(() => {
+      update();
+      interval = window.setInterval(update, 60_000);
+    }, delay);
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") update();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.clearTimeout(alignment);
+      if (interval) window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, []);
+
   const activeScenes = useMemo(() => {
     const scenes = snapshot?.document?.scenes || [];
-    const active = scenes.filter((scene) => sceneIsActive(scene));
+    const active = scenes.filter((scene) => sceneIsActive(scene, scheduleNow));
     return active.length
       ? active
       : createDefaultShowcaseDocument(snapshot?.branding?.siteUrl).scenes;
-  }, [snapshot?.document, snapshot?.branding?.siteUrl]);
+  }, [scheduleNow, snapshot?.document, snapshot?.branding?.siteUrl]);
 
   const activeSceneCountRef = useRef(1);
   const currentPlaybackKeyRef = useRef("");
@@ -247,7 +267,7 @@ export default function ShowcasePlayer({ screenSlug = "main" }: { screenSlug?: s
     if (expectedPlaybackKey && expectedPlaybackKey !== currentPlaybackKey) return;
     if (!currentPlaybackKey) return;
 
-    // Video onEnded and the hard scene timeout can fire at nearly the same time.
+    // Timer, render error and media error callbacks can fire close together.
     // Advance only once for the currently visible scene.
     if (advancedPlaybackKeyRef.current === currentPlaybackKey) return;
     advancedPlaybackKeyRef.current = currentPlaybackKey;
@@ -484,8 +504,10 @@ export default function ShowcasePlayer({ screenSlug = "main" }: { screenSlug?: s
           sceneCount={activeScenes.length}
           online={online}
           onVideoEnded={() => {
+            // Video uzunluğu sahne süresini belirlemez. "hold" modunda video
+            // son karede bekler; "loop" modunda yeniden başlar. Geçişi yalnız
+            // sahne zamanlayıcısı yapar.
             persistVisibleMedia();
-            advanceScene(playbackKey);
           }}
           onVideoError={() => advanceScene(playbackKey)}
         />
