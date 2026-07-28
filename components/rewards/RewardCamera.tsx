@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 type Props = {
   onChange: (file: File | null, previewUrl: string | null) => void;
+  onDraftChange?: (hasUnconfirmedPhoto: boolean) => void;
 };
 
 async function canvasFileFromSource(
@@ -66,7 +67,7 @@ async function requestCameraStream() {
   throw lastError instanceof Error ? lastError : new Error("CAMERA_OPEN_FAILED");
 }
 
-export default function RewardCamera({ onChange }: Props) {
+export default function RewardCamera({ onChange, onDraftChange }: Props) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -76,6 +77,7 @@ export default function RewardCamera({ onChange }: Props) {
   const [cameraReady, setCameraReady] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [confirmed, setConfirmed] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -95,8 +97,10 @@ export default function RewardCamera({ onChange }: Props) {
     previewRef.current = null;
     setPreviewUrl(null);
     setSelectedFile(null);
+    setConfirmed(false);
     onChange(null, null);
-  }, [onChange]);
+    onDraftChange?.(false);
+  }, [onChange, onDraftChange]);
 
   const setPhoto = useCallback(
     (file: File | null) => {
@@ -105,10 +109,21 @@ export default function RewardCamera({ onChange }: Props) {
       previewRef.current = nextUrl;
       setSelectedFile(file);
       setPreviewUrl(nextUrl);
+      setConfirmed(false);
+      // Fotoğraf çekildi ama müşteri henüz "Foto verwenden" demedi.
+      // Parent state temiz tutulur ve genel paylaşım butonu kilitlenir.
       onChange(null, null);
+      onDraftChange?.(Boolean(file));
     },
-    [onChange],
+    [onChange, onDraftChange],
   );
+
+  const confirmPhoto = useCallback(() => {
+    if (!selectedFile || !previewUrl) return;
+    setConfirmed(true);
+    onChange(selectedFile, previewUrl);
+    onDraftChange?.(false);
+  }, [onChange, onDraftChange, previewUrl, selectedFile]);
 
   useEffect(() => {
     if (!cameraOpen || !streamRef.current || !videoRef.current) return;
@@ -244,14 +259,29 @@ export default function RewardCamera({ onChange }: Props) {
   if (previewUrl && selectedFile) {
     return (
       <div className="space-y-3">
-        <div className="overflow-hidden rounded-3xl border border-amber-300/40 bg-black">
+        <div className={`overflow-hidden rounded-3xl border bg-black ${
+          confirmed ? "border-emerald-300/70" : "border-amber-300/40"
+        }`}>
           <img
             src={previewUrl}
             alt="Foto-Vorschau"
             className="aspect-square w-full object-cover"
           />
         </div>
-        <p className="text-center text-sm font-bold text-white">Gefällt dir dein Foto?</p>
+
+        {confirmed ? (
+          <div className="rounded-2xl border border-emerald-300/35 bg-emerald-400/10 p-3 text-center">
+            <p className="font-black text-emerald-200">✓ Foto ausgewählt</p>
+            <p className="mt-1 text-sm text-white/70">
+              Dieses Foto wird nach deiner Bestätigung zur Prüfung gesendet.
+            </p>
+          </div>
+        ) : (
+          <p className="text-center text-sm font-bold text-white">
+            Gefällt dir dein Foto?
+          </p>
+        )}
+
         <div className="grid grid-cols-2 gap-3">
           <button
             type="button"
@@ -260,14 +290,26 @@ export default function RewardCamera({ onChange }: Props) {
           >
             🔄 Nochmal aufnehmen
           </button>
-          <button
-            type="button"
-            className="rounded-2xl bg-emerald-400 px-4 py-3 font-black text-black"
-            onClick={() => onChange(selectedFile, previewUrl)}
-          >
-            ✓ Foto verwenden
-          </button>
+
+          {confirmed ? (
+            <button
+              type="button"
+              disabled
+              className="rounded-2xl bg-emerald-500/35 px-4 py-3 font-black text-emerald-100"
+            >
+              ✓ Wird mitgesendet
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="rounded-2xl bg-emerald-400 px-4 py-3 font-black text-black"
+              onClick={confirmPhoto}
+            >
+              ✓ Foto verwenden
+            </button>
+          )}
         </div>
+
         <button
           type="button"
           onClick={clearPreview}

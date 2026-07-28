@@ -95,8 +95,16 @@ export async function POST(req: Request) {
     .slice(0, 120);
   const displayName = cleanName(form.get("displayName"));
   const consent = String(form.get("consent") || "") === "true";
+  const expectsPhoto = String(form.get("expectsPhoto") || "") === "true";
   const photoValue = form.get("photo");
   const photo = photoValue instanceof File && photoValue.size > 0 ? photoValue : null;
+
+  // İstemci fotoğraf göndereceğini belirttiyse sessizce yalnız-ad kaydına
+  // düşmek yasaktır. Böylece fotoğraf kaybolduğunda Showcase yanlışlıkla
+  // fotoğrafsız yayın yapmaz.
+  if (expectsPhoto && !photo) {
+    return json({ ok: false, error: "photo_missing" }, 400);
+  }
 
   if (!orderId || !displayName) {
     return json({ ok: false, error: "name_and_order_required" }, 400);
@@ -137,6 +145,16 @@ export async function POST(req: Request) {
         : "off";
 
   if (rewardWin.submission) {
+    if (
+      expectsPhoto &&
+      !["pending", "approved"].includes(String(rewardWin.submission.photoStatus || ""))
+    ) {
+      return json(
+        { ok: false, error: "submission_already_name_only" },
+        409,
+      );
+    }
+
     let showcaseQueued = Boolean(rewardWin.submission.publishedAt);
 
     // Önceki istekte kayıt oluşmuş fakat Showcase kuyruğu geçici olarak hata
@@ -173,6 +191,9 @@ export async function POST(req: Request) {
       submissionId: rewardWin.submission.id,
       moderationStatus: rewardWin.submission.moderationStatus,
       photoPending: rewardWin.submission.photoStatus === "pending",
+      photoReceived: ["pending", "approved"].includes(
+        String(rewardWin.submission.photoStatus || ""),
+      ),
       showcaseQueued,
     });
   }
@@ -278,6 +299,7 @@ export async function POST(req: Request) {
       submissionId: submission.id,
       moderationStatus: submission.moderationStatus,
       photoPending: Boolean(photo),
+      photoReceived: Boolean(photo),
       showcaseQueued,
       notificationQueued,
       warning,

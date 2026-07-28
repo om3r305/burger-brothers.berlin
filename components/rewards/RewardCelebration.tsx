@@ -46,6 +46,7 @@ export default function RewardCelebration({
   const [phase, setPhase] = useState<"celebrate" | "share" | "sent">("celebrate");
   const [displayName, setDisplayName] = useState("");
   const [photo, setPhoto] = useState<File | null>(null);
+  const [photoDraft, setPhotoDraft] = useState(false);
   const [consent, setConsent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -74,8 +75,8 @@ export default function RewardCelebration({
 
   const photoAllowed = reward.photoMode === "name_photo";
   const canSubmit = useMemo(
-    () => Boolean(displayName.trim() && consent),
-    [consent, displayName],
+    () => Boolean(displayName.trim() && consent && !photoDraft),
+    [consent, displayName, photoDraft],
   );
 
   const submit = async (withoutPhoto = false) => {
@@ -88,7 +89,9 @@ export default function RewardCelebration({
       form.set("orderId", orderId);
       form.set("displayName", displayName.trim());
       form.set("consent", String(consent));
-      if (!withoutPhoto && photo && photoAllowed) form.set("photo", photo);
+      const expectsPhoto = Boolean(!withoutPhoto && photo && photoAllowed);
+      form.set("expectsPhoto", String(expectsPhoto));
+      if (expectsPhoto && photo) form.set("photo", photo);
 
       const response = await fetch("/api/schnellbestellung/reward/submission", {
         method: "POST",
@@ -107,6 +110,10 @@ export default function RewardCelebration({
         throw new Error(
           retryAfterSeconds > 0 ? `${code}:${retryAfterSeconds}` : code,
         );
+      }
+
+      if (!withoutPhoto && photo && data?.photoPending !== true) {
+        throw new Error("photo_not_received");
       }
 
       setResult({
@@ -132,6 +139,9 @@ export default function RewardCelebration({
         invalid_form: "Die Angaben konnten nicht gelesen werden. Bitte versuche es noch einmal.",
         photo_too_large: "Das Foto ist zu groß. Bitte nimm ein neues Foto auf.",
         photo_type_not_allowed: "Dieses Fotoformat wird nicht unterstützt.",
+        photo_missing: "Das bestätigte Foto ist beim Senden nicht angekommen. Bitte wähle das Foto erneut aus.",
+        photo_not_received: "Der Server hat das Foto nicht bestätigt. Es wurde nicht versehentlich nur dein Name veröffentlicht.",
+        submission_already_name_only: "Dieser Glücksmoment wurde bereits nur mit deinem Namen veröffentlicht. Für ein Foto ist ein neuer Gewinn erforderlich.",
         TEMP_PHOTO_STORAGE_NOT_CONFIGURED: "Der Foto-Upload ist gerade nicht verfügbar. Du kannst deinen Namen ohne Foto senden.",
       };
       setError(
@@ -254,6 +264,7 @@ export default function RewardCelebration({
                   onChange={(file) => {
                     setPhoto(file);
                   }}
+                  onDraftChange={setPhotoDraft}
                 />
               </div>
             ) : null}
@@ -268,7 +279,9 @@ export default function RewardCelebration({
               <span>
                 {photo
                   ? `Ich bin damit einverstanden, dass mein Vorname und dieses Foto kurz auf den Burger-Brothers-Bildschirmen gezeigt werden. Das Foto wird nach der Anzeige oder spätestens nach ${reward.photoRetentionMinutes} Minuten automatisch gelöscht.`
-                  : "Ich bin damit einverstanden, dass mein Vorname oder Spitzname kurz auf den Burger-Brothers-Bildschirmen gezeigt wird."}
+                  : photoDraft
+                    ? "Bitte bestätige zuerst mit „Foto verwenden“, welches Foto gesendet werden soll."
+                    : "Ich bin damit einverstanden, dass mein Vorname oder Spitzname kurz auf den Burger-Brothers-Bildschirmen gezeigt wird."}
               </span>
             </label>
 
@@ -302,7 +315,13 @@ export default function RewardCelebration({
                 disabled={!canSubmit || busy}
                 className="rounded-2xl bg-amber-400 px-5 py-4 font-black text-black disabled:cursor-not-allowed disabled:opacity-40"
               >
-                {busy ? "Wird gesendet …" : photo ? "Zur Freigabe senden" : "Auf den Bildschirmen zeigen"}
+                {busy
+                  ? "Wird gesendet …"
+                  : photoDraft
+                    ? "Zuerst Foto verwenden"
+                    : photo
+                      ? "Foto zur Freigabe senden"
+                      : "Auf den Bildschirmen zeigen"}
               </button>
             </div>
           </section>
