@@ -109,21 +109,15 @@ export default function RewardCamera({ onChange, onDraftChange }: Props) {
       previewRef.current = nextUrl;
       setSelectedFile(file);
       setPreviewUrl(nextUrl);
-      setConfirmed(false);
-      // Fotoğraf çekildi ama müşteri henüz "Foto verwenden" demedi.
-      // Parent state temiz tutulur ve genel paylaşım butonu kilitlenir.
-      onChange(null, null);
-      onDraftChange?.(Boolean(file));
+      // Fotoğraf çekildiği anda seçilmiş kabul edilir. Müşteri isterse
+      // "Nochmal aufnehmen" veya "Foto entfernen" ile değiştirebilir.
+      // Böylece iPhone'da ikinci bir onay tıklamasına gerek kalmaz.
+      setConfirmed(Boolean(file));
+      onChange(file, nextUrl);
+      onDraftChange?.(false);
     },
     [onChange, onDraftChange],
   );
-
-  const confirmPhoto = useCallback(() => {
-    if (!selectedFile || !previewUrl) return;
-    setConfirmed(true);
-    onChange(selectedFile, previewUrl);
-    onDraftChange?.(false);
-  }, [onChange, onDraftChange, previewUrl, selectedFile]);
 
   useEffect(() => {
     if (!cameraOpen || !streamRef.current || !videoRef.current) return;
@@ -273,7 +267,7 @@ export default function RewardCamera({ onChange, onDraftChange }: Props) {
           <div className="rounded-2xl border border-emerald-300/35 bg-emerald-400/10 p-3 text-center">
             <p className="font-black text-emerald-200">✓ Foto ausgewählt</p>
             <p className="mt-1 text-sm text-white/70">
-              Dieses Foto wird nach deiner Bestätigung zur Prüfung gesendet.
+              Dieses Foto ist ausgewählt und wird nach deiner Freigabe zur Prüfung gesendet.
             </p>
           </div>
         ) : (
@@ -291,23 +285,13 @@ export default function RewardCamera({ onChange, onDraftChange }: Props) {
             🔄 Nochmal aufnehmen
           </button>
 
-          {confirmed ? (
-            <button
-              type="button"
-              disabled
-              className="rounded-2xl bg-emerald-500/35 px-4 py-3 font-black text-emerald-100"
-            >
-              ✓ Wird mitgesendet
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="rounded-2xl bg-emerald-400 px-4 py-3 font-black text-black"
-              onClick={confirmPhoto}
-            >
-              ✓ Foto verwenden
-            </button>
-          )}
+          <button
+            type="button"
+            disabled
+            className="rounded-2xl bg-emerald-500/35 px-4 py-3 font-black text-emerald-100"
+          >
+            ✓ Wird mitgesendet
+          </button>
         </div>
 
         <button
