@@ -14,13 +14,25 @@ type Props = {
   onClose: () => void;
 };
 
-const CONFETTI = Array.from({ length: 36 }, (_, index) => ({
+type SubmitResult = {
+  showcaseQueued: boolean;
+  photoPending: boolean;
+};
+
+const CONFETTI = Array.from({ length: 56 }, (_, index) => ({
   id: index,
   left: `${(index * 37) % 100}%`,
-  delay: `${(index % 9) * 0.08}s`,
-  duration: `${1.8 + (index % 6) * 0.18}s`,
+  delay: `${(index % 12) * 0.06}s`,
+  duration: `${1.9 + (index % 7) * 0.17}s`,
   rotate: `${(index * 47) % 360}deg`,
 }));
+
+const FIREWORKS = [
+  { left: "12%", top: "16%", delay: "0s" },
+  { left: "82%", top: "19%", delay: ".45s" },
+  { left: "22%", top: "68%", delay: ".85s" },
+  { left: "78%", top: "66%", delay: "1.15s" },
+];
 
 export default function RewardCelebration({
   orderId,
@@ -34,66 +46,82 @@ export default function RewardCelebration({
   const [consent, setConsent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [result, setResult] = useState<SubmitResult | null>(null);
+
+  const celebrationSeconds = Math.max(5, Math.min(12, reward.celebrationSeconds || 7));
 
   useEffect(() => {
     playRewardCelebrationSound(reward.celebrationSoundEnabled);
     const timer = window.setTimeout(
       () => setPhase(reward.photoMode === "off" ? "sent" : "share"),
-      Math.max(3, reward.celebrationSeconds) * 1_000,
+      celebrationSeconds * 1_000,
     );
     return () => window.clearTimeout(timer);
-  }, [reward.celebrationSeconds, reward.celebrationSoundEnabled, reward.photoMode]);
+  }, [celebrationSeconds, reward.celebrationSoundEnabled, reward.photoMode]);
 
   useEffect(() => {
     if (phase !== "sent" || reward.photoMode !== "off") return;
-    const timer = window.setTimeout(onClose, 1_200);
+    const timer = window.setTimeout(onClose, 2_200);
     return () => window.clearTimeout(timer);
   }, [onClose, phase, reward.photoMode]);
 
   const photoAllowed = reward.photoMode === "name_photo";
-  const canSubmit = useMemo(() => {
-    if (!displayName.trim()) return false;
-    if (!consent) return false;
-    return true;
-  }, [consent, displayName]);
+  const canSubmit = useMemo(
+    () => Boolean(displayName.trim() && consent),
+    [consent, displayName],
+  );
 
-  const submit = async () => {
+  const submit = async (withoutPhoto = false) => {
     if (!canSubmit || busy) return;
     setBusy(true);
     setError("");
+
     try {
       const form = new FormData();
       form.set("orderId", orderId);
       form.set("displayName", displayName.trim());
       form.set("consent", String(consent));
-      if (photo && photoAllowed) form.set("photo", photo);
+      if (!withoutPhoto && photo && photoAllowed) form.set("photo", photo);
+
       const response = await fetch("/api/schnellbestellung/reward/submission", {
         method: "POST",
         body: form,
+        credentials: "same-origin",
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || data?.ok === false) {
         throw new Error(String(data?.error || "SUBMISSION_FAILED"));
       }
+
+      setResult({
+        showcaseQueued: data?.showcaseQueued === true,
+        photoPending: data?.photoPending === true,
+      });
       setPhase("sent");
-      window.setTimeout(onClose, 1_600);
+      window.setTimeout(onClose, 2_800);
     } catch (caught) {
       const code = caught instanceof Error ? caught.message : "SUBMISSION_FAILED";
-      setError(
-        code === "TEMP_PHOTO_STORAGE_NOT_CONFIGURED"
-          ? "Fotoğraf yükleme şu anda hazır değil. Sadece adınla devam edebilirsin."
-          : "Paylaşım gönderilemedi. Siparişin ve ödülün yine de geçerli.",
-      );
+      const messages: Record<string, string> = {
+        session_expired: "Deine Schnellbestellung-Sitzung ist abgelaufen. Dein Gewinn bleibt trotzdem gültig.",
+        reward_forbidden: "Dieser Gewinn gehört nicht zu dieser Sitzung. Bitte wende dich an unser Personal.",
+        reward_not_found: "Der Gewinn konnte nicht mehr gefunden werden. Bitte wende dich an unser Personal.",
+        display_consent_required: "Bitte bestätige zuerst die kurze Anzeige auf dem Burger-Brothers-Bildschirm.",
+        photo_too_large: "Das Foto ist zu groß. Bitte nimm ein neues Foto auf.",
+        photo_type_not_allowed: "Dieses Fotoformat wird nicht unterstützt.",
+        TEMP_PHOTO_STORAGE_NOT_CONFIGURED: "Der Foto-Upload ist gerade nicht verfügbar. Du kannst deinen Namen ohne Foto senden.",
+      };
+      setError(messages[code] || "Dein Glücksmoment konnte gerade nicht gesendet werden. Dein Gewinn und deine Bestellung bleiben vollständig gültig.");
     } finally {
       setBusy(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-[1600] overflow-y-auto bg-[radial-gradient(circle_at_top,#7c2d12_0%,#250a05_36%,#030303_78%)] px-4 py-6 text-white">
+    <div className="fixed inset-0 z-[1600] overflow-y-auto bg-[radial-gradient(circle_at_top,#b45309_0%,#7c2d12_22%,#240704_55%,#020202_100%)] px-4 py-5 text-white">
       {phase === "celebrate" ? (
         <>
           <div className="pointer-events-none fixed inset-0 overflow-hidden">
+            <div className="absolute inset-0 animate-[bbRewardGlow_1.8s_ease-in-out_infinite] bg-[radial-gradient(circle_at_center,rgba(251,191,36,.18),transparent_58%)]" />
             {CONFETTI.map((piece) => (
               <span
                 key={piece.id}
@@ -106,41 +134,57 @@ export default function RewardCelebration({
                 }}
               />
             ))}
-            <div className="absolute left-[8%] top-[14%] animate-ping text-6xl">✨</div>
-            <div className="absolute right-[8%] top-[18%] animate-ping text-6xl [animation-delay:.4s]">🎆</div>
-            <div className="absolute bottom-[15%] left-[15%] animate-bounce text-5xl">🍔</div>
-            <div className="absolute bottom-[18%] right-[14%] animate-bounce text-5xl [animation-delay:.25s]">🍀</div>
+            {FIREWORKS.map((firework, index) => (
+              <span
+                key={index}
+                className="absolute h-20 w-20 -translate-x-1/2 -translate-y-1/2 animate-[bbRewardFirework_1.5s_ease-out_infinite] rounded-full border-4 border-amber-200/80 shadow-[0_0_35px_rgba(251,191,36,.9)]"
+                style={{ left: firework.left, top: firework.top, animationDelay: firework.delay }}
+              />
+            ))}
+            <div className="absolute bottom-[10%] left-[10%] animate-bounce text-6xl">🍔</div>
+            <div className="absolute bottom-[12%] right-[10%] animate-bounce text-6xl [animation-delay:.25s]">🍀</div>
           </div>
 
-          <main className="relative mx-auto grid min-h-[calc(100dvh-3rem)] max-w-xl place-items-center text-center">
-            <section className="w-full rounded-[2.25rem] border border-amber-300/40 bg-black/55 p-6 shadow-[0_0_70px_rgba(251,191,36,.28)] backdrop-blur-xl sm:p-9">
-              <img
-                src="/logo-burger-brothers.png"
-                alt="Burger Brothers"
-                className="mx-auto h-24 w-24 animate-[bbRewardPop_.65s_ease-out] rounded-full object-contain shadow-2xl"
-              />
-              <p className="mt-5 text-sm font-black uppercase tracking-[0.25em] text-amber-300">
+          <main className="relative mx-auto grid min-h-[calc(100dvh-2.5rem)] max-w-xl place-items-center text-center">
+            <section className="w-full overflow-hidden rounded-[2.5rem] border border-amber-200/50 bg-black/60 p-6 shadow-[0_0_90px_rgba(251,191,36,.38)] backdrop-blur-xl sm:p-9">
+              <div className="mx-auto grid h-24 w-24 place-items-center rounded-full border-4 border-amber-300/60 bg-gradient-to-br from-amber-300 to-orange-600 shadow-[0_0_45px_rgba(251,191,36,.65)]">
+                <img
+                  src="/logo-burger-brothers.png"
+                  alt="Burger Brothers"
+                  className="h-20 w-20 animate-[bbRewardPop_.65s_ease-out] rounded-full object-contain"
+                />
+              </div>
+              <p className="mt-5 text-sm font-black uppercase tracking-[0.28em] text-amber-300">
                 Bestellnummer {customerNumber}
               </p>
-              <h1 className="mt-3 text-4xl font-black leading-tight sm:text-5xl">
-                HERZLICHEN GLÜCKWUNSCH! 🎉
+              <h1 className="mt-3 text-4xl font-black leading-[.95] sm:text-6xl">
+                DU HAST
+                <span className="mt-1 block bg-gradient-to-r from-amber-200 via-yellow-300 to-orange-400 bg-clip-text text-transparent">
+                  GEWONNEN!
+                </span>
               </h1>
-              <div className="mx-auto mt-6 rounded-3xl border border-emerald-300/30 bg-emerald-300/10 px-5 py-6">
-                <p className="text-2xl font-black text-emerald-200 sm:text-3xl">
-                  {reward.customerLabel}
+              <div className="mx-auto mt-6 animate-[bbRewardPrize_1.25s_ease-in-out_infinite] rounded-[2rem] border-2 border-emerald-200/45 bg-gradient-to-br from-emerald-300/20 to-cyan-300/10 px-5 py-7 shadow-[0_0_45px_rgba(110,231,183,.22)]">
+                <p className="text-3xl font-black leading-tight text-emerald-100 sm:text-4xl">
+                  🎁 {reward.customerLabel}
                 </p>
-                <p className="mt-3 text-sm text-stone-300">
-                  Dein Gewinn wurde direkt auf diese Bestellung angewendet.
+                <p className="mt-3 text-sm font-bold text-white/75">
+                  Der Gewinn wurde direkt auf deine Bestellung angewendet.
                 </p>
               </div>
+
+              <div className="mt-6 h-1.5 overflow-hidden rounded-full bg-white/10">
+                <div
+                  className="h-full origin-left animate-[bbRewardCountdown_linear_forwards] rounded-full bg-gradient-to-r from-amber-300 to-emerald-300"
+                  style={{ animationDuration: `${celebrationSeconds}s` }}
+                />
+              </div>
+
               <button
                 type="button"
-                onClick={() =>
-                  setPhase(reward.photoMode === "off" ? "sent" : "share")
-                }
-                className="mt-6 text-sm font-bold text-stone-300 underline"
+                onClick={() => setPhase(reward.photoMode === "off" ? "sent" : "share")}
+                className="mt-5 rounded-full border border-white/15 bg-white/5 px-5 py-2 text-sm font-bold text-white/80"
               >
-                Animation überspringen
+                Weiter
               </button>
             </section>
           </main>
@@ -148,12 +192,15 @@ export default function RewardCelebration({
       ) : null}
 
       {phase === "share" ? (
-        <main className="mx-auto flex min-h-[calc(100dvh-3rem)] max-w-xl items-center">
-          <section className="w-full rounded-[2.25rem] border border-white/15 bg-black/65 p-5 shadow-2xl backdrop-blur-xl sm:p-8">
+        <main className="mx-auto flex min-h-[calc(100dvh-2.5rem)] max-w-xl items-center">
+          <section className="w-full rounded-[2.25rem] border border-white/15 bg-black/70 p-5 shadow-2xl backdrop-blur-xl sm:p-8">
             <div className="text-center">
               <div className="text-5xl">🎉🍔🍀</div>
               <h2 className="mt-3 text-3xl font-black">Teile deinen Glücksmoment</h2>
-              <p className="mt-2 text-sm leading-6 text-stone-300">
+              <div className="mx-auto mt-4 rounded-2xl border border-emerald-300/25 bg-emerald-300/10 px-4 py-3 text-sm font-black text-emerald-100">
+                🎁 {reward.customerLabel}
+              </div>
+              <p className="mt-3 text-sm leading-6 text-stone-300">
                 Dein Gewinn bleibt auch ohne Namen oder Foto vollständig gültig.
               </p>
             </div>
@@ -174,7 +221,6 @@ export default function RewardCelebration({
                 <RewardCamera
                   onChange={(file) => {
                     setPhoto(file);
-                    if (!file) setConsent(false);
                   }}
                 />
               </div>
@@ -189,14 +235,24 @@ export default function RewardCelebration({
               />
               <span>
                 {photo
-                  ? `Ich bin damit einverstanden, dass mein Vorname und dieses Foto kurz auf dem Burger-Brothers-Bildschirm gezeigt werden. Das Foto wird nach der Anzeige oder spätestens nach ${reward.photoRetentionMinutes} Minuten automatisch gelöscht.`
-                  : "Ich bin damit einverstanden, dass mein Vorname oder Spitzname kurz auf dem Burger-Brothers-Bildschirm gezeigt wird."}
+                  ? `Ich bin damit einverstanden, dass mein Vorname und dieses Foto kurz auf den Burger-Brothers-Bildschirmen gezeigt werden. Das Foto wird nach der Anzeige oder spätestens nach ${reward.photoRetentionMinutes} Minuten automatisch gelöscht.`
+                  : "Ich bin damit einverstanden, dass mein Vorname oder Spitzname kurz auf den Burger-Brothers-Bildschirmen gezeigt wird."}
               </span>
             </label>
 
             {error ? (
-              <div className="mt-4 rounded-2xl border border-red-400/30 bg-red-500/10 p-3 text-sm text-red-100">
+              <div className="mt-4 rounded-2xl border border-red-400/30 bg-red-500/10 p-3 text-sm leading-6 text-red-100">
                 {error}
+                {photo ? (
+                  <button
+                    type="button"
+                    disabled={busy || !canSubmit}
+                    onClick={() => void submit(true)}
+                    className="mt-3 block font-black text-amber-200 underline"
+                  >
+                    Ohne Foto senden
+                  </button>
+                ) : null}
               </div>
             ) : null}
 
@@ -210,11 +266,11 @@ export default function RewardCelebration({
               </button>
               <button
                 type="button"
-                onClick={() => void submit()}
+                onClick={() => void submit(false)}
                 disabled={!canSubmit || busy}
                 className="rounded-2xl bg-amber-400 px-5 py-4 font-black text-black disabled:cursor-not-allowed disabled:opacity-40"
               >
-                {busy ? "Wird gesendet …" : photo ? "Zur Freigabe senden" : "Auf dem Bildschirm zeigen"}
+                {busy ? "Wird gesendet …" : photo ? "Zur Freigabe senden" : "Auf den Bildschirmen zeigen"}
               </button>
             </div>
           </section>
@@ -222,16 +278,20 @@ export default function RewardCelebration({
       ) : null}
 
       {phase === "sent" ? (
-        <main className="mx-auto grid min-h-[calc(100dvh-3rem)] max-w-xl place-items-center text-center">
-          <section className="w-full rounded-[2.25rem] border border-emerald-300/30 bg-black/65 p-8 shadow-2xl backdrop-blur-xl">
+        <main className="mx-auto grid min-h-[calc(100dvh-2.5rem)] max-w-xl place-items-center text-center">
+          <section className="w-full rounded-[2.25rem] border border-emerald-300/30 bg-black/70 p-8 shadow-2xl backdrop-blur-xl">
             <div className="text-7xl">✓</div>
             <h2 className="mt-4 text-3xl font-black text-emerald-200">
               Dein Glücksmoment ist gespeichert
             </h2>
-            <p className="mt-3 text-stone-300">
-              {photo
-                ? "Das Foto wird zuerst von Burger Brothers geprüft."
-                : "Vielen Dank und guten Appetit!"}
+            <p className="mt-3 leading-7 text-stone-300">
+              {result?.photoPending
+                ? "Dein Foto wird kurz von Burger Brothers geprüft."
+                : result?.showcaseQueued
+                  ? "Dein Name erscheint gleich auf den aktiven Burger-Brothers-Bildschirmen."
+                  : reward.photoMode === "off"
+                    ? "Vielen Dank und guten Appetit!"
+                    : "Dein Eintrag wurde gespeichert und wird geprüft."}
             </p>
           </section>
         </main>

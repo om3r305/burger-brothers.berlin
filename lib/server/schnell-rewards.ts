@@ -1,7 +1,6 @@
-import { createHash, createHmac, randomInt } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import type {
-  RewardDaySchedule,
   RewardDefinition,
   SchnellRewardProgram,
   SchnellRewardPublic,
@@ -48,7 +47,7 @@ function roundMoney(value: number) {
   return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
 }
 
-function timeToMinute(value: string) {
+export function rewardTimeToMinute(value: string) {
   const match = String(value || "").match(/^(\d{2}):(\d{2})$/);
   if (!match) return 0;
   return Math.min(1_439, Math.max(0, Number(match[1]) * 60 + Number(match[2])));
@@ -92,47 +91,143 @@ function rewardSecret() {
   );
 }
 
-export function generateRewardSlots(params: {
-  tenantId: string;
-  businessDate: string;
-  schedule: RewardDaySchedule;
-  scheduleVersion: number;
-}) {
-  const start = timeToMinute(params.schedule.startTime);
-  const end = timeToMinute(params.schedule.endTime);
-  const count = Math.max(0, Math.floor(params.schedule.winnerCount));
+function clamp(value: number, min = 0, max = 1) {
+  return Math.min(max, Math.max(min, value));
+}
 
-  if (!params.schedule.enabled || count <= 0 || end <= start) return [] as number[];
+function deterministicUnit(parts: Array<string | number>) {
+  const digest = createHmac("sha256", rewardSecret())
+    .update(parts.join(":"))
+    .digest();
+  return digest.readUInt32BE(0) / 0xffffffff;
+}
 
-  const duration = end - start;
-  const segment = duration / count;
-  const slots: number[] = [];
+export type AdaptiveRewardChanceInput = {
+  startMinute: number;
+  endMinute: number;
+  currentMinute: number;
+  winnerLimit: number;
+  winsSoFar: number;
+  previousEligibleOrders: number;
+  ordersSinceLastWin: number;
+  minOrdersBetweenWins: number;
+  hasPreviousWin: boolean;
+};
 
-  for (let index = 0; index < count; index += 1) {
-    const digest = createHmac("sha256", rewardSecret())
-      .update(
-        [
-          params.tenantId,
-          params.businessDate,
-          params.schedule.weekday,
-          params.scheduleVersion,
-          index,
-        ].join(":"),
-      )
-      .digest();
-    const randomUnit = digest.readUInt32BE(0) / 0xffffffff;
-    const segmentStart = start + segment * index;
-    const safePadding = Math.min(12, Math.max(2, segment * 0.12));
-    const usableStart = segmentStart + safePadding;
-    const usableEnd = start + segment * (index + 1) - safePadding;
-    const minute =
-      usableEnd > usableStart
-        ? usableStart + randomUnit * (usableEnd - usableStart)
-        : segmentStart + randomUnit * segment;
-    slots.push(Math.min(end - 1, Math.max(start, Math.round(minute))));
+export type AdaptiveRewardChance = {
+  chance: number;
+  progress: number;
+  remainingWins: number;
+  expectedWinsByNow: number;
+  behindTarget: number;
+  spacingBlocked: boolean;
+  deadlineMode: boolean;
+};
+
+/**
+ * Sipariş yokken ödül "yakmaz". Her gerçek uygun siparişte pencerenin ilerleyişi,
+ * kalan kota ve son kazananın ardından gelen sipariş sayısı birlikte değerlendirilir.
+ * Pencerenin sonuna yaklaşıldıkça kullanılmayan kota için şans kontrollü biçimde artar.
+ */
+export function computeAdaptiveWinChance(
+  input: AdaptiveRewardChanceInput,
+): AdaptiveRewardChance {
+  const duration = Math.max(1, input.endMinute - input.startMinute);
+  const progress = clamp(
+    (input.currentMinute - input.startMinute) / duration,
+  );
+  const winnerLimit = Math.max(0, Math.floor(input.winnerLimit));
+  const winsSoFar = Math.max(0, Math.floor(input.winsSoFar));
+  const remainingWins = Math.max(0, winnerLimit - winsSoFar);
+  const expectedWinsByNow = winnerLimit * progress;
+  const behindTarget = Math.max(0, expectedWinsByNow - winsSoFar);
+  const deadlineMode = progress >= 0.94;
+
+  if (
+    winnerLimit <= 0 ||
+    remainingWins <= 0 ||
+    input.currentMinute < input.startMinute ||
+    input.currentMinute >= input.endMinute
+  ) {
+    return {
+      chance: 0,
+      progress,
+      remainingWins,
+      expectedWinsByNow,
+      behindTarget,
+      spacingBlocked: false,
+      deadlineMode,
+    };
   }
 
-  return [...new Set(slots)].sort((a, b) => a - b);
+  const minGap = Math.max(0, Math.floor(input.minOrdersBetweenWins));
+  const spacingBlocked =
+    input.hasPreviousWin &&
+    input.ordersSinceLastWin < minGap &&
+    !deadlineMode;
+
+  if (spacingBlocked) {
+    return {
+      chance: 0,
+      progress,
+      remainingWins,
+      expectedWinsByNow,
+      behindTarget,
+      spacingBlocked: true,
+      deadlineMode,
+    };
+  }
+
+  // Başlangıçta spontane ama ölçülü bir temel ihtimal.
+  const baseChance = clamp(0.08 + winnerLimit * 0.012, 0.08, 0.22);
+
+  // Planın gerisinde kalındığında ana telafi kuvveti.
+  const deficitBoost = Math.min(
+    0.58,
+    behindTarget * (0.17 + progress * 0.07),
+  );
+
+  // Zaman ilerledikçe ve kota kaldıkça artan baskı.
+  const timeBoost = progress * progress * 0.22;
+  const quotaPressure =
+    (remainingWins / Math.max(1, winnerLimit)) * progress * 0.12;
+
+  // Son kazananın ardından daha fazla sipariş geldiyse küçük ek artış.
+  const orderBoost = Math.min(
+    0.12,
+    Math.max(0, input.ordersSinceLastWin - minGap) * 0.035,
+  );
+
+  let chance = baseChance + deficitBoost + timeBoost + quotaPressure + orderBoost;
+
+  // Pencerenin büyük bölümü geçtiği halde hiç kazanan yoksa ilk uygun
+  // siparişlerin ödülü yakalama ihtimali belirgin şekilde yükselir.
+  if (progress >= 0.75 && winsSoFar === 0) {
+    chance = Math.max(chance, 0.78);
+  }
+
+  // Son bölümde verilmemiş ödüller sabit saat gibi kaybolmaz.
+  if (progress >= 0.88) {
+    chance = Math.max(
+      chance,
+      Math.min(0.96, 0.72 + (remainingWins / Math.max(1, winnerLimit)) * 0.2),
+    );
+  }
+
+  // Son %4 içinde gelen uygun siparişler kota dolana kadar kazanır.
+  if (progress >= 0.96) {
+    chance = 1;
+  }
+
+  return {
+    chance: clamp(chance),
+    progress,
+    remainingWins,
+    expectedWinsByNow,
+    behindTarget,
+    spacingBlocked: false,
+    deadlineMode,
+  };
 }
 
 function deviceHash(deviceId: string) {
@@ -300,10 +395,13 @@ function evaluateDefinition(
   return null;
 }
 
-function weightedChoice<T extends { weight: number }>(items: T[]) {
+function weightedChoice<T extends { weight: number }>(
+  items: T[],
+  randomUnit: number,
+) {
   const total = items.reduce((sum, item) => sum + Math.max(1, item.weight), 0);
   if (!items.length || total <= 0) return null;
-  let cursor = randomInt(total);
+  let cursor = clamp(randomUnit) * total;
   for (const item of items) {
     cursor -= Math.max(1, item.weight);
     if (cursor < 0) return item;
@@ -316,6 +414,7 @@ export async function decideSchnellReward(params: {
   tenantId: string;
   now: Date;
   deviceId: string;
+  decisionKey: string;
   program: SchnellRewardProgram;
   items: RewardOrderItem[];
   payable: number;
@@ -327,19 +426,11 @@ export async function decideSchnellReward(params: {
   const schedule = program.weekly.find((item) => item.weekday === clock.weekday);
   if (!schedule?.enabled || schedule.winnerCount <= 0) return null;
 
-  const start = timeToMinute(schedule.startTime);
-  const end = timeToMinute(schedule.endTime);
+  const start = rewardTimeToMinute(schedule.startTime);
+  const end = rewardTimeToMinute(schedule.endTime);
   if (end <= start || clock.minuteOfDay < start || clock.minuteOfDay >= end) {
     return null;
   }
-
-  const slots = generateRewardSlots({
-    tenantId: params.tenantId,
-    businessDate: clock.businessDate,
-    schedule,
-    scheduleVersion: program.scheduleVersion,
-  });
-  if (!slots.length) return null;
 
   const existingWins = await params.transaction.schnellRewardWin.findMany({
     where: {
@@ -349,23 +440,76 @@ export async function decideSchnellReward(params: {
     select: {
       slotIndex: true,
       deviceTokenHash: true,
+      createdAt: true,
     },
+    orderBy: { createdAt: "asc" },
   });
-  const claimed = new Set(existingWins.map((win) => Number(win.slotIndex)));
-  // Only the latest reached slot is claimable. Older missed slots expire instead
-  // of stacking up and producing several winners back-to-back late in the day.
-  let nextDueSlot = -1;
-  for (let index = 0; index < slots.length; index += 1) {
-    if (slots[index] <= clock.minuteOfDay) nextDueSlot = index;
-    else break;
-  }
-  if (nextDueSlot < 0 || claimed.has(nextDueSlot)) return null;
+
+  if (existingWins.length >= schedule.winnerCount) return null;
 
   const hashedDevice = deviceHash(params.deviceId);
   const deviceWins = existingWins.filter(
     (win) => String(win.deviceTokenHash || "") === hashedDevice,
   ).length;
   if (deviceWins >= program.maxWinsPerDevicePerDay) return null;
+
+  // Son 30 saat yeterli bir güvenli aralıktır; Europe/Berlin gün sınırı ve
+  // yaz/kış saati farkı her kayıtta berlinParts ile tekrar doğrulanır.
+  const recentOrders = await params.transaction.order.findMany({
+    where: {
+      tenantId: params.tenantId,
+      channel: "schnellbestellung",
+      ts: { gte: new Date(params.now.getTime() - 30 * 60 * 60_000) },
+    },
+    select: { ts: true },
+    orderBy: { ts: "asc" },
+    take: 1_000,
+  });
+
+  const previousWindowOrders = recentOrders.filter((order) => {
+    const orderClock = berlinParts(order.ts, program.timezone);
+    return (
+      orderClock.businessDate === clock.businessDate &&
+      orderClock.minuteOfDay >= start &&
+      orderClock.minuteOfDay < end
+    );
+  });
+
+  const nextWinSequence =
+    existingWins.reduce(
+      (highest, win) => Math.max(highest, Number(win.slotIndex) || 0),
+      -1,
+    ) + 1;
+  const lastWin = existingWins[existingWins.length - 1] || null;
+  const ordersSinceLastWin = lastWin
+    ? previousWindowOrders.filter(
+        (order) => order.ts.getTime() > lastWin.createdAt.getTime(),
+      ).length
+    : previousWindowOrders.length;
+
+  const adaptive = computeAdaptiveWinChance({
+    startMinute: start,
+    endMinute: end,
+    currentMinute: clock.minuteOfDay,
+    winnerLimit: schedule.winnerCount,
+    winsSoFar: existingWins.length,
+    previousEligibleOrders: previousWindowOrders.length,
+    ordersSinceLastWin,
+    minOrdersBetweenWins: program.minOrdersBetweenWins,
+    hasPreviousWin: Boolean(lastWin),
+  });
+
+  if (adaptive.chance <= 0) return null;
+
+  const draw = deterministicUnit([
+    params.tenantId,
+    clock.businessDate,
+    program.scheduleVersion,
+    params.decisionKey,
+    previousWindowOrders.length + 1,
+    existingWins.length,
+  ]);
+  if (draw >= adaptive.chance) return null;
 
   type RewardCandidate = {
     weight: number;
@@ -384,7 +528,16 @@ export async function decideSchnellReward(params: {
       : [];
   });
 
-  const selected = weightedChoice<RewardCandidate>(candidates);
+  const selected = weightedChoice<RewardCandidate>(
+    candidates,
+    deterministicUnit([
+      params.tenantId,
+      clock.businessDate,
+      program.scheduleVersion,
+      params.decisionKey,
+      "reward-definition",
+    ]),
+  );
   if (!selected) return null;
 
   const publicReward = {
@@ -396,7 +549,9 @@ export async function decideSchnellReward(params: {
   };
 
   return {
-    slotIndex: nextDueSlot,
+    // Veritabanındaki alan geriye dönük olarak korunur; artık sabit saat slotu
+    // değil, o gün verilen ödülün sıfır tabanlı sıra numarasıdır.
+    slotIndex: nextWinSequence,
     definition: selected.definition,
     ...selected.evaluated,
     deviceTokenHash: hashedDevice,
@@ -419,7 +574,7 @@ export function rewardFromOrderMeta(metaValue: unknown): SchnellRewardPublic | n
     percent: Number(reward.percent) || undefined,
     productName: String(reward.productName || "") || undefined,
     celebrationSoundEnabled: reward.celebrationSoundEnabled !== false,
-    celebrationSeconds: Math.max(3, Math.min(8, Number(reward.celebrationSeconds) || 4)),
+    celebrationSeconds: Math.max(5, Math.min(12, Number(reward.celebrationSeconds) || 7)),
     photoMode:
       reward.photoMode === "name" || reward.photoMode === "name_photo"
         ? reward.photoMode

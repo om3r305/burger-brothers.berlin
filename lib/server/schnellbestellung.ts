@@ -1294,6 +1294,7 @@ export async function createCashSchnellOrder(params: {
             tenantId,
             now: new Date(),
             deviceId: params.deviceId,
+            decisionKey: params.idempotencyKey,
             program: settings.rewardProgram,
             items: canonicalItems.map((item) => ({
               id: String(item.id || ""),

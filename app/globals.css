@@ -1587,3 +1587,25 @@ body:has(#bb-landing-page) #bb-landing-page {
   70% { transform: scale(1.15) rotate(4deg); opacity: 1; }
   100% { transform: scale(1) rotate(0deg); opacity: 1; }
 }
+
+@keyframes bbRewardGlow {
+  0%, 100% { opacity: .45; transform: scale(.94); }
+  50% { opacity: 1; transform: scale(1.08); }
+}
+
+@keyframes bbRewardFirework {
+  0% { transform: translate(-50%, -50%) scale(.08); opacity: 0; }
+  15% { opacity: 1; }
+  75% { opacity: .8; }
+  100% { transform: translate(-50%, -50%) scale(2.35); opacity: 0; }
+}
+
+@keyframes bbRewardPrize {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 30px rgba(110, 231, 183, .14); }
+  50% { transform: scale(1.025); box-shadow: 0 0 55px rgba(110, 231, 183, .3); }
+}
+
+@keyframes bbRewardCountdown {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}

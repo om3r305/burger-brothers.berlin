@@ -42,6 +42,29 @@ function objectValue(value: unknown): Record<string, any> {
     : {};
 }
 
+async function createModerationNotification(params: {
+  photo: boolean;
+  displayName: string;
+  customerNumber: number;
+  rewardLabel: string;
+  submissionId: string;
+}) {
+  try {
+    await createAdminInboxNotification({
+      type: params.photo ? "winner_photo_approval" : "winner_name_approval",
+      title: params.photo ? "📸 Yeni kazanan fotoğrafı" : "🎉 Yeni kazanan adı",
+      body: `${params.displayName} · Nummer ${params.customerNumber} · ${params.rewardLabel}`,
+      url: "/admin/schnellbestellung#reward-moderation",
+      sourceType: "winner_submission",
+      sourceId: params.submissionId,
+    });
+    return true;
+  } catch (error) {
+    console.error("[schnell/reward/submission] admin notification failed", error);
+    return false;
+  }
+}
+
 export async function POST(req: Request) {
   if (!hasTrustedMutationOrigin(req)) {
     return json({ ok: false, error: "origin_not_allowed" }, 403);
@@ -82,22 +105,58 @@ export async function POST(req: Request) {
   if (String(orderMeta.deviceId || "") !== String(session.deviceId || "")) {
     return json({ ok: false, error: "reward_forbidden" }, 403);
   }
-  if (rewardWin.submission) {
-    return json({
-      ok: true,
-      reused: true,
-      submissionId: rewardWin.submission.id,
-      moderationStatus: rewardWin.submission.moderationStatus,
-    });
-  }
 
   const rewardMeta = objectValue(orderMeta.reward);
+  const rewardLabel = String(rewardMeta.customerLabel || rewardWin.rewardLabel);
+  const customerNumber = Number(orderMeta.customerNumber || 0);
   const photoMode =
     rewardMeta.photoMode === "name_photo"
       ? "name_photo"
       : rewardMeta.photoMode === "name"
         ? "name"
         : "off";
+
+  if (rewardWin.submission) {
+    let showcaseQueued = Boolean(rewardWin.submission.publishedAt);
+
+    // Önceki istekte kayıt oluşmuş fakat Showcase kuyruğu geçici olarak hata
+    // vermiş olabilir. Aynı tıklama yeni kayıt açmadan güvenli biçimde tamamlanır.
+    if (
+      !showcaseQueued &&
+      rewardWin.submission.moderationStatus === "approved_name" &&
+      settings.rewardProgram.showcaseEnabled
+    ) {
+      try {
+        const events = await queueWinnerShowcaseEvents({
+          submissionId: rewardWin.submission.id,
+          displayName: rewardWin.submission.displayName,
+          rewardLabel,
+          customerNumber,
+          photoApproved: false,
+          program: settings.rewardProgram,
+        });
+        showcaseQueued = events.length > 0;
+        if (showcaseQueued) {
+          await prisma.schnellWinnerSubmission.update({
+            where: { id: rewardWin.submission.id },
+            data: { publishedAt: new Date() },
+          });
+        }
+      } catch (error) {
+        console.error("[schnell/reward/submission] reused showcase queue failed", error);
+      }
+    }
+
+    return json({
+      ok: true,
+      reused: true,
+      submissionId: rewardWin.submission.id,
+      moderationStatus: rewardWin.submission.moderationStatus,
+      photoPending: rewardWin.submission.photoStatus === "pending",
+      showcaseQueued,
+    });
+  }
+
   if (photoMode === "off") {
     return json({ ok: false, error: "sharing_disabled" }, 409);
   }
@@ -150,38 +209,58 @@ export async function POST(req: Request) {
       },
     });
 
-    const customerNumber = Number(orderMeta.customerNumber || 0);
-    if (autoPublishName) {
-      await queueWinnerShowcaseEvents({
-        submissionId: submission.id,
+    let showcaseQueued = false;
+    let notificationQueued = false;
+    let warning: string | null = null;
+
+    if (autoPublishName && settings.rewardProgram.showcaseEnabled) {
+      try {
+        const events = await queueWinnerShowcaseEvents({
+          submissionId: submission.id,
+          displayName,
+          rewardLabel,
+          customerNumber,
+          photoApproved: false,
+          program: settings.rewardProgram,
+        });
+        showcaseQueued = events.length > 0;
+        if (showcaseQueued) {
+          await prisma.schnellWinnerSubmission.update({
+            where: { id: submission.id },
+            data: { publishedAt: new Date() },
+          });
+        }
+      } catch (error) {
+        warning = "showcase_queue_delayed";
+        console.error("[schnell/reward/submission] showcase queue failed", error);
+        notificationQueued = await createModerationNotification({
+          photo: false,
+          displayName,
+          customerNumber,
+          rewardLabel,
+          submissionId: submission.id,
+        });
+      }
+    } else if (!autoPublishName || photo) {
+      notificationQueued = await createModerationNotification({
+        photo: Boolean(photo),
         displayName,
-        rewardLabel: String(rewardMeta.customerLabel || rewardWin.rewardLabel),
         customerNumber,
-        photoApproved: false,
-        program: settings.rewardProgram,
-      });
-      await prisma.schnellWinnerSubmission.update({
-        where: { id: submission.id },
-        data: { publishedAt: new Date() },
-      });
-    } else {
-      await createAdminInboxNotification({
-        type: photo ? "winner_photo_approval" : "winner_name_approval",
-        title: photo ? "📸 Yeni kazanan fotoğrafı" : "🎉 Yeni kazanan adı",
-        body: `${displayName} · Nummer ${customerNumber} · ${String(
-          rewardMeta.customerLabel || rewardWin.rewardLabel,
-        )}`,
-        url: "/admin/schnellbestellung#reward-moderation",
-        sourceType: "winner_submission",
-        sourceId: submission.id,
+        rewardLabel,
+        submissionId: submission.id,
       });
     }
 
+    // Showcase veya admin bildirimi geçici olarak hata verse bile müşterinin
+    // gönderimi ve ödülü başarısız sayılmaz; kayıt admin panelinde korunur.
     return json({
       ok: true,
       submissionId: submission.id,
       moderationStatus: submission.moderationStatus,
       photoPending: Boolean(photo),
+      showcaseQueued,
+      notificationQueued,
+      warning,
     });
   } catch (error) {
     if (storagePath) {
@@ -193,8 +272,7 @@ export async function POST(req: Request) {
     return json(
       {
         ok: false,
-        error:
-          error instanceof Error ? error.message : "reward_submission_failed",
+        error: error instanceof Error ? error.message : "reward_submission_failed",
       },
       500,
     );

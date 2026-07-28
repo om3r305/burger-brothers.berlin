@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 type Props = {
   onChange: (file: File | null, previewUrl: string | null) => void;
@@ -10,6 +10,7 @@ async function canvasFileFromSource(
   source: CanvasImageSource,
   width: number,
   height: number,
+  mirror = false,
 ) {
   const maxSide = 1080;
   const scale = Math.min(1, maxSide / Math.max(width, height));
@@ -20,7 +21,13 @@ async function canvasFileFromSource(
   canvas.height = targetHeight;
   const context = canvas.getContext("2d");
   if (!context) throw new Error("CANVAS_NOT_AVAILABLE");
+
+  if (mirror) {
+    context.translate(targetWidth, 0);
+    context.scale(-1, 1);
+  }
   context.drawImage(source, 0, 0, targetWidth, targetHeight);
+
   const blob = await new Promise<Blob | null>((resolve) =>
     canvas.toBlob(resolve, "image/webp", 0.82),
   );
@@ -30,75 +37,177 @@ async function canvasFileFromSource(
   });
 }
 
+async function requestCameraStream() {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    throw new Error("CAMERA_API_NOT_AVAILABLE");
+  }
+
+  const attempts: MediaStreamConstraints[] = [
+    {
+      video: {
+        facingMode: { ideal: "user" },
+        width: { ideal: 1280 },
+        height: { ideal: 1280 },
+      },
+      audio: false,
+    },
+    { video: { facingMode: "user" }, audio: false },
+    { video: true, audio: false },
+  ];
+
+  let lastError: unknown = null;
+  for (const constraints of attempts) {
+    try {
+      return await navigator.mediaDevices.getUserMedia(constraints);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("CAMERA_OPEN_FAILED");
+}
+
 export default function RewardCamera({ onChange }: Props) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const previewRef = useRef<string | null>(null);
+
   const [cameraOpen, setCameraOpen] = useState(false);
+  const [cameraReady, setCameraReady] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const stopCamera = () => {
+  const stopCamera = useCallback(() => {
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
-    if (videoRef.current) videoRef.current.srcObject = null;
+    if (videoRef.current) {
+      videoRef.current.pause();
+      videoRef.current.srcObject = null;
+    }
+    setCameraReady(false);
     setCameraOpen(false);
-  };
+  }, []);
+
+  const clearPreview = useCallback(() => {
+    if (previewRef.current) URL.revokeObjectURL(previewRef.current);
+    previewRef.current = null;
+    setPreviewUrl(null);
+    setSelectedFile(null);
+    onChange(null, null);
+  }, [onChange]);
+
+  const setPhoto = useCallback(
+    (file: File | null) => {
+      if (previewRef.current) URL.revokeObjectURL(previewRef.current);
+      const nextUrl = file ? URL.createObjectURL(file) : null;
+      previewRef.current = nextUrl;
+      setSelectedFile(file);
+      setPreviewUrl(nextUrl);
+      onChange(null, null);
+    },
+    [onChange],
+  );
+
+  useEffect(() => {
+    if (!cameraOpen || !streamRef.current || !videoRef.current) return;
+
+    let cancelled = false;
+    const video = videoRef.current;
+    const stream = streamRef.current;
+
+    const startPlayback = async () => {
+      try {
+        video.muted = true;
+        video.autoplay = true;
+        video.playsInline = true;
+        video.setAttribute("playsinline", "true");
+        video.setAttribute("webkit-playsinline", "true");
+        video.srcObject = stream;
+
+        if (video.readyState < video.HAVE_METADATA) {
+          await new Promise<void>((resolve, reject) => {
+            const timer = window.setTimeout(() => reject(new Error("CAMERA_METADATA_TIMEOUT")), 4500);
+            const ready = () => {
+              window.clearTimeout(timer);
+              video.removeEventListener("loadedmetadata", ready);
+              video.removeEventListener("error", failed);
+              resolve();
+            };
+            const failed = () => {
+              window.clearTimeout(timer);
+              video.removeEventListener("loadedmetadata", ready);
+              video.removeEventListener("error", failed);
+              reject(new Error("CAMERA_VIDEO_ERROR"));
+            };
+            video.addEventListener("loadedmetadata", ready, { once: true });
+            video.addEventListener("error", failed, { once: true });
+          });
+        }
+
+        await video.play();
+        if (!cancelled) setCameraReady(video.videoWidth > 0 && video.videoHeight > 0);
+      } catch (caught) {
+        console.error("[reward-camera] preview failed", caught);
+        if (!cancelled) {
+          setError("Die Kameravorschau konnte nicht gestartet werden. Bitte nutze die Telefonkamera.");
+          stopCamera();
+          window.setTimeout(() => inputRef.current?.click(), 50);
+        }
+      }
+    };
+
+    void startPlayback();
+    return () => {
+      cancelled = true;
+    };
+  }, [cameraOpen, stopCamera]);
 
   useEffect(() => {
     return () => {
-      stopCamera();
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      if (previewRef.current) URL.revokeObjectURL(previewRef.current);
     };
-  }, [previewUrl]);
-
-  const setPhoto = (file: File | null) => {
-    if (previewUrl) URL.revokeObjectURL(previewUrl);
-    const nextUrl = file ? URL.createObjectURL(file) : null;
-    setSelectedFile(file);
-    setPreviewUrl(nextUrl);
-    onChange(null, null);
-  };
+  }, []);
 
   const openCamera = async () => {
+    if (busy) return;
+    setBusy(true);
     setError("");
-    setPhoto(null);
+    clearPreview();
     stopCamera();
+
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: { ideal: "user" },
-          width: { ideal: 1280 },
-          height: { ideal: 1280 },
-        },
-        audio: false,
-      });
+      const stream = await requestCameraStream();
       streamRef.current = stream;
       setCameraOpen(true);
-      window.setTimeout(() => {
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          void videoRef.current.play().catch(() => undefined);
-        }
-      }, 0);
-    } catch {
-      setError("Kamera açılamadı. Telefonun kamera seçimini kullanabilirsin.");
-      inputRef.current?.click();
+    } catch (caught) {
+      console.error("[reward-camera] getUserMedia failed", caught);
+      setError("Die Kamera konnte nicht geöffnet werden. Bitte nutze die Telefonkamera.");
+      window.setTimeout(() => inputRef.current?.click(), 50);
+    } finally {
+      setBusy(false);
     }
   };
 
   const capture = async () => {
     const video = videoRef.current;
-    if (!video?.videoWidth || !video.videoHeight || busy) return;
+    if (!cameraReady || !video?.videoWidth || !video.videoHeight || busy) return;
     setBusy(true);
+    setError("");
     try {
-      const file = await canvasFileFromSource(video, video.videoWidth, video.videoHeight);
+      const file = await canvasFileFromSource(
+        video,
+        video.videoWidth,
+        video.videoHeight,
+        true,
+      );
       stopCamera();
       setPhoto(file);
-    } catch {
-      setError("Fotoğraf hazırlanamadı. Lütfen tekrar dene.");
+    } catch (caught) {
+      console.error("[reward-camera] capture failed", caught);
+      setError("Das Foto konnte nicht vorbereitet werden. Bitte versuche es erneut.");
     } finally {
       setBusy(false);
     }
@@ -122,8 +231,9 @@ export default function RewardCamera({ onChange }: Props) {
         image.naturalHeight,
       );
       setPhoto(converted);
-    } catch {
-      setError("Bu fotoğraf kullanılamadı. Lütfen tekrar çek.");
+    } catch (caught) {
+      console.error("[reward-camera] fallback conversion failed", caught);
+      setError("Dieses Foto konnte nicht verwendet werden. Bitte nimm ein neues Foto auf.");
     } finally {
       URL.revokeObjectURL(url);
       setBusy(false);
@@ -137,7 +247,7 @@ export default function RewardCamera({ onChange }: Props) {
         <div className="overflow-hidden rounded-3xl border border-amber-300/40 bg-black">
           <img
             src={previewUrl}
-            alt="Fotoğraf önizlemesi"
+            alt="Foto-Vorschau"
             className="aspect-square w-full object-cover"
           />
         </div>
@@ -160,7 +270,7 @@ export default function RewardCamera({ onChange }: Props) {
         </div>
         <button
           type="button"
-          onClick={() => setPhoto(null)}
+          onClick={clearPreview}
           className="w-full text-sm font-bold text-stone-300 underline"
         >
           Foto entfernen
@@ -183,28 +293,55 @@ export default function RewardCamera({ onChange }: Props) {
       {cameraOpen ? (
         <div className="fixed inset-0 z-[1700] flex flex-col bg-black">
           <div className="flex items-center justify-between p-4 text-white">
-            <strong>Dein Glücksfoto</strong>
-            <button type="button" onClick={stopCamera} className="rounded-full bg-white/15 px-4 py-2">
+            <div>
+              <strong className="block">Dein Glücksfoto</strong>
+              <span className="text-xs text-white/60">Die Frontkamera wird bevorzugt.</span>
+            </div>
+            <button
+              type="button"
+              onClick={stopCamera}
+              className="grid h-12 w-12 place-items-center rounded-full bg-white/15 text-xl"
+              aria-label="Kamera schließen"
+            >
               ✕
             </button>
           </div>
-          <div className="relative min-h-0 flex-1 overflow-hidden">
+          <div className="relative min-h-0 flex-1 overflow-hidden bg-stone-950">
             <video
               ref={videoRef}
+              autoPlay
               playsInline
               muted
               className="h-full w-full -scale-x-100 object-cover"
             />
-            <div className="pointer-events-none absolute inset-8 rounded-[2.5rem] border-2 border-white/50" />
+            {!cameraReady ? (
+              <div className="absolute inset-0 grid place-items-center bg-black/70 text-center text-white">
+                <div>
+                  <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-white/20 border-t-amber-300" />
+                  <p className="mt-3 font-bold">Kamera wird gestartet…</p>
+                </div>
+              </div>
+            ) : null}
+            <div className="pointer-events-none absolute inset-8 rounded-[2.5rem] border-2 border-white/55 shadow-[0_0_0_999px_rgba(0,0,0,.14)]" />
           </div>
-          <div className="grid place-items-center p-6">
+          <div className="grid place-items-center gap-3 border-t border-white/10 p-6">
             <button
               type="button"
               onClick={() => void capture()}
-              disabled={busy}
-              aria-label="Fotoğraf çek"
-              className="h-20 w-20 rounded-full border-[7px] border-white bg-amber-400 shadow-2xl disabled:opacity-50"
+              disabled={busy || !cameraReady}
+              aria-label="Foto aufnehmen"
+              className="h-20 w-20 rounded-full border-[7px] border-white bg-amber-400 shadow-2xl disabled:opacity-40"
             />
+            <button
+              type="button"
+              onClick={() => {
+                stopCamera();
+                window.setTimeout(() => inputRef.current?.click(), 50);
+              }}
+              className="text-sm font-bold text-white/75 underline"
+            >
+              Telefonkamera verwenden
+            </button>
           </div>
         </div>
       ) : (
@@ -218,7 +355,7 @@ export default function RewardCamera({ onChange }: Props) {
         </button>
       )}
 
-      {error ? <p className="text-sm text-amber-200">{error}</p> : null}
+      {error ? <p className="text-sm leading-5 text-amber-200">{error}</p> : null}
     </div>
   );
 }

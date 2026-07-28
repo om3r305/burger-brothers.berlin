@@ -49,12 +49,14 @@ export type SchnellRewardProgram = {
   weekly: RewardDaySchedule[];
   pool: RewardDefinition[];
   maxWinsPerDevicePerDay: number;
+  minOrdersBetweenWins: number;
   celebrationSoundEnabled: boolean;
   celebrationSeconds: number;
   photoMode: RewardPhotoMode;
   photoRetentionMinutes: number;
   autoPublishName: boolean;
   showcaseEnabled: boolean;
+  targetAllActiveScreens: boolean;
   targetScreenSlugs: string[];
   showcaseDurationSeconds: number;
 };
@@ -177,12 +179,14 @@ export const DEFAULT_REWARD_PROGRAM: SchnellRewardProgram = {
   })),
   pool: DEFAULT_REWARD_POOL,
   maxWinsPerDevicePerDay: 1,
+  minOrdersBetweenWins: 1,
   celebrationSoundEnabled: true,
-  celebrationSeconds: 4,
+  celebrationSeconds: 7,
   photoMode: "name_photo",
   photoRetentionMinutes: 60,
   autoPublishName: true,
   showcaseEnabled: true,
+  targetAllActiveScreens: true,
   targetScreenSlugs: ["brand"],
   showcaseDurationSeconds: 15,
 };
@@ -304,11 +308,17 @@ export function normalizeRewardProgram(value: unknown): SchnellRewardProgram {
       20,
       DEFAULT_REWARD_PROGRAM.maxWinsPerDevicePerDay,
     ),
+    minOrdersBetweenWins: numberInRange(
+      raw.minOrdersBetweenWins,
+      0,
+      10,
+      DEFAULT_REWARD_PROGRAM.minOrdersBetweenWins,
+    ),
     celebrationSoundEnabled: raw.celebrationSoundEnabled !== false,
     celebrationSeconds: numberInRange(
       raw.celebrationSeconds,
-      3,
-      8,
+      5,
+      12,
       DEFAULT_REWARD_PROGRAM.celebrationSeconds,
     ),
     photoMode: normalizePhotoMode(raw.photoMode),
@@ -320,6 +330,7 @@ export function normalizeRewardProgram(value: unknown): SchnellRewardProgram {
     ),
     autoPublishName: raw.autoPublishName !== false,
     showcaseEnabled: raw.showcaseEnabled !== false,
+    targetAllActiveScreens: raw.targetAllActiveScreens !== false,
     targetScreenSlugs: targetScreenSlugs.length
       ? targetScreenSlugs
       : DEFAULT_REWARD_PROGRAM.targetScreenSlugs,

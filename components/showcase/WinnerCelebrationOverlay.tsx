@@ -15,6 +15,7 @@ export type ShowcaseWinnerEvent = {
     photoUrl?: string | null;
     durationSeconds?: number;
     soundEnabled?: boolean;
+    headline?: string;
     message?: string;
   };
 };
@@ -29,6 +30,7 @@ export default function WinnerCelebrationOverlay({ event }: { event: ShowcaseWin
 
   const name = String(event.payload.displayName || "Glückspilz").trim();
   const reward = String(event.payload.rewardLabel || "einen Glücksgewinn").trim();
+  const headline = String(event.payload.headline || `${name} hat gewonnen!`).trim();
 
   return (
     <div className="fixed inset-0 z-[2400] overflow-hidden bg-[radial-gradient(circle_at_center,#9a3412_0%,#3b0b07_42%,#020202_82%)] text-white">
@@ -61,7 +63,7 @@ export default function WinnerCelebrationOverlay({ event }: { event: ShowcaseWin
             Burger Brothers Glücksmoment
           </div>
           <h1 className="mt-[1.5vh] text-[clamp(42px,7vw,120px)] font-black leading-[.96]">
-            HERZLICHEN GLÜCKWUNSCH, {name.toLocaleUpperCase("de-DE")}!
+            {headline.toLocaleUpperCase("de-DE")}
           </h1>
 
           <div className={`mt-[3vh] grid w-full items-center gap-[3vw] ${event.payload.photoUrl ? "grid-cols-[minmax(180px,.65fr)_1.35fr]" : "grid-cols-1"}`}>
@@ -83,7 +85,7 @@ export default function WinnerCelebrationOverlay({ event }: { event: ShowcaseWin
           </div>
 
           <p className="mt-[2.5vh] text-[clamp(18px,2.3vw,40px)] font-bold text-white/85">
-            {event.payload.message || "Burger Brothers wünscht dir weiterhin viel Glück!"} 🍀
+            {event.payload.message || "Viel Glück & guten Appetit!"} 🍀
           </p>
         </section>
       </main>

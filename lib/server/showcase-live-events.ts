@@ -2,6 +2,9 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { prisma, getTenantId } from "@/lib/db";
 import type { SchnellRewardProgram } from "@/lib/rewards/config";
 
+const SHOWCASE_SCREENS_KEY = "showcase:screens";
+const DEFAULT_ACTIVE_SCREEN_SLUGS = ["main", "brand", "menu", "announcement"];
+
 function secret() {
   const value = String(
     process.env.SESSION_SECRET ||
@@ -50,11 +53,37 @@ export function verifyWinnerPhotoAccessToken(submissionId: string, token: string
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-function cleanSlug(value: string) {
+function cleanSlug(value: unknown) {
   return String(value || "")
     .trim()
-    .replace(/[^a-zA-Z0-9_-]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]/g, "")
     .slice(0, 80);
+}
+
+async function activeShowcaseScreenSlugs(tenantId: string) {
+  const setting = await prisma.setting.findUnique({
+    where: { tenantId_key: { tenantId, key: SHOWCASE_SCREENS_KEY } },
+    select: { value: true },
+  });
+
+  const rows = Array.isArray(setting?.value) ? setting.value : [];
+  const slugs = rows
+    .filter((row) => row && typeof row === "object" && !Array.isArray(row))
+    .filter((row) => (row as Record<string, unknown>).active !== false)
+    .map((row) => cleanSlug((row as Record<string, unknown>).slug))
+    .filter(Boolean);
+
+  return [...new Set(slugs.length ? slugs : DEFAULT_ACTIVE_SCREEN_SLUGS)];
+}
+
+async function targetScreenSlugs(tenantId: string, program: SchnellRewardProgram) {
+  if (program.targetAllActiveScreens) {
+    return activeShowcaseScreenSlugs(tenantId);
+  }
+
+  const selected = program.targetScreenSlugs.map(cleanSlug).filter(Boolean);
+  return [...new Set(selected.length ? selected : ["main"])] as string[];
 }
 
 export async function queueWinnerShowcaseEvents(params: {
@@ -64,30 +93,58 @@ export async function queueWinnerShowcaseEvents(params: {
   customerNumber: number;
   photoApproved: boolean;
   program: SchnellRewardProgram;
+  force?: boolean;
 }) {
   if (!params.program.showcaseEnabled) return [];
+
   const tenantId = await getTenantId();
   const now = new Date();
-  const expiresAt = new Date(now.getTime() + 2 * 60_000);
+  const lifetimeMs = Math.max(
+    3 * 60_000,
+    (params.program.showcaseDurationSeconds + 90) * 1_000,
+  );
+  const expiresAt = new Date(now.getTime() + lifetimeMs);
   const photoToken = params.photoApproved
     ? createWinnerPhotoAccessToken(params.submissionId, expiresAt)
     : null;
   const photoUrl = photoToken
     ? `/api/rewards/photos/${encodeURIComponent(params.submissionId)}?token=${encodeURIComponent(photoToken)}`
     : null;
-  const slugs = [...new Set(params.program.targetScreenSlugs.map(cleanSlug).filter(Boolean))];
+  const slugs = await targetScreenSlugs(tenantId, params.program);
+  const displayName = String(params.displayName || "Glückspilz").trim().slice(0, 40);
+  const rewardLabel = String(params.rewardLabel || "Glücksgewinn").trim().slice(0, 180);
+
   const payload = {
-    displayName: params.displayName,
-    rewardLabel: params.rewardLabel,
+    displayName,
+    rewardLabel,
     customerNumber: params.customerNumber,
     photoUrl,
     durationSeconds: params.program.showcaseDurationSeconds,
     soundEnabled: params.program.celebrationSoundEnabled,
-    message: "Burger Brothers wünscht dir weiterhin viel Glück!",
+    headline: `${displayName} hat gewonnen!`,
+    message: "Viel Glück & guten Appetit!",
   };
 
   const events = [];
   for (const screenSlug of slugs) {
+    if (!params.force) {
+      const existing = await prisma.showcaseLiveEvent.findFirst({
+        where: {
+          tenantId,
+          screenSlug,
+          eventType: "winner_celebration",
+          sourceType: "winner_submission",
+          sourceId: params.submissionId,
+          status: { in: ["pending", "played"] },
+        },
+        orderBy: { createdAt: "desc" },
+      });
+      if (existing) {
+        events.push(existing);
+        continue;
+      }
+    }
+
     const event = await prisma.showcaseLiveEvent.create({
       data: {
         tenantId,
@@ -103,5 +160,6 @@ export async function queueWinnerShowcaseEvents(params: {
     });
     events.push(event);
   }
+
   return events;
 }

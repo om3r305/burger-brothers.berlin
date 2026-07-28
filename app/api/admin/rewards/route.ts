@@ -7,7 +7,8 @@ import {
 import { normalizeRewardProgram } from "@/lib/rewards/config";
 import {
   berlinParts,
-  generateRewardSlots,
+  computeAdaptiveWinChance,
+  rewardTimeToMinute,
 } from "@/lib/server/schnell-rewards";
 import {
   requireMutationRole,
@@ -37,25 +38,31 @@ async function loadPayload() {
   await cleanupExpiredRewardPhotos().catch((error) => {
     console.error("[admin/rewards] cleanup failed", error);
   });
+
   const tenantId = await getTenantId();
   const settings = await getSchnellSettings({ includeTvPause: false });
   const clock = berlinParts(new Date(), settings.rewardProgram.timezone);
   const schedule = settings.rewardProgram.weekly.find(
     (item) => item.weekday === clock.weekday,
   );
-  const plannedSlots = schedule
-    ? generateRewardSlots({
-        tenantId,
-        businessDate: clock.businessDate,
-        schedule,
-        scheduleVersion: settings.rewardProgram.scheduleVersion,
-      })
-    : [];
-  const [wins, submissions, pendingCount] = await Promise.all([
+  const startMinute = schedule ? rewardTimeToMinute(schedule.startTime) : 0;
+  const endMinute = schedule ? rewardTimeToMinute(schedule.endTime) : 0;
+
+  const [wins, recentOrders, submissions, pendingCount] = await Promise.all([
     prisma.schnellRewardWin.findMany({
       where: { tenantId, businessDate: clock.businessDate },
       orderBy: { createdAt: "asc" },
       select: { id: true, slotIndex: true, rewardLabel: true, createdAt: true },
+    }),
+    prisma.order.findMany({
+      where: {
+        tenantId,
+        channel: "schnellbestellung",
+        ts: { gte: new Date(Date.now() - 30 * 60 * 60_000) },
+      },
+      orderBy: { ts: "asc" },
+      select: { ts: true },
+      take: 1_000,
     }),
     prisma.schnellWinnerSubmission.findMany({
       where: { tenantId },
@@ -74,14 +81,77 @@ async function loadPayload() {
     }),
   ]);
 
+  const previousWindowOrders =
+    schedule && endMinute > startMinute
+      ? recentOrders.filter((order) => {
+          const orderClock = berlinParts(order.ts, settings.rewardProgram.timezone);
+          return (
+            orderClock.businessDate === clock.businessDate &&
+            orderClock.minuteOfDay >= startMinute &&
+            orderClock.minuteOfDay < endMinute
+          );
+        })
+      : [];
+
+  const lastWin = wins[wins.length - 1] || null;
+  const ordersSinceLastWin = lastWin
+    ? previousWindowOrders.filter(
+        (order) => order.ts.getTime() > lastWin.createdAt.getTime(),
+      ).length
+    : previousWindowOrders.length;
+
+  const adaptive =
+    schedule && schedule.enabled && endMinute > startMinute
+      ? computeAdaptiveWinChance({
+          startMinute,
+          endMinute,
+          currentMinute: clock.minuteOfDay,
+          winnerLimit: schedule.winnerCount,
+          winsSoFar: wins.length,
+          previousEligibleOrders: previousWindowOrders.length,
+          ordersSinceLastWin,
+          minOrdersBetweenWins: settings.rewardProgram.minOrdersBetweenWins,
+          hasPreviousWin: Boolean(lastWin),
+        })
+      : {
+          chance: 0,
+          progress: 0,
+          remainingWins: 0,
+          expectedWinsByNow: 0,
+          behindTarget: 0,
+          spacingBlocked: false,
+          deadlineMode: false,
+        };
+
+  const activeNow = Boolean(
+    settings.rewardProgram.enabled &&
+      schedule?.enabled &&
+      schedule.winnerCount > 0 &&
+      endMinute > startMinute &&
+      clock.minuteOfDay >= startMinute &&
+      clock.minuteOfDay < endMinute,
+  );
+
   return {
     settings: settings.rewardProgram,
     today: {
       businessDate: clock.businessDate,
       minuteOfDay: clock.minuteOfDay,
-      plannedSlots,
-      usedSlots: wins.map((win) => win.slotIndex),
+      activeNow,
+      startTime: schedule?.startTime || null,
+      endTime: schedule?.endTime || null,
+      winnerLimit: schedule?.winnerCount || 0,
+      winsUsed: wins.length,
+      remainingWins: Math.max(0, (schedule?.winnerCount || 0) - wins.length),
+      progressPercent: Math.round(adaptive.progress * 100),
+      currentChancePercent: Math.round(adaptive.chance * 100),
+      previousEligibleOrders: previousWindowOrders.length,
+      ordersSinceLastWin,
+      spacingBlocked: adaptive.spacingBlocked,
+      deadlineMode: adaptive.deadlineMode,
+      lastWinAt: lastWin?.createdAt || null,
       wins,
+      distributionMode: "adaptive_spontaneous",
     },
     pendingCount,
     submissions: submissions.map((submission) => {
@@ -213,6 +283,7 @@ export async function PATCH(req: Request) {
     customerNumber,
     photoApproved: usePhoto,
     program: settings.rewardProgram,
+    force: action === "republish",
   });
   await prisma.schnellWinnerSubmission.update({
     where: { id },

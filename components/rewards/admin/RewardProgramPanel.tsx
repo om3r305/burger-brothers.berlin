@@ -12,8 +12,20 @@ import {
 type TodayPayload = {
   businessDate: string;
   minuteOfDay: number;
-  plannedSlots: number[];
-  usedSlots: number[];
+  activeNow: boolean;
+  startTime: string | null;
+  endTime: string | null;
+  winnerLimit: number;
+  winsUsed: number;
+  remainingWins: number;
+  progressPercent: number;
+  currentChancePercent: number;
+  previousEligibleOrders: number;
+  ordersSinceLastWin: number;
+  spacingBlocked: boolean;
+  deadlineMode: boolean;
+  lastWinAt: string | null;
+  distributionMode: "adaptive_spontaneous";
   wins: Array<{
     id: string;
     slotIndex: number;
@@ -29,15 +41,21 @@ type ApiPayload = {
   error?: string;
 };
 
-function minuteLabel(value: number) {
-  const minute = Math.max(0, Math.min(1_439, Math.round(Number(value) || 0)));
-  return `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`;
-}
-
 function numberValue(value: string, min: number, max: number, fallback: number) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.min(max, Math.max(min, Math.round(parsed)));
+}
+
+function berlinTime(value: string | null | undefined) {
+  if (!value) return "—";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "—";
+  return new Intl.DateTimeFormat("tr-TR", {
+    timeZone: "Europe/Berlin",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(parsed);
 }
 
 export default function RewardProgramPanel() {
@@ -64,7 +82,7 @@ export default function RewardProgramPanel() {
     void load();
   }, [load]);
 
-  const totalDailyWinners = useMemo(
+  const totalWeeklyWinners = useMemo(
     () => settings?.weekly.reduce((sum, day) => sum + (day.enabled ? day.winnerCount : 0), 0) || 0,
     [settings?.weekly],
   );
@@ -110,7 +128,7 @@ export default function RewardProgramPanel() {
       if (!response.ok || !data.settings) throw new Error(data.error || "reward_save_failed");
       setSettings(data.settings);
       setToday(data.today || null);
-      setMessage("Şanslı Sipariş programı kaydedildi. Yeni rastgele saatler güvenli şekilde oluşturuldu.");
+      setMessage("Şanslı Sipariş programı kaydedildi. Ödüller artık sipariş geldikçe spontane dağıtılacak.");
     } catch {
       setError("Şanslı Sipariş ayarları kaydedilemedi.");
     } finally {
@@ -138,7 +156,7 @@ export default function RewardProgramPanel() {
         <div>
           <h2 className="text-2xl font-black">🍀 Şanslı Sipariş Motoru</h2>
           <p className="mt-2 max-w-3xl text-sm text-stone-300">
-            Günlük yalnız kazanan adedini ve çalışma saatini belirlersin. Sistem kazanan siparişin sepetine uygun ödülleri anında filtreleyip rastgele uygular.
+            Gün, saat ve maksimum kazanan adedini belirlersin. Sabit ödül saatleri yoktur; her gerçek siparişte kalan süre ve kota değerlendirilerek spontane karar verilir.
           </p>
         </div>
         <label className="flex items-center gap-3 rounded-2xl border border-stone-700 bg-black/30 px-4 py-3 font-black">
@@ -152,46 +170,51 @@ export default function RewardProgramPanel() {
         </label>
       </div>
 
-      <div className="rounded-2xl border border-stone-700 bg-black/25 p-4">
+      <div className="rounded-2xl border border-emerald-500/25 bg-black/25 p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h3 className="font-black">Bugünün rastgele dağıtım saatleri</h3>
+            <h3 className="font-black">Bugünün spontane dağıtım durumu</h3>
             <p className="mt-1 text-xs text-stone-400">
-              {today?.businessDate || "—"} · Bu saatler yalnız admin tarafında görünür. Toplam haftalık plan: {totalDailyWinners} kazanan.
+              {today?.businessDate || "—"} · Sabit saat üretilmez, kullanılmayan ödül pencere bitene kadar kaybolmaz. Haftalık toplam üst sınır: {totalWeeklyWinners}.
             </p>
           </div>
           <button type="button" onClick={() => void load()} className="rounded-xl border border-stone-600 px-3 py-2 text-sm font-bold">
             Yenile
           </button>
         </div>
-        <div className="mt-4 flex flex-wrap gap-2">
-          {today?.plannedSlots?.length ? (
-            today.plannedSlots.map((slot, index) => {
-              const used = today.usedSlots.includes(index);
-              const passed = slot <= Number(today.minuteOfDay || 0);
-              return (
-                <span
-                  key={`${slot}-${index}`}
-                  className={`rounded-full border px-3 py-1.5 text-sm font-black ${
-                    used
-                      ? "border-emerald-400/50 bg-emerald-400/15 text-emerald-100"
-                      : passed
-                        ? "border-amber-400/50 bg-amber-400/15 text-amber-100"
-                        : "border-stone-600 bg-stone-900 text-stone-200"
-                  }`}
-                >
-                  {minuteLabel(slot)} {used ? "✓" : ""}
-                </span>
-              );
-            })
-          ) : (
-            <span className="text-sm text-stone-500">Bugün için aktif kazanan saati yok.</span>
-          )}
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
+            <span className="text-xs text-stone-400">Durum / saat</span>
+            <strong className={`mt-1 block ${today?.activeNow ? "text-emerald-300" : "text-stone-300"}`}>
+              {today?.activeNow ? "Şu an aktif" : "Şu an pasif"}
+            </strong>
+            <span className="text-xs text-stone-500">{today?.startTime || "—"} – {today?.endTime || "—"}</span>
+          </div>
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
+            <span className="text-xs text-stone-400">Günlük kota</span>
+            <strong className="mt-1 block text-xl text-amber-300">{today?.winsUsed || 0} / {today?.winnerLimit || 0}</strong>
+            <span className="text-xs text-stone-500">Kalan: {today?.remainingWins || 0}</span>
+          </div>
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
+            <span className="text-xs text-stone-400">Bir sonraki uygun sipariş</span>
+            <strong className="mt-1 block text-xl text-cyan-200">≈ %{today?.currentChancePercent || 0}</strong>
+            <span className="text-xs text-stone-500">Anlık tahmini ihtimal</span>
+          </div>
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
+            <span className="text-xs text-stone-400">Sipariş hareketi</span>
+            <strong className="mt-1 block text-xl">{today?.previousEligibleOrders || 0}</strong>
+            <span className="text-xs text-stone-500">Son kazanan: {berlinTime(today?.lastWinAt)}</span>
+          </div>
         </div>
+
+        <p className="mt-3 text-xs leading-5 text-stone-400">
+          Süre ilerleyip kota geride kalırsa ihtimal otomatik yükselir. Son bölümde gelen uygun siparişler, kota dolana kadar öncelik kazanır. Müşteri gelmezse olmayan siparişe ödül yazılmaz.
+        </p>
       </div>
 
       <div>
-        <h3 className="text-lg font-black">Haftalık gün, saat ve rastgele kazanan limiti</h3>
+        <h3 className="text-lg font-black">Haftalık gün, saat ve maksimum kazanan limiti</h3>
         <div className="mt-4 grid gap-3 lg:grid-cols-2">
           {settings.weekly.map((day) => (
             <article key={day.weekday} className="rounded-2xl border border-stone-700 bg-black/25 p-4">
@@ -226,7 +249,7 @@ export default function RewardProgramPanel() {
                   />
                 </label>
                 <label className="text-xs text-stone-400">
-                  Kazanan
+                  Kazanan üst sınırı
                   <input
                     type="number"
                     min="0"
@@ -245,12 +268,30 @@ export default function RewardProgramPanel() {
             </article>
           ))}
         </div>
+
+        <label className="mt-4 block max-w-md text-sm text-stone-400">
+          İki kazanan arasında en az kaç normal sipariş olsun?
+          <input
+            type="number"
+            min="0"
+            max="10"
+            value={settings.minOrdersBetweenWins}
+            onChange={(event) =>
+              setSettings({
+                ...settings,
+                minOrdersBetweenWins: numberValue(event.target.value, 0, 10, settings.minOrdersBetweenWins),
+              })
+            }
+            className="mt-1 w-full rounded-xl bg-stone-900 p-2 text-white"
+          />
+          <span className="mt-1 block text-xs text-stone-500">0 seçilirse art arda iki kazanan mümkün olur. Son dakikalarda kota kalırsa bu koruma otomatik gevşer.</span>
+        </label>
       </div>
 
       <div>
         <h3 className="text-lg font-black">Sepete uygun rastgele ödül havuzu</h3>
         <p className="mt-1 text-sm text-stone-400">
-          Ödül türü önceden güne sabitlenmez. Yalnız sepette gerçekten uygulanabilen aktif seçenekler çekilişe girer. Ağırlık arttıkça çıkma ihtimali artar.
+          Yalnız sepette gerçekten uygulanabilen aktif seçenekler çekilişe girer. Ağırlık arttıkça çıkma ihtimali artar.
         </p>
         <div className="mt-4 grid gap-3 lg:grid-cols-2">
           {settings.pool.map((reward) => (
@@ -307,16 +348,16 @@ export default function RewardProgramPanel() {
               </select>
             </label>
             <label className="text-sm text-stone-400">
-              Kutlama süresi
+              Kazandınız ekranı (saniye)
               <input
                 type="number"
-                min="3"
-                max="8"
+                min="5"
+                max="12"
                 value={settings.celebrationSeconds}
                 onChange={(event) =>
                   setSettings({
                     ...settings,
-                    celebrationSeconds: numberValue(event.target.value, 3, 8, settings.celebrationSeconds),
+                    celebrationSeconds: numberValue(event.target.value, 5, 12, settings.celebrationSeconds),
                   })
                 }
                 className="mt-1 w-full rounded-xl bg-stone-900 p-2 text-white"
@@ -337,7 +378,7 @@ export default function RewardProgramPanel() {
               </select>
             </label>
             <label className="flex items-center justify-between gap-3 rounded-xl border border-stone-700 p-3 text-sm font-bold">
-              Kısa ses efekti
+              Yeni kutlama sesi
               <input
                 type="checkbox"
                 checked={settings.celebrationSoundEnabled}
@@ -373,24 +414,40 @@ export default function RewardProgramPanel() {
                 className="h-5 w-5"
               />
             </label>
-            <label className="text-sm text-stone-400">
-              Hedef screenSlug değerleri
+            <label className="flex items-center justify-between gap-3 rounded-xl border border-amber-400/30 bg-amber-400/5 p-3 text-sm font-bold">
+              Tüm aktif vitrin ekranlarında göster
               <input
-                value={settings.targetScreenSlugs.join(", ")}
+                type="checkbox"
+                checked={settings.targetAllActiveScreens}
                 disabled={!settings.showcaseEnabled}
-                onChange={(event) =>
-                  setSettings({
-                    ...settings,
-                    targetScreenSlugs: event.target.value
-                      .split(",")
-                      .map((item) => item.trim())
-                      .filter(Boolean),
-                  })
-                }
-                placeholder="brand, main"
-                className="mt-1 w-full rounded-xl bg-stone-900 p-2 text-white disabled:opacity-50"
+                onChange={(event) => setSettings({ ...settings, targetAllActiveScreens: event.target.checked })}
+                className="h-5 w-5"
               />
             </label>
+            {!settings.targetAllActiveScreens ? (
+              <label className="text-sm text-stone-400">
+                Seçili screenSlug değerleri
+                <input
+                  value={settings.targetScreenSlugs.join(", ")}
+                  disabled={!settings.showcaseEnabled}
+                  onChange={(event) =>
+                    setSettings({
+                      ...settings,
+                      targetScreenSlugs: event.target.value
+                        .split(",")
+                        .map((item) => item.trim())
+                        .filter(Boolean),
+                    })
+                  }
+                  placeholder="brand, main"
+                  className="mt-1 w-full rounded-xl bg-stone-900 p-2 text-white disabled:opacity-50"
+                />
+              </label>
+            ) : (
+              <p className="rounded-xl border border-white/10 bg-white/5 p-3 text-xs leading-5 text-stone-400">
+                Ana vitrin, marka, menü, duyuru ve sonradan eklediğin diğer aktif Showcase ekranları otomatik hedeflenir.
+              </p>
+            )}
             <label className="text-sm text-stone-400">
               Vitrinde gösterim süresi
               <input
