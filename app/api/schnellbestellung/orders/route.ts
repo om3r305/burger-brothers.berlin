@@ -90,7 +90,27 @@ export async function POST(req: Request) {
         : code === "SCHNELL_UNAVAILABLE"
           ? 503
           : 400;
+    const retryAfterSeconds =
+      code === "DEVICE_RATE_LIMIT"
+        ? Math.max(1, Math.ceil(Number(error?.retryAfterSeconds) || 60))
+        : 0;
 
-    return NextResponse.json({ ok: false, error: code }, { status });
+    return NextResponse.json(
+      {
+        ok: false,
+        error: code,
+        ...(retryAfterSeconds > 0 ? { retryAfterSeconds } : {}),
+      },
+      {
+        status,
+        headers:
+          retryAfterSeconds > 0
+            ? {
+                "Cache-Control": "no-store",
+                "Retry-After": String(retryAfterSeconds),
+              }
+            : { "Cache-Control": "no-store" },
+      },
+    );
   }
 }

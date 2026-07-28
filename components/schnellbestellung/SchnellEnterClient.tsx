@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import SchnellQrScanner from "@/components/schnellbestellung/SchnellQrScanner";
+import { prefetchSchnellCatalog } from "@/lib/client/schnell-catalog";
 import {
   clearSchnellActiveOrder,
   readSchnellActiveOrder,
@@ -235,14 +236,20 @@ function installSchnellManifest() {
 }
 
 async function loadSessionInfo() {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 8_000);
+
   try {
     const response = await fetch("/api/schnellbestellung/session", {
       credentials: "same-origin",
       cache: "no-store",
+      signal: controller.signal,
     });
     return (await response.json().catch(() => ({}))) as SessionResponse;
   } catch {
     return null;
+  } finally {
+    window.clearTimeout(timeoutId);
   }
 }
 
@@ -337,6 +344,12 @@ export default function SchnellEnterClient({ token }: { token: string }) {
         const data = (await response.json().catch(() => ({}))) as VerifyResponse;
 
         if (response.ok && data.ok) {
+          // Session cookie is available as soon as fetch resolves. Start the
+          // catalog request before navigation so the menu can reuse the same
+          // in-flight request instead of waiting for a second round trip.
+          router.prefetch("/schnellbestellung");
+          prefetchSchnellCatalog();
+
           if (options.navigate !== false) {
             router.replace("/schnellbestellung");
           }
@@ -550,20 +563,30 @@ export default function SchnellEnterClient({ token }: { token: string }) {
       setInstalledHint(marker);
       installSchnellManifest();
 
-      const session = await loadSessionInfo();
-      if (cancelled) return;
+      // Normal Android/desktop browser flow does not need a separate session
+      // read before validating the freshly scanned QR. Removing that serial DB
+      // request makes first entry noticeably faster.
+      if (!isStandalone && !isApple) {
+        busyRef.current = false;
+        await start(token, { navigate: true });
+        return;
+      }
 
-      const pushEnabled = session?.backgroundReadyPushEnabled === true;
-      setBackgroundPushEnabled(pushEnabled);
-
-      // The installed Home Screen app never starts a new order from GPS alone.
-      // A current static/dynamic restaurant QR is mandatory for every new order.
+      // The installed Home Screen app can check its active order and load
+      // session capabilities in parallel. The status endpoint still validates
+      // the secure session, so this removes serial waiting without weakening
+      // the QR/session rules.
       if (isStandalone) {
         prewarmSchnellPush();
+        const [session, resumedOrder] = await Promise.all([
+          loadSessionInfo(),
+          resumeActiveOrder(router),
+        ]);
+        if (cancelled || resumedOrder) return;
 
-        if (session?.ok && (await resumeActiveOrder(router))) return;
-        if (cancelled) return;
-
+        setBackgroundPushEnabled(
+          session?.backgroundReadyPushEnabled === true,
+        );
         setScannerError("");
         setProblem(null);
         setMessage("");
@@ -571,6 +594,12 @@ export default function SchnellEnterClient({ token }: { token: string }) {
         setScreen("scanner");
         return;
       }
+
+      const session = await loadSessionInfo();
+      if (cancelled) return;
+
+      const pushEnabled = session?.backgroundReadyPushEnabled === true;
+      setBackgroundPushEnabled(pushEnabled);
 
       // iPhone/iPad browser gets the optional Home Screen setup guide. Android
       // and other browsers keep the direct QR flow.

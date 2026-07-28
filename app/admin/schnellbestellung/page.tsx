@@ -3,16 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import RewardProgramPanel from "@/components/rewards/admin/RewardProgramPanel";
 import RewardModerationPanel from "@/components/rewards/admin/RewardModerationPanel";
+import { MENU_NAV_ITEMS, type MenuNavKey } from "@/lib/menu-navigation";
 
-type SchnellCategory =
-  | "burger"
-  | "vegan"
-  | "extras"
-  | "sauces"
-  | "hotdogs"
-  | "drinks"
-  | "donuts"
-  | "bubbletea";
+type SchnellCategory = MenuNavKey;
 
 type CampaignType =
   | "percent_category"
@@ -63,6 +56,7 @@ type SchnellSettings = {
   recheckMinutes: number;
   maxOrdersPerDevice: number;
   orderWindowMinutes: number;
+  orderLimitPolicyVersion?: number;
   numberStart: number;
   generation: number;
   shopLat: number;
@@ -121,16 +115,11 @@ type NumberSettingKey =
   | "shopLat"
   | "shopLng";
 
-const CATEGORY_OPTIONS: Array<{ key: SchnellCategory; label: string }> = [
-  { key: "burger", label: "Burger" },
-  { key: "vegan", label: "Vegan / Vegetarisch" },
-  { key: "extras", label: "Extras" },
-  { key: "sauces", label: "Soßen" },
-  { key: "hotdogs", label: "Hot Dogs" },
-  { key: "drinks", label: "Getränke" },
-  { key: "donuts", label: "Donuts" },
-  { key: "bubbletea", label: "Bubble Tea" },
-];
+const CATEGORY_OPTIONS: Array<{ key: SchnellCategory; label: string }> =
+  MENU_NAV_ITEMS.map((item) => ({
+    key: item.key,
+    label: item.label,
+  }));
 
 const TOGGLES: Array<{
   key: BooleanSettingKey;
@@ -223,6 +212,7 @@ const NUMBER_FIELDS: Array<{
   key: NumberSettingKey;
   label: string;
   step?: string;
+  description?: string;
 }> = [
   { key: "radiusMeters", label: "GPS yarıçapı (metre)" },
   { key: "maxAccuracyMeters", label: "Maksimum GPS hata payı (metre)" },
@@ -230,8 +220,16 @@ const NUMBER_FIELDS: Array<{
   { key: "qrGraceMinutes", label: "Eski dinamik QR toleransı (dakika)" },
   { key: "sessionMinutes", label: "Salon oturum süresi (dakika)" },
   { key: "recheckMinutes", label: "Tekrar GPS kontrolü (dakika)" },
-  { key: "maxOrdersPerDevice", label: "Cihaz başına sipariş limiti" },
-  { key: "orderWindowMinutes", label: "Sipariş limit penceresi (dakika)" },
+  {
+    key: "maxOrdersPerDevice",
+    label: "Cihaz başına sipariş limiti",
+    description: "Aynı cihaz bu süre penceresinde en fazla kaç aktif sipariş açabilir.",
+  },
+  {
+    key: "orderWindowMinutes",
+    label: "Sipariş limit penceresi (dakika)",
+    description: "Önerilen: 15 dakika. Süre dolunca müşteri yeniden ek veya paket sipariş verebilir.",
+  },
   { key: "numberStart", label: "Günlük müşteri numarası başlangıcı" },
   { key: "timeWarningMinutes", label: "TV turuncu uyarı başlangıcı (dakika)" },
   { key: "timeCriticalMinutes", label: "TV kırmızı uyarı başlangıcı (dakika)" },
@@ -556,6 +554,11 @@ export default function SchnellbestellungAdminPage() {
             {NUMBER_FIELDS.map((item) => (
               <label key={item.key} className="rounded-xl border border-stone-700 p-3 text-sm">
                 <span className="block text-stone-400">{item.label}</span>
+                {item.description ? (
+                  <span className="mt-1 block text-xs leading-5 text-stone-500">
+                    {item.description}
+                  </span>
+                ) : null}
                 <input
                   type="number"
                   step={item.step || "1"}

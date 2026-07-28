@@ -4,13 +4,17 @@ type RewardAudioWindow = Window &
   typeof globalThis & {
     __bbRewardAudioContext?: AudioContext;
     __bbRewardMedia?: HTMLAudioElement;
-    __bbRewardMediaUnlocked?: boolean;
+    __bbRewardPlaybackGeneration?: number;
   };
 
 const REWARD_SOUND_URL = "/sounds/reward-celebration.wav";
 
+function getRewardWindow() {
+  return window as RewardAudioWindow;
+}
+
 function getRewardMedia() {
-  const audioWindow = window as RewardAudioWindow;
+  const audioWindow = getRewardWindow();
   const media = audioWindow.__bbRewardMedia || new Audio(REWARD_SOUND_URL);
   media.preload = "auto";
   media.volume = 0.78;
@@ -20,40 +24,71 @@ function getRewardMedia() {
   return media;
 }
 
+function getRewardAudioContext() {
+  const audioWindow = getRewardWindow();
+  const AudioContextClass =
+    window.AudioContext ||
+    (window as typeof window & { webkitAudioContext?: typeof AudioContext })
+      .webkitAudioContext;
+
+  if (!AudioContextClass) return null;
+
+  const context = audioWindow.__bbRewardAudioContext || new AudioContextClass();
+  audioWindow.__bbRewardAudioContext = context;
+  return context;
+}
+
+function primeContextSilently(context: AudioContext) {
+  const oscillator = context.createOscillator();
+  const gain = context.createGain();
+  gain.gain.setValueAtTime(0.000001, context.currentTime);
+  oscillator.connect(gain);
+  gain.connect(context.destination);
+  oscillator.start();
+  oscillator.stop(context.currentTime + 0.025);
+}
+
 export function prewarmRewardCelebration() {
   try {
-    const audioWindow = window as RewardAudioWindow;
-    const media = getRewardMedia();
-    media.load();
+    // Dosyayı önceden indir, fakat sipariş sonucu gelmeden medya elemanını
+    // oynatma. iPhone çok düşük ses seviyesini bile duyurabildiği için eski
+    // sessiz-play yöntemi reddedilen siparişte yanlış kutlama sesi çıkarıyordu.
+    getRewardMedia().load();
 
-    // iOS/Safari sonraki sayfada sesi engellemesin diye sipariş butonuna
-    // basıldığı kullanıcı hareketi içinde medya elemanını sessizce açıyoruz.
-    if (!audioWindow.__bbRewardMediaUnlocked) {
-      const previousVolume = media.volume;
-      media.volume = 0.001;
-      void media
-        .play()
-        .then(() => {
-          media.pause();
-          media.currentTime = 0;
-          media.volume = previousVolume;
-          audioWindow.__bbRewardMediaUnlocked = true;
-        })
-        .catch(() => {
-          media.volume = previousVolume;
-        });
+    const context = getRewardAudioContext();
+    if (!context) return;
+
+    const prime = () => {
+      try {
+        primeContextSilently(context);
+      } catch {
+        // Ses yalnız gerçek ödül geldiğinde best-effort çalışır.
+      }
+    };
+
+    if (context.state === "suspended") {
+      void context.resume().then(prime).catch(() => undefined);
+    } else {
+      prime();
     }
-
-    const AudioContextClass =
-      window.AudioContext ||
-      (window as typeof window & { webkitAudioContext?: typeof AudioContext })
-        .webkitAudioContext;
-    if (!AudioContextClass) return;
-    const context = audioWindow.__bbRewardAudioContext || new AudioContextClass();
-    audioWindow.__bbRewardAudioContext = context;
-    if (context.state === "suspended") void context.resume().catch(() => undefined);
   } catch {
     // Görsel kutlama ses olmasa da devam eder.
+  }
+}
+
+export function stopRewardCelebrationSound() {
+  try {
+    const audioWindow = getRewardWindow();
+    audioWindow.__bbRewardPlaybackGeneration =
+      Number(audioWindow.__bbRewardPlaybackGeneration || 0) + 1;
+
+    const media = audioWindow.__bbRewardMedia;
+    if (media) {
+      media.pause();
+      media.currentTime = 0;
+    }
+  } catch {
+    // Cleanup best-effort.
   }
 }
 
@@ -100,25 +135,54 @@ function playPleasantFallback(context: AudioContext) {
 export function playRewardCelebrationSound(enabled = true) {
   if (!enabled) return;
 
+  stopRewardCelebrationSound();
+
+  const audioWindow = getRewardWindow();
+  const playbackGeneration = Number(
+    audioWindow.__bbRewardPlaybackGeneration || 0,
+  );
+
   try {
     const media = getRewardMedia();
-    media.pause();
     media.currentTime = 0;
     media.volume = 0.78;
     media.muted = false;
+
     void media.play().catch(() => {
-      const audioWindow = window as RewardAudioWindow;
-      const context = audioWindow.__bbRewardAudioContext;
+      if (
+        Number(audioWindow.__bbRewardPlaybackGeneration || 0) !==
+        playbackGeneration
+      ) {
+        return;
+      }
+
+      const context = getRewardAudioContext();
       if (!context) return;
+
+      const fallback = () => {
+        if (
+          Number(audioWindow.__bbRewardPlaybackGeneration || 0) ===
+          playbackGeneration
+        ) {
+          playPleasantFallback(context);
+        }
+      };
+
       if (context.state === "suspended") {
-        void context.resume().then(() => playPleasantFallback(context)).catch(() => undefined);
+        void context.resume().then(fallback).catch(() => undefined);
       } else {
-        playPleasantFallback(context);
+        fallback();
       }
     });
   } catch {
     try {
-      const context = (window as RewardAudioWindow).__bbRewardAudioContext;
+      if (
+        Number(audioWindow.__bbRewardPlaybackGeneration || 0) !==
+        playbackGeneration
+      ) {
+        return;
+      }
+      const context = getRewardAudioContext();
       if (context) playPleasantFallback(context);
     } catch {
       // Mobil tarayıcı sesi engellese bile kutlama görünür kalır.

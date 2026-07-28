@@ -2,7 +2,10 @@
 
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
-import { playRewardCelebrationSound } from "@/lib/client/reward-celebration";
+import {
+  playRewardCelebrationSound,
+  stopRewardCelebrationSound,
+} from "@/lib/client/reward-celebration";
 import type { SchnellRewardPublic } from "@/lib/rewards/config";
 
 const RewardCamera = dynamic(() => import("./RewardCamera"), { ssr: false });
@@ -52,11 +55,15 @@ export default function RewardCelebration({
 
   useEffect(() => {
     playRewardCelebrationSound(reward.celebrationSoundEnabled);
-    const timer = window.setTimeout(
-      () => setPhase(reward.photoMode === "off" ? "sent" : "share"),
-      celebrationSeconds * 1_000,
-    );
-    return () => window.clearTimeout(timer);
+    const timer = window.setTimeout(() => {
+      stopRewardCelebrationSound();
+      setPhase(reward.photoMode === "off" ? "sent" : "share");
+    }, celebrationSeconds * 1_000);
+
+    return () => {
+      window.clearTimeout(timer);
+      stopRewardCelebrationSound();
+    };
   }, [celebrationSeconds, reward.celebrationSoundEnabled, reward.photoMode]);
 
   useEffect(() => {
@@ -181,7 +188,10 @@ export default function RewardCelebration({
 
               <button
                 type="button"
-                onClick={() => setPhase(reward.photoMode === "off" ? "sent" : "share")}
+                onClick={() => {
+                  stopRewardCelebrationSound();
+                  setPhase(reward.photoMode === "off" ? "sent" : "share");
+                }}
                 className="mt-5 rounded-full border border-white/15 bg-white/5 px-5 py-2 text-sm font-bold text-white/80"
               >
                 Weiter

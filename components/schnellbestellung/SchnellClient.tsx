@@ -3,7 +3,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { saveSchnellActiveOrder } from "@/lib/client/schnell-active-order";
-import { prewarmRewardCelebration } from "@/lib/client/reward-celebration";
+import {
+  prewarmRewardCelebration,
+  stopRewardCelebrationSound,
+} from "@/lib/client/reward-celebration";
+import { loadSchnellCatalog } from "@/lib/client/schnell-catalog";
 import {
   bindSchnellPushToOrder,
   prewarmSchnellPush,
@@ -176,9 +180,9 @@ function CatalogProductImage({
   return (
     <img
       src={product.imageUrl}
-      loading={index < 8 ? "eager" : "lazy"}
-      decoding={index < 4 ? "sync" : "async"}
-      fetchPriority={index < 6 ? "high" : "auto"}
+      loading={index < 4 ? "eager" : "lazy"}
+      decoding="async"
+      fetchPriority={index < 2 ? "high" : "auto"}
       onError={() => setFailed(true)}
       className="h-full w-full object-contain"
       alt={product.name}
@@ -435,7 +439,7 @@ export default function SchnellClient() {
     if (cached?.products.length) {
       const firstCategory =
         cached.categories[0]?.key || cached.products[0]?.category || "";
-      preloadCatalogImages(cached.products, firstCategory, 10);
+      preloadCatalogImages(cached.products, firstCategory, 6);
       setProducts(cached.products);
       setCategories(cached.categories);
       setCatalogSettings(cached.settings);
@@ -450,15 +454,12 @@ export default function SchnellClient() {
 
     void (async () => {
       try {
-        const response = await fetch("/api/schnellbestellung/catalog", {
-          credentials: "same-origin",
-          cache: "default",
-        });
-        const data = (await response.json().catch(() => ({}))) as CatalogResponse;
+        const envelope = await loadSchnellCatalog<CatalogResponse>();
+        const data = envelope.data;
 
         if (cancelled) return;
 
-        if (response.ok && Array.isArray(data.products)) {
+        if (envelope.ok && Array.isArray(data.products)) {
           const nextProducts = data.products;
           const nextCategories = Array.isArray(data.categories)
             ? data.categories
@@ -467,7 +468,7 @@ export default function SchnellClient() {
           const firstCategory =
             nextCategories[0]?.key || nextProducts[0]?.category || "";
 
-          preloadCatalogImages(nextProducts, firstCategory, 12);
+          preloadCatalogImages(nextProducts, firstCategory, 6);
           setProducts(nextProducts);
           setCategories(nextCategories);
           setCatalogSettings(nextSettings);
@@ -482,7 +483,7 @@ export default function SchnellClient() {
           return;
         }
 
-        if (response.status === 401) {
+        if (envelope.status === 401) {
           setError(
             "Ihre Schnellbestellung-Sitzung ist abgelaufen. Bitte scannen Sie den QR-Code erneut.",
           );
@@ -508,15 +509,15 @@ export default function SchnellClient() {
   }, [cart]);
 
   useEffect(() => {
-    preloadCatalogImages(products, category, 12);
+    preloadCatalogImages(products, category, 6);
 
     const currentIndex = categories.findIndex((item) => item.key === category);
     const nextCategory =
       currentIndex >= 0 ? categories[currentIndex + 1]?.key : categories[0]?.key;
     const timer = nextCategory
       ? window.setTimeout(
-          () => preloadCatalogImages(products, nextCategory, 4),
-          250,
+          () => preloadCatalogImages(products, nextCategory, 2),
+          500,
         )
       : null;
 
@@ -613,6 +614,7 @@ export default function SchnellClient() {
 
     setBusy(true);
     setError("");
+    stopRewardCelebrationSound();
     prewarmRewardCelebration();
 
     try {
@@ -641,7 +643,10 @@ export default function SchnellClient() {
           data.error === "location_recheck_required"
             ? "Bitte scannen Sie den aktuellen QR-Code erneut."
             : data.error === "DEVICE_RATE_LIMIT"
-              ? "Zu viele Bestellungen. Bitte wenden Sie sich an unser Personal."
+              ? `Sie können in etwa ${Math.max(
+                  1,
+                  Math.ceil(Number(data.retryAfterSeconds || 60) / 60),
+                )} Min. erneut bestellen. Bei Bedarf hilft unser Personal gern weiter.`
               : data.error === "PRODUCT_UNAVAILABLE"
                 ? "Ein Artikel ist nicht mehr verfügbar."
                 : data.error === "SCHNELL_UNAVAILABLE"
@@ -665,7 +670,7 @@ export default function SchnellClient() {
       const createdCustomerNumber = Number(data.customerNumber || 0);
       saveSchnellActiveOrder(createdOrderId, createdCustomerNumber);
       try {
-        if (data.reward) {
+        if (data.reward?.winId && createdOrderId) {
           window.sessionStorage.setItem(
             `bb_schnell_reward:${createdOrderId}`,
             JSON.stringify(data.reward),
@@ -681,6 +686,7 @@ export default function SchnellClient() {
         )}&order=${encodeURIComponent(data.orderId)}`,
       );
     } catch (caught) {
+      stopRewardCelebrationSound();
       setError(
         caught instanceof Error
           ? caught.message
@@ -721,8 +727,8 @@ export default function SchnellClient() {
             <button
               key={item.key}
               type="button"
-              onPointerDown={() => preloadCatalogImages(products, item.key, 12)}
-              onMouseEnter={() => preloadCatalogImages(products, item.key, 8)}
+              onPointerDown={() => preloadCatalogImages(products, item.key, 6)}
+              onMouseEnter={() => preloadCatalogImages(products, item.key, 4)}
               onClick={() => setCategory(item.key)}
               className={`whitespace-nowrap rounded-full px-4 py-2 text-sm font-bold ${
                 category === item.key ? "bg-amber-400 text-black" : "bg-white/10"

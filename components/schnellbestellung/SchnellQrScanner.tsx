@@ -16,6 +16,30 @@ type SchnellQrScannerProps = {
   onToken(token: string): void | Promise<void>;
 };
 
+type CameraPermissionState = PermissionState | "unsupported";
+
+const CAMERA_PERMISSION_MARKER = "bb_schnell_camera_granted_v1";
+
+function readCameraPermissionMarker() {
+  try {
+    return window.localStorage.getItem(CAMERA_PERMISSION_MARKER) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeCameraPermissionMarker(granted: boolean) {
+  try {
+    if (granted) {
+      window.localStorage.setItem(CAMERA_PERMISSION_MARKER, "1");
+    } else {
+      window.localStorage.removeItem(CAMERA_PERMISSION_MARKER);
+    }
+  } catch {
+    // Marker is only a user-experience hint; browser permission remains authoritative.
+  }
+}
+
 function tokenFromQrPayload(payload: string) {
   const value = String(payload || "").trim();
   if (!value) return "";
@@ -70,10 +94,14 @@ export default function SchnellQrScanner({
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraBusy, setCameraBusy] = useState(false);
   const [localError, setLocalError] = useState("");
+  const [cameraPermission, setCameraPermission] =
+    useState<CameraPermissionState>("unsupported");
+  const [cameraPreviouslyGranted, setCameraPreviouslyGranted] = useState(false);
 
   const stopScanner = useCallback(() => {
     const scanner = scannerRef.current;
     scannerRef.current = null;
+
     if (scanner) {
       try {
         scanner.stop();
@@ -86,8 +114,18 @@ export default function SchnellQrScanner({
         // Best-effort worker cleanup.
       }
     }
-    setCameraOpen(false);
-    setCameraBusy(false);
+
+    const video = videoRef.current;
+    const stream = video?.srcObject;
+    if (stream instanceof MediaStream) {
+      stream.getTracks().forEach((track) => track.stop());
+    }
+    if (video) video.srcObject = null;
+
+    if (mountedRef.current) {
+      setCameraOpen(false);
+      setCameraBusy(false);
+    }
   }, []);
 
   const handlePayload = useCallback(
@@ -160,8 +198,20 @@ export default function SchnellQrScanner({
         scanner.destroy();
         return;
       }
+      writeCameraPermissionMarker(true);
+      setCameraPreviouslyGranted(true);
+      setCameraPermission("granted");
       setCameraOpen(true);
     } catch (error) {
+      const errorName =
+        error && typeof error === "object" && "name" in error
+          ? String((error as { name?: unknown }).name || "")
+          : "";
+      if (errorName === "NotAllowedError") {
+        writeCameraPermissionMarker(false);
+        setCameraPreviouslyGranted(false);
+        setCameraPermission("denied");
+      }
       stopScanner();
       setLocalError(cameraErrorMessage(error));
     } finally {
@@ -198,16 +248,74 @@ export default function SchnellQrScanner({
   );
 
   useEffect(() => {
+    setCameraPreviouslyGranted(readCameraPermissionMarker());
+
+    if (!navigator.permissions?.query) {
+      setCameraPermission("unsupported");
+      return;
+    }
+
+    let permissionStatus: PermissionStatus | null = null;
+    let cancelled = false;
+
+    void navigator.permissions
+      .query({ name: "camera" as PermissionName })
+      .then((status) => {
+        if (cancelled) return;
+        permissionStatus = status;
+        setCameraPermission(status.state);
+        if (status.state === "granted") {
+          writeCameraPermissionMarker(true);
+          setCameraPreviouslyGranted(true);
+        } else if (status.state === "denied") {
+          writeCameraPermissionMarker(false);
+          setCameraPreviouslyGranted(false);
+        }
+
+        status.onchange = () => {
+          setCameraPermission(status.state);
+          if (status.state === "granted") {
+            writeCameraPermissionMarker(true);
+            setCameraPreviouslyGranted(true);
+          } else if (status.state === "denied") {
+            writeCameraPermissionMarker(false);
+            setCameraPreviouslyGranted(false);
+          }
+        };
+      })
+      .catch(() => {
+        if (!cancelled) setCameraPermission("unsupported");
+      });
+
+    return () => {
+      cancelled = true;
+      if (permissionStatus) permissionStatus.onchange = null;
+    };
+  }, []);
+
+  useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
       const scanner = scannerRef.current;
       scannerRef.current = null;
       try {
-        scanner?.destroy();
+        scanner?.stop();
       } catch {
         // Best-effort cleanup during navigation.
       }
+      try {
+        scanner?.destroy();
+      } catch {
+        // Best-effort worker cleanup during navigation.
+      }
+
+      const video = videoRef.current;
+      const stream = video?.srcObject;
+      if (stream instanceof MediaStream) {
+        stream.getTracks().forEach((track) => track.stop());
+      }
+      if (video) video.srcObject = null;
     };
   }, []);
 
@@ -251,7 +359,11 @@ export default function SchnellQrScanner({
                   ▣
                 </div>
                 <p className="mt-4 text-sm leading-6 text-stone-400">
-                  Die Kamera wird erst nach Ihrer Bestätigung geöffnet.
+                  {cameraPermission === "granted" || cameraPreviouslyGranted
+                    ? "Die Kamerafreigabe wurde bereits erteilt. Öffnen Sie die Kamera nur zum Scannen des Restaurant-QR-Codes."
+                    : cameraPermission === "denied"
+                      ? "Der Kamerazugriff ist blockiert. Sie können ihn in den iPhone-Einstellungen wieder erlauben."
+                      : "Die Kamera wird erst nach Ihrer Bestätigung geöffnet. Der Browser entscheidet, ob eine Freigabe gefragt werden muss."}
                 </p>
               </div>
             </div>

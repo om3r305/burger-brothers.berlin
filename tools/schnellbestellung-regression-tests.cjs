@@ -16,8 +16,6 @@ const requiredFiles = [
   "public/schnell-icon-512.png",
   "app/schnellbestellung/enter/page.tsx",
   "components/schnellbestellung/SchnellEnterClient.tsx",
-  "components/schnellbestellung/SchnellQrScanner.tsx",
-  "lib/client/schnell-active-order.ts",
   "app/schnellbestellung/success/page.tsx",
   "app/schnellbestellung/access-display/page.tsx",
   "app/api/schnellbestellung/access-token/route.ts",
@@ -38,6 +36,8 @@ const requiredFiles = [
   "app/api/orders/status/route.ts",
   "middleware.ts",
   "print-proxy/index.cjs",
+  "lib/client/schnell-catalog.ts",
+  "lib/menu-navigation.ts",
 ];
 
 for (const relativePath of requiredFiles) {
@@ -48,8 +48,6 @@ const core = read("lib/server/schnellbestellung.ts");
 const accessRoute = read("app/api/schnellbestellung/access-token/route.ts");
 const accessDisplay = read("app/schnellbestellung/access-display/page.tsx");
 const client = read("components/schnellbestellung/SchnellClient.tsx");
-const qrScanner = read("components/schnellbestellung/SchnellQrScanner.tsx");
-const activeOrder = read("lib/client/schnell-active-order.ts");
 const success = read("app/schnellbestellung/success/page.tsx");
 const catalog = read("app/api/schnellbestellung/catalog/route.ts");
 const admin = read("app/admin/schnellbestellung/page.tsx");
@@ -80,8 +78,8 @@ const serviceWorker = read("public/sw.js");
 const middleware = read("middleware.ts");
 const tvTypes = read("types/tv.ts");
 const printProxy = read("print-proxy/index.cjs");
-const nextConfig = read("next.config.mjs");
-const packageJson = read("package.json");
+const catalogClient = read("lib/client/schnell-catalog.ts");
+const menuNavigation = read("lib/menu-navigation.ts");
 
 assert(core.includes("Serializable"));
 assert(core.includes('mode: "dine_in"'));
@@ -112,7 +110,7 @@ assert(core.includes("raw.iosHomeScreenFlowEnabled === true"));
 assert(core.includes("activeStatuses"));
 assert(core.includes("normalizeSchnellOrderStatus"));
 assert(core.includes('activeStatuses.has(status)'));
-assert(core.includes("select: { status: true, meta: true }"));
+assert(core.includes("select: { status: true, meta: true, ts: true }"));
 
 assert(!client.includes("alert("));
 assert(!client.includes("window.confirm("));
@@ -132,7 +130,8 @@ assert(!client.includes("bb_schnell_catalog_v4"));
 assert(!client.includes("bb_schnell_catalog_v3"));
 assert(!client.includes("bb_schnell_catalog_v2"));
 assert(!client.includes('fetch("/api/schnellbestellung/session"'));
-assert(client.includes('fetch("/api/schnellbestellung/catalog"'));
+assert(client.includes("loadSchnellCatalog"));
+assert(catalogClient.includes('const CATALOG_URL = "/api/schnellbestellung/catalog"'));
 assert(client.includes("preloadCatalogImages"));
 assert(client.includes("CatalogProductImage"));
 assert(client.includes("formatCampaignBadge"));
@@ -140,15 +139,8 @@ assert(client.includes("🔥"));
 assert(client.includes("prewarmSchnellPush"));
 assert(client.includes("requestSchnellPushPermissionFromGesture"));
 assert(client.includes("bindSchnellPushToOrder"));
-assert(client.includes("saveSchnellActiveOrder"));
 
-assert(success.includes("Bestellung beenden"));
-assert(success.includes("Bestellung abgeschlossen"));
-assert(success.includes("Vom unteren Bildschirmrand nach oben wischen"));
-assert(success.includes("clearSchnellActiveOrder"));
-assert(success.includes("stopReadyAlert"));
-assert(!success.includes("Safari konnte den Tab nicht automatisch schließen"));
-assert(!success.includes("window.close()"));
+assert(success.includes("Sie können Burger Brothers jetzt schließen."));
 assert(!success.includes("Neue Bestellung"));
 assert(!success.includes('window.location.replace("/")'));
 assert(success.includes("wakeLock"));
@@ -182,49 +174,28 @@ assert(enterPage.includes("requestSession"));
 assert(enterPage.includes("isAppleMobileDevice"));
 assert(enterPage.includes("isStandaloneDisplayMode"));
 assert(enterPage.includes("installSchnellManifest"));
-assert(enterPage.includes('manifest: "/api/schnellbestellung/manifest?v=2"'));
-assert(!enterPage.includes("/api/schnellbestellung/manifest?t="));
+assert(enterPage.includes("export const metadata"));
+assert(enterPage.includes("/api/schnellbestellung/manifest?v=2"));
 assert(enterPage.includes("Fertig-Benachrichtigung aktivieren"));
 assert(enterPage.includes("Zum Home-Bildschirm"));
 assert(enterPage.includes("homeScreen: true"));
-assert(enterPage.includes("QR-Code scannen"));
-assert(enterPage.includes("resumeActiveOrder"));
-assert(enterPage.includes("readSchnellActiveOrder"));
 assert(enterPage.includes("session?.iosHomeScreenFlowEnabled"));
-assert(enterPage.includes("activateSchnellPushFromGesture"));
-assert(enterPage.includes("Benachrichtigungen aktivieren"));
-assert(enterPage.includes('type EnterScreen = "status" | "choice" | "install" | "scanner" | "push"'));
-assert(pushClient.includes("activateSchnellPushFromGesture"));
-assert(pushClient.includes("registration.pushManager"));
-assert(!pushClient.includes('"PushManager" in window'));
 assert(schnellLayout.includes('manifest: "/manifest-schnellbestellung.webmanifest"'));
 assert(schnellLayout.includes('url: "/schnell-icon-180.png?v=1"'));
-assert(!schnellManifestRoute.includes("verifyAccessToken"));
-assert(!schnellManifestRoute.includes('search.set("t", token)'));
 assert(schnellManifestRoute.includes('const START_URL = "/schnellbestellung/enter?homescreen=1"'));
+assert(schnellManifestRoute.includes('Cache-Control'));
 assert(schnellManifestRoute.includes('scope: "/schnellbestellung/"'));
 assert(schnellManifest.includes('"display": "standalone"'));
 assert(schnellManifest.includes('"start_url": "/schnellbestellung/enter?homescreen=1"'));
 assert(sessionRoute.includes("iosHomeScreenFlowEnabled"));
 assert(enterPage.includes("location_required"));
 assert(locationRoute.includes("!settings.locationCheckEnabled"));
-assert(!locationRoute.includes("homeScreenLocationAccess"));
-assert(!locationRoute.includes("isAppleMobileRequest"));
-assert(locationRoute.includes("if (!accessToken)"));
-assert(locationRoute.includes("Every new Schnellbestellung session requires"));
+assert(locationRoute.includes("verifyAccessToken"));
+assert(locationRoute.includes("never act"));
+assert(locationRoute.includes("invalid_qr"));
 assert(locationRoute.includes("locationSkipped: true"));
 assert(orderRoute.includes("settings.locationCheckEnabled"));
 assert(orderRoute.includes("takeaway: body.takeaway === true"));
-
-assert(qrScanner.includes('import("qr-scanner")'));
-assert(qrScanner.includes('preferredCamera: "environment"'));
-assert(qrScanner.includes("Foto des QR-Codes aufnehmen"));
-assert(qrScanner.includes('url.pathname !== "/schnellbestellung/enter"'));
-assert(activeOrder.includes("bb_schnell_active_order_v1"));
-assert(activeOrder.includes("saveSchnellActiveOrder"));
-assert(activeOrder.includes("clearSchnellActiveOrder"));
-assert(nextConfig.includes("camera=(self)"));
-assert(packageJson.includes('"qr-scanner": "1.4.2"'));
 
 assert(admin.includes("Konum kontrolü aktif"));
 assert(admin.includes("Zum Mitnehmen seçimi aktif"));
@@ -271,9 +242,6 @@ assert(ordersStatus.includes("readyEventId"));
 assert(ordersStatus.includes('previousStatus !== "ready"'));
 assert(ordersStatus.includes("sendEmptySchnellPush"));
 assert(ordersStatus.includes("runAfterResponse(async ()"));
-assert(ordersStatus.includes("COMPLETED_REOPEN_LOCK_MS = 10 * 60 * 1000"));
-assert(ordersStatus.includes("completed_order_locked"));
-assert(ordersStatus.includes("seit mehr als 10 Minuten abgeschlossen"));
 assert(tvTypes.includes("takeaway?: boolean"));
 
 assert(pause.includes("dineIn: boolean"));

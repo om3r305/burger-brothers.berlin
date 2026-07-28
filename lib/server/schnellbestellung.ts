@@ -1,6 +1,7 @@
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma, getTenantId } from "@/lib/db";
+import { MENU_NAV_KEYS, type MenuNavKey } from "@/lib/menu-navigation";
 import {
   DEFAULT_REWARD_PROGRAM,
   normalizeRewardProgram,
@@ -19,18 +20,9 @@ export const SCHNELL_DRINK_GROUPS_KEY = "bb_drink_groups_v1";
 export const SCHNELL_EXTRA_GROUPS_KEY = "bb_extra_groups_v1";
 const SCHNELL_GROUP_VARIANT_PREFIX = "sgv:";
 
-export const SCHNELL_CATEGORY_ORDER = [
-  "burger",
-  "vegan",
-  "extras",
-  "sauces",
-  "hotdogs",
-  "drinks",
-  "donuts",
-  "bubbletea",
-] as const;
+export const SCHNELL_CATEGORY_ORDER: readonly MenuNavKey[] = MENU_NAV_KEYS;
 
-export type SchnellCategory = (typeof SCHNELL_CATEGORY_ORDER)[number];
+export type SchnellCategory = MenuNavKey;
 export type SchnellQrMode = "static" | "dynamic";
 export type SchnellCampaignType =
   | "percent_category"
@@ -98,6 +90,7 @@ export type SchnellSettings = {
   recheckMinutes: number;
   maxOrdersPerDevice: number;
   orderWindowMinutes: number;
+  orderLimitPolicyVersion: number;
   numberStart: number;
   generation: number;
   shopLat: number;
@@ -137,7 +130,8 @@ export const DEFAULT_SCHNELL_SETTINGS: SchnellSettings = {
   sessionMinutes: 30,
   recheckMinutes: 15,
   maxOrdersPerDevice: 3,
-  orderWindowMinutes: 30,
+  orderWindowMinutes: 15,
+  orderLimitPolicyVersion: 2,
   numberStart: 1,
   generation: 1,
   shopLat: Number(process.env.SCHNELLBESTELLUNG_SHOP_LAT || 52.5881),
@@ -308,6 +302,15 @@ export function normalizeSchnellSettings(value: unknown): SchnellSettings {
   const raw = obj(value);
   const defaults = DEFAULT_SCHNELL_SETTINGS;
   const qrMode: SchnellQrMode = raw.qrMode === "dynamic" ? "dynamic" : "static";
+  const storedOrderWindow = clamp(
+    raw.orderWindowMinutes,
+    5,
+    180,
+    defaults.orderWindowMinutes,
+  );
+  const storedPolicyVersion = clamp(raw.orderLimitPolicyVersion, 1, 99, 1);
+  const orderWindowMinutes =
+    storedPolicyVersion >= 2 ? storedOrderWindow : Math.min(15, storedOrderWindow);
 
   return {
     enabled: raw.enabled === true,
@@ -363,12 +366,8 @@ export function normalizeSchnellSettings(value: unknown): SchnellSettings {
       20,
       defaults.maxOrdersPerDevice,
     ),
-    orderWindowMinutes: clamp(
-      raw.orderWindowMinutes,
-      5,
-      180,
-      defaults.orderWindowMinutes,
-    ),
+    orderWindowMinutes,
+    orderLimitPolicyVersion: 2,
     numberStart: clamp(raw.numberStart, 1, 999, defaults.numberStart),
     generation: clamp(raw.generation, 1, 999999, defaults.generation),
     shopLat: clamp(raw.shopLat, -90, 90, defaults.shopLat),
@@ -413,8 +412,23 @@ async function readTvDineInPause(tenantId: string) {
 }
 
 export async function getSchnellSettings(options?: { includeTvPause?: boolean }) {
-  const { tenantId, settings: stored } = await readStoredSchnellSettings();
-  let settings = stored;
+  const tenantId = await getTenantId();
+  const includeTvPause = options?.includeTvPause !== false;
+
+  const [settingsRow, pauseRow] = await Promise.all([
+    prisma.setting.findUnique({
+      where: { tenantId_key: { tenantId, key: SCHNELL_SETTINGS_KEY } },
+      select: { value: true },
+    }),
+    includeTvPause
+      ? prisma.setting.findUnique({
+          where: { tenantId_key: { tenantId, key: SCHNELL_PAUSE_KEY } },
+          select: { value: true },
+        })
+      : Promise.resolve(null),
+  ]);
+
+  let settings = normalizeSchnellSettings(settingsRow?.value);
 
   if (!settings.staticQrId) {
     settings = { ...settings, staticQrId: newStaticQrId() };
@@ -429,9 +443,7 @@ export async function getSchnellSettings(options?: { includeTvPause?: boolean })
     });
   }
 
-  if (options?.includeTvPause === false) return settings;
-
-  const tvPaused = await readTvDineInPause(tenantId).catch(() => false);
+  const tvPaused = includeTvPause && obj(pauseRow?.value).dineIn === true;
   return tvPaused ? { ...settings, paused: true } : settings;
 }
 
@@ -1143,12 +1155,12 @@ export async function createCashSchnellOrder(params: {
               channel: "schnellbestellung",
               ts: { gte: since },
             },
-            select: { status: true, meta: true },
+            select: { status: true, meta: true, ts: true },
             orderBy: { ts: "desc" },
             take: 100,
           });
           const activeStatuses = new Set(["new", "preparing", "ready"]);
-          const deviceOrderCount = recent.filter((row) => {
+          const matchingDeviceOrders = recent.filter((row) => {
             const meta = obj(row.meta);
             const status = normalizeSchnellOrderStatus(
               meta.statusManual ?? row.status ?? "new",
@@ -1157,10 +1169,26 @@ export async function createCashSchnellOrder(params: {
               String(meta.deviceId || "") === params.deviceId &&
               activeStatuses.has(status)
             );
-          }).length;
+          });
 
-          if (deviceOrderCount >= settings.maxOrdersPerDevice) {
-            throw new Error("DEVICE_RATE_LIMIT");
+          if (matchingDeviceOrders.length >= settings.maxOrdersPerDevice) {
+            const oldestActiveTime = Math.min(
+              ...matchingDeviceOrders.map((row) => row.ts.getTime()),
+            );
+            const retryAfterSeconds = Math.max(
+              1,
+              Math.ceil(
+                (oldestActiveTime +
+                  settings.orderWindowMinutes * 60_000 -
+                  Date.now()) /
+                  1_000,
+              ),
+            );
+            const rateLimitError = new Error("DEVICE_RATE_LIMIT") as Error & {
+              retryAfterSeconds?: number;
+            };
+            rateLimitError.retryAfterSeconds = retryAfterSeconds;
+            throw rateLimitError;
           }
 
           const productIds = params.items
