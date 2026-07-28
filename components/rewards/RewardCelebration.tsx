@@ -97,7 +97,16 @@ export default function RewardCelebration({
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || data?.ok === false) {
-        throw new Error(String(data?.error || "SUBMISSION_FAILED"));
+        const code = String(data?.error || "SUBMISSION_FAILED");
+        const retryAfterSeconds = Math.max(
+          0,
+          Number(data?.retryAfterSeconds) ||
+            Number(response.headers.get("Retry-After")) ||
+            0,
+        );
+        throw new Error(
+          retryAfterSeconds > 0 ? `${code}:${retryAfterSeconds}` : code,
+        );
       }
 
       setResult({
@@ -107,17 +116,29 @@ export default function RewardCelebration({
       setPhase("sent");
       window.setTimeout(onClose, 2_800);
     } catch (caught) {
-      const code = caught instanceof Error ? caught.message : "SUBMISSION_FAILED";
+      const rawCode =
+        caught instanceof Error ? caught.message : "SUBMISSION_FAILED";
+      const [code, retryText] = rawCode.split(":");
+      const retryAfterSeconds = Math.max(0, Number(retryText) || 0);
       const messages: Record<string, string> = {
         session_expired: "Deine Schnellbestellung-Sitzung ist abgelaufen. Dein Gewinn bleibt trotzdem gültig.",
         reward_forbidden: "Dieser Gewinn gehört nicht zu dieser Sitzung. Bitte wende dich an unser Personal.",
         reward_not_found: "Der Gewinn konnte nicht mehr gefunden werden. Bitte wende dich an unser Personal.",
         display_consent_required: "Bitte bestätige zuerst die kurze Anzeige auf dem Burger-Brothers-Bildschirm.",
+        name_and_order_required: "Bitte gib zuerst deinen Vornamen oder Spitznamen ein.",
+        sharing_disabled: "Die Bildschirmfreigabe ist für diesen Gewinn gerade deaktiviert.",
+        origin_not_allowed: "Die Anfrage konnte aus Sicherheitsgründen nicht gesendet werden. Bitte öffne die Schnellbestellung erneut.",
+        invalid_form: "Die Angaben konnten nicht gelesen werden. Bitte versuche es noch einmal.",
         photo_too_large: "Das Foto ist zu groß. Bitte nimm ein neues Foto auf.",
         photo_type_not_allowed: "Dieses Fotoformat wird nicht unterstützt.",
         TEMP_PHOTO_STORAGE_NOT_CONFIGURED: "Der Foto-Upload ist gerade nicht verfügbar. Du kannst deinen Namen ohne Foto senden.",
       };
-      setError(messages[code] || "Dein Glücksmoment konnte gerade nicht gesendet werden. Dein Gewinn und deine Bestellung bleiben vollständig gültig.");
+      setError(
+        code === "rate_limited"
+          ? `Zu viele schnelle Versuche. Bitte warte ${Math.max(1, retryAfterSeconds)} Sekunden und versuche es erneut.`
+          : messages[code] ||
+              `Dein Glücksmoment konnte gerade nicht gesendet werden. Dein Gewinn und deine Bestellung bleiben vollständig gültig. (Code: ${code})`,
+      );
     } finally {
       setBusy(false);
     }

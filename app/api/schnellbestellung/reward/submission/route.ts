@@ -69,8 +69,16 @@ export async function POST(req: Request) {
   if (!hasTrustedMutationOrigin(req)) {
     return json({ ok: false, error: "origin_not_allowed" }, 403);
   }
-  const rate = await enforceRateLimit(req, "schnell:reward-submission", 8, 10 * 60_000);
-  if (rate) return rate;
+  // Ortak restoran Wi-Fi/IP adresindeki farkli musterilerin birbirini
+  // engellememesi icin kaba IP limiti yalnizca kotuye kullanima karsi yuksek
+  // tutulur. Asil tekrar limiti session + orderId uzerinden asagida uygulanir.
+  const coarseRate = await enforceRateLimit(
+    req,
+    "schnell:reward-submission-ip",
+    80,
+    10 * 60_000,
+  );
+  if (coarseRate) return coarseRate;
 
   const settings = await getSchnellSettings({ includeTvPause: false });
   const session = verifySessionToken(
@@ -93,6 +101,18 @@ export async function POST(req: Request) {
   if (!orderId || !displayName) {
     return json({ ok: false, error: "name_and_order_required" }, 400);
   }
+
+  // Her siparis icin tekrar denemeye izin verilir; fakat ayni cihaz + siparis
+  // kombinasyonunun asiri gonderimi sinirlanir. Bu sayede ortak Wi-Fi kullanan
+  // baska musteriler etkilenmez ve gecici baglanti hatasinda tekrar denenebilir.
+  const submissionRate = await enforceRateLimit(
+    req,
+    "schnell:reward-submission-order",
+    6,
+    10 * 60_000,
+    `${String(session.deviceId || "unknown")}:${orderId}`,
+  );
+  if (submissionRate) return submissionRate;
 
   const tenantId = await getTenantId();
   const rewardWin = await prisma.schnellRewardWin.findFirst({
