@@ -199,7 +199,7 @@ export default function RewardProgramPanel() {
           <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
             <span className="text-xs text-stone-400">Bir sonraki uygun sipariş</span>
             <strong className="mt-1 block text-xl text-cyan-200">≈ %{today?.currentChancePercent || 0}</strong>
-            <span className="text-xs text-stone-500">Anlık tahmini ihtimal</span>
+            <span className="text-xs text-stone-500">Günlük cihaz limitine takılmamış müşteri için</span>
           </div>
           <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
             <span className="text-xs text-stone-400">Sipariş hareketi</span>
@@ -209,7 +209,7 @@ export default function RewardProgramPanel() {
         </div>
 
         <p className="mt-3 text-xs leading-5 text-stone-400">
-          Süre ilerleyip kota geride kalırsa ihtimal otomatik yükselir. Son bölümde gelen uygun siparişler, kota dolana kadar öncelik kazanır. Müşteri gelmezse olmayan siparişe ödül yazılmaz.
+          Süre ilerleyip kota geride kalırsa ihtimal otomatik yükselir. Son bölümde gelen uygun siparişler, kota dolana kadar öncelik kazanır. Müşteri gelmezse olmayan siparişe ödül yazılmaz. Aynı cihaz bir günde en fazla <strong className="text-stone-200">{settings.maxWinsPerDevicePerDay}</strong> kez kazanabilir; bu limite ulaşmış cihazlardan verilen yeni test siparişleri yüzde 100 görünse bile çekilişe alınmaz.
         </p>
       </div>
 
@@ -269,23 +269,50 @@ export default function RewardProgramPanel() {
           ))}
         </div>
 
-        <label className="mt-4 block max-w-md text-sm text-stone-400">
-          İki kazanan arasında en az kaç normal sipariş olsun?
-          <input
-            type="number"
-            min="0"
-            max="10"
-            value={settings.minOrdersBetweenWins}
-            onChange={(event) =>
-              setSettings({
-                ...settings,
-                minOrdersBetweenWins: numberValue(event.target.value, 0, 10, settings.minOrdersBetweenWins),
-              })
-            }
-            className="mt-1 w-full rounded-xl bg-stone-900 p-2 text-white"
-          />
-          <span className="mt-1 block text-xs text-stone-500">0 seçilirse art arda iki kazanan mümkün olur. Son dakikalarda kota kalırsa bu koruma otomatik gevşer.</span>
-        </label>
+        <div className="mt-4 grid max-w-3xl gap-4 md:grid-cols-2">
+          <label className="block text-sm text-stone-400">
+            Cihaz başına günlük kazanma sınırı
+            <input
+              type="number"
+              min="1"
+              max="20"
+              value={settings.maxWinsPerDevicePerDay}
+              onChange={(event) =>
+                setSettings({
+                  ...settings,
+                  maxWinsPerDevicePerDay: numberValue(
+                    event.target.value,
+                    1,
+                    20,
+                    settings.maxWinsPerDevicePerDay,
+                  ),
+                })
+              }
+              className="mt-1 w-full rounded-xl bg-stone-900 p-2 text-white"
+            />
+            <span className="mt-1 block text-xs leading-5 text-stone-500">
+              Normal kullanım için 1 önerilir. Aynı telefonla test ederken geçici olarak 10–20 yap, test bitince tekrar 1'e indir.
+            </span>
+          </label>
+
+          <label className="block text-sm text-stone-400">
+            İki kazanan arasında en az kaç normal sipariş olsun?
+            <input
+              type="number"
+              min="0"
+              max="10"
+              value={settings.minOrdersBetweenWins}
+              onChange={(event) =>
+                setSettings({
+                  ...settings,
+                  minOrdersBetweenWins: numberValue(event.target.value, 0, 10, settings.minOrdersBetweenWins),
+                })
+              }
+              className="mt-1 w-full rounded-xl bg-stone-900 p-2 text-white"
+            />
+            <span className="mt-1 block text-xs leading-5 text-stone-500">0 seçilirse art arda iki kazanan mümkün olur. Son dakikalarda kota kalırsa bu koruma otomatik gevşer.</span>
+          </label>
+        </div>
       </div>
 
       <div>
