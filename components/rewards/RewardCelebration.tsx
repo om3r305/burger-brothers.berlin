@@ -128,6 +128,7 @@ export default function RewardCelebration({
         name_and_order_required: "Bitte gib zuerst deinen Vornamen oder Spitznamen ein.",
         sharing_disabled: "Die Bildschirmfreigabe ist für diesen Gewinn gerade deaktiviert.",
         origin_not_allowed: "Die Anfrage konnte aus Sicherheitsgründen nicht gesendet werden. Bitte öffne die Schnellbestellung erneut.",
+        unauthorized: "Die Bildschirmfreigabe war technisch noch nicht für die Schnellbestellung freigeschaltet. Bitte versuche es nach der Aktualisierung erneut.",
         invalid_form: "Die Angaben konnten nicht gelesen werden. Bitte versuche es noch einmal.",
         photo_too_large: "Das Foto ist zu groß. Bitte nimm ein neues Foto auf.",
         photo_type_not_allowed: "Dieses Fotoformat wird nicht unterstützt.",

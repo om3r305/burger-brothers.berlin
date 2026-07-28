@@ -116,6 +116,16 @@ export function apiAccess(path: string, methodRaw: string): Access {
   if (path === "/api/schnellbestellung/orders" && method === "POST") {
     return "public";
   }
+  // Kazanan isim/fotoğraf paylaşımı müşteri Schnell oturumu ile çalışır.
+  // Middleware yalnız rotayı erişilebilir kılar; route içinde imzalı Schnell
+  // session, trusted origin, rate limit, order sahipliği ve consent yeniden
+  // doğrulanır.
+  if (
+    path === "/api/schnellbestellung/reward/submission" &&
+    method === "POST"
+  ) {
+    return "public";
+  }
 
   if (path === "/api/track/lookup" && (method === "GET" || method === "POST")) return "public";
   if (child(path, "/api/track/by-order") && readOnly) return "public";
