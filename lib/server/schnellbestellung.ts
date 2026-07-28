@@ -19,6 +19,22 @@ export const SCHNELL_PAUSE_KEY = "pause";
 export const SCHNELL_DRINK_GROUPS_KEY = "bb_drink_groups_v1";
 export const SCHNELL_EXTRA_GROUPS_KEY = "bb_extra_groups_v1";
 const SCHNELL_GROUP_VARIANT_PREFIX = "sgv:";
+const SCHNELL_SETTINGS_CACHE_MS = 5_000;
+
+type SchnellSettingsCacheEntry = {
+  tenantId: string;
+  settings: SchnellSettings;
+  tvPaused: boolean;
+  expiresAt: number;
+};
+
+let schnellSettingsCache: SchnellSettingsCacheEntry | null = null;
+let schnellSettingsPromise: Promise<SchnellSettingsCacheEntry> | null = null;
+
+function invalidateSchnellSettingsCache() {
+  schnellSettingsCache = null;
+  schnellSettingsPromise = null;
+}
 
 export const SCHNELL_CATEGORY_ORDER: readonly MenuNavKey[] = MENU_NAV_KEYS;
 
@@ -412,39 +428,59 @@ async function readTvDineInPause(tenantId: string) {
 }
 
 export async function getSchnellSettings(options?: { includeTvPause?: boolean }) {
-  const tenantId = await getTenantId();
   const includeTvPause = options?.includeTvPause !== false;
+  const now = Date.now();
 
-  const [settingsRow, pauseRow] = await Promise.all([
-    prisma.setting.findUnique({
-      where: { tenantId_key: { tenantId, key: SCHNELL_SETTINGS_KEY } },
-      select: { value: true },
-    }),
-    includeTvPause
-      ? prisma.setting.findUnique({
+  if (schnellSettingsCache && schnellSettingsCache.expiresAt > now) {
+    return includeTvPause && schnellSettingsCache.tvPaused
+      ? { ...schnellSettingsCache.settings, paused: true }
+      : schnellSettingsCache.settings;
+  }
+
+  if (!schnellSettingsPromise) {
+    schnellSettingsPromise = (async () => {
+      const tenantId = await getTenantId();
+      const [settingsRow, pauseRow] = await Promise.all([
+        prisma.setting.findUnique({
+          where: { tenantId_key: { tenantId, key: SCHNELL_SETTINGS_KEY } },
+          select: { value: true },
+        }),
+        prisma.setting.findUnique({
           where: { tenantId_key: { tenantId, key: SCHNELL_PAUSE_KEY } },
           select: { value: true },
-        })
-      : Promise.resolve(null),
-  ]);
+        }),
+      ]);
 
-  let settings = normalizeSchnellSettings(settingsRow?.value);
+      let settings = normalizeSchnellSettings(settingsRow?.value);
+      if (!settings.staticQrId) {
+        settings = { ...settings, staticQrId: newStaticQrId() };
+        await prisma.setting.upsert({
+          where: { tenantId_key: { tenantId, key: SCHNELL_SETTINGS_KEY } },
+          update: { value: settings as unknown as Prisma.InputJsonValue },
+          create: {
+            tenantId,
+            key: SCHNELL_SETTINGS_KEY,
+            value: settings as unknown as Prisma.InputJsonValue,
+          },
+        });
+      }
 
-  if (!settings.staticQrId) {
-    settings = { ...settings, staticQrId: newStaticQrId() };
-    await prisma.setting.upsert({
-      where: { tenantId_key: { tenantId, key: SCHNELL_SETTINGS_KEY } },
-      update: { value: settings as unknown as Prisma.InputJsonValue },
-      create: {
+      return {
         tenantId,
-        key: SCHNELL_SETTINGS_KEY,
-        value: settings as unknown as Prisma.InputJsonValue,
-      },
+        settings,
+        tvPaused: obj(pauseRow?.value).dineIn === true,
+        expiresAt: Date.now() + SCHNELL_SETTINGS_CACHE_MS,
+      } satisfies SchnellSettingsCacheEntry;
+    })().finally(() => {
+      schnellSettingsPromise = null;
     });
   }
 
-  const tvPaused = includeTvPause && obj(pauseRow?.value).dineIn === true;
-  return tvPaused ? { ...settings, paused: true } : settings;
+  const fresh = await schnellSettingsPromise;
+  schnellSettingsCache = fresh;
+  return includeTvPause && fresh.tvPaused
+    ? { ...fresh.settings, paused: true }
+    : fresh.settings;
 }
 
 export async function saveSchnellSettings(value: unknown) {
@@ -466,6 +502,7 @@ export async function saveSchnellSettings(value: unknown) {
     },
   });
 
+  invalidateSchnellSettingsCache();
   return merged;
 }
 
@@ -1066,6 +1103,240 @@ function productIsAllowed(
   return true;
 }
 
+type SchnellOrderDbClient = Pick<Prisma.TransactionClient, "order">;
+
+async function activeDeviceOrders(
+  client: SchnellOrderDbClient,
+  params: {
+    tenantId: string;
+    deviceId: string;
+    since: Date;
+    take: number;
+  },
+) {
+  const rows = await client.order.findMany({
+    where: {
+      tenantId: params.tenantId,
+      channel: "schnellbestellung",
+      ts: { gte: params.since },
+      meta: { path: ["deviceId"], equals: params.deviceId },
+    },
+    select: { status: true, meta: true, ts: true },
+    orderBy: { ts: "desc" },
+    take: Math.max(1, Math.min(50, params.take)),
+  });
+
+  const activeStatuses = new Set(["new", "preparing", "ready"]);
+  return rows.filter((row) => {
+    const meta = obj(row.meta);
+    const status = normalizeSchnellOrderStatus(
+      meta.statusManual ?? row.status ?? "new",
+    );
+    return activeStatuses.has(status);
+  });
+}
+
+function throwDeviceRateLimit(
+  matchingDeviceOrders: Array<{ ts: Date }>,
+  settings: SchnellSettings,
+) {
+  if (matchingDeviceOrders.length < settings.maxOrdersPerDevice) return;
+
+  const oldestActiveTime = Math.min(
+    ...matchingDeviceOrders.map((row) => row.ts.getTime()),
+  );
+  const retryAfterSeconds = Math.max(
+    1,
+    Math.ceil(
+      (oldestActiveTime +
+        settings.orderWindowMinutes * 60_000 -
+        Date.now()) /
+        1_000,
+    ),
+  );
+  const error = new Error("DEVICE_RATE_LIMIT") as Error & {
+    retryAfterSeconds?: number;
+  };
+  error.retryAfterSeconds = retryAfterSeconds;
+  throw error;
+}
+
+async function prepareCashSchnellOrder(params: {
+  tenantId: string;
+  items: any[];
+  deviceId: string;
+  takeaway?: boolean;
+}) {
+  const settings = await getSchnellSettings();
+  if (!settings.enabled || settings.paused || !settings.cashEnabled) {
+    throw new Error("SCHNELL_UNAVAILABLE");
+  }
+
+  const takeaway = settings.takeawayEnabled && params.takeaway === true;
+  const since = new Date(Date.now() - settings.orderWindowMinutes * 60_000);
+
+  const [drinkGroupsRow, extraGroupsRow, matchingDeviceOrders] =
+    await Promise.all([
+      prisma.setting.findUnique({
+        where: {
+          tenantId_key: {
+            tenantId: params.tenantId,
+            key: SCHNELL_DRINK_GROUPS_KEY,
+          },
+        },
+        select: { value: true },
+      }),
+      prisma.setting.findUnique({
+        where: {
+          tenantId_key: {
+            tenantId: params.tenantId,
+            key: SCHNELL_EXTRA_GROUPS_KEY,
+          },
+        },
+        select: { value: true },
+      }),
+      activeDeviceOrders(prisma, {
+        tenantId: params.tenantId,
+        deviceId: params.deviceId,
+        since,
+        take: settings.maxOrdersPerDevice + 2,
+      }),
+    ]);
+
+  throwDeviceRateLimit(matchingDeviceOrders, settings);
+
+  const productIds = params.items
+    .map((item) => String(item.productId || item.id || ""))
+    .filter(Boolean);
+  if (!productIds.length) throw new Error("EMPTY_CART");
+
+  const regularProductIds = productIds.filter(
+    (productId) => !isSchnellGroupVariantId(productId),
+  );
+  const products = regularProductIds.length
+    ? await prisma.product.findMany({
+        where: {
+          tenantId: params.tenantId,
+          id: { in: regularProductIds },
+          active: true,
+        },
+      })
+    : [];
+
+  const productById = new Map<string, SchnellCatalogRecord>();
+  products
+    .map(normalizeProductRecord)
+    .forEach((product) => productById.set(product.id, product));
+  buildSchnellGroupVariantProducts(
+    drinkGroupsRow?.value,
+    extraGroupsRow?.value,
+  ).forEach((product) => productById.set(product.id, product));
+
+  let merchandise = 0;
+  let discount = 0;
+  let payable = 0;
+  const campaignDetails: Prisma.InputJsonObject[] = [];
+  const canonicalItems: any[] = [];
+  const nowMs = Date.now();
+
+  for (const rawItem of params.items.slice(0, 60)) {
+    const product = productById.get(
+      String(rawItem.productId || rawItem.id || ""),
+    );
+
+    if (
+      !product ||
+      (product.activeFrom && product.activeFrom.getTime() > nowMs) ||
+      (product.activeTo && product.activeTo.getTime() < nowMs) ||
+      !productIsAllowed(product, settings)
+    ) {
+      throw new Error("PRODUCT_UNAVAILABLE");
+    }
+
+    const qty = Math.max(
+      1,
+      Math.min(20, Math.floor(Number(rawItem.qty) || 1)),
+    );
+    const availableExtras = Array.isArray(product.extrasJson)
+      ? product.extrasJson
+      : [];
+    const selectedExtraIds = new Set(
+      (Array.isArray(rawItem.extraIds) ? rawItem.extraIds : []).map(String),
+    );
+    const extras = availableExtras
+      .filter((extra: any) =>
+        selectedExtraIds.has(String(extra.id || extra.name)),
+      )
+      .map((extra: any) => ({
+        id: String(extra.id || extra.name),
+        name: String(extra.name || extra.label || "Extra"),
+        label: String(extra.label || extra.name || "Extra"),
+        price: Number(extra.price) || 0,
+      }));
+    const extrasTotal = extras.reduce(
+      (sum: number, extra: any) => sum + extra.price,
+      0,
+    );
+    const campaignPrice = getSchnellCampaignPrice(
+      {
+        id: product.id,
+        category: product.category,
+        price: Number(product.price),
+      },
+      settings,
+    );
+    const baseUnit = Number(product.price) + extrasTotal;
+    const finalUnit = campaignPrice.price + extrasTotal;
+
+    merchandise += baseUnit * qty;
+    payable += finalUnit * qty;
+    discount += (baseUnit - finalUnit) * qty;
+
+    if (campaignPrice.campaign) {
+      campaignDetails.push({
+        id: campaignPrice.campaign.id,
+        name: campaignPrice.campaign.name,
+        badgeText: campaignPrice.badgeText ?? null,
+        productId: product.id,
+        qty,
+        amount: Math.round((baseUnit - finalUnit) * qty * 100) / 100,
+      });
+    }
+
+    canonicalItems.push({
+      id: product.id,
+      sku: product.sku,
+      name: product.name,
+      category: normalizeSchnellCategory(product.category),
+      price: campaignPrice.price,
+      originalPrice: campaignPrice.originalPrice,
+      qty,
+      add: extras,
+      note: cleanText(rawItem.note, 300),
+      campaign: campaignPrice.campaign
+        ? {
+            id: campaignPrice.campaign.id,
+            name: campaignPrice.campaign.name,
+            badgeText: campaignPrice.badgeText,
+          }
+        : undefined,
+      sourceKind: product.sourceKind,
+      depositAmount: product.depositAmount || 0,
+    });
+  }
+
+  return {
+    settings,
+    takeaway,
+    since,
+    canonicalItems,
+    campaignDetails,
+    merchandise: Math.round(merchandise * 100) / 100,
+    discount: Math.round(discount * 100) / 100,
+    payable: Math.round(payable * 100) / 100,
+  };
+}
+
 export async function createCashSchnellOrder(params: {
   items: any[];
   idempotencyKey: string;
@@ -1076,7 +1347,35 @@ export async function createCashSchnellOrder(params: {
   const tenantId = await getTenantId();
   const businessDate = berlinBusinessDate();
 
-  for (let attempt = 0; attempt < 4; attempt += 1) {
+  const existingBeforeTransaction = await prisma.order.findFirst({
+    where: {
+      tenantId,
+      channel: "schnellbestellung",
+      meta: { path: ["idempotencyKey"], equals: params.idempotencyKey },
+    },
+    orderBy: { ts: "desc" },
+  });
+  if (existingBeforeTransaction) {
+    const meta = obj(existingBeforeTransaction.meta);
+    return {
+      order: existingBeforeTransaction,
+      customerNumber: Number(meta.customerNumber),
+      reused: true,
+      reward: rewardFromOrderMeta(meta),
+    };
+  }
+
+  // Ayarlar, ürünler ve sepet hesaplaması transaction dışında hazırlanır.
+  // Interactive transaction yalnız yarış durumunda atomik olması gereken kısa
+  // DB işlerini tutar; connection pool bağlantısı CPU işlemlerinde beklemez.
+  const prepared = await prepareCashSchnellOrder({
+    tenantId,
+    items: params.items,
+    deviceId: params.deviceId,
+    takeaway: params.takeaway,
+  });
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
       return await prisma.$transaction(
         async (transaction) => {
@@ -1102,229 +1401,24 @@ export async function createCashSchnellOrder(params: {
             };
           }
 
-          const [settingsRow, pauseRow, drinkGroupsRow, extraGroupsRow] =
-            await Promise.all([
-              transaction.setting.findUnique({
-                where: {
-                  tenantId_key: { tenantId, key: SCHNELL_SETTINGS_KEY },
-                },
-                select: { value: true },
-              }),
-              transaction.setting.findUnique({
-                where: { tenantId_key: { tenantId, key: SCHNELL_PAUSE_KEY } },
-                select: { value: true },
-              }),
-              transaction.setting.findUnique({
-                where: {
-                  tenantId_key: {
-                    tenantId,
-                    key: SCHNELL_DRINK_GROUPS_KEY,
-                  },
-                },
-                select: { value: true },
-              }),
-              transaction.setting.findUnique({
-                where: {
-                  tenantId_key: {
-                    tenantId,
-                    key: SCHNELL_EXTRA_GROUPS_KEY,
-                  },
-                },
-                select: { value: true },
-              }),
-            ]);
-
-          const settings = normalizeSchnellSettings(settingsRow?.value);
-          const tvPaused = obj(pauseRow?.value).dineIn === true;
-
-          if (
-            !settings.enabled ||
-            settings.paused ||
-            tvPaused ||
-            !settings.cashEnabled
-          ) {
-            throw new Error("SCHNELL_UNAVAILABLE");
-          }
-
-          const takeaway = settings.takeawayEnabled && params.takeaway === true;
-
-          const since = new Date(Date.now() - settings.orderWindowMinutes * 60_000);
-          const recent = await transaction.order.findMany({
-            where: {
-              tenantId,
-              channel: "schnellbestellung",
-              ts: { gte: since },
-            },
-            select: { status: true, meta: true, ts: true },
-            orderBy: { ts: "desc" },
-            take: 100,
+          const matchingDeviceOrders = await activeDeviceOrders(transaction, {
+            tenantId,
+            deviceId: params.deviceId,
+            since: prepared.since,
+            take: prepared.settings.maxOrdersPerDevice + 2,
           });
-          const activeStatuses = new Set(["new", "preparing", "ready"]);
-          const matchingDeviceOrders = recent.filter((row) => {
-            const meta = obj(row.meta);
-            const status = normalizeSchnellOrderStatus(
-              meta.statusManual ?? row.status ?? "new",
-            );
-            return (
-              String(meta.deviceId || "") === params.deviceId &&
-              activeStatuses.has(status)
-            );
-          });
+          throwDeviceRateLimit(matchingDeviceOrders, prepared.settings);
 
-          if (matchingDeviceOrders.length >= settings.maxOrdersPerDevice) {
-            const oldestActiveTime = Math.min(
-              ...matchingDeviceOrders.map((row) => row.ts.getTime()),
-            );
-            const retryAfterSeconds = Math.max(
-              1,
-              Math.ceil(
-                (oldestActiveTime +
-                  settings.orderWindowMinutes * 60_000 -
-                  Date.now()) /
-                  1_000,
-              ),
-            );
-            const rateLimitError = new Error("DEVICE_RATE_LIMIT") as Error & {
-              retryAfterSeconds?: number;
-            };
-            rateLimitError.retryAfterSeconds = retryAfterSeconds;
-            throw rateLimitError;
-          }
-
-          const productIds = params.items
-            .map((item) => String(item.productId || item.id || ""))
-            .filter(Boolean);
-
-          if (!productIds.length) throw new Error("EMPTY_CART");
-
-          const regularProductIds = productIds.filter(
-            (productId) => !isSchnellGroupVariantId(productId),
-          );
-          const products = regularProductIds.length
-            ? await transaction.product.findMany({
-                where: {
-                  tenantId,
-                  id: { in: regularProductIds },
-                  active: true,
-                },
-              })
-            : [];
-
-          const productById = new Map<string, SchnellCatalogRecord>();
-
-          products
-            .map(normalizeProductRecord)
-            .forEach((product) => productById.set(product.id, product));
-
-          buildSchnellGroupVariantProducts(
-            drinkGroupsRow?.value,
-            extraGroupsRow?.value,
-          ).forEach((product) => productById.set(product.id, product));
-
-          let merchandise = 0;
-          let discount = 0;
-          let payable = 0;
-          const campaignDetails: Prisma.InputJsonObject[] = [];
-          const canonicalItems: any[] = [];
-
-          for (const rawItem of params.items.slice(0, 60)) {
-            const product = productById.get(
-              String(rawItem.productId || rawItem.id || ""),
-            );
-
-            if (
-              !product ||
-              (product.activeFrom && product.activeFrom.getTime() > Date.now()) ||
-              (product.activeTo && product.activeTo.getTime() < Date.now()) ||
-              !productIsAllowed(product, settings)
-            ) {
-              throw new Error("PRODUCT_UNAVAILABLE");
-            }
-
-            const qty = Math.max(
-              1,
-              Math.min(20, Math.floor(Number(rawItem.qty) || 1)),
-            );
-            const availableExtras = Array.isArray(product.extrasJson)
-              ? product.extrasJson
-              : [];
-            const selectedExtraIds = new Set(
-              (Array.isArray(rawItem.extraIds) ? rawItem.extraIds : []).map(String),
-            );
-            const extras = availableExtras
-              .filter((extra: any) =>
-                selectedExtraIds.has(String(extra.id || extra.name)),
-              )
-              .map((extra: any) => ({
-                id: String(extra.id || extra.name),
-                name: String(extra.name || extra.label || "Extra"),
-                label: String(extra.label || extra.name || "Extra"),
-                price: Number(extra.price) || 0,
-              }));
-            const extrasTotal = extras.reduce(
-              (sum: number, extra: any) => sum + extra.price,
-              0,
-            );
-            const campaignPrice = getSchnellCampaignPrice(
-              {
-                id: product.id,
-                category: product.category,
-                price: Number(product.price),
-              },
-              settings,
-            );
-            const baseUnit = Number(product.price) + extrasTotal;
-            const finalUnit = campaignPrice.price + extrasTotal;
-
-            merchandise += baseUnit * qty;
-            payable += finalUnit * qty;
-            discount += (baseUnit - finalUnit) * qty;
-
-            if (campaignPrice.campaign) {
-              campaignDetails.push({
-                id: campaignPrice.campaign.id,
-                name: campaignPrice.campaign.name,
-                badgeText: campaignPrice.badgeText ?? null,
-                productId: product.id,
-                qty,
-                amount: Math.round((baseUnit - finalUnit) * qty * 100) / 100,
-              });
-            }
-
-            canonicalItems.push({
-              id: product.id,
-              sku: product.sku,
-              name: product.name,
-              category: normalizeSchnellCategory(product.category),
-              price: campaignPrice.price,
-              originalPrice: campaignPrice.originalPrice,
-              qty,
-              add: extras,
-              note: cleanText(rawItem.note, 300),
-              campaign: campaignPrice.campaign
-                ? {
-                    id: campaignPrice.campaign.id,
-                    name: campaignPrice.campaign.name,
-                    badgeText: campaignPrice.badgeText,
-                  }
-                : undefined,
-              sourceKind: product.sourceKind,
-              depositAmount: product.depositAmount || 0,
-            });
-          }
-
-          merchandise = Math.round(merchandise * 100) / 100;
-          discount = Math.round(discount * 100) / 100;
-          payable = Math.round(payable * 100) / 100;
-
+          let discount = prepared.discount;
+          let payable = prepared.payable;
           const rewardDecision = await decideSchnellReward({
             transaction,
             tenantId,
             now: new Date(),
             deviceId: params.deviceId,
             decisionKey: params.idempotencyKey,
-            program: settings.rewardProgram,
-            items: canonicalItems.map((item) => ({
+            program: prepared.settings.rewardProgram,
+            items: prepared.canonicalItems.map((item) => ({
               id: String(item.id || ""),
               name: String(item.name || "Artikel"),
               category: String(item.category || ""),
@@ -1334,11 +1428,15 @@ export async function createCashSchnellOrder(params: {
             payable,
           });
           const rewardWinId = rewardDecision ? randomUUID() : "";
+
           if (rewardDecision) {
-            discount = Math.round((discount + rewardDecision.discountAmount) * 100) / 100;
+            discount =
+              Math.round((discount + rewardDecision.discountAmount) * 100) /
+              100;
             payable = Math.max(
               0,
-              Math.round((payable - rewardDecision.discountAmount) * 100) / 100,
+              Math.round((payable - rewardDecision.discountAmount) * 100) /
+                100,
             );
           }
 
@@ -1348,7 +1446,8 @@ export async function createCashSchnellOrder(params: {
             select: { value: true },
           });
           const lastNumber =
-            Number(obj(counter?.value).lastNumber) || settings.numberStart - 1;
+            Number(obj(counter?.value).lastNumber) ||
+            prepared.settings.numberStart - 1;
           const customerNumber = lastNumber + 1;
 
           await transaction.setting.upsert({
@@ -1377,12 +1476,12 @@ export async function createCashSchnellOrder(params: {
               mode: "dine_in",
               channel: "schnellbestellung",
               status: "new",
-              merchandise: new Prisma.Decimal(merchandise),
+              merchandise: new Prisma.Decimal(prepared.merchandise),
               discount: new Prisma.Decimal(discount),
               surcharges: new Prisma.Decimal(0),
               total: new Prisma.Decimal(payable),
               customer: { name: `Nummer ${customerNumber}` },
-              items: canonicalItems,
+              items: prepared.canonicalItems,
               meta: {
                 source: "qr_quick_order",
                 customerNumber,
@@ -1393,21 +1492,23 @@ export async function createCashSchnellOrder(params: {
                 deviceId: params.deviceId,
                 idempotencyKey: params.idempotencyKey,
                 sessionIssuedAt: params.session.iat,
-                printRequested: settings.autoPrint,
-                tvEnabled: settings.tvEnabled,
-                liveReadyAlertEnabled: settings.liveReadyAlertEnabled,
-                backgroundReadyPushEnabled: settings.backgroundReadyPushEnabled,
-                campaigns: campaignDetails,
+                printRequested: prepared.settings.autoPrint,
+                tvEnabled: prepared.settings.tvEnabled,
+                liveReadyAlertEnabled:
+                  prepared.settings.liveReadyAlertEnabled,
+                backgroundReadyPushEnabled:
+                  prepared.settings.backgroundReadyPushEnabled,
+                campaigns: prepared.campaignDetails,
                 reward: rewardDecision
                   ? rewardMetaPayload(rewardWinId, rewardDecision)
                   : null,
-                fulfillment: takeaway ? "takeaway" : "eat_here",
-                takeaway,
-                timeSignalEnabled: settings.timeSignalEnabled,
-                timeWarningMinutes: settings.timeWarningMinutes,
+                fulfillment: prepared.takeaway ? "takeaway" : "eat_here",
+                takeaway: prepared.takeaway,
+                timeSignalEnabled: prepared.settings.timeSignalEnabled,
+                timeWarningMinutes: prepared.settings.timeWarningMinutes,
                 timeCriticalMinutes: Math.max(
-                  settings.timeWarningMinutes + 1,
-                  settings.timeCriticalMinutes,
+                  prepared.settings.timeWarningMinutes + 1,
+                  prepared.settings.timeCriticalMinutes,
                 ),
                 createdAt: new Date().toISOString(),
               },
@@ -1427,7 +1528,9 @@ export async function createCashSchnellOrder(params: {
                 rewardCode: rewardDecision.code,
                 rewardLabel: rewardDecision.label,
                 rewardData: rewardMetaPayload(rewardWinId, rewardDecision),
-                discountAmount: new Prisma.Decimal(rewardDecision.discountAmount),
+                discountAmount: new Prisma.Decimal(
+                  rewardDecision.discountAmount,
+                ),
                 status: "won",
               },
             });
@@ -1444,12 +1547,19 @@ export async function createCashSchnellOrder(params: {
         },
         {
           isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-          maxWait: 10_000,
-          timeout: 30_000,
+          maxWait: 5_000,
+          timeout: 15_000,
         },
       );
     } catch (error: any) {
-      if (error?.code === "P2034" && attempt < 3) continue;
+      if (error?.code === "P2034" && attempt < 2) continue;
+      if (error?.code === "P2024") {
+        const busyError = new Error("DB_BUSY") as Error & {
+          retryAfterSeconds?: number;
+        };
+        busyError.retryAfterSeconds = 3;
+        throw busyError;
+      }
       throw error;
     }
   }

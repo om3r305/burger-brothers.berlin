@@ -99,7 +99,10 @@ assert(
   "Group variant cards must use the exact admin Varianten name",
 );
 assert(core.includes("settings.visibleCategories.length > 0"));
-assert(core.includes('fulfillment: takeaway ? "takeaway" : "eat_here"'));
+assert(
+  core.includes('fulfillment: prepared.takeaway ? "takeaway" : "eat_here"'),
+  "Prepared order data must carry fulfillment into the short atomic transaction",
+);
 assert(core.includes("timeWarningMinutes"));
 assert(core.includes("timeCriticalMinutes"));
 assert(core.includes("locationCheckEnabled: false"));

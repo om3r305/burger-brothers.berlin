@@ -59,8 +59,16 @@ assert.ok(
   "Stale refresh response guard is missing",
 );
 assert.ok(
-  ordersHook.includes("window.clearInterval(timerId)"),
+  ordersHook.includes("window.clearTimeout(timerId)"),
   "Order polling cleanup is missing",
+);
+assert.ok(
+  ordersHook.includes("refreshInFlightRef"),
+  "Overlapping TV refresh guard is missing",
+);
+assert.ok(
+  !ordersHook.includes("fetchOrdersFromOrdersCache"),
+  "TV still performs the duplicate shared-order request",
 );
 
 const soundHook = read("hooks/tv/use-tv-sound.ts");

@@ -17,6 +17,7 @@ import {
 } from "@/lib/server/reward-photo-storage";
 import { createAdminInboxNotification } from "@/lib/server/admin-inbox";
 import { queueWinnerShowcaseEvents } from "@/lib/server/showcase-live-events";
+import { runAfterResponse } from "@/lib/server/after-response";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -164,25 +165,30 @@ export async function POST(req: Request) {
       rewardWin.submission.moderationStatus === "approved_name" &&
       settings.rewardProgram.showcaseEnabled
     ) {
-      try {
-        const events = await queueWinnerShowcaseEvents({
-          submissionId: rewardWin.submission.id,
-          displayName: rewardWin.submission.displayName,
-          rewardLabel,
-          customerNumber,
-          photoApproved: false,
-          program: settings.rewardProgram,
-        });
-        showcaseQueued = events.length > 0;
-        if (showcaseQueued) {
-          await prisma.schnellWinnerSubmission.update({
-            where: { id: rewardWin.submission.id },
-            data: { publishedAt: new Date() },
+      showcaseQueued = true;
+      runAfterResponse(async () => {
+        try {
+          const events = await queueWinnerShowcaseEvents({
+            submissionId: rewardWin.submission!.id,
+            displayName: rewardWin.submission!.displayName,
+            rewardLabel,
+            customerNumber,
+            photoApproved: false,
+            program: settings.rewardProgram,
           });
+          if (events.length > 0) {
+            await prisma.schnellWinnerSubmission.update({
+              where: { id: rewardWin.submission!.id },
+              data: { publishedAt: new Date() },
+            });
+          }
+        } catch (error) {
+          console.error(
+            "[schnell/reward/submission] reused showcase queue failed",
+            error,
+          );
         }
-      } catch (error) {
-        console.error("[schnell/reward/submission] reused showcase queue failed", error);
-      }
+      });
     }
 
     return json({
@@ -250,47 +256,55 @@ export async function POST(req: Request) {
       },
     });
 
-    let showcaseQueued = false;
-    let notificationQueued = false;
-    let warning: string | null = null;
+    // Storage + submission kaydı müşteriye dönmeden önce tamamlanır. Showcase
+    // fan-out ve admin inbox ise response sonrasına alınır; iki/dört ekranın DB
+    // işlemleri telefon butonunu dakikalarca bekletmez.
+    const showcaseQueued = Boolean(
+      autoPublishName && settings.rewardProgram.showcaseEnabled,
+    );
+    const notificationQueued = Boolean(!autoPublishName || photo);
+    const warning: string | null = null;
 
-    if (autoPublishName && settings.rewardProgram.showcaseEnabled) {
-      try {
-        const events = await queueWinnerShowcaseEvents({
-          submissionId: submission.id,
-          displayName,
-          rewardLabel,
-          customerNumber,
-          photoApproved: false,
-          program: settings.rewardProgram,
-        });
-        showcaseQueued = events.length > 0;
-        if (showcaseQueued) {
-          await prisma.schnellWinnerSubmission.update({
-            where: { id: submission.id },
-            data: { publishedAt: new Date() },
+    runAfterResponse(async () => {
+      if (autoPublishName && settings.rewardProgram.showcaseEnabled) {
+        try {
+          const events = await queueWinnerShowcaseEvents({
+            submissionId: submission.id,
+            displayName,
+            rewardLabel,
+            customerNumber,
+            photoApproved: false,
+            program: settings.rewardProgram,
           });
+          if (events.length > 0) {
+            await prisma.schnellWinnerSubmission.update({
+              where: { id: submission.id },
+              data: { publishedAt: new Date() },
+            });
+            return;
+          }
+        } catch (error) {
+          console.error("[schnell/reward/submission] showcase queue failed", error);
         }
-      } catch (error) {
-        warning = "showcase_queue_delayed";
-        console.error("[schnell/reward/submission] showcase queue failed", error);
-        notificationQueued = await createModerationNotification({
+
+        await createModerationNotification({
           photo: false,
           displayName,
           customerNumber,
           rewardLabel,
           submissionId: submission.id,
         });
+        return;
       }
-    } else if (!autoPublishName || photo) {
-      notificationQueued = await createModerationNotification({
+
+      await createModerationNotification({
         photo: Boolean(photo),
         displayName,
         customerNumber,
         rewardLabel,
         submissionId: submission.id,
       });
-    }
+    });
 
     // Showcase veya admin bildirimi geçici olarak hata verse bile müşterinin
     // gönderimi ve ödülü başarısız sayılmaz; kayıt admin panelinde korunur.

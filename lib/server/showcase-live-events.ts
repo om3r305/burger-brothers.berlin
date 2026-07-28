@@ -98,12 +98,15 @@ export async function queueWinnerShowcaseEvents(params: {
   if (!params.program.showcaseEnabled) return [];
 
   const tenantId = await getTenantId();
-  const now = new Date();
+  const queuedAt = new Date();
+  // Bütün ekranlar event'i polling ile önceden alır ve aynı scheduledAt anında
+  // başlatır. Böylece farklı polling tick'leri 20-25 saniyelik kayma yaratmaz.
+  const scheduledAt = new Date(queuedAt.getTime() + 6_000);
   const lifetimeMs = Math.max(
     3 * 60_000,
-    (params.program.showcaseDurationSeconds + 90) * 1_000,
+    (params.program.showcaseDurationSeconds + 120) * 1_000,
   );
-  const expiresAt = new Date(now.getTime() + lifetimeMs);
+  const expiresAt = new Date(scheduledAt.getTime() + lifetimeMs);
   const photoToken = params.photoApproved
     ? createWinnerPhotoAccessToken(params.submissionId, expiresAt)
     : null;
@@ -125,41 +128,52 @@ export async function queueWinnerShowcaseEvents(params: {
     message: "Viel Glück & guten Appetit!",
   };
 
-  const events = [];
-  for (const screenSlug of slugs) {
-    if (!params.force) {
-      const existing = await prisma.showcaseLiveEvent.findFirst({
-        where: {
-          tenantId,
-          screenSlug,
-          eventType: "winner_celebration",
-          sourceType: "winner_submission",
-          sourceId: params.submissionId,
-          status: { in: ["pending", "played"] },
-        },
-        orderBy: { createdAt: "desc" },
-      });
-      if (existing) {
-        events.push(existing);
-        continue;
-      }
-    }
-
-    const event = await prisma.showcaseLiveEvent.create({
-      data: {
+  let existingSlugs = new Set<string>();
+  if (!params.force) {
+    const existing = await prisma.showcaseLiveEvent.findMany({
+      where: {
         tenantId,
-        screenSlug,
+        screenSlug: { in: slugs },
         eventType: "winner_celebration",
         sourceType: "winner_submission",
         sourceId: params.submissionId,
-        payload,
-        status: "pending",
-        scheduledAt: now,
-        expiresAt,
+        status: { in: ["pending", "played"] },
       },
+      select: { screenSlug: true },
     });
-    events.push(event);
+    existingSlugs = new Set(existing.map((row) => row.screenSlug));
   }
 
-  return events;
+  const rows = slugs
+    .filter((screenSlug) => params.force || !existingSlugs.has(screenSlug))
+    .map((screenSlug) => ({
+      tenantId,
+      screenSlug,
+      eventType: "winner_celebration",
+      sourceType: "winner_submission",
+      sourceId: params.submissionId,
+      payload,
+      status: "pending",
+      scheduledAt,
+      expiresAt,
+    }));
+
+  if (rows.length > 0) {
+    await prisma.showcaseLiveEvent.createMany({ data: rows });
+  }
+
+  // Çağıran kod yalnız event sayısını kullanır. Daha önce kuyruklanmış sluglar
+  // da başarı sayılır; idempotent tekrar isteği yanlışlıkla "0 event" dönmez.
+  return slugs.map((screenSlug) => ({
+    tenantId,
+    screenSlug,
+    eventType: "winner_celebration",
+    sourceType: "winner_submission",
+    sourceId: params.submissionId,
+    payload,
+    status: "pending",
+    scheduledAt,
+    expiresAt,
+    reused: !params.force && existingSlugs.has(screenSlug),
+  }));
 }

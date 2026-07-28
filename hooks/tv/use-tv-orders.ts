@@ -6,7 +6,6 @@ import {
   useRef,
   useState,
 } from "react";
-import { fetchOrdersFromDb as fetchOrdersFromOrdersCache } from "@/lib/orders";
 import type {
   MinuteCacheEntry,
   StoredOrder,
@@ -22,7 +21,6 @@ import {
   fetchOrdersFromTvEndpoint,
   getOrderExactCreatedMs,
   getOrderStartMs,
-  normalizeOrders,
   orderDateFromId,
   persistEtaAdjustToDb,
   plannedStartMs,
@@ -68,6 +66,7 @@ export function useTvOrders({
   const minuteCacheRef = useRef<Record<string, MinuteCacheEntry>>({});
   const orderClockRef = useRef<Record<string, TvOrderClockEntry>>({});
   const refreshSequenceRef = useRef(0);
+  const refreshInFlightRef = useRef(false);
 
   const setEtaOverrides = useCallback(
     (
@@ -159,68 +158,15 @@ export function useTvOrders({
   );
 
   const refresh = useCallback(async () => {
+    if (refreshInFlightRef.current) return;
+    refreshInFlightRef.current = true;
     const refreshSequence = ++refreshSequenceRef.current;
 
     try {
+      // Tek kanonik DB kaynağı kullanılır. Önceki yapı aynı refresh içinde
+      // /api/orders/list endpointini ikinci kez çağırarak TV DB yükünü katlıyordu.
       const endpointOrders = await fetchOrdersFromTvEndpoint();
-      let sharedOrders: StoredOrder[] = [];
-
-      try {
-        const sharedRaw: unknown = await fetchOrdersFromOrdersCache();
-        sharedOrders = normalizeOrders(sharedRaw);
-      } catch (caught) {
-        console.warn("TV shared order source failed", caught);
-      }
-
-      const merged = new Map<string, StoredOrder>();
-
-      for (const order of [...endpointOrders, ...sharedOrders]) {
-        const previous = merged.get(order.id);
-
-        if (!previous) {
-          merged.set(order.id, order);
-          continue;
-        }
-
-        const previousTs =
-          getOrderExactCreatedMs(previous, null) ??
-          getOrderStartMs(previous, orderClockRef.current, null) ??
-          previous.ts ??
-          0;
-
-        const nextTs =
-          getOrderExactCreatedMs(order, null) ??
-          getOrderStartMs(order, orderClockRef.current, null) ??
-          order.ts ??
-          0;
-
-        const stableTs =
-          previousTs > 0 && nextTs > 0
-            ? Math.min(previousTs, nextTs)
-            : previousTs || nextTs;
-
-        merged.set(order.id, {
-          ...previous,
-          ...order,
-          ts: stableTs || order.ts || previous.ts,
-          createdAt: previous.createdAt || order.createdAt || null,
-          updatedAt: order.updatedAt || previous.updatedAt || null,
-          etaMin: order.etaMin ?? previous.etaMin ?? null,
-          etaAdjustMin:
-            order.etaAdjustMin ?? previous.etaAdjustMin ?? 0,
-          customer: {
-            ...(previous.customer || {}),
-            ...(order.customer || {}),
-          },
-          meta: {
-            ...(previous.meta || {}),
-            ...(order.meta || {}),
-          },
-          items: order.items.length ? order.items : previous.items,
-        });
-      }
-
-      const advanced = Array.from(merged.values()).map((order) => ({
+      const advanced = endpointOrders.map((order) => ({
         ...order,
         status: autoDisplayStatus(
           order,
@@ -362,6 +308,8 @@ export function useTvOrders({
       });
     } catch (caught) {
       console.error("TV refresh failed", caught);
+    } finally {
+      refreshInFlightRef.current = false;
     }
   }, [
     avgDelivery,
@@ -372,22 +320,37 @@ export function useTvOrders({
   ]);
 
   useEffect(() => {
-    void refresh();
+    let stopped = false;
+    let timerId = 0;
 
-    const timerId = window.setInterval(() => void refresh(), 5000);
+    const schedule = () => {
+      if (stopped) return;
+      timerId = window.setTimeout(async () => {
+        if (document.visibilityState === "visible") await refresh();
+        schedule();
+      }, 5_000);
+    };
+
+    void refresh().finally(schedule);
     const onRefreshOrders = () => void refresh();
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") void refresh();
+    };
 
     window.addEventListener(
       "bb:refresh-orders",
       onRefreshOrders as EventListener,
     );
+    document.addEventListener("visibilitychange", onVisibility);
 
     return () => {
-      window.clearInterval(timerId);
+      stopped = true;
+      window.clearTimeout(timerId);
       window.removeEventListener(
         "bb:refresh-orders",
         onRefreshOrders as EventListener,
       );
+      document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [refresh]);
 

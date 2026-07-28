@@ -23,11 +23,11 @@ assert(
   'legacy timer dependency list that reset on every API poll is removed',
 );
 assert(
-  source.includes('[advanceScene, playbackKey, sceneDurationSeconds]'),
+  source.includes('[advanceScene, liveEvent, playbackKey, sceneDurationSeconds]'),
   'main scene timer depends only on stable playback identity and duration',
 );
 assert(
-  source.includes('[snapshot?.document, snapshot?.branding?.siteUrl]'),
+  source.includes('[scheduleNow, snapshot?.document, snapshot?.branding?.siteUrl]'),
   'active scene list stays stable while only runtime data is refreshed',
 );
 assert(

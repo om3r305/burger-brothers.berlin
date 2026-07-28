@@ -1,6 +1,6 @@
 // app/api/admin/db/health/route.ts
 import { NextResponse } from "next/server";
-import { prisma, getTenantId } from "@/lib/db";
+import { prisma, getTenantId, getPrismaRuntimeDiagnostics } from "@/lib/db";
 import { currentMode, usingPrisma, usingSQLite } from "@/lib/server/db";
 import { requireSessionRole } from "@/lib/server/request-security";
 
@@ -24,12 +24,23 @@ export async function GET(req: Request) {
   };
 
   try {
+    const startedAt = performance.now();
+    const tenantStartedAt = performance.now();
     const tenantId = await getTenantId();
+    const tenantMs = Math.round(performance.now() - tenantStartedAt);
 
+    const pingStartedAt = performance.now();
     await prisma.$queryRaw`SELECT 1`;
+    const pingMs = Math.round(performance.now() - pingStartedAt);
 
     info.tenantId = tenantId;
     info.connection = "ok";
+    info.pool = getPrismaRuntimeDiagnostics();
+    info.timingsMs = {
+      tenant: tenantMs,
+      ping: pingMs,
+      total: Math.round(performance.now() - startedAt),
+    };
   } catch (error: any) {
     info.ok = false;
     info.connection = "failed";

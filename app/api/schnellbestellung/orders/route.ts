@@ -13,6 +13,7 @@ import {
 } from "@/lib/server/request-security";
 
 export async function POST(req: Request) {
+  const requestStartedAt = performance.now();
   if (!hasTrustedMutationOrigin(req)) {
     return forbiddenResponse("origin_not_allowed");
   }
@@ -71,6 +72,15 @@ export async function POST(req: Request) {
       takeaway: body.takeaway === true,
     });
 
+    const totalMs = Math.round(performance.now() - requestStartedAt);
+    if (totalMs >= 2_000) {
+      console.warn("[schnell/orders] slow request", {
+        totalMs,
+        reused: result.reused,
+        rewarded: Boolean(result.reward),
+      });
+    }
+
     return NextResponse.json(
       {
         ok: true,
@@ -80,20 +90,27 @@ export async function POST(req: Request) {
         total: Number(result.order.total),
         reward: result.reward || null,
       },
-      { headers: { "Cache-Control": "no-store" } },
+      {
+        headers: {
+          "Cache-Control": "no-store",
+          "Server-Timing": `schnell-order;dur=${totalMs}`,
+        },
+      },
     );
   } catch (error: any) {
     const code = String(error?.message || "order_failed");
     const status =
       code === "DEVICE_RATE_LIMIT"
         ? 429
-        : code === "SCHNELL_UNAVAILABLE"
+        : code === "SCHNELL_UNAVAILABLE" || code === "DB_BUSY"
           ? 503
           : 400;
     const retryAfterSeconds =
       code === "DEVICE_RATE_LIMIT"
         ? Math.max(1, Math.ceil(Number(error?.retryAfterSeconds) || 60))
-        : 0;
+        : code === "DB_BUSY"
+          ? Math.max(1, Math.ceil(Number(error?.retryAfterSeconds) || 3))
+          : 0;
 
     return NextResponse.json(
       {

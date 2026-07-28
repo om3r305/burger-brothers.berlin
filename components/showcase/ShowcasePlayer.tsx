@@ -170,6 +170,10 @@ export default function ShowcasePlayer({ screenSlug = "main" }: { screenSlug?: s
   const persistVisibleMediaRef = useRef<() => void>(() => {});
   const liveEventRef = useRef<ShowcaseWinnerEvent | null>(null);
   const seenLiveEventIdsRef = useRef(new Set<string>());
+  const scheduledLiveEventIdRef = useRef("");
+  const liveEventStartTimerRef = useRef<number | null>(null);
+  const liveEventPollBusyRef = useRef(false);
+  const liveEventPollFailuresRef = useRef(0);
   const sceneTimerRef = useRef<number | null>(null);
   const sceneTimerStartedAtRef = useRef(0);
   const sceneTimerRemainingMsRef = useRef(0);
@@ -324,28 +328,109 @@ export default function ShowcasePlayer({ screenSlug = "main" }: { screenSlug?: s
   }, [cacheKey, screenSlug]);
 
   const loadLiveEvent = useCallback(async () => {
-    if (liveEventRef.current) return;
+    if (
+      liveEventRef.current ||
+      scheduledLiveEventIdRef.current ||
+      liveEventPollBusyRef.current ||
+      document.visibilityState === "hidden"
+    ) {
+      return;
+    }
+
+    liveEventPollBusyRef.current = true;
+    const controller = new AbortController();
+    const abortTimer = window.setTimeout(() => controller.abort(), 5_000);
     try {
       const response = await fetch(
         `/api/showcase/events?screen=${encodeURIComponent(screenSlug)}&t=${Date.now()}`,
-        { cache: "no-store", headers: { Accept: "application/json" } },
+        {
+          cache: "no-store",
+          headers: { Accept: "application/json" },
+          signal: controller.signal,
+        },
       );
+
       const data = await response.json().catch(() => null);
       const nextEvent = data?.ok ? (data.event as ShowcaseWinnerEvent | null) : null;
-      if (!response.ok || !nextEvent?.id) return;
+      if (!response.ok || !nextEvent?.id) {
+        liveEventPollFailuresRef.current = response.ok
+          ? 0
+          : Math.min(5, liveEventPollFailuresRef.current + 1);
+        return;
+      }
       if (seenLiveEventIdsRef.current.has(nextEvent.id)) return;
-      seenLiveEventIdsRef.current.add(nextEvent.id);
-      setLiveEvent(nextEvent);
+
+      liveEventPollFailuresRef.current = 0;
+      scheduledLiveEventIdRef.current = nextEvent.id;
+      const scheduledAtMs = new Date(
+        nextEvent.scheduledAt || Date.now(),
+      ).getTime();
+      const delayMs = Number.isFinite(scheduledAtMs)
+        ? Math.max(0, scheduledAtMs - Date.now())
+        : 0;
+
+      const startEvent = () => {
+        liveEventStartTimerRef.current = null;
+        scheduledLiveEventIdRef.current = "";
+        if (seenLiveEventIdsRef.current.has(nextEvent.id)) return;
+        seenLiveEventIdsRef.current.add(nextEvent.id);
+        setLiveEvent(nextEvent);
+      };
+
+      if (delayMs <= 40) {
+        startEvent();
+      } else {
+        liveEventStartTimerRef.current = window.setTimeout(startEvent, delayMs);
+      }
     } catch {
+      liveEventPollFailuresRef.current = Math.min(
+        5,
+        liveEventPollFailuresRef.current + 1,
+      );
       // The normal Showcase loop must continue even if live events are offline.
+    } finally {
+      window.clearTimeout(abortTimer);
+      liveEventPollBusyRef.current = false;
     }
   }, [screenSlug]);
 
   useEffect(() => {
-    void loadLiveEvent();
-    const timer = window.setInterval(() => void loadLiveEvent(), 2_000);
-    return () => window.clearInterval(timer);
-  }, [loadLiveEvent]);
+    let stopped = false;
+    let timer = 0;
+
+    const scheduleNext = () => {
+      if (stopped) return;
+      const failureDelay = liveEventPollFailuresRef.current * 2_000;
+      // 4 saniye, iki ekranda eski 2 saniyelik polling yükünü yarıya indirir.
+      // Küçük sabit screen jitter aynı milisaniyede bağlantı kuyruğu oluşmasını önler.
+      const screenJitter = [...screenSlug].reduce(
+        (sum, char) => sum + char.charCodeAt(0),
+        0,
+      ) % 700;
+      timer = window.setTimeout(async () => {
+        await loadLiveEvent();
+        scheduleNext();
+      }, 4_000 + screenJitter + failureDelay);
+    };
+
+    void loadLiveEvent().finally(scheduleNext);
+
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") void loadLiveEvent();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      stopped = true;
+      window.clearTimeout(timer);
+      if (liveEventStartTimerRef.current != null) {
+        window.clearTimeout(liveEventStartTimerRef.current);
+        liveEventStartTimerRef.current = null;
+      }
+      scheduledLiveEventIdRef.current = "";
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [loadLiveEvent, screenSlug]);
 
   useEffect(() => {
     if (!liveEvent) return;

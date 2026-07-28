@@ -17,8 +17,11 @@ export default function AdminAttentionBell() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [items, setItems] = useState<AttentionItem[]>([]);
   const previousIdsRef = useRef(new Set<string>());
+  const loadingRef = useRef(false);
 
   const load = useCallback(async () => {
+    if (loadingRef.current) return;
+    loadingRef.current = true;
     try {
       const response = await fetch("/api/admin/attention", { cache: "no-store" });
       const data = await response.json().catch(() => ({}));
@@ -46,13 +49,24 @@ export default function AdminAttentionBell() {
       previousIdsRef.current = new Set(nextItems.map((item: AttentionItem) => item.id));
     } catch {
       // Bildirim rozeti diğer admin işlemlerini engellemez.
+    } finally {
+      loadingRef.current = false;
     }
   }, []);
 
   useEffect(() => {
     void load();
-    const timer = window.setInterval(() => void load(), 12_000);
-    return () => window.clearInterval(timer);
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") void load();
+    }, 30_000);
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") void load();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, [load]);
 
   const markRead = async (id: string) => {

@@ -18,11 +18,25 @@ import { queueWinnerShowcaseEvents } from "@/lib/server/showcase-live-events";
 import { resolveAdminInboxNotification } from "@/lib/server/admin-inbox";
 import { deleteTemporaryWinnerPhoto } from "@/lib/server/reward-photo-storage";
 import { cleanupExpiredRewardPhotos } from "@/lib/server/reward-cleanup";
+import { runAfterResponse } from "@/lib/server/after-response";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const HEADERS = { "Cache-Control": "private, no-store" };
+const CLEANUP_INTERVAL_MS = 5 * 60_000;
+let lastCleanupScheduledAt = 0;
+
+function scheduleRewardCleanup() {
+  const now = Date.now();
+  if (now - lastCleanupScheduledAt < CLEANUP_INTERVAL_MS) return;
+  lastCleanupScheduledAt = now;
+  runAfterResponse(async () => {
+    await cleanupExpiredRewardPhotos().catch((error) => {
+      console.error("[admin/rewards] cleanup failed", error);
+    });
+  });
+}
 
 function json(payload: Record<string, unknown>, status = 200) {
   return NextResponse.json(payload, { status, headers: HEADERS });
@@ -35,9 +49,7 @@ function objectValue(value: unknown): Record<string, any> {
 }
 
 async function loadPayload() {
-  await cleanupExpiredRewardPhotos().catch((error) => {
-    console.error("[admin/rewards] cleanup failed", error);
-  });
+  scheduleRewardCleanup();
 
   const tenantId = await getTenantId();
   const settings = await getSchnellSettings({ includeTvPause: false });
@@ -48,21 +60,11 @@ async function loadPayload() {
   const startMinute = schedule ? rewardTimeToMinute(schedule.startTime) : 0;
   const endMinute = schedule ? rewardTimeToMinute(schedule.endTime) : 0;
 
-  const [wins, recentOrders, submissions, pendingCount] = await Promise.all([
+  const [wins, submissions, pendingCount] = await Promise.all([
     prisma.schnellRewardWin.findMany({
       where: { tenantId, businessDate: clock.businessDate },
       orderBy: { createdAt: "asc" },
       select: { id: true, slotIndex: true, rewardLabel: true, createdAt: true },
-    }),
-    prisma.order.findMany({
-      where: {
-        tenantId,
-        channel: "schnellbestellung",
-        ts: { gte: new Date(Date.now() - 30 * 60 * 60_000) },
-      },
-      orderBy: { ts: "asc" },
-      select: { ts: true },
-      take: 1_000,
     }),
     prisma.schnellWinnerSubmission.findMany({
       where: { tenantId },
@@ -81,24 +83,33 @@ async function loadPayload() {
     }),
   ]);
 
-  const previousWindowOrders =
-    schedule && endMinute > startMinute
-      ? recentOrders.filter((order) => {
-          const orderClock = berlinParts(order.ts, settings.rewardProgram.timezone);
-          return (
-            orderClock.businessDate === clock.businessDate &&
-            orderClock.minuteOfDay >= startMinute &&
-            orderClock.minuteOfDay < endMinute
-          );
-        })
-      : [];
-
   const lastWin = wins[wins.length - 1] || null;
-  const ordersSinceLastWin = lastWin
-    ? previousWindowOrders.filter(
-        (order) => order.ts.getTime() > lastWin.createdAt.getTime(),
-      ).length
-    : previousWindowOrders.length;
+  const windowStartedAt =
+    schedule && endMinute > startMinute && clock.minuteOfDay >= startMinute
+      ? new Date(
+          Date.now() - Math.max(0, clock.minuteOfDay - startMinute) * 60_000,
+        )
+      : null;
+
+  const previousEligibleOrders = windowStartedAt
+    ? await prisma.order.count({
+        where: {
+          tenantId,
+          channel: "schnellbestellung",
+          ts: { gte: windowStartedAt },
+        },
+      })
+    : 0;
+  const ordersSinceLastWin =
+    windowStartedAt && lastWin
+      ? await prisma.order.count({
+          where: {
+            tenantId,
+            channel: "schnellbestellung",
+            ts: { gt: lastWin.createdAt },
+          },
+        })
+      : previousEligibleOrders;
 
   const adaptive =
     schedule && schedule.enabled && endMinute > startMinute
@@ -108,7 +119,7 @@ async function loadPayload() {
           currentMinute: clock.minuteOfDay,
           winnerLimit: schedule.winnerCount,
           winsSoFar: wins.length,
-          previousEligibleOrders: previousWindowOrders.length,
+          previousEligibleOrders,
           ordersSinceLastWin,
           minOrdersBetweenWins: settings.rewardProgram.minOrdersBetweenWins,
           hasPreviousWin: Boolean(lastWin),
@@ -145,7 +156,7 @@ async function loadPayload() {
       remainingWins: Math.max(0, (schedule?.winnerCount || 0) - wins.length),
       progressPercent: Math.round(adaptive.progress * 100),
       currentChancePercent: Math.round(adaptive.chance * 100),
-      previousEligibleOrders: previousWindowOrders.length,
+      previousEligibleOrders,
       ordersSinceLastWin,
       spacingBlocked: adaptive.spacingBlocked,
       deadlineMode: adaptive.deadlineMode,
@@ -285,6 +296,16 @@ export async function PATCH(req: Request) {
     program: settings.rewardProgram,
     force: action === "republish",
   });
+  const photoDeleteAfter = usePhoto
+    ? new Date(
+        Date.now() +
+          Math.max(
+            180,
+            settings.rewardProgram.showcaseDurationSeconds + 120,
+          ) *
+            1_000,
+      )
+    : null;
   await prisma.schnellWinnerSubmission.update({
     where: { id },
     data: {
@@ -298,7 +319,9 @@ export async function PATCH(req: Request) {
       photoMimeType: removedPhotoForName ? null : submission.photoMimeType,
       photoSize: removedPhotoForName ? null : submission.photoSize,
       deletedAt: removedPhotoForName ? new Date() : submission.deletedAt,
-      deleteAfter: removedPhotoForName ? new Date() : submission.deleteAfter,
+      deleteAfter: removedPhotoForName
+        ? new Date()
+        : photoDeleteAfter ?? submission.deleteAfter,
       publishedAt: new Date(),
     },
   });

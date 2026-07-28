@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 type Submission = {
   id: string;
@@ -41,8 +41,11 @@ export default function RewardModerationPanel({ compact = false }: { compact?: b
   const [pendingCount, setPendingCount] = useState(0);
   const [busyId, setBusyId] = useState("");
   const [error, setError] = useState("");
+  const loadingRef = useRef(false);
 
   const load = useCallback(async () => {
+    if (loadingRef.current) return;
+    loadingRef.current = true;
     try {
       setError("");
       const response = await fetch("/api/admin/rewards", { cache: "no-store" });
@@ -52,13 +55,24 @@ export default function RewardModerationPanel({ compact = false }: { compact?: b
       setPendingCount(Number(data.pendingCount || 0));
     } catch {
       setError("Kazanan fotoğraf ve isim onayları yüklenemedi.");
+    } finally {
+      loadingRef.current = false;
     }
   }, []);
 
   useEffect(() => {
     void load();
-    const timer = window.setInterval(() => void load(), 15_000);
-    return () => window.clearInterval(timer);
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") void load();
+    }, 30_000);
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") void load();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, [load]);
 
   async function run(id: string, action: "approve_photo" | "approve_name" | "reject" | "republish") {

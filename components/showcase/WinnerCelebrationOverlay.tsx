@@ -7,6 +7,7 @@ export type ShowcaseWinnerEvent = {
   id: string;
   ackToken: string;
   expiresAt: string;
+  scheduledAt?: string;
   eventType: string;
   payload: {
     displayName?: string;

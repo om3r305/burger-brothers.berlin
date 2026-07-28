@@ -453,27 +453,13 @@ export async function decideSchnellReward(params: {
   ).length;
   if (deviceWins >= program.maxWinsPerDevicePerDay) return null;
 
-  // Son 30 saat yeterli bir güvenli aralıktır; Europe/Berlin gün sınırı ve
-  // yaz/kış saati farkı her kayıtta berlinParts ile tekrar doğrulanır.
-  const recentOrders = await params.transaction.order.findMany({
-    where: {
-      tenantId: params.tenantId,
-      channel: "schnellbestellung",
-      ts: { gte: new Date(params.now.getTime() - 30 * 60 * 60_000) },
-    },
-    select: { ts: true },
-    orderBy: { ts: "asc" },
-    take: 1_000,
-  });
-
-  const previousWindowOrders = recentOrders.filter((order) => {
-    const orderClock = berlinParts(order.ts, program.timezone);
-    return (
-      orderClock.businessDate === clock.businessDate &&
-      orderClock.minuteOfDay >= start &&
-      orderClock.minuteOfDay < end
-    );
-  });
+  // Sipariş zamanlarını 1.000 satır çekip JavaScript'te filtrelemek yerine
+  // aktif pencerenin başlangıcını mevcut Berlin saatinden hesaplayıp DB count
+  // kullanırız. Bu, ödül transaction'ının bağlantıyı çok daha kısa tutmasını sağlar.
+  const elapsedWindowMinutes = Math.max(0, clock.minuteOfDay - start);
+  const windowStartedAt = new Date(
+    params.now.getTime() - elapsedWindowMinutes * 60_000,
+  );
 
   const nextWinSequence =
     existingWins.reduce(
@@ -481,11 +467,23 @@ export async function decideSchnellReward(params: {
       -1,
     ) + 1;
   const lastWin = existingWins[existingWins.length - 1] || null;
+
+  const previousEligibleOrders = await params.transaction.order.count({
+    where: {
+      tenantId: params.tenantId,
+      channel: "schnellbestellung",
+      ts: { gte: windowStartedAt, lte: params.now },
+    },
+  });
   const ordersSinceLastWin = lastWin
-    ? previousWindowOrders.filter(
-        (order) => order.ts.getTime() > lastWin.createdAt.getTime(),
-      ).length
-    : previousWindowOrders.length;
+    ? await params.transaction.order.count({
+        where: {
+          tenantId: params.tenantId,
+          channel: "schnellbestellung",
+          ts: { gt: lastWin.createdAt, lte: params.now },
+        },
+      })
+    : previousEligibleOrders;
 
   const adaptive = computeAdaptiveWinChance({
     startMinute: start,
@@ -493,7 +491,7 @@ export async function decideSchnellReward(params: {
     currentMinute: clock.minuteOfDay,
     winnerLimit: schedule.winnerCount,
     winsSoFar: existingWins.length,
-    previousEligibleOrders: previousWindowOrders.length,
+    previousEligibleOrders,
     ordersSinceLastWin,
     minOrdersBetweenWins: program.minOrdersBetweenWins,
     hasPreviousWin: Boolean(lastWin),
@@ -506,7 +504,7 @@ export async function decideSchnellReward(params: {
     clock.businessDate,
     program.scheduleVersion,
     params.decisionKey,
-    previousWindowOrders.length + 1,
+    previousEligibleOrders + 1,
     existingWins.length,
   ]);
   if (draw >= adaptive.chance) return null;

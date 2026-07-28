@@ -65,7 +65,7 @@ type StartOptions = {
 };
 
 const TARGET_ACCURACY_METERS = 75;
-const LOCATION_DEADLINE_MS = 18_000;
+const LOCATION_DEADLINE_MS = 10_000;
 const IOS_INSTALL_MARKER = "bb_schnell_ios_home_screen_hint_v1";
 let fallbackDeviceId = "";
 
@@ -172,8 +172,8 @@ function getBestPosition() {
         },
         {
           enableHighAccuracy: true,
-          maximumAge: 5_000,
-          timeout: 15_000,
+          maximumAge: 120_000,
+          timeout: 8_000,
         },
       );
     } catch (error) {
@@ -292,6 +292,7 @@ export default function SchnellEnterClient({ token }: { token: string }) {
   const busyRef = useRef(false);
   const retryTokenRef = useRef("");
   const retryOptionsRef = useRef<StartOptions>({});
+  const locationCheckEnabledRef = useRef<boolean | null>(null);
 
   const [busy, setBusy] = useState(true);
   const [message, setMessage] = useState("Schnellbestellung wird vorbereitet …");
@@ -344,6 +345,9 @@ export default function SchnellEnterClient({ token }: { token: string }) {
         const data = (await response.json().catch(() => ({}))) as VerifyResponse;
 
         if (response.ok && data.ok) {
+          if (data.locationSkipped === true) {
+            locationCheckEnabledRef.current = false;
+          }
           // Session cookie is available as soon as fetch resolves. Start the
           // catalog request before navigation so the menu can reuse the same
           // in-flight request instead of waiting for a second round trip.
@@ -357,6 +361,7 @@ export default function SchnellEnterClient({ token }: { token: string }) {
         }
 
         if (data.error === "location_required") {
+          locationCheckEnabledRef.current = true;
           return "location_required" as const;
         }
 
@@ -423,7 +428,12 @@ export default function SchnellEnterClient({ token }: { token: string }) {
       setCanRetry(false);
       setMessage("QR-Code wird geprüft …");
 
-      const directResult = await requestSession(cleanToken, undefined, options);
+      // Kurulu app başlangıcında session özellikleri zaten okunduysa ve konum
+      // zorunluysa, önce eksik konumla 428 üreten gereksiz API turunu atla.
+      const directResult =
+        locationCheckEnabledRef.current === true
+          ? ("location_required" as const)
+          : await requestSession(cleanToken, undefined, options);
       if (directResult === "done") {
         if (options.navigate === false) setBusyState(false);
         return directResult;
@@ -587,6 +597,10 @@ export default function SchnellEnterClient({ token }: { token: string }) {
         setBackgroundPushEnabled(
           session?.backgroundReadyPushEnabled === true,
         );
+        locationCheckEnabledRef.current =
+          typeof session?.locationCheckEnabled === "boolean"
+            ? session.locationCheckEnabled
+            : null;
         setScannerError("");
         setProblem(null);
         setMessage("");
@@ -600,6 +614,10 @@ export default function SchnellEnterClient({ token }: { token: string }) {
 
       const pushEnabled = session?.backgroundReadyPushEnabled === true;
       setBackgroundPushEnabled(pushEnabled);
+      locationCheckEnabledRef.current =
+        typeof session?.locationCheckEnabled === "boolean"
+          ? session.locationCheckEnabled
+          : null;
 
       // iPhone/iPad browser gets the optional Home Screen setup guide. Android
       // and other browsers keep the direct QR flow.

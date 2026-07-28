@@ -1129,8 +1129,7 @@ export function normalizeOrders(data: unknown): StoredOrder[] {
 
 export async function fetchOrdersFromTvEndpoint(): Promise<StoredOrder[]> {
   const endpoints = [
-    "/api/orders/list?view=tv&includeDone=1&take=1000",
-    "/api/orders/list?includeDone=1&take=1000",
+    "/api/orders/list?view=tv&includeDone=1&take=250",
   ];
 
   let lastError: unknown = null;
