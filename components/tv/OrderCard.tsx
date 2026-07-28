@@ -98,6 +98,7 @@ export function OrderCard({
     : doneLockTitle(order);
   const actionDisabled = doneLocked || statusBusy;
   const paymentBadge = getPaymentBadge(order);
+  const reward = order.meta?.reward;
   const addressLine = order.mode === "delivery" ? formatDeliveryLine(order) : "";
   const startTime = outSince ?? order.ts;
   const takeaway =
@@ -294,6 +295,11 @@ export function OrderCard({
           </span>
           {paymentBadge.label}
         </span>
+        {reward?.customerLabel || reward?.label ? (
+          <span className={`${chip} border-amber-300/70 bg-amber-400/20 text-amber-100`}>
+            🎁 {reward.customerLabel || reward.label}
+          </span>
+        ) : null}
       </div>
 
       <div className="mt-4 flex flex-wrap items-center gap-2">

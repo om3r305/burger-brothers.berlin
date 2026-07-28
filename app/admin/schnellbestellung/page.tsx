@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import RewardProgramPanel from "@/components/rewards/admin/RewardProgramPanel";
+import RewardModerationPanel from "@/components/rewards/admin/RewardModerationPanel";
 
 type SchnellCategory =
   | "burger"
@@ -565,6 +567,12 @@ export default function SchnellbestellungAdminPage() {
             ))}
           </div>
         </section>
+
+        <RewardProgramPanel />
+
+        <div className="mt-8">
+          <RewardModerationPanel />
+        </div>
 
         <section className="mt-8 rounded-2xl border border-stone-700 p-5">
           <div className="flex flex-wrap items-center justify-between gap-3">

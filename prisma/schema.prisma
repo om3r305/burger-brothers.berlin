@@ -42,6 +42,11 @@ model Tenant {
   notificationCampaigns NotificationCampaign[]
   notificationEvents    NotificationEvent[]
   notificationDeliveries NotificationDelivery[]
+
+  schnellRewardWins          SchnellRewardWin[]
+  schnellWinnerSubmissions   SchnellWinnerSubmission[]
+  showcaseLiveEvents         ShowcaseLiveEvent[]
+  adminInboxNotifications    AdminInboxNotification[]
 }
 
 /**
@@ -284,6 +289,7 @@ model Order {
   updatedAt DateTime @updatedAt
 
   notificationEvents NotificationEvent[]
+  schnellRewardWin   SchnellRewardWin?
 
   @@index([tenantId, status])
   @@index([tenantId, mode])
@@ -710,5 +716,118 @@ model NotificationDelivery {
   @@index([tenantId, status])
   @@index([tenantId, subscriptionId, attemptedAt])
   @@index([tenantId, campaignId])
+}
+
+/**
+ * Schnellbestellung şanslı sipariş kazancı. Her sipariş ve günlük slot yalnızca bir kez kullanılabilir.
+ */
+model SchnellRewardWin {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  orderId String @unique
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  businessDate   String
+  slotIndex      Int
+  deviceTokenHash String?
+
+  rewardType     String
+  rewardCode     String
+  rewardLabel    String
+  rewardData     Json
+  discountAmount Decimal @db.Decimal(10, 2)
+  status         String  @default("won")
+
+  submission SchnellWinnerSubmission?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, businessDate, slotIndex])
+  @@index([tenantId, businessDate])
+  @@index([tenantId, deviceTokenHash, businessDate])
+}
+
+/** Müşterinin isteğe bağlı isim/fotoğraf yayını. Fotoğraf kısa süreli private storage'da tutulur. */
+model SchnellWinnerSubmission {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  rewardWinId String @unique
+  rewardWin   SchnellRewardWin @relation(fields: [rewardWinId], references: [id], onDelete: Cascade)
+
+  displayName      String
+  moderationStatus String @default("pending")
+  photoStatus       String @default("none")
+  photoStoragePath  String?
+  photoMimeType     String?
+  photoSize         Int?
+
+  consentVersion String?
+  consentedAt    DateTime?
+  expiresAt      DateTime
+  deleteAfter    DateTime?
+  publishedAt    DateTime?
+  deletedAt      DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId, moderationStatus, createdAt])
+  @@index([tenantId, expiresAt])
+  @@index([tenantId, deleteAfter])
+}
+
+/** Normal Showcase sahne döngüsünün üstünde kısa süreli oynatılan canlı olay. */
+model ShowcaseLiveEvent {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  screenSlug String
+  eventType  String
+  sourceType String
+  sourceId   String?
+  payload    Json
+  status     String @default("pending")
+
+  scheduledAt DateTime @default(now())
+  expiresAt   DateTime
+  playedAt    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId, screenSlug, status, scheduledAt])
+  @@index([tenantId, sourceType, sourceId])
+  @@index([tenantId, expiresAt])
+}
+
+/** Admin panelindeki merkezi onay/bilgi kutusu. Müşteri push tablolarından ayrıdır. */
+model AdminInboxNotification {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  type       String
+  title      String
+  body       String
+  url        String
+  sourceType String
+  sourceId   String
+  dedupeKey  String
+  status     String @default("unread")
+
+  readAt     DateTime?
+  resolvedAt DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([tenantId, dedupeKey])
+  @@index([tenantId, status, createdAt])
+  @@index([tenantId, sourceType, sourceId])
 }
 

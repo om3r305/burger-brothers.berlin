@@ -1476,6 +1476,15 @@ export function buildDiscountDetails(order: StoredOrder, totals: ReturnType<type
     });
   };
 
+  const reward = cleanObj(meta?.reward);
+  const rewardAmount = Math.abs(num(reward?.discountAmount));
+  if (rewardAmount > 0) {
+    addRow(
+      `Glücksgewinn – ${firstNonEmptyText(reward?.customerLabel, reward?.label, "Überraschung")}`,
+      rewardAmount,
+    );
+  }
+
   const couponCode = firstNonEmptyText(
     order?.coupon,
     meta?.coupon,
@@ -1564,17 +1573,20 @@ export function buildDiscountDetails(order: StoredOrder, totals: ReturnType<type
     fees?.discountLabel,
   );
 
-  const campaignAmount = Math.abs(
+  const explicitCampaignAmount = Math.abs(
     num(
       pricing?.campaignDiscount ??
         pricing?.campaignDiscountAmount ??
         pricing?.discountAmount ??
-        pricing?.discount ??
-        fees?.discountAmount ??
-        fees?.discount ??
-        order?.discount,
+        fees?.discountAmount,
     ),
   );
+  const campaignAmount =
+    explicitCampaignAmount > 0
+      ? explicitCampaignAmount
+      : campaignName
+        ? Math.max(0, totals.discountSum - fallbackCouponAmount - rewardAmount)
+        : 0;
 
   if (campaignAmount > 0) {
     addRow(campaignName || "Rabatt / Angebot", campaignAmount);

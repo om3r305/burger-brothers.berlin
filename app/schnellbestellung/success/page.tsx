@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { clearSchnellActiveOrder } from "@/lib/client/schnell-active-order";
+import RewardCelebration from "@/components/rewards/RewardCelebration";
+import type { SchnellRewardPublic } from "@/lib/rewards/config";
 import {
   bindSchnellPushToOrder,
   prewarmSchnellPush,
@@ -18,6 +20,7 @@ type StatusResponse = {
   readyEventId?: string;
   readyEventAt?: number;
   readyEventSequence?: number;
+  reward?: SchnellRewardPublic | null;
 };
 
 type WakeLockSentinelLike = {
@@ -175,12 +178,35 @@ export default function SuccessPage() {
   const [status, setStatus] = useState<OrderStatus>("new");
   const [ended, setEnded] = useState(false);
   const [statusError, setStatusError] = useState(false);
+  const [reward, setReward] = useState<SchnellRewardPublic | null>(null);
+  const [rewardVisible, setRewardVisible] = useState(false);
+  const rewardShownRef = useRef(false);
 
   const endedRef = useRef(false);
   const lastReadyEventRef = useRef("");
   const legacyReadyActiveRef = useRef(false);
   const wakeLockRef = useRef<WakeLockSentinelLike | null>(null);
   const readyTimeoutIdsRef = useRef(new Set<number>());
+
+
+  useEffect(() => {
+    if (!orderId) return;
+    try {
+      const raw = window.sessionStorage.getItem(`bb_schnell_reward:${orderId}`);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as SchnellRewardPublic;
+      if (parsed?.winId) setReward(parsed);
+    } catch {
+      // Status API fallback olarak ödülü yükler.
+    }
+  }, [orderId]);
+
+  useEffect(() => {
+    if (!reward?.winId || rewardShownRef.current || endedRef.current) return;
+    rewardShownRef.current = true;
+    const timer = window.setTimeout(() => setRewardVisible(true), 700);
+    return () => window.clearTimeout(timer);
+  }, [reward]);
 
   useEffect(() => {
     prewarmSchnellPush();
@@ -279,6 +305,7 @@ export default function SuccessPage() {
           if (Number(data.customerNumber) > 0) {
             setCustomerNumber(String(data.customerNumber));
           }
+          if (data.reward?.winId) setReward(data.reward);
 
           if (data.status === "ready") {
             const readyEventId = String(data.readyEventId || "").trim();
@@ -370,6 +397,22 @@ export default function SuccessPage() {
   const terminal = ready || done || cancelled;
 
   return (
+    <>
+      {rewardVisible && reward ? (
+        <RewardCelebration
+          orderId={orderId}
+          customerNumber={customerNumber}
+          reward={reward}
+          onClose={() => {
+            setRewardVisible(false);
+            try {
+              window.sessionStorage.removeItem(`bb_schnell_reward:${orderId}`);
+            } catch {
+              // Session storage temizliği best-effort.
+            }
+          }}
+        />
+      ) : null}
     <main
       className={`grid min-h-dvh place-items-center p-6 text-white transition-colors duration-500 ${
         ready || done
@@ -443,5 +486,6 @@ export default function SuccessPage() {
         ) : null}
       </section>
     </main>
+    </>
   );
 }

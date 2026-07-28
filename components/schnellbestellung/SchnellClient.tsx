@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { saveSchnellActiveOrder } from "@/lib/client/schnell-active-order";
+import { prewarmRewardCelebration } from "@/lib/client/reward-celebration";
 import {
   bindSchnellPushToOrder,
   prewarmSchnellPush,
@@ -612,6 +613,7 @@ export default function SchnellClient() {
 
     setBusy(true);
     setError("");
+    prewarmRewardCelebration();
 
     try {
       const idempotencyKey = getStableIdempotencyKey(cart, takeaway);
@@ -662,6 +664,16 @@ export default function SchnellClient() {
       const createdOrderId = String(data.orderId || "");
       const createdCustomerNumber = Number(data.customerNumber || 0);
       saveSchnellActiveOrder(createdOrderId, createdCustomerNumber);
+      try {
+        if (data.reward) {
+          window.sessionStorage.setItem(
+            `bb_schnell_reward:${createdOrderId}`,
+            JSON.stringify(data.reward),
+          );
+        }
+      } catch {
+        // Status API aynı ödülü yeniden sağlayabilir.
+      }
       void bindSchnellPushToOrder(createdOrderId);
       router.push(
         `/schnellbestellung/success?number=${encodeURIComponent(

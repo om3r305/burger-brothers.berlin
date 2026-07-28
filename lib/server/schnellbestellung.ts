@@ -1,6 +1,16 @@
-import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma, getTenantId } from "@/lib/db";
+import {
+  DEFAULT_REWARD_PROGRAM,
+  normalizeRewardProgram,
+  type SchnellRewardProgram,
+} from "@/lib/rewards/config";
+import {
+  decideSchnellReward,
+  rewardFromOrderMeta,
+  rewardMetaPayload,
+} from "@/lib/server/schnell-rewards";
 
 export const SCHNELL_COOKIE = "bb_schnell_sess";
 export const SCHNELL_SETTINGS_KEY = "schnellbestellung";
@@ -95,6 +105,7 @@ export type SchnellSettings = {
   visibleCategories: string[];
   hiddenProductIds: string[];
   campaigns: SchnellCampaign[];
+  rewardProgram: SchnellRewardProgram;
 };
 
 export const DEFAULT_SCHNELL_SETTINGS: SchnellSettings = {
@@ -134,6 +145,7 @@ export const DEFAULT_SCHNELL_SETTINGS: SchnellSettings = {
   visibleCategories: [],
   hiddenProductIds: [],
   campaigns: [],
+  rewardProgram: DEFAULT_REWARD_PROGRAM,
 };
 
 function obj(value: unknown): Record<string, any> {
@@ -373,6 +385,7 @@ export function normalizeSchnellSettings(value: unknown): SchnellSettings {
           .filter((campaign): campaign is SchnellCampaign => Boolean(campaign))
           .slice(0, 100)
       : [],
+    rewardProgram: normalizeRewardProgram(raw.rewardProgram),
   };
 }
 
@@ -1073,6 +1086,7 @@ export async function createCashSchnellOrder(params: {
               order: existing,
               customerNumber: Number(meta.customerNumber),
               reused: true,
+              reward: rewardFromOrderMeta(meta),
             };
           }
 
@@ -1275,6 +1289,30 @@ export async function createCashSchnellOrder(params: {
           discount = Math.round(discount * 100) / 100;
           payable = Math.round(payable * 100) / 100;
 
+          const rewardDecision = await decideSchnellReward({
+            transaction,
+            tenantId,
+            now: new Date(),
+            deviceId: params.deviceId,
+            program: settings.rewardProgram,
+            items: canonicalItems.map((item) => ({
+              id: String(item.id || ""),
+              name: String(item.name || "Artikel"),
+              category: String(item.category || ""),
+              price: Number(item.price) || 0,
+              qty: Number(item.qty) || 1,
+            })),
+            payable,
+          });
+          const rewardWinId = rewardDecision ? randomUUID() : "";
+          if (rewardDecision) {
+            discount = Math.round((discount + rewardDecision.discountAmount) * 100) / 100;
+            payable = Math.max(
+              0,
+              Math.round((payable - rewardDecision.discountAmount) * 100) / 100,
+            );
+          }
+
           const counterKey = `schnell-counter:${businessDate}`;
           const counter = await transaction.setting.findUnique({
             where: { tenantId_key: { tenantId, key: counterKey } },
@@ -1331,6 +1369,9 @@ export async function createCashSchnellOrder(params: {
                 liveReadyAlertEnabled: settings.liveReadyAlertEnabled,
                 backgroundReadyPushEnabled: settings.backgroundReadyPushEnabled,
                 campaigns: campaignDetails,
+                reward: rewardDecision
+                  ? rewardMetaPayload(rewardWinId, rewardDecision)
+                  : null,
                 fulfillment: takeaway ? "takeaway" : "eat_here",
                 takeaway,
                 timeSignalEnabled: settings.timeSignalEnabled,
@@ -1344,7 +1385,33 @@ export async function createCashSchnellOrder(params: {
             },
           });
 
-          return { order, customerNumber, reused: false };
+          if (rewardDecision) {
+            await transaction.schnellRewardWin.create({
+              data: {
+                id: rewardWinId,
+                tenantId,
+                orderId: order.id,
+                businessDate,
+                slotIndex: rewardDecision.slotIndex,
+                deviceTokenHash: rewardDecision.deviceTokenHash,
+                rewardType: rewardDecision.definition.type,
+                rewardCode: rewardDecision.code,
+                rewardLabel: rewardDecision.label,
+                rewardData: rewardMetaPayload(rewardWinId, rewardDecision),
+                discountAmount: new Prisma.Decimal(rewardDecision.discountAmount),
+                status: "won",
+              },
+            });
+          }
+
+          return {
+            order,
+            customerNumber,
+            reused: false,
+            reward: rewardDecision
+              ? { winId: rewardWinId, ...rewardDecision.publicReward }
+              : null,
+          };
         },
         {
           isolationLevel: Prisma.TransactionIsolationLevel.Serializable,

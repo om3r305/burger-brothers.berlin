@@ -1575,3 +1575,15 @@ body:has(#bb-landing-page) #bb-landing-page {
     margin-top: -7rem !important;
   }
 }
+
+@keyframes bbRewardFall {
+  0% { transform: translate3d(0, -8vh, 0) rotate(0deg); opacity: 0; }
+  10% { opacity: 1; }
+  100% { transform: translate3d(30px, 110vh, 0) rotate(720deg); opacity: .85; }
+}
+
+@keyframes bbRewardPop {
+  0% { transform: scale(.25) rotate(-14deg); opacity: 0; }
+  70% { transform: scale(1.15) rotate(4deg); opacity: 1; }
+  100% { transform: scale(1) rotate(0deg); opacity: 1; }
+}

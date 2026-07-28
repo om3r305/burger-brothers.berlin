@@ -6,6 +6,7 @@ import {
   verifySessionToken,
 } from "@/lib/server/schnellbestellung";
 import { readRequestCookie } from "@/lib/server/request-security";
+import { rewardFromOrderMeta } from "@/lib/server/schnell-rewards";
 
 function objectValue(value: unknown): Record<string, any> {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -91,6 +92,7 @@ export async function GET(req: Request) {
       readyEventId: String(meta.readyEventId || ""),
       readyEventAt: Number(meta.readyEventAt || 0),
       readyEventSequence: Number(meta.readyEventSequence || 0),
+      reward: rewardFromOrderMeta(meta),
       updatedAt: Date.now(),
     },
     { headers: { "Cache-Control": "private, no-store" } },

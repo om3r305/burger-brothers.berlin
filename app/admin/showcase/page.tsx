@@ -10,6 +10,7 @@ import SceneListPanel from "@/components/showcase/admin/SceneListPanel";
 import MediaLibraryPanel from "@/components/showcase/admin/MediaLibraryPanel";
 import ShowcaseAdminHeader from "@/components/showcase/admin/ShowcaseAdminHeader";
 import ReviewModerationPanel from "@/components/showcase/admin/ReviewModerationPanel";
+import RewardModerationPanel from "@/components/rewards/admin/RewardModerationPanel";
 import ShowcasePreviewSidebar from "@/components/showcase/admin/ShowcasePreviewSidebar";
 import { inspectShowcaseFile, uploadShowcaseMediaWithProgress } from "@/lib/showcase/client-upload";
 import { useShowcaseEditor } from "@/hooks/showcase/use-showcase-editor";
@@ -713,6 +714,8 @@ export default function ShowcaseAdminPage() {
         onSync={() => void syncGoogleReviews()}
         onApproval={(id, approved) => void setReviewApproval(id, approved)}
       />
+
+      <RewardModerationPanel compact />
 
       <div className="grid gap-5 xl:grid-cols-[330px_minmax(0,1fr)_minmax(520px,1.15fr)]">
         <SceneListPanel

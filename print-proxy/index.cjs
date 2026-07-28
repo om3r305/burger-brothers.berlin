@@ -792,9 +792,14 @@ async function buildTicketFromOrder(o, opts={}){
       o.toPay,
   );
 
+  const rewardMeta = M?.reward && typeof M.reward === 'object' ? M.reward : {};
+  const rewardDiscount = Math.max(0, num(rewardMeta?.discountAmount));
   let regularDiscount = Math.max(0, num(o?.discount ?? P.regularDiscount ?? F.discount));
+  // The order discount already includes the Glücksgewinn. Split it out so the
+  // receipt shows the real reward without counting the amount twice.
+  regularDiscount = Math.max(0, regularDiscount - rewardDiscount);
   let couponDiscount  = Math.max(0, num(o?.couponDiscount ?? P.couponDiscount ?? o?.meta?.couponDiscount));
-  let discountSum = regularDiscount + couponDiscount;
+  let discountSum = regularDiscount + couponDiscount + rewardDiscount;
 
   if (explicitTotal <= 0) {
     explicitTotal = Math.max(0, subtotal + deliveryFee + serviceFee + otherFee - discountSum);
@@ -925,6 +930,10 @@ async function buildTicketFromOrder(o, opts={}){
   if (deliveryFee) out.push(text(twoCol('Lieferaufschläge', money(deliveryFee))));
   if (serviceFee)  out.push(text(twoCol('Service',          money(serviceFee))));
   if (otherFee)    out.push(text(twoCol('Sonstiges',        money(otherFee))));
+  if (rewardDiscount) {
+    const rewardLabel = cleanName(String(rewardMeta?.customerLabel || rewardMeta?.label || 'Glücksgewinn'));
+    out.push(bold(1), text(twoCol(`GLÜCKSGEWINN ${rewardLabel}`, '-' + money(rewardDiscount))), bold(0));
+  }
   if (regularDiscount) out.push(text(twoCol('Rabatt / Angebot', '-' + money(regularDiscount))));
   if (couponDiscount) {
     const code = String(o?.coupon || o?.meta?.coupon || '').trim();

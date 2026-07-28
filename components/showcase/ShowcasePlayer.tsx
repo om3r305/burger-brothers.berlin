@@ -14,6 +14,9 @@ import {
 import type { ShowcaseSnapshot } from "@/lib/showcase/types";
 import ShowcaseStage from "./ShowcaseStage";
 import ShowcaseErrorBoundary from "./ShowcaseErrorBoundary";
+import WinnerCelebrationOverlay, {
+  type ShowcaseWinnerEvent,
+} from "./WinnerCelebrationOverlay";
 
 const CACHE_KEY = "bb_showcase_snapshot_v1";
 const LIVE_CHANNEL = "bb_showcase_live_v1";
@@ -154,6 +157,7 @@ export default function ShowcasePlayer({ screenSlug = "main" }: { screenSlug?: s
   const [activeIndex, setActiveIndex] = useState(0);
   const [online, setOnline] = useState(true);
   const [scheduleNow, setScheduleNow] = useState(() => Date.now());
+  const [liveEvent, setLiveEvent] = useState<ShowcaseWinnerEvent | null>(null);
   const [resolvedMedia, setResolvedMedia] = useState<{
     playbackKey: string;
     mediaUrl?: string;
@@ -164,7 +168,14 @@ export default function ShowcasePlayer({ screenSlug = "main" }: { screenSlug?: s
   const snapshotRef = useRef<ShowcaseSnapshot | null>(null);
   const lastFullLoadRef = useRef(0);
   const persistVisibleMediaRef = useRef<() => void>(() => {});
+  const liveEventRef = useRef<ShowcaseWinnerEvent | null>(null);
+  const seenLiveEventIdsRef = useRef(new Set<string>());
+  const sceneTimerRef = useRef<number | null>(null);
+  const sceneTimerStartedAtRef = useRef(0);
+  const sceneTimerRemainingMsRef = useRef(0);
+  const sceneTimerPlaybackKeyRef = useRef("");
   snapshotRef.current = snapshot;
+  liveEventRef.current = liveEvent;
 
   useEffect(() => {
     let interval = 0;
@@ -312,6 +323,57 @@ export default function ShowcasePlayer({ screenSlug = "main" }: { screenSlug?: s
     }
   }, [cacheKey, screenSlug]);
 
+  const loadLiveEvent = useCallback(async () => {
+    if (liveEventRef.current) return;
+    try {
+      const response = await fetch(
+        `/api/showcase/events?screen=${encodeURIComponent(screenSlug)}&t=${Date.now()}`,
+        { cache: "no-store", headers: { Accept: "application/json" } },
+      );
+      const data = await response.json().catch(() => null);
+      const nextEvent = data?.ok ? (data.event as ShowcaseWinnerEvent | null) : null;
+      if (!response.ok || !nextEvent?.id) return;
+      if (seenLiveEventIdsRef.current.has(nextEvent.id)) return;
+      seenLiveEventIdsRef.current.add(nextEvent.id);
+      setLiveEvent(nextEvent);
+    } catch {
+      // The normal Showcase loop must continue even if live events are offline.
+    }
+  }, [screenSlug]);
+
+  useEffect(() => {
+    void loadLiveEvent();
+    const timer = window.setInterval(() => void loadLiveEvent(), 2_000);
+    return () => window.clearInterval(timer);
+  }, [loadLiveEvent]);
+
+  useEffect(() => {
+    if (!liveEvent) return;
+    const durationSeconds = Math.max(3, Math.min(30, Number(liveEvent.payload.durationSeconds || 12)));
+    const timer = window.setTimeout(() => {
+      const completed = liveEvent;
+      setLiveEvent(null);
+      void fetch("/api/showcase/events", {
+        method: "POST",
+        cache: "no-store",
+        keepalive: true,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: completed.id, ackToken: completed.ackToken }),
+      }).catch(() => {});
+    }, durationSeconds * 1_000);
+    return () => window.clearTimeout(timer);
+  }, [liveEvent]);
+
+  useEffect(() => {
+    const trimSeenEvents = window.setInterval(() => {
+      if (seenLiveEventIdsRef.current.size > 200) {
+        seenLiveEventIdsRef.current.clear();
+        if (liveEventRef.current?.id) seenLiveEventIdsRef.current.add(liveEventRef.current.id);
+      }
+    }, 10 * 60_000);
+    return () => window.clearInterval(trimSeenEvents);
+  }, []);
+
   useEffect(() => {
     const cached = readCachedSnapshot(cacheKey);
     setSnapshot(cached || defaultSnapshot());
@@ -378,16 +440,45 @@ export default function ShowcasePlayer({ screenSlug = "main" }: { screenSlug?: s
   useEffect(() => {
     if (!playbackKey || sceneDurationSeconds <= 0) return;
 
-    // This timer is intentionally keyed only by the published version + scene.
-    // The public API is polled every few seconds; those snapshot refreshes must
-    // never restart a 25/45 second scene timer.
-    const timer = window.setTimeout(() => {
+    const fullDurationMs = sceneDurationSeconds * 1_000;
+    if (sceneTimerPlaybackKeyRef.current !== playbackKey) {
+      if (sceneTimerRef.current) window.clearTimeout(sceneTimerRef.current);
+      sceneTimerRef.current = null;
+      sceneTimerPlaybackKeyRef.current = playbackKey;
+      sceneTimerRemainingMsRef.current = fullDurationMs;
+      sceneTimerStartedAtRef.current = 0;
+    }
+
+    // A winner overlay temporarily pauses the current scene. When the overlay
+    // closes, the exact remaining scene time resumes instead of restarting.
+    if (liveEvent) return;
+
+    const delay = Math.max(50, sceneTimerRemainingMsRef.current || fullDurationMs);
+    sceneTimerStartedAtRef.current = Date.now();
+    sceneTimerRef.current = window.setTimeout(() => {
+      sceneTimerRef.current = null;
+      sceneTimerStartedAtRef.current = 0;
+      sceneTimerRemainingMsRef.current = 0;
+      sceneTimerPlaybackKeyRef.current = "";
       persistVisibleMediaRef.current();
       advanceScene(playbackKey);
-    }, sceneDurationSeconds * 1_000);
+    }, delay);
 
-    return () => window.clearTimeout(timer);
-  }, [advanceScene, playbackKey, sceneDurationSeconds]);
+    return () => {
+      if (sceneTimerRef.current) {
+        window.clearTimeout(sceneTimerRef.current);
+        sceneTimerRef.current = null;
+      }
+      if (
+        sceneTimerPlaybackKeyRef.current === playbackKey &&
+        sceneTimerStartedAtRef.current > 0
+      ) {
+        const elapsed = Date.now() - sceneTimerStartedAtRef.current;
+        sceneTimerRemainingMsRef.current = Math.max(0, delay - elapsed);
+      }
+      sceneTimerStartedAtRef.current = 0;
+    };
+  }, [advanceScene, liveEvent, playbackKey, sceneDurationSeconds]);
 
   useEffect(() => {
     if (activeIndex < activeScenes.length) return;
@@ -490,6 +581,7 @@ export default function ShowcasePlayer({ screenSlug = "main" }: { screenSlug?: s
           sceneCount={1}
           online={online}
         />
+        {liveEvent ? <WinnerCelebrationOverlay event={liveEvent} /> : null}
       </div>
     );
   }
@@ -512,6 +604,7 @@ export default function ShowcasePlayer({ screenSlug = "main" }: { screenSlug?: s
           onVideoError={() => advanceScene(playbackKey)}
         />
       </ShowcaseErrorBoundary>
+      {liveEvent ? <WinnerCelebrationOverlay event={liveEvent} /> : null}
     </div>
   );
 }

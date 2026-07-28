@@ -78,6 +78,7 @@ export async function POST(req: Request) {
         customerNumber: result.customerNumber,
         reused: result.reused,
         total: Number(result.order.total),
+        reward: result.reward || null,
       },
       { headers: { "Cache-Control": "no-store" } },
     );

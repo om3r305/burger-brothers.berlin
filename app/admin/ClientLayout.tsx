@@ -6,6 +6,7 @@ import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { LS_SETTINGS } from "@/lib/settings";
+import AdminAttentionBell from "@/components/admin/AdminAttentionBell";
 
 type NavItem = {
   href: string;
@@ -72,6 +73,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
               {themeLabel || ""}
             </div>
           </div>
+          <AdminAttentionBell />
         </div>
 
         {/* Navigation */}
@@ -116,6 +118,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
             <span className="ml-auto text-xs text-stone-400" suppressHydrationWarning>
               {themeLabel || ""}
             </span>
+            <AdminAttentionBell />
           </div>
           <div className="mt-2 flex gap-2 overflow-x-auto no-scrollbar">
             {NAV.map((it) => {

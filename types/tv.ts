@@ -251,6 +251,15 @@ export type OrderMeta = {
   timeSignalEnabled?: boolean;
   timeWarningMinutes?: number;
   timeCriticalMinutes?: number;
+  reward?: {
+    winId?: string;
+    code?: string;
+    label?: string;
+    customerLabel?: string;
+    discountAmount?: number | string;
+    percent?: number | string;
+    productName?: string;
+  };
 };
 
 export type StoredOrder = {
