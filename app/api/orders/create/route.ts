@@ -2080,7 +2080,7 @@ export async function POST(req: Request) {
         olduğunda aynı notify fonksiyonu fırsatı kapatır; yeni indirim göndermez.
       */
       if (routeDealActivated) {
-        await notifyNearbyDelivery(created).catch((error) => {
+        await notifyNearbyDelivery(created, routeDealActivated).catch((error) => {
           console.error("[orders/create] nearby route-deal push failed", error);
         });
       }

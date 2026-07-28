@@ -539,7 +539,7 @@ export default function AdminNotificationsPage() {
             </div>
             <h2 className="mt-2 text-2xl font-black text-white">Otomatik hedefleme ayarları</h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-stone-400">
-              Sipariş “Unterwegs” olduğunda yalnız izin vermiş, aktif siparişi olmayan ve tekrar bekleme süresi dolmuş müşteriler değerlendirilir. Bildirimde müşteri adı, sipariş veya açık adres gösterilmez.
+              Normal Lieferung siparişi restorana düştüğünde yalnız izin vermiş, aktif siparişi olmayan ve tekrar bekleme süresi dolmuş müşteriler değerlendirilir. Kaynak sipariş Unterwegs olduğunda fırsat kapanır ve yeni push gönderilmez.
             </p>
           </div>
           <label className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-bold text-white">
@@ -549,7 +549,7 @@ export default function AdminNotificationsPage() {
               onChange={(event) => setNearby("enabled", event.target.checked)}
               className="h-5 w-5 accent-emerald-400"
             />
-            Otomasyon aktif
+            Ek yakın push ayarları aktif
           </label>
         </div>
 
@@ -586,11 +586,12 @@ export default function AdminNotificationsPage() {
         <div className="mt-5 rounded-2xl border border-emerald-400/20 bg-emerald-500/[0.06] p-4 text-sm leading-6 text-stone-300">
           <div className="font-black text-emerald-200">Admin Settings adresleri otomatik kullanılıyor</div>
           <p className="mt-1">
-            Admin → Settings → Rota Fırsatları bölümündeki PLZ, sokak ve her
-            kuralın <strong className="text-white">Fırsat süresi dakika</strong>
-            değeri doğrudan kullanılır. Sipariş Unterwegs olduğunda push metni,
-            bildirimin son geçerlilik zamanı ve uygulamadaki canlı geri sayım aynı
-            süreden yeniden başlar. Tanımlı aktif grup:
+            Admin → Settings → Rota Fırsatları bölümündeki kural adı push
+            başlığı; müşteri metni push açıklaması olarak kullanılır. PLZ, sokak ve
+            <strong className="text-white"> Fırsat süresi dakika</strong> değeri
+            aynı aktif fırsattan alınır. Rota fırsatı aktifse push ayrıca bu
+            bölümdeki eski otomasyon anahtarına bağlı kalmadan çalışır. Sipariş
+            Unterwegs olduğunda fırsat kapanır. Tanımlı aktif grup:
             <strong className="ml-1 text-white">{adminRouteStreetGroups.length}</strong>
           </p>
         </div>

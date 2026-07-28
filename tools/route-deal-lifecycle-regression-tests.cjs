@@ -59,7 +59,7 @@ assert(
 );
 
 assert(
-  createRoute.includes("notifyNearbyDelivery(created)") &&
+  createRoute.includes("notifyNearbyDelivery(created, routeDealActivated)") &&
     createRoute.includes("if (routeDealActivated)") &&
     pushServer.includes('["new", "preparing", "ready"].includes(status)'),
   "Nearby push is not sent while the source order is still in the restaurant",
@@ -86,10 +86,19 @@ assert(
   "Closed-opportunity information banner is missing",
 );
 assert(
-  pushServer.includes("Bestellen Sie, solange die Lieferung noch im Restaurant ist.") &&
+  pushServer.includes("activeRouteDeal.message") &&
+    pushServer.includes("routeDealTitle") &&
     pushServer.includes("activeRouteDeal.durationMinutes"),
-  "Nearby push text or route-rule countdown source is incorrect",
+  "Nearby push title, text or route-rule countdown source is incorrect",
 );
+assert(
+  pushServer.includes("historyBySubscriptionId") &&
+    pushServer.includes("preferenceAddress") &&
+    pushServer.includes("activeSubscriptionIds") &&
+    pushServer.includes("eventRuleId !== currentRuleId"),
+  "Existing customer push matching or stale cooldown repair is missing",
+);
+
 assert(
   pushClient.includes("repairGeneralPushOrderBindingFromLastOrder") &&
     pushClient.includes("readLastCustomerTracking"),

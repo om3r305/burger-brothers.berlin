@@ -658,6 +658,55 @@ async function saveSingleCampaignToDb(
   }
 }
 
+async function deleteSingleCampaignFromDb(
+  campaignId: string,
+): Promise<SingleCampaignSaveResult> {
+  try {
+    const res = await fetch(
+      `${API_CAMPAIGNS}?id=${encodeURIComponent(campaignId)}`,
+      {
+        method: "DELETE",
+        credentials: "same-origin",
+        cache: "no-store",
+        headers: {
+          accept: "application/json",
+        },
+      },
+    );
+
+    const json = await res.json().catch(() => ({}));
+
+    if (!res.ok || json?.ok === false) {
+      throw new Error(
+        String(
+          json?.message ||
+            json?.error ||
+            `CAMPAIGN_DELETE_${res.status}`,
+        ),
+      );
+    }
+
+    return {
+      ok: true,
+      campaigns: normalizeCampaignList(json),
+    };
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Kampagne konnte nicht gelöscht werden.";
+
+    console.error("deleteSingleCampaignFromDb failed:", error);
+
+    return {
+      ok: false,
+      campaigns: [],
+      error: message,
+    };
+  }
+}
+
+
 /* =========================
  * Settings / Freebies
  * ========================= */
@@ -795,6 +844,7 @@ export default function AdminCampaignsPage() {
   const [savingCampaigns, setSavingCampaigns] = useState(false);
   const [campaignSaveMessage, setCampaignSaveMessage] = useState("");
   const [savingFormCampaign, setSavingFormCampaign] = useState(false);
+  const [campaignActionId, setCampaignActionId] = useState<string | null>(null);
 
   const [editId, setEditId] = useState<string | null>(null);
   const [name, setName] = useState("");
@@ -963,6 +1013,12 @@ export default function AdminCampaignsPage() {
     setCampaignSaveMessage("Gespeichert ✅");
     setSavingFormCampaign(false);
     resetForm();
+
+    window.setTimeout(() => {
+      document
+        .getElementById("campaign-overview")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 50);
   };
 
   const edit = (c: Campaign) => {
@@ -986,27 +1042,90 @@ export default function AdminCampaignsPage() {
         : "",
     );
 
-    try {
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    } catch {}
+    window.setTimeout(() => {
+      document
+        .getElementById("campaign-form")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 0);
   };
 
-  const del = (id: string) => {
+  const del = async (id: string) => {
+    if (campaignActionId || savingFormCampaign || savingCampaigns) return;
     if (!confirm("Diese Kampagne wirklich löschen?")) return;
 
-    setRows((prev) => prev.filter((r) => r.id !== id));
-    setCampaignsDirty(true);
-    setCampaignSaveMessage("Nicht gespeicherte Änderungen");
+    setCampaignActionId(id);
+    setCampaignSaveMessage("Wird gelöscht…");
+
+    const result = await deleteSingleCampaignFromDb(id);
+
+    if (!result.ok) {
+      setCampaignSaveMessage("Löschen fehlgeschlagen");
+      setCampaignActionId(null);
+      alert(
+        `Kampagne konnte nicht gelöscht werden.\n${
+          result.error || "Bitte Anmeldung und Verbindung prüfen."
+        }`,
+      );
+      return;
+    }
+
+    const nextRows =
+      result.campaigns.length > 0
+        ? result.campaigns
+        : rows.filter((row) => row.id !== id);
+
+    setRows(nextRows);
+    setCampaignSource("server");
+    writeLocalCache(LS_CAMPAIGNS, nextRows);
+    setCampaignsDirty(false);
+    setCampaignSaveMessage("Gelöscht ✅");
+    setCampaignActionId(null);
 
     if (editId === id) resetForm();
   };
 
-  const toggle = (id: string) => {
-    setRows((prev) =>
-      prev.map((r) => (r.id === id ? { ...r, enabled: !r.enabled } : r)),
+  const toggle = async (id: string) => {
+    if (campaignActionId || savingFormCampaign || savingCampaigns) return;
+
+    const current = rows.find((row) => row.id === id);
+    if (!current) return;
+
+    const changed = {
+      ...current,
+      enabled: !current.enabled,
+    };
+
+    setCampaignActionId(id);
+    setCampaignSaveMessage(
+      changed.enabled ? "Wird aktiviert…" : "Wird deaktiviert…",
     );
-    setCampaignsDirty(true);
-    setCampaignSaveMessage("Nicht gespeicherte Änderungen");
+
+    const result = await saveSingleCampaignToDb(changed);
+
+    if (!result.ok) {
+      setCampaignSaveMessage("Statusänderung fehlgeschlagen");
+      setCampaignActionId(null);
+      alert(
+        `Kampagnenstatus konnte nicht gespeichert werden.\n${
+          result.error || "Bitte Anmeldung und Verbindung prüfen."
+        }`,
+      );
+      return;
+    }
+
+    const nextRows =
+      result.campaigns.length > 0
+        ? result.campaigns
+        : rows.map((row) => (row.id === id ? changed : row));
+
+    setRows(nextRows);
+    setCampaignSource("server");
+    writeLocalCache(LS_CAMPAIGNS, nextRows);
+    setCampaignsDirty(false);
+    setCampaignSaveMessage(
+      changed.enabled ? "Aktiviert ✅" : "Deaktiviert ✅",
+    );
+    setCampaignActionId(null);
   };
 
   const saveCampaignChanges = async () => {
@@ -1374,7 +1493,7 @@ export default function AdminCampaignsPage() {
   };
 
   const statusUi = (status: CampaignVisualStatus) => ({
-    active: { label: "Läuft", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
+    active: { label: "Aktiv", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
     ending: { label: "Endet bald", cls: "border-orange-500/40 bg-orange-500/10 text-orange-300" },
     upcoming: { label: "Geplant", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
     ended: { label: "Beendet", cls: "border-rose-500/40 bg-rose-500/10 text-rose-300" },
@@ -1476,7 +1595,140 @@ export default function AdminCampaignsPage() {
         </div>
       </div>
 
-      <div className="card mb-6">
+      <div id="campaign-overview" className="card mb-6 scroll-mt-6">
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <div>
+            <div className="font-medium">
+              Bestehende Kampagnen ({rows.length})
+            </div>
+            <div className="text-xs text-stone-400">
+              Hier sehen Sie Inhalt, Laufzeit und Status. Änderungen werden direkt in der DB gespeichert.
+            </div>
+          </div>
+          <input
+            className="ml-auto rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2 text-sm outline-none"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Kampagne suchen…"
+          />
+        </div>
+
+        {list.length === 0 ? (
+          <div className="text-sm opacity-70">Keine Einträge.</div>
+        ) : (
+          <div className="grid gap-2">
+            {list.map((c) => {
+              const selectedProductNames = (c.productIds || []).map(
+                (productId) =>
+                  allProducts.find(
+                    (product) => String(product.id) === String(productId),
+                  )?.name || `#${productId}`,
+              );
+              const visibleProductNames = selectedProductNames.slice(0, 6);
+              const hiddenProductCount = Math.max(
+                0,
+                selectedProductNames.length - visibleProductNames.length,
+              );
+              const scopeText =
+                c.scope === "category"
+                  ? (c.categories || [])
+                      .map((x) => CATS.find((y) => y.value === x)?.label ?? x)
+                      .join(", ")
+                  : visibleProductNames.length > 0
+                    ? `${visibleProductNames.join(", ")}${
+                        hiddenProductCount > 0
+                          ? ` +${hiddenProductCount} weitere`
+                          : ""
+                      }`
+                    : "Keine Produkte";
+
+              const timeText =
+                (c.startAt
+                  ? `Start: ${new Date(c.startAt).toLocaleString("de-DE")}`
+                  : "Start: sofort") +
+                (c.endAt
+                  ? ` • Ende: ${new Date(c.endAt).toLocaleString("de-DE")}`
+                  : " • Ende: offen");
+
+              const kindText =
+                c.kind === "percent"
+                  ? `${c.value}%`
+                  : c.kind === "absolute"
+                    ? `-${Number(c.value).toFixed(2)} €`
+                    : `Neu: ${Number(c.value).toFixed(2)} €`;
+
+              const modeText =
+                c.mode === "both"
+                  ? "Lieferung + Abholung"
+                  : c.mode === "delivery"
+                    ? "Lieferung"
+                    : "Abholung";
+              const visualStatus = campaignStatus(c);
+              const visualUi = statusUi(visualStatus);
+
+              return (
+                <div
+                  key={c.id}
+                  className={`flex flex-col gap-2 rounded-xl border p-4 md:flex-row md:items-center md:justify-between ${visualUi.cls}`}
+                >
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="font-medium">{c.name}</div>
+                      {c.badge ? <span className="badge badge--campaign">{c.badge}</span> : null}
+                      <span className="rounded-full border px-2 py-0.5 text-[11px]">{visualUi.label}</span>
+                    </div>
+                    <div className="text-xs text-stone-400">
+                      {c.scope === "category" ? "Kategorie" : "Produkt"} • {scopeText}
+                      {" • "}
+                      {kindText}
+                      {" • "}
+                      {modeText}
+                      {c.maxQtyPerOrder != null ? ` • max. ${c.maxQtyPerOrder}/Bestellung` : ""}
+                      {" • "}
+                      Priorität {c.priority ?? 0}
+                      {" • "}
+                      {timeText}
+                      {c.showCountdown ? " • Countdown" : ""}
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      className="btn-ghost"
+                      disabled={campaignActionId === c.id}
+                      onClick={() => void toggle(c.id)}
+                    >
+                      {campaignActionId === c.id
+                        ? "Speichert…"
+                        : c.enabled
+                          ? "Deaktivieren"
+                          : "Aktivieren"}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-ghost"
+                      disabled={campaignActionId === c.id}
+                      onClick={() => edit(c)}
+                    >
+                      Bearbeiten
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-ghost"
+                      disabled={campaignActionId === c.id}
+                      onClick={() => void del(c.id)}
+                    >
+                      Löschen
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      <div id="campaign-form" className="card mb-6 scroll-mt-6">
         <div className="mb-3 text-lg font-medium">
           {editId ? "Kampagne bearbeiten" : "Neue Kampagne"}
         </div>
@@ -1844,91 +2096,7 @@ export default function AdminCampaignsPage() {
         )}
       </div>
 
-      <div className="card">
-        <div className="mb-3 flex flex-wrap items-center gap-2">
-          <div><div className="font-medium">Kampagnenübersicht</div><div className="text-xs text-stone-400">Mehrere Kampagnen können gleichzeitig geplant und gespeichert werden.</div></div>
-          <input
-            className="ml-auto rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2 text-sm outline-none"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Kampagne suchen…"
-          />
-        </div>
 
-        {list.length === 0 ? (
-          <div className="text-sm opacity-70">Keine Einträge.</div>
-        ) : (
-          <div className="grid gap-2">
-            {list.map((c) => {
-              const scopeText =
-                c.scope === "category"
-                  ? (c.categories || [])
-                      .map((x) => CATS.find((y) => y.value === x)?.label ?? x)
-                      .join(", ")
-                  : `${c.productIds?.length ?? 0} Produkte`;
-
-              const timeText =
-                (c.startAt ? `ab ${new Date(c.startAt).toLocaleString()}` : "sofort") +
-                (c.endAt ? ` • bis ${new Date(c.endAt).toLocaleString()}` : "");
-
-              const kindText =
-                c.kind === "percent"
-                  ? `${c.value}%`
-                  : c.kind === "absolute"
-                    ? `-${Number(c.value).toFixed(2)} €`
-                    : `Neu: ${Number(c.value).toFixed(2)} €`;
-
-              const modeText =
-                c.mode === "both"
-                  ? "Lieferung + Abholung"
-                  : c.mode === "delivery"
-                    ? "Lieferung"
-                    : "Abholung";
-              const visualStatus = campaignStatus(c);
-              const visualUi = statusUi(visualStatus);
-
-              return (
-                <div
-                  key={c.id}
-                  className={`flex flex-col gap-2 rounded-xl border p-4 md:flex-row md:items-center md:justify-between ${visualUi.cls}`}
-                >
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <div className="font-medium">{c.name}</div>
-                      {c.badge ? <span className="badge badge--campaign">{c.badge}</span> : null}
-                      <span className="rounded-full border px-2 py-0.5 text-[11px]">{visualUi.label}</span>
-                    </div>
-                    <div className="text-xs text-stone-400">
-                      {c.scope === "category" ? "Kategorie" : "Produkt"} • {scopeText}
-                      {" • "}
-                      {kindText}
-                      {" • "}
-                      {modeText}
-                      {c.maxQtyPerOrder != null ? ` • max. ${c.maxQtyPerOrder}/Bestellung` : ""}
-                      {" • "}
-                      Priorität {c.priority ?? 0}
-                      {" • "}
-                      {timeText}
-                      {c.showCountdown ? " • Countdown" : ""}
-                    </div>
-                  </div>
-                  <div className="flex gap-2">
-                    <button className="btn-ghost" onClick={() => toggle(c.id)}>
-                      {c.enabled ? "Deaktivieren" : "Aktivieren"}
-                    </button>
-                    <button className="btn-ghost" onClick={() => edit(c)}>
-                      Bearbeiten
-                    </button>
-                    <button className="btn-ghost" onClick={() => del(c.id)}>
-                      Löschen
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
     </main>
   );
 }

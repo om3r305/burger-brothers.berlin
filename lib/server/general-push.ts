@@ -991,7 +991,10 @@ function addDeliveryHistory(
   map.set(key, current);
 }
 
-export async function notifyNearbyDelivery(order: any) {
+export async function notifyNearbyDelivery(
+  order: any,
+  routeDealInput?: unknown,
+) {
   const status = cleanText(order?.status, 40).toLowerCase();
 
   if (orderMode(order) !== "delivery") {
@@ -1042,17 +1045,36 @@ export async function notifyNearbyDelivery(order: any) {
     readNearbyDeliverySettings(tenantId),
     readAdminRouteStreetGroups(),
   ]);
-  if (!settings.enabled) return { queued: 0, reason: "automation_disabled" };
 
   const sourceAddress = orderAddressSnapshot(order);
-  if (!sourceAddress) return { queued: 0, reason: "source_address_missing" };
+  if (!sourceAddress) {
+    console.info("[nearby-delivery] push skipped", {
+      orderId: order?.id || null,
+      reason: "source_address_missing",
+    });
+    return { queued: 0, reason: "source_address_missing" };
+  }
 
-  const activeRouteDeal = await findActiveRouteDealOpportunityForOrder(
-    order,
-  ).catch((error) => {
-    console.error("[nearby-delivery] active route deal lookup failed", error);
-    return null;
-  });
+  const providedRouteDeal = plainObject(routeDealInput);
+  const activeRouteDeal = cleanText(providedRouteDeal.id, 160)
+    ? providedRouteDeal
+    : await findActiveRouteDealOpportunityForOrder(order).catch((error) => {
+        console.error("[nearby-delivery] active route deal lookup failed", error);
+        return null;
+      });
+
+  /*
+    Admin → Einstellungen → Rota fırsatı aktif ise bu fırsatın push'u ayrıca
+    Bildirim Merkezi'ndeki eski otomasyon anahtarına bağlı kalmaz. Böylece
+    banner çalışırken push'un sessizce kapalı kalması engellenir.
+  */
+  if (!settings.enabled && !activeRouteDeal?.id) {
+    console.info("[nearby-delivery] push skipped", {
+      orderId: order?.id || null,
+      reason: "automation_disabled",
+    });
+    return { queued: 0, reason: "automation_disabled" };
+  }
 
   const customer = orderCustomer(order);
   const meta = orderMeta(order);
@@ -1068,7 +1090,11 @@ export async function notifyNearbyDelivery(order: any) {
       ...(excludedSubscriptionId ? { id: { not: excludedSubscriptionId } } : {}),
       preference: {
         is: {
-          marketingConsentedAt: { not: null },
+          /*
+            allNotifications / nearbyDelivery yalnız müşterinin tek izin
+            ekranından yazılır. Eski aboneliklerde marketingConsentedAt boş
+            kalmış olsa bile açık izin kaybolmaz.
+          */
           OR: [{ allNotifications: true }, { nearbyDelivery: true }],
         },
       },
@@ -1076,7 +1102,13 @@ export async function notifyNearbyDelivery(order: any) {
     include: { preference: true, customer: true },
     take: 500,
   });
-  if (!candidates.length) return { queued: 0 };
+  if (!candidates.length) {
+    console.info("[nearby-delivery] push skipped", {
+      orderId: order?.id || null,
+      reason: "no_push_subscriptions",
+    });
+    return { queued: 0, reason: "no_push_subscriptions" };
+  }
 
   const activeOrders = await (prisma as any).order.findMany({
     where: {
@@ -1084,15 +1116,23 @@ export async function notifyNearbyDelivery(order: any) {
       status: { notIn: ["done", "cancelled"] },
       id: { not: order.id },
     },
-    select: { customer: true },
+    select: { customer: true, meta: true },
     take: 5_000,
   });
   const activePhones = new Set<string>();
   const activeEmails = new Set<string>();
+  const activeSubscriptionIds = new Set<string>();
   activeOrders.forEach((activeOrder: any) => {
     const identity = identityKeys(activeOrder);
     if (identity.phone) activePhones.add(identity.phone);
     if (identity.email) activeEmails.add(identity.email);
+
+    const activeMeta = orderMeta(activeOrder);
+    const subscriptionId = cleanText(
+      activeMeta.generalPushSubscriptionId,
+      100,
+    );
+    if (subscriptionId) activeSubscriptionIds.add(subscriptionId);
   });
 
   // The recipient address is derived only from previous completed delivery orders.
@@ -1110,12 +1150,24 @@ export async function notifyNearbyDelivery(order: any) {
 
   const historyByPhone = new Map<string, DeliveryHistory>();
   const historyByEmail = new Map<string, DeliveryHistory>();
+  const historyBySubscriptionId = new Map<string, DeliveryHistory>();
   completedOrders.forEach((completedOrder: any) => {
     if (orderMode(completedOrder) !== "delivery") return;
     const identity = identityKeys(completedOrder);
     const address = orderAddressSnapshot(completedOrder);
+    const completedMeta = orderMeta(completedOrder);
+    const completedSubscriptionId = cleanText(
+      completedMeta.generalPushSubscriptionId,
+      100,
+    );
+
     addDeliveryHistory(historyByPhone, identity.phone, address);
     addDeliveryHistory(historyByEmail, identity.email, address);
+    addDeliveryHistory(
+      historyBySubscriptionId,
+      completedSubscriptionId || null,
+      address,
+    );
   });
 
   const brianModel = settings.routeCluster
@@ -1145,30 +1197,88 @@ export async function notifyNearbyDelivery(order: any) {
     settings.streetGroupsEnabled || adminRouteGroups.length > 0;
 
   const ranked: Array<{ subscription: any; rank: number; matchType: string }> = [];
+  const filtered = {
+    sourceCustomer: 0,
+    activeOrder: 0,
+    missingHistory: 0,
+    missingAddress: 0,
+    noAddressMatch: 0,
+    cooldown: 0,
+  };
+
   for (const subscription of candidates) {
-    const phone = normalizePhone(subscription.phone || subscription.customer?.phone);
-    const email = normalizeEmail(subscription.email || subscription.customer?.email);
-    if ((currentPhone && phone === currentPhone) || (currentEmail && email === currentEmail)) {
+    const phone = normalizePhone(
+      subscription.phone || subscription.customer?.phone,
+    );
+    const email = normalizeEmail(
+      subscription.email || subscription.customer?.email,
+    );
+
+    if (
+      subscription.id === excludedSubscriptionId ||
+      (currentPhone && phone === currentPhone) ||
+      (currentEmail && email === currentEmail)
+    ) {
+      filtered.sourceCustomer += 1;
       continue;
     }
-    if ((phone && activePhones.has(phone)) || (email && activeEmails.has(email))) {
+
+    if (
+      activeSubscriptionIds.has(subscription.id) ||
+      (phone && activePhones.has(phone)) ||
+      (email && activeEmails.has(email))
+    ) {
+      filtered.activeOrder += 1;
       continue;
     }
 
     const phoneHistory = phone ? historyByPhone.get(phone) : null;
     const emailHistory = email ? historyByEmail.get(email) : null;
-    const historyCount = Math.max(phoneHistory?.count || 0, emailHistory?.count || 0);
-    if (historyCount < settings.minimumPastOrders) continue;
+    const subscriptionHistory = historyBySubscriptionId.get(subscription.id);
+    const preference = plainObject(subscription.preference);
+    const preferenceAddress: DeliveryAddressSnapshot | null =
+      normalizePlz(preference.plz) || normalizeStreet(preference.street)
+        ? {
+            plz: normalizePlz(preference.plz),
+            street: normalizeStreet(preference.street),
+            lat: finiteNumber(preference.lat, -90, 90),
+            lng: finiteNumber(preference.lng, -180, 180),
+            ts: new Date(subscription.lastSeenAt || 0).valueOf() || 0,
+          }
+        : null;
+
+    /*
+      preference.plz/street yalnız doğrulanmış gerçek sipariş bind işleminden
+      yazılır. Bu fallback, eski bir cihazda telefon/e-posta bağının eksik kalmış
+      olması yüzünden uygun müşterinin kaybolmasını engeller.
+    */
+    const historyCount = Math.max(
+      phoneHistory?.count || 0,
+      emailHistory?.count || 0,
+      subscriptionHistory?.count || 0,
+      preferenceAddress ? 1 : 0,
+    );
+
+    if (historyCount < settings.minimumPastOrders) {
+      filtered.missingHistory += 1;
+      continue;
+    }
 
     const addressMap = new Map<string, DeliveryAddressSnapshot>();
     for (const address of [
       ...(phoneHistory?.addresses || []),
       ...(emailHistory?.addresses || []),
+      ...(subscriptionHistory?.addresses || []),
+      ...(preferenceAddress ? [preferenceAddress] : []),
     ]) {
       addressMap.set(`${address.plz || ""}|${address.street || ""}`, address);
     }
     const addresses = Array.from(addressMap.values());
-    if (!addresses.length) continue;
+
+    if (!addresses.length) {
+      filtered.missingAddress += 1;
+      continue;
+    }
 
     let bestMatch = { rank: 0, matchType: "" };
     for (const candidateAddress of addresses) {
@@ -1197,6 +1307,8 @@ export async function notifyNearbyDelivery(order: any) {
         rank: bestMatch.rank,
         matchType: bestMatch.matchType,
       });
+    } else {
+      filtered.noAddressMatch += 1;
     }
   }
 
@@ -1219,11 +1331,21 @@ export async function notifyNearbyDelivery(order: any) {
     },
     take: 5_000,
   });
+  const currentRuleId = cleanText(activeRouteDeal?.ruleId, 120);
   const recentSubscriptionIds = new Set<string>();
   const recentCustomerIds = new Set<string>();
   const recentPhones = new Set<string>();
   const recentEmails = new Set<string>();
   recentEvents.forEach((event: any) => {
+    const eventPayload = plainObject(event.payload);
+    const eventRuleId = cleanText(eventPayload.ruleId, 120);
+
+    /*
+      Eski sürümlerde ruleId payload'a yazılmıyordu. O eski test kayıtları yeni
+      doğru gönderimi 7 gün boyunca yanlışlıkla engellemesin.
+    */
+    if (!currentRuleId || eventRuleId !== currentRuleId) return;
+
     const recentSubscription = event.subscription;
     if (recentSubscription?.id) recentSubscriptionIds.add(recentSubscription.id);
     if (recentSubscription?.customerId) recentCustomerIds.add(recentSubscription.customerId);
@@ -1280,13 +1402,24 @@ export async function notifyNearbyDelivery(order: any) {
       ) ||
       Boolean(candidatePhone && recentPhones.has(candidatePhone)) ||
       Boolean(candidateEmail && recentEmails.has(candidateEmail));
-    if (recentlyNotified) continue;
+    if (recentlyNotified) {
+      filtered.cooldown += 1;
+      continue;
+    }
+
+    const routeDealTitle =
+      cleanText(activeRouteDeal.name, 160) || "Nachbarschafts-Angebot";
+    const adminMessage =
+      cleanText(activeRouteDeal.message, 500) ||
+      "Bestellen Sie jetzt, solange die zugehörige Lieferung noch im Restaurant ist.";
+    const durationText = `Noch ${opportunityMinutes} Minuten gültig.`;
+    const routeDealBody = `${adminMessage.replace(/[.!?]+\s*$/, "")}. ${durationText}`;
 
     const result = await queueAndSendGeneralNotification({
       subscriptionId: candidate.subscription.id,
       type: "nearby_delivery",
-      title: "Unser Fahrer fährt bald in Ihre Nähe! 🍔",
-      body: `Ihr Nachbarschafts-Angebot ist ${opportunityMinutes} Minuten gültig. Bestellen Sie, solange die Lieferung noch im Restaurant ist.`,
+      title: routeDealTitle,
+      body: routeDealBody,
       url: notificationUrl,
       orderId: order.id,
       dedupeKey: `nearby:${order.id}:${candidate.subscription.id}`,
@@ -1297,6 +1430,8 @@ export async function notifyNearbyDelivery(order: any) {
         durationMinutes: opportunityMinutes,
         durationSource: activeRouteDeal.durationSource || "route_rule",
         routeDealId: routeDealId || null,
+        ruleId: currentRuleId || null,
+        ruleName: routeDealTitle,
       },
     });
     if ((result as any)?.deduped) {
@@ -1322,6 +1457,10 @@ export async function notifyNearbyDelivery(order: any) {
     accepted,
     failed,
     deduped,
+    filtered,
+    automationSource: settings.enabled
+      ? "notification_settings"
+      : "route_deal",
   });
 
   return {
@@ -1330,6 +1469,8 @@ export async function notifyNearbyDelivery(order: any) {
     failed,
     deduped,
     matched: ranked.length,
+    candidates: candidates.length,
+    filtered,
     routeDealId,
   };
 }

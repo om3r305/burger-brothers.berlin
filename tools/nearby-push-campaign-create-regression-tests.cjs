@@ -33,7 +33,7 @@ assertContains(
     "Geplant sipariş teslimat rotasına henüz çıkmamıştır",
     "cleanText(order?.planned)",
     "if (routeDealActivated)",
-    "notifyNearbyDelivery(created)",
+    "notifyNearbyDelivery(created, routeDealActivated)",
   ],
   "Create-stage route deal and push lifecycle",
 );
@@ -60,11 +60,28 @@ assertContains(
     '["new", "preparing", "ready"].includes(status)',
     "if (orderIsPlanned(order))",
     "activeRouteDeal.durationMinutes",
-    "Ihr Nachbarschafts-Angebot ist ${opportunityMinutes} Minuten gültig.",
-    "Bestellen Sie, solange die Lieferung noch im Restaurant ist.",
+    "routeDealTitle",
+    "activeRouteDeal.message",
+    "Noch ${opportunityMinutes} Minuten gültig.",
+    "automationSource",
     "dispatch result",
   ],
   "Nearby push timing, duration and close behavior",
+);
+
+assertContains(
+  pushServer,
+  [
+    "routeDealInput?: unknown",
+    "providedRouteDeal",
+    'OR: [{ allNotifications: true }, { nearbyDelivery: true }]',
+    "historyBySubscriptionId",
+    "preferenceAddress",
+    "activeSubscriptionIds",
+    "eventRuleId !== currentRuleId",
+    "ruleName: routeDealTitle",
+  ],
+  "Nearby push recipient and admin-message reliability",
 );
 
 assert(
@@ -137,8 +154,8 @@ assertContains(
   notificationAdmin,
   [
     "Fırsat süresi dakika",
-    "push metni",
-    "canlı geri sayım",
+    "kural adı push",
+    "Unterwegs olduğunda fırsat kapanır",
   ],
   "Notification admin duration explanation",
 );
@@ -164,8 +181,13 @@ assertContains(
     "result.error",
     'type="button"',
     "onClick={() => void save()}",
+    'id="campaign-overview"',
+    "Bestehende Kampagnen",
+    "deleteSingleCampaignFromDb",
+    'method: "DELETE"',
+    "Änderungen werden direkt in der DB gespeichert",
   ],
-  "Campaign Hinzufügen single-record DB save",
+  "Campaign creation and management",
 );
 
 console.log("Nearby push before Unterwegs + planned suppression + campaign create tests: OK");
