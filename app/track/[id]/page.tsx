@@ -200,6 +200,19 @@ function etaFor(order: TrackedOrder, avgPickup: number, avgDelivery: number) {
   return Math.max(1, toNum(baseEta, order.mode === "pickup" ? avgPickup : avgDelivery) + adjust);
 }
 
+function acceptedStartMs(order: TrackedOrder) {
+  const meta = order?.meta && typeof order.meta === "object" ? order.meta : {};
+  const accepted = toMs(
+    meta?.acceptedAt ??
+      meta?.etaConfirmedAt ??
+      meta?.acceptedTimestamp ??
+      null,
+    0,
+  );
+
+  return accepted > 0 ? accepted : null;
+}
+
 function remainingMinutes(
   order: TrackedOrder,
   avgPickup: number,
@@ -208,12 +221,20 @@ function remainingMinutes(
 ) {
   if (order.status === "done" || order.status === "cancelled") return 0;
 
-  const eta = etaFor(order, avgPickup, avgDelivery);
+  const nowMs = Date.now();
   const planned = plannedStartMs(order, tz);
-  const start = planned && planned > Date.now() ? planned : order.ts || Date.now();
+
+  // "planned" is the promised pickup/delivery target time. Do not add the ETA
+  // a second time; TV already counts directly toward this target.
+  if (planned && planned > nowMs) {
+    return Math.max(0, Math.floor((planned - nowMs) / 60_000));
+  }
+
+  const eta = etaFor(order, avgPickup, avgDelivery);
+  const start = acceptedStartMs(order) ?? order.ts ?? nowMs;
   const end = start + eta * 60_000;
 
-  return Math.max(0, Math.floor((end - Date.now()) / 60_000));
+  return Math.max(0, Math.floor((end - nowMs) / 60_000));
 }
 
 function prettyDeliveryLine(order: TrackedOrder) {

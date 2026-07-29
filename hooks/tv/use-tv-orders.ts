@@ -128,10 +128,15 @@ export function useTvOrders({
         previous.plannedKey !== plannedKey ||
         previous.etaKey !== etaKey
       ) {
+        // Prefer the canonical DB-backed start (meta.acceptedAt). The old
+        // implementation preferred the TV-only clock cache, which made TV and
+        // the public tracking page count from different moments.
         const safeDeadline =
-          clock?.startMs && Number.isFinite(clock.startMs)
-            ? clock.startMs + Math.max(1, etaKey) * 60_000
-            : nextDeadlineMs;
+          startMs && Number.isFinite(startMs)
+            ? startMs + Math.max(1, etaKey) * 60_000
+            : clock?.startMs && Number.isFinite(clock.startMs)
+              ? clock.startMs + Math.max(1, etaKey) * 60_000
+              : nextDeadlineMs;
 
         minuteCacheRef.current[order.id] = {
           deadlineMs: safeDeadline,

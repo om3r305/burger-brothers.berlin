@@ -824,11 +824,29 @@ export function getOrderDayMs(
   return null;
 }
 
+export function getOrderAcceptedMs(
+  order: Partial<StoredOrder>,
+): number | null {
+  const meta = cleanObj(order?.meta);
+
+  return toMsStrict(
+    meta?.acceptedAt ??
+      meta?.etaConfirmedAt ??
+      meta?.acceptedTimestamp ??
+      null,
+  );
+}
+
 export function getOrderStartMs(
   order: Partial<StoredOrder>,
   clock?: Record<string, TvOrderClockEntry>,
   fallback: number | null = null,
 ): number | null {
+  // ETA starts when the kitchen accepts/confirms the order. This timestamp is
+  // persisted by the status API and is therefore shared by TV and tracking.
+  const accepted = getOrderAcceptedMs(order);
+  if (accepted != null) return accepted;
+
   const exact = getOrderExactCreatedMs(order, null);
   if (exact != null) return exact;
 
@@ -1888,7 +1906,7 @@ export function remainingMinutes(
     return Math.floor((planned - nowMs) / 60_000);
   }
 
-  const start = getOrderExactCreatedMs(order, null) ?? order.ts ?? nowMs;
+  const start = getOrderStartMs(order, undefined, order.ts ?? nowMs) ?? nowMs;
   const end = start + etaMinutes * 60_000;
   const ms = end - nowMs;
 
