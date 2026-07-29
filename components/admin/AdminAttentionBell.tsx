@@ -16,7 +16,6 @@ export default function AdminAttentionBell() {
   const [open, setOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [items, setItems] = useState<AttentionItem[]>([]);
-  const previousIdsRef = useRef(new Set<string>());
   const loadingRef = useRef(false);
 
   const load = useCallback(async () => {
@@ -30,23 +29,6 @@ export default function AdminAttentionBell() {
       setUnreadCount(Number(data.unreadCount || 0));
       setItems(nextItems);
 
-      const newestUnread = nextItems.find(
-        (item: AttentionItem) =>
-          item.status === "unread" && !previousIdsRef.current.has(item.id),
-      );
-      if (
-        newestUnread &&
-        previousIdsRef.current.size > 0 &&
-        typeof Notification !== "undefined" &&
-        Notification.permission === "granted"
-      ) {
-        try {
-          new Notification(newestUnread.title, { body: newestUnread.body });
-        } catch {
-          // Admin içi rozet her durumda görünür.
-        }
-      }
-      previousIdsRef.current = new Set(nextItems.map((item: AttentionItem) => item.id));
     } catch {
       // Bildirim rozeti diğer admin işlemlerini engellemez.
     } finally {
@@ -69,6 +51,15 @@ export default function AdminAttentionBell() {
     };
   }, [load]);
 
+  useEffect(() => {
+    if (!("serviceWorker" in navigator)) return;
+    const onMessage = (event: MessageEvent) => {
+      if (event.data?.type === "BB_ADMIN_PUSH") void load();
+    };
+    navigator.serviceWorker.addEventListener("message", onMessage);
+    return () => navigator.serviceWorker.removeEventListener("message", onMessage);
+  }, [load]);
+
   const markRead = async (id: string) => {
     await fetch("/api/admin/attention", {
       method: "PATCH",
@@ -85,7 +76,12 @@ export default function AdminAttentionBell() {
     <div className="relative ml-auto">
       <button
         type="button"
-        onClick={() => setOpen((current) => !current)}
+        onClick={() =>
+          setOpen((current) => {
+            if (!current) void load();
+            return !current;
+          })
+        }
         className="relative grid h-11 w-11 place-items-center rounded-xl border border-white/10 bg-white/5 text-xl hover:bg-white/10"
         aria-label="Admin bildirimleri"
       >
@@ -98,7 +94,7 @@ export default function AdminAttentionBell() {
       </button>
 
       {open ? (
-        <div className="absolute right-0 top-14 z-[1500] w-[min(92vw,390px)] overflow-hidden rounded-2xl border border-stone-700 bg-stone-950 shadow-2xl">
+        <div className="fixed left-2 right-2 top-[calc(env(safe-area-inset-top)+4.5rem)] z-[1500] max-h-[75dvh] overflow-hidden rounded-2xl border border-stone-700 bg-stone-950 shadow-2xl sm:absolute sm:left-auto sm:right-0 sm:top-14 sm:w-[min(92vw,390px)]">
           <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
             <strong>Onay bildirimleri</strong>
             <button type="button" onClick={() => setOpen(false)} className="text-stone-400">✕</button>

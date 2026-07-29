@@ -24,6 +24,7 @@ const PUBLIC_PATHS = new Set([
   "/robots.txt",
   "/sitemap.xml",
   "/sw.js",
+  "/admin-sw.js",
 ]);
 
 const PUBLIC_PREFIXES = [
@@ -35,6 +36,7 @@ const PUBLIC_PREFIXES = [
   "/logo",
   "/fonts",
   "/assets",
+  "/admin/icons",
 ];
 
 function child(path: string, prefix: string) {

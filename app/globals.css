@@ -1609,3 +1609,201 @@ body:has(#bb-landing-page) #bb-landing-page {
   from { transform: scaleX(1); }
   to { transform: scaleX(0); }
 }
+
+
+/* =========================================================
+   BURGER BROTHERS ADMIN — MOBILE/PWA LAYER
+   Scoped to .bb-admin-app so customer, TV, driver and print stay unchanged.
+   ========================================================= */
+.bb-admin-app,
+.bb-admin-app * {
+  box-sizing: border-box;
+}
+
+.bb-admin-app {
+  min-width: 0;
+  overflow-x: clip;
+  isolation: isolate;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(251, 191, 36, .07), transparent 32rem),
+    #070707;
+}
+
+.bb-admin-content,
+.bb-admin-content > *,
+.bb-admin-content :where(section, article, form, fieldset, div) {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.bb-admin-content :where(img, video, canvas, svg) {
+  max-width: 100%;
+  height: auto;
+}
+
+.bb-admin-content :where(input, select, textarea) {
+  max-width: 100%;
+  min-height: 44px;
+}
+
+.bb-admin-content :where(button, a[role="button"]) {
+  touch-action: manipulation;
+}
+
+.bb-admin-content :where(button):not([aria-hidden="true"]) {
+  min-height: 44px;
+}
+
+.bb-admin-content :where(h1, h2, h3, p, label, strong, span) {
+  overflow-wrap: anywhere;
+}
+
+.bb-admin-content :where(.overflow-x-auto, .overflow-auto) {
+  max-width: 100%;
+  overscroll-behavior-inline: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.bb-admin-content :where(div):has(> table) {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.bb-admin-content table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+}
+
+.bb-admin-content :where([role="dialog"], [aria-modal="true"]) {
+  max-height: 94dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.bb-admin-content :where(.sticky.bottom-0, .sticky.bottom-3) {
+  bottom: calc(env(safe-area-inset-bottom) + .5rem);
+}
+
+.bb-admin-control-button,
+.bb-admin-control-status {
+  display: flex;
+  min-height: 44px;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  border-radius: .85rem;
+  border: 1px solid rgba(255,255,255,.10);
+  padding: .65rem .8rem;
+  text-align: center;
+  font-size: .75rem;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.bb-admin-control-button {
+  background: rgba(255,255,255,.055);
+  color: #e7e5e4;
+}
+
+.bb-admin-control-button:hover {
+  background: rgba(255,255,255,.10);
+}
+
+.bb-admin-control-button--active,
+.bb-admin-control-status {
+  border-color: rgba(110,231,183,.32);
+  background: rgba(16,185,129,.10);
+  color: #a7f3d0;
+}
+
+body:has(.bb-admin-app) .bb-mobile-footer-gap,
+body:has(.bb-admin-app) footer {
+  display: none !important;
+}
+
+body:has(.bb-admin-app) {
+  background: #070707 !important;
+  padding-bottom: 0 !important;
+}
+
+@media (max-width: 767px) {
+  .bb-admin-content {
+    font-size: 14px;
+  }
+
+  .bb-admin-content :where(input, select, textarea) {
+    font-size: 16px !important; /* iOS form zoomunu engeller */
+  }
+
+  .bb-admin-content h1 {
+    font-size: clamp(1.45rem, 7vw, 2rem) !important;
+    line-height: 1.08 !important;
+  }
+
+  .bb-admin-content h2 {
+    font-size: clamp(1.15rem, 5.5vw, 1.5rem);
+    line-height: 1.15;
+  }
+
+  .bb-admin-content :where(.card, section, article) {
+    border-radius: 1rem;
+  }
+
+  .bb-admin-content :where(.p-6, .p-8) {
+    padding: 1rem;
+  }
+
+  .bb-admin-content :where(.px-6, .px-8) {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+
+  .bb-admin-content :where(.gap-6, .gap-8) {
+    gap: 1rem;
+  }
+
+  .bb-admin-content :where(.text-4xl, .text-5xl) {
+    font-size: 1.75rem;
+    line-height: 1.12;
+  }
+
+  .bb-admin-content table :where(th, td) {
+    white-space: normal;
+    vertical-align: top;
+  }
+
+  .bb-admin-content table :where(input, select, textarea, button) {
+    min-width: 7.5rem;
+  }
+
+  .bb-admin-content .customer-table {
+    min-width: 1050px !important;
+  }
+
+  .bb-admin-content :where(.fixed.inset-0) {
+    padding-top: max(1rem, env(safe-area-inset-top));
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  }
+}
+
+@media (display-mode: standalone) {
+  .bb-admin-mobile-header {
+    padding-top: calc(env(safe-area-inset-top) + .65rem);
+  }
+
+  body:has(.bb-admin-app) {
+    min-height: 100dvh;
+  }
+}
+
+@media print {
+  .bb-admin-mobile-header,
+  .bb-admin-app > aside,
+  .bb-admin-control-button,
+  .bb-admin-control-status {
+    display: none !important;
+  }
+}

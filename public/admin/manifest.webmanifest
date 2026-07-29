@@ -1,13 +1,90 @@
 {
-  "name": "Burger Brothers • Admin",
-  "short_name": "Admin",
   "id": "/admin/",
-  "start_url": "/admin",
+  "name": "Burger Brothers Admin",
+  "short_name": "BB Admin",
+  "description": "Burger Brothers Berlin yönetim paneli",
+  "start_url": "/admin?source=pwa",
   "scope": "/admin/",
   "display": "standalone",
-  "background_color": "#0b0f14",
-  "theme_color": "#0b0f14",
+  "display_override": [
+    "window-controls-overlay",
+    "standalone"
+  ],
+  "orientation": "any",
+  "background_color": "#070707",
+  "theme_color": "#070707",
+  "categories": [
+    "business",
+    "productivity"
+  ],
   "icons": [
-    { "src": "/icon-kurier-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+    {
+      "src": "/admin/icons/admin-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/admin/icons/admin-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/admin/icons/admin-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Bildirimler",
+      "short_name": "Bildirimler",
+      "url": "/admin/notifications",
+      "icons": [
+        {
+          "src": "/admin/icons/admin-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Siparişler",
+      "short_name": "Siparişler",
+      "url": "/admin/orders",
+      "icons": [
+        {
+          "src": "/admin/icons/admin-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Schnellbestellung",
+      "short_name": "Schnell",
+      "url": "/admin/schnellbestellung",
+      "icons": [
+        {
+          "src": "/admin/icons/admin-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Vitrin Ekranı",
+      "short_name": "Showcase",
+      "url": "/admin/showcase",
+      "icons": [
+        {
+          "src": "/admin/icons/admin-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    }
   ]
 }

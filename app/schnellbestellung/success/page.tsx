@@ -3,6 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { clearSchnellActiveOrder } from "@/lib/client/schnell-active-order";
+import {
+  hasDisplayedSchnellReward,
+  markSchnellRewardDisplayed,
+} from "@/lib/client/reward-display-once";
 import RewardCelebration from "@/components/rewards/RewardCelebration";
 import type { SchnellRewardPublic } from "@/lib/rewards/config";
 import {
@@ -195,7 +199,11 @@ export default function SuccessPage() {
       const raw = window.sessionStorage.getItem(`bb_schnell_reward:${orderId}`);
       if (!raw) return;
       const parsed = JSON.parse(raw) as SchnellRewardPublic;
-      if (parsed?.winId) setReward(parsed);
+      if (parsed?.winId && !hasDisplayedSchnellReward(orderId, parsed)) {
+        setReward(parsed);
+      } else if (parsed?.winId) {
+        window.sessionStorage.removeItem(`bb_schnell_reward:${orderId}`);
+      }
     } catch {
       // Status API fallback olarak ödülü yükler.
     }
@@ -203,10 +211,21 @@ export default function SuccessPage() {
 
   useEffect(() => {
     if (!reward?.winId || rewardShownRef.current || endedRef.current) return;
+    if (hasDisplayedSchnellReward(orderId, reward)) {
+      setReward(null);
+      try {
+        window.sessionStorage.removeItem(`bb_schnell_reward:${orderId}`);
+      } catch {}
+      return;
+    }
+
     rewardShownRef.current = true;
+    // Mark before opening: a reload, PWA relaunch or Fertig push must not
+    // replay the same prize and photo/name form.
+    markSchnellRewardDisplayed(orderId, reward);
     const timer = window.setTimeout(() => setRewardVisible(true), 700);
     return () => window.clearTimeout(timer);
-  }, [reward]);
+  }, [orderId, reward]);
 
   useEffect(() => {
     prewarmSchnellPush();
@@ -305,7 +324,13 @@ export default function SuccessPage() {
           if (Number(data.customerNumber) > 0) {
             setCustomerNumber(String(data.customerNumber));
           }
-          if (data.reward?.winId) setReward(data.reward);
+          if (
+            data.reward?.winId &&
+            !rewardShownRef.current &&
+            !hasDisplayedSchnellReward(orderId, data.reward)
+          ) {
+            setReward(data.reward);
+          }
 
           if (data.status === "ready") {
             const readyEventId = String(data.readyEventId || "").trim();
@@ -405,6 +430,7 @@ export default function SuccessPage() {
           reward={reward}
           onClose={() => {
             setRewardVisible(false);
+            setReward(null);
             try {
               window.sessionStorage.removeItem(`bb_schnell_reward:${orderId}`);
             } catch {

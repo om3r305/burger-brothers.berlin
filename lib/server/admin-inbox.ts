@@ -1,4 +1,5 @@
 import { prisma, getTenantId } from "@/lib/db";
+import { scheduleAdminPushWake } from "@/lib/server/admin-push";
 
 export async function createAdminInboxNotification(params: {
   type: string;
@@ -11,7 +12,7 @@ export async function createAdminInboxNotification(params: {
   const tenantId = await getTenantId();
   const dedupeKey = `${params.sourceType}:${params.sourceId}:${params.type}`.slice(0, 220);
 
-  return prisma.adminInboxNotification.upsert({
+  const notification = await prisma.adminInboxNotification.upsert({
     where: {
       tenantId_dedupeKey: {
         tenantId,
@@ -38,6 +39,13 @@ export async function createAdminInboxNotification(params: {
       status: "unread",
     },
   });
+
+  // Wake installed Burger Admin apps after the HTTP response. The service
+  // worker fetches the private inbox with the existing admin session and
+  // deduplicates by notification id.
+  scheduleAdminPushWake();
+
+  return notification;
 }
 
 export async function resolveAdminInboxNotification(params: {

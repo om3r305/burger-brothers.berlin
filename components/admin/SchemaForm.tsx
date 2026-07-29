@@ -251,7 +251,7 @@ export default function SchemaForm({ schema, initial }: Props) {
           placeholder="Ara…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="min-w-[240px] rounded-md border border-stone-300/30 bg-transparent p-2 outline-none"
+          className="w-full min-w-0 rounded-md border border-stone-300/30 bg-transparent p-2 outline-none sm:w-auto sm:min-w-[240px]"
         />
         <label className="flex items-center gap-2 text-sm">
           <input
