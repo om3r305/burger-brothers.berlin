@@ -2929,25 +2929,16 @@ export default function CheckoutPage() {
       {orderRetryState && (
         <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-100">
           <div className="font-semibold">Technische Prüfung läuft</div>
-          {orderRetryState.emergencySending ? (
-            <div className="mt-1 leading-relaxed">
-              Die Datenbank ist weiterhin nicht erreichbar. Ihre Bestellung wird jetzt im
-              Notfallmodus direkt an unser Team übermittelt.
+          <div className="mt-1 leading-relaxed">
+            <div className="font-semibold">
+              Technische Verbindung wird geprüft
             </div>
-          ) : (
-            <div className="mt-1 leading-relaxed">
-              Die Verbindung zur Datenbank ist gerade nicht stabil. Wir versuchen die
-              Bestellung bis zu 5 Minuten lang automatisch erneut. Bitte diese Seite nicht
-              schließen. Wenn die Verbindung nicht zurückkommt, wird die Bestellung als
-              <b> ACİL MOD SİPARİŞ</b> per Telegram an unser Team gesendet.
+            <div className="mt-2">
+              Ihre Bestellung wird weiterhin sicher verarbeitet.
+              <br />
+              Bitte schließen Sie diese Seite nicht.
             </div>
-          )}
-          {!orderRetryState.emergencySending && (
-            <div className="mt-2 text-xs text-amber-200/85">
-              Versuch: {orderRetryState.attempt} · vergangen: {orderRetryState.elapsedSec}s ·
-              nächste Prüfung in ca. {orderRetryState.nextRetryInSec}s
-            </div>
-          )}
+          </div>
         </div>
       )}
 
