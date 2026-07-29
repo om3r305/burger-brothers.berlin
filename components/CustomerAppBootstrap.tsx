@@ -7,12 +7,26 @@ import {
   ALL_GENERAL_PUSH_PREFERENCES,
   ensureCustomerAppPushRegistration,
   isStandaloneApp,
+  type GeneralPushActivationStage,
 } from "@/lib/client/general-push";
+import {
+  hasSamsungSafeInstallIntent,
+  isSamsungInternetBrowser,
+} from "@/lib/client/pwa-compat";
 
 type Decision = "accepted" | "declined" | null;
 
 const DECISION_KEY = "bb_notification_prompt_decision_v1";
 const LEGACY_KEY = "bb_general_install_done_v1";
+
+const STAGE_LABELS: Record<GeneralPushActivationStage, string> = {
+  permission: "Berechtigung wird geprüft …",
+  config: "Benachrichtigungsdienst wird geprüft …",
+  service_worker: "App-Komponente wird vorbereitet …",
+  subscription: "Gerät wird angemeldet …",
+  server: "Anmeldung wird gespeichert …",
+  done: "Benachrichtigungen sind aktiv.",
+};
 
 function readDecision(): Decision {
   try {
@@ -54,11 +68,15 @@ export default function CustomerAppBootstrap() {
   const pathname = usePathname();
   const [showPrompt, setShowPrompt] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [stageText, setStageText] = useState("");
 
   useEffect(() => {
+    const samsungShortcutFlow =
+      isSamsungInternetBrowser() && hasSamsungSafeInstallIntent();
+
     if (
       typeof window === "undefined" ||
-      !isStandaloneApp() ||
+      (!isStandaloneApp() && !samsungShortcutFlow) ||
       isOperationalPath(pathname) ||
       pathname === "/install"
     ) {
@@ -91,11 +109,15 @@ export default function CustomerAppBootstrap() {
     if (busy) return;
 
     setBusy(true);
+    setStageText(STAGE_LABELS.permission);
     saveDecision("accepted");
 
     try {
       const result = await activateGeneralPushFromGesture(
         ALL_GENERAL_PUSH_PREFERENCES,
+        {
+          onStage: (stage) => setStageText(STAGE_LABELS[stage]),
+        },
       );
 
       if (
@@ -107,10 +129,12 @@ export default function CustomerAppBootstrap() {
         saveDecision("declined");
       }
     } catch {
-      // Kullanıcı Evet dedi. Geçici sunucu hatasında sonraki açılış sessizce onarır.
+      // The user's Yes choice is preserved. A later launch repairs the
+      // registration silently, while this screen is never allowed to hang.
     } finally {
       setShowPrompt(false);
       setBusy(false);
+      setStageText("");
     }
   };
 
@@ -142,6 +166,15 @@ export default function CustomerAppBootstrap() {
           Möchten Sie Benachrichtigungen von Burger Brothers erhalten?
         </p>
 
+        {busy && stageText ? (
+          <p
+            className="mt-4 rounded-2xl border border-emerald-300/20 bg-emerald-400/10 px-4 py-3 text-sm font-bold text-emerald-100"
+            aria-live="polite"
+          >
+            {stageText}
+          </p>
+        ) : null}
+
         <div className="mt-6 grid grid-cols-2 gap-3">
           <button
             type="button"
@@ -160,6 +193,13 @@ export default function CustomerAppBootstrap() {
             Nein
           </button>
         </div>
+
+        {busy ? (
+          <p className="mt-4 text-xs leading-5 text-stone-500">
+            Falls ein Browser-Schritt nicht antwortet, wird automatisch beendet
+            und die Anmeldung später im Hintergrund repariert.
+          </p>
+        ) : null}
       </section>
     </div>
   );

@@ -12,6 +12,7 @@ import {
   activateSchnellPushFromGesture,
   prewarmSchnellPush,
   type SchnellPushActivationResult,
+  type SchnellPushActivationStage,
 } from "@/lib/client/schnell-push";
 
 type ProblemKind =
@@ -305,6 +306,8 @@ export default function SchnellEnterClient({ token }: { token: string }) {
   const [scannerError, setScannerError] = useState("");
   const [backgroundPushEnabled, setBackgroundPushEnabled] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
+  const [pushStage, setPushStage] =
+    useState<SchnellPushActivationStage | null>(null);
   const [pushResult, setPushResult] =
     useState<SchnellPushActivationResult | null>(null);
 
@@ -669,10 +672,12 @@ export default function SchnellEnterClient({ token }: { token: string }) {
     if (pushBusy) return;
 
     setPushBusy(true);
+    setPushStage("permission");
     setPushResult(null);
 
-    const result = await activateSchnellPushFromGesture();
+    const result = await activateSchnellPushFromGesture(setPushStage);
     setPushResult(result);
+    setPushStage(null);
     setPushBusy(false);
 
     if (result.ok) {
@@ -760,7 +765,15 @@ export default function SchnellEnterClient({ token }: { token: string }) {
             className="mt-7 w-full rounded-2xl bg-emerald-400 px-5 py-4 text-lg font-black text-black disabled:opacity-60"
           >
             {pushBusy
-              ? "Wird aktiviert …"
+              ? pushStage === "permission"
+                ? "Berechtigung wird geprüft …"
+                : pushStage === "config"
+                  ? "Dienst wird geprüft …"
+                  : pushStage === "service_worker"
+                    ? "App wird vorbereitet …"
+                    : pushStage === "subscription"
+                      ? "Gerät wird angemeldet …"
+                      : "Wird aktiviert …"
               : "Benachrichtigungen aktivieren"}
           </button>
 

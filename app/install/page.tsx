@@ -9,7 +9,12 @@ import {
   isIOSDevice,
   isStandaloneApp,
   loadGeneralPushState,
+  type GeneralPushActivationStage,
 } from "@/lib/client/general-push";
+import {
+  isSamsungInternetBrowser,
+  markSamsungSafeInstallIntent,
+} from "@/lib/client/pwa-compat";
 
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>;
@@ -22,6 +27,7 @@ type BeforeInstallPromptEvent = Event & {
 type DeviceState = {
   isAndroid: boolean;
   isIOS: boolean;
+  isSamsungInternet: boolean;
   isStandalone: boolean;
   isMobile: boolean;
 };
@@ -32,11 +38,21 @@ const NOTIFICATION_DECISION_KEY = "bb_notification_prompt_decision_v1";
 const LEGACY_ONBOARDING_KEY = "bb_general_install_done_v1";
 const HOME_URL = "/";
 
+const PUSH_STAGE_LABELS: Record<GeneralPushActivationStage, string> = {
+  permission: "Berechtigung wird geprüft …",
+  config: "Benachrichtigungsdienst wird geprüft …",
+  service_worker: "App-Komponente wird vorbereitet …",
+  subscription: "Gerät wird angemeldet …",
+  server: "Anmeldung wird gespeichert …",
+  done: "Benachrichtigungen sind aktiv.",
+};
+
 function detectDevice(): DeviceState {
   if (typeof window === "undefined") {
     return {
       isAndroid: false,
       isIOS: false,
+      isSamsungInternet: false,
       isStandalone: false,
       isMobile: false,
     };
@@ -45,11 +61,13 @@ function detectDevice(): DeviceState {
   const ua = navigator.userAgent || "";
   const isAndroid = /android/i.test(ua);
   const isIOS = isIOSDevice();
+  const isSamsungInternet = isSamsungInternetBrowser();
   const standalone = isStandaloneApp();
 
   return {
     isAndroid,
     isIOS,
+    isSamsungInternet,
     isStandalone: standalone,
     isMobile: isAndroid || isIOS,
   };
@@ -85,9 +103,17 @@ function messageForActivation(code: string) {
       return "Benachrichtigungen sind zurzeit deaktiviert.";
     case "unsupported":
       return "Dieser Browser unterstützt keine App-Benachrichtigungen.";
+    case "permission_timeout":
+      return "Die Berechtigungsabfrage hat zu lange gedauert. Sie können trotzdem fortfahren und es später erneut versuchen.";
+    case "config_timeout":
+    case "server_timeout":
+      return "Der Server antwortet gerade zu langsam. Die Anmeldung wird beim nächsten Öffnen erneut versucht.";
+    case "service_worker_timeout":
     case "service_worker_failed":
-      return "Die App-Komponente konnte nicht gestartet werden.";
+      return "Die App-Komponente konnte nicht rechtzeitig gestartet werden.";
+    case "subscription_timeout":
     case "subscription_failed":
+      return "Die Geräteanmeldung konnte nicht rechtzeitig abgeschlossen werden.";
     case "server_failed":
       return "Die Geräteanmeldung konnte noch nicht abgeschlossen werden.";
     default:
@@ -109,7 +135,12 @@ export default function InstallPage() {
     "info",
   );
   const [installUrl, setInstallUrl] = useState("");
+  const [pushStage, setPushStage] = useState<GeneralPushActivationStage | null>(
+    null,
+  );
+  const [showSamsungHelp, setShowSamsungHelp] = useState(false);
   const iosStepsRef = useRef<HTMLDivElement | null>(null);
+  const samsungStepsRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -184,6 +215,16 @@ export default function InstallPage() {
 
     const onBeforeInstallPrompt = (event: Event) => {
       event.preventDefault();
+
+      // Samsung Internet can hand the install request to a browser-generated
+      // WebAPK whose Android target is controlled by the browser, not by this
+      // Next.js project. Keep the working Chrome/Xiaomi prompt unchanged, but
+      // use Samsung's safe Home-screen shortcut path instead.
+      if (currentDevice.isSamsungInternet) {
+        setInstallPrompt(null);
+        return;
+      }
+
       setInstallPrompt(event as BeforeInstallPromptEvent);
     };
     const onInstalled = () => {
@@ -208,6 +249,7 @@ export default function InstallPage() {
   const installationTitle = useMemo(() => {
     if (device.isStandalone) return "Burger Brothers";
     if (device.isIOS) return "Auf dem iPhone speichern";
+    if (device.isSamsungInternet) return "Auf Samsung speichern";
     if (device.isAndroid) return "Auf Android installieren";
     return "Burger Brothers installieren";
   }, [device]);
@@ -220,6 +262,22 @@ export default function InstallPage() {
         behavior: "smooth",
         block: "center",
       });
+      return;
+    }
+
+    if (device.isSamsungInternet) {
+      markSamsungSafeInstallIntent();
+      setShowSamsungHelp(true);
+      setMessageTone("info");
+      setMessage(
+        "Samsung Internet: Bitte „Zum Startbildschirm hinzufügen“ verwenden – nicht „App installieren“.",
+      );
+      window.setTimeout(() => {
+        samsungStepsRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "center",
+        });
+      }, 50);
       return;
     }
 
@@ -265,6 +323,7 @@ export default function InstallPage() {
     if (pushBusy) return;
 
     setPushBusy(true);
+    setPushStage("permission");
     setMessage("");
     saveDecision("accepted");
     setDecision("accepted");
@@ -272,6 +331,9 @@ export default function InstallPage() {
     try {
       const result = await activateGeneralPushFromGesture(
         ALL_GENERAL_PUSH_PREFERENCES,
+        {
+          onStage: setPushStage,
+        },
       );
 
       if (result.ok) {
@@ -285,12 +347,14 @@ export default function InstallPage() {
         setDecision("declined");
       } else {
         // The user already chose Yes. Keep that choice and silently repair the
-        // customer-app registration on a later launch if the server was temporary unavailable.
+        // registration later. Timeout paths must never trap the customer here.
         console.warn(messageForActivation(result.code));
       }
     } catch {
       // Preserve the user's Yes choice. A later app launch retries silently.
     } finally {
+      setPushBusy(false);
+      setPushStage(null);
       goHome();
     }
   };
@@ -359,7 +423,9 @@ export default function InstallPage() {
                 ? "Bitte warten …"
                 : device.isIOS
                   ? "iPhone-Anleitung anzeigen"
-                  : "Burger Brothers installieren"}
+                  : device.isSamsungInternet
+                    ? "Samsung-Anleitung anzeigen"
+                    : "Burger Brothers installieren"}
             </button>
 
             {device.isIOS ? (
@@ -393,6 +459,74 @@ export default function InstallPage() {
                     </p>
                   </div>
                 </div>
+              </div>
+            ) : null}
+
+            {device.isSamsungInternet && showSamsungHelp ? (
+              <div
+                ref={samsungStepsRef}
+                className="mt-10 w-full max-w-2xl rounded-[2rem] border border-sky-300/25 bg-sky-950/25 p-5 text-left shadow-2xl backdrop-blur"
+              >
+                <div className="text-center text-sm font-black uppercase tracking-[0.2em] text-sky-200">
+                  Samsung Internet – sicherer Startbildschirm
+                </div>
+                <p className="mt-3 text-center text-sm leading-6 text-stone-300">
+                  Verwenden Sie den normalen Startbildschirm-Link. Dadurch wird
+                  keine browsergenerierte Android-App installiert und es
+                  erscheint keine Play-Protect-Installationswarnung.
+                </p>
+
+                <div className="mt-5 grid gap-3">
+                  <div className="rounded-2xl bg-white/[0.06] p-4">
+                    <b className="text-white">1. Menü öffnen</b>
+                    <p className="mt-1 text-sm text-stone-400">
+                      Tippen Sie in Samsung Internet unten rechts auf das Menü
+                      mit den drei Linien.
+                    </p>
+                  </div>
+                  <div className="rounded-2xl bg-white/[0.06] p-4">
+                    <b className="text-white">2. „Seite hinzufügen zu“ wählen</b>
+                    <p className="mt-1 text-sm text-stone-400">
+                      Wählen Sie danach „Startbildschirm“. Bitte nicht
+                      „App installieren“ auswählen.
+                    </p>
+                  </div>
+                  <div className="rounded-2xl bg-white/[0.06] p-4">
+                    <b className="text-white">3. Symbol bestätigen</b>
+                    <p className="mt-1 text-sm text-stone-400">
+                      Burger Brothers erscheint als sicherer Schnellzugriff auf
+                      dem Startbildschirm. Bestellungen funktionieren weiterhin
+                      vollständig im Browser.
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => void handleNotificationYes()}
+                  disabled={pushBusy}
+                  className="mt-6 w-full rounded-2xl bg-emerald-400 px-5 py-4 text-base font-black text-black disabled:opacity-60"
+                >
+                  {pushBusy
+                    ? pushStage
+                      ? PUSH_STAGE_LABELS[pushStage]
+                      : "Bitte warten …"
+                    : "Benachrichtigungen aktivieren und weiter"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleNotificationNo}
+                  disabled={pushBusy}
+                  className="mt-3 w-full rounded-2xl border border-white/15 bg-white/[0.06] px-5 py-4 font-black text-white disabled:opacity-60"
+                >
+                  Ohne Benachrichtigung weiter
+                </button>
+
+                <p className="mt-4 text-center text-xs leading-5 text-stone-500">
+                  Die Benachrichtigung funktioniert unabhängig davon, ob der
+                  Startbildschirm-Link bereits hinzugefügt wurde.
+                </p>
               </div>
             ) : null}
 
@@ -449,7 +583,11 @@ export default function InstallPage() {
                       disabled={pushBusy}
                       className="rounded-2xl bg-emerald-400 px-5 py-4 text-lg font-black text-black transition hover:bg-emerald-300 active:scale-[0.98] disabled:opacity-60"
                     >
-                      {pushBusy ? "Bitte warten …" : "Ja"}
+                      {pushBusy
+                        ? pushStage
+                          ? PUSH_STAGE_LABELS[pushStage]
+                          : "Bitte warten …"
+                        : "Ja"}
                     </button>
                     <button
                       type="button"

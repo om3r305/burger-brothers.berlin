@@ -1,6 +1,13 @@
 "use client";
 
 import { readLastCustomerTracking } from "@/lib/customer-tracking";
+import {
+  isIOSLikeDevice,
+  isPwaStepTimeoutError,
+  isStandaloneDisplayMode,
+  PwaStepTimeoutError,
+  withPwaStepTimeout,
+} from "@/lib/client/pwa-compat";
 
 export type GeneralPushPreferences = {
   allNotifications: boolean;
@@ -28,6 +35,36 @@ export type GeneralPushState = {
   preferences?: GeneralPushPreferences;
 };
 
+export type GeneralPushActivationStage =
+  | "permission"
+  | "config"
+  | "service_worker"
+  | "subscription"
+  | "server"
+  | "done";
+
+export type GeneralPushActivationOptions = {
+  onStage?: (stage: GeneralPushActivationStage) => void;
+  permissionTimeoutMs?: number;
+  technicalTimeoutMs?: number;
+};
+
+export type GeneralPushFailureCode =
+  | "unsupported"
+  | "ios_home_screen_required"
+  | "disabled"
+  | "not_configured"
+  | "permission_denied"
+  | "permission_default"
+  | "permission_timeout"
+  | "config_timeout"
+  | "service_worker_failed"
+  | "service_worker_timeout"
+  | "subscription_failed"
+  | "subscription_timeout"
+  | "server_failed"
+  | "server_timeout";
+
 export type GeneralPushActivationResult =
   | {
       ok: true;
@@ -37,47 +74,29 @@ export type GeneralPushActivationResult =
     }
   | {
       ok: false;
-      code:
-        | "unsupported"
-        | "ios_home_screen_required"
-        | "disabled"
-        | "not_configured"
-        | "permission_denied"
-        | "permission_default"
-        | "service_worker_failed"
-        | "subscription_failed"
-        | "server_failed";
+      code: GeneralPushFailureCode;
       permission: NotificationPermission;
     };
 
-type BeforeInstallNavigator = Navigator & { standalone?: boolean };
+const DEFAULT_PERMISSION_TIMEOUT_MS = 30_000;
+const DEFAULT_TECHNICAL_TIMEOUT_MS = 12_000;
+const SERVER_ATTEMPT_TIMEOUT_MS = 8_000;
 
 function supportsPush() {
   return (
     typeof window !== "undefined" &&
     "serviceWorker" in navigator &&
-    "Notification" in window
+    "Notification" in window &&
+    "PushManager" in window
   );
 }
 
 export function isIOSDevice() {
-  if (typeof window === "undefined") return false;
-  const nav = navigator as BeforeInstallNavigator;
-  const ua = nav.userAgent || "";
-  return (
-    /iphone|ipad|ipod/i.test(ua) ||
-    (nav.platform === "MacIntel" && Number(nav.maxTouchPoints || 0) > 1)
-  );
+  return isIOSLikeDevice();
 }
 
 export function isStandaloneApp() {
-  if (typeof window === "undefined") return false;
-  const nav = navigator as BeforeInstallNavigator;
-  return (
-    window.matchMedia("(display-mode: standalone)").matches ||
-    window.matchMedia("(display-mode: fullscreen)").matches ||
-    nav.standalone === true
-  );
+  return isStandaloneDisplayMode();
 }
 
 function base64UrlToUint8Array(value: string) {
@@ -87,9 +106,50 @@ function base64UrlToUint8Array(value: string) {
   return Uint8Array.from(raw, (character) => character.charCodeAt(0));
 }
 
-async function registration() {
-  await navigator.serviceWorker.register("/sw.js", { scope: "/" });
-  return navigator.serviceWorker.ready;
+async function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init: RequestInit,
+  timeoutMs: number,
+  timeoutCode: string,
+) {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(
+    () => controller.abort(),
+    Math.max(1_000, timeoutMs),
+  );
+
+  try {
+    return await fetch(input, {
+      ...init,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new PwaStepTimeoutError(timeoutCode);
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
+async function registration(timeoutMs = DEFAULT_TECHNICAL_TIMEOUT_MS) {
+  const registered = await withPwaStepTimeout(
+    navigator.serviceWorker.register("/sw.js", {
+      scope: "/",
+      updateViaCache: "none",
+    }),
+    timeoutMs,
+    "service_worker_timeout",
+  );
+
+  await registered.update().catch(() => undefined);
+
+  return withPwaStepTimeout(
+    navigator.serviceWorker.ready,
+    timeoutMs,
+    "service_worker_timeout",
+  );
 }
 
 async function parseJson(response: Response) {
@@ -102,33 +162,73 @@ function delay(milliseconds: number) {
   });
 }
 
-export async function loadGeneralPushState(): Promise<GeneralPushState> {
+export async function loadGeneralPushState(
+  timeoutMs = DEFAULT_TECHNICAL_TIMEOUT_MS,
+): Promise<GeneralPushState> {
   if (!supportsPush()) return { ok: false, enabled: false, configured: false };
 
-  const response = await fetch("/api/push", {
-    credentials: "same-origin",
-    cache: "no-store",
-    headers: { accept: "application/json" },
-  });
+  const response = await fetchWithTimeout(
+    "/api/push",
+    {
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: { accept: "application/json" },
+    },
+    timeoutMs,
+    "config_timeout",
+  );
+
   return parseJson(response);
 }
 
 async function currentSubscription(
+  worker: ServiceWorkerRegistration,
   publicKey: string,
+  timeoutMs: number,
 ): Promise<PushSubscription> {
-  const worker = await registration();
-  const existing = await worker.pushManager.getSubscription();
+  if (!worker.pushManager) {
+    throw new Error("push_manager_unavailable");
+  }
+
+  const existing = await withPwaStepTimeout(
+    worker.pushManager.getSubscription(),
+    timeoutMs,
+    "subscription_timeout",
+  );
+
   if (existing) return existing;
 
-  return worker.pushManager.subscribe({
-    userVisibleOnly: true,
-    applicationServerKey: base64UrlToUint8Array(publicKey),
-  });
+  try {
+    return await withPwaStepTimeout(
+      worker.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: base64UrlToUint8Array(publicKey),
+      }),
+      timeoutMs,
+      "subscription_timeout",
+    );
+  } catch (error) {
+    /*
+      Some Android browsers finish subscribe() after the JS promise has already
+      rejected or timed out. Check once more before reporting failure. This
+      repairs a half-created browser subscription without removing a working
+      subscription that Schnellbestellung may also use.
+    */
+    const recovered = await withPwaStepTimeout(
+      worker.pushManager.getSubscription(),
+      Math.min(4_000, timeoutMs),
+      "subscription_timeout",
+    ).catch(() => null);
+
+    if (recovered) return recovered;
+    throw error;
+  }
 }
 
 async function saveSubscription(
   subscription: PushSubscription,
   preferences: GeneralPushPreferences,
+  timeoutMs = DEFAULT_TECHNICAL_TIMEOUT_MS,
 ) {
   const requestBody = JSON.stringify({
     subscription: subscription.toJSON(),
@@ -137,19 +237,24 @@ async function saveSubscription(
 
   let lastError: unknown = new Error("push_save_failed");
 
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      const response = await fetch("/api/push", {
-        method: "POST",
-        credentials: "same-origin",
-        keepalive: true,
-        cache: "no-store",
-        headers: {
-          "content-type": "application/json",
-          accept: "application/json",
+      const response = await fetchWithTimeout(
+        "/api/push",
+        {
+          method: "POST",
+          credentials: "same-origin",
+          keepalive: true,
+          cache: "no-store",
+          headers: {
+            "content-type": "application/json",
+            accept: "application/json",
+          },
+          body: requestBody,
         },
-        body: requestBody,
-      });
+        Math.min(timeoutMs, SERVER_ATTEMPT_TIMEOUT_MS),
+        "server_timeout",
+      );
 
       const data = await parseJson(response);
 
@@ -163,8 +268,10 @@ async function saveSubscription(
     } catch (error) {
       lastError = error;
 
-      if (attempt < 2) {
-        await delay(500 * (attempt + 1));
+      if (attempt < 1 && !isPwaStepTimeoutError(error)) {
+        await delay(450);
+      } else if (attempt < 1 && isPwaStepTimeoutError(error)) {
+        await delay(250);
       }
     }
   }
@@ -174,8 +281,16 @@ async function saveSubscription(
     : new Error("push_save_failed");
 }
 
+function activationFailure(
+  code: GeneralPushFailureCode,
+  permission: NotificationPermission,
+): GeneralPushActivationResult {
+  return { ok: false, code, permission };
+}
+
 export async function activateGeneralPushFromGesture(
   preferences: GeneralPushPreferences = ALL_GENERAL_PUSH_PREFERENCES,
+  options: GeneralPushActivationOptions = {},
 ): Promise<GeneralPushActivationResult> {
   if (!supportsPush()) {
     return { ok: false, code: "unsupported", permission: "default" };
@@ -189,68 +304,121 @@ export async function activateGeneralPushFromGesture(
     };
   }
 
-  const configPromise = loadGeneralPushState();
-  let permission = Notification.permission;
+  const permissionTimeoutMs =
+    options.permissionTimeoutMs ?? DEFAULT_PERMISSION_TIMEOUT_MS;
+  const technicalTimeoutMs =
+    options.technicalTimeoutMs ?? DEFAULT_TECHNICAL_TIMEOUT_MS;
 
+  const configPromise = loadGeneralPushState(technicalTimeoutMs)
+    .then((value) => ({ ok: true as const, value }))
+    .catch((error) => ({ ok: false as const, error }));
+
+  options.onStage?.("permission");
+
+  let permission = Notification.permission;
   if (permission === "default") {
     try {
-      permission = await Notification.requestPermission();
-    } catch {
+      permission = await withPwaStepTimeout(
+        Notification.requestPermission(),
+        permissionTimeoutMs,
+        "permission_timeout",
+      );
+    } catch (error) {
+      if (isPwaStepTimeoutError(error)) {
+        return activationFailure("permission_timeout", Notification.permission);
+      }
       permission = Notification.permission;
     }
   }
 
   if (permission === "denied") {
-    return { ok: false, code: "permission_denied", permission };
+    return activationFailure("permission_denied", permission);
   }
   if (permission !== "granted") {
-    return { ok: false, code: "permission_default", permission };
+    return activationFailure("permission_default", permission);
   }
 
-  let config: GeneralPushState;
-  try {
-    config = await configPromise;
-  } catch {
-    return { ok: false, code: "server_failed", permission };
+  options.onStage?.("config");
+  const configResult = await configPromise;
+
+  if (!configResult.ok) {
+    return activationFailure(
+      isPwaStepTimeoutError(configResult.error)
+        ? "config_timeout"
+        : "server_failed",
+      permission,
+    );
   }
 
+  const config = configResult.value;
   if (!config.enabled) {
-    return { ok: false, code: "disabled", permission };
+    return activationFailure("disabled", permission);
   }
   if (!config.configured || !config.publicKey) {
-    return { ok: false, code: "not_configured", permission };
+    return activationFailure("not_configured", permission);
   }
+
+  options.onStage?.("service_worker");
+
+  let worker: ServiceWorkerRegistration;
+  try {
+    worker = await registration(technicalTimeoutMs);
+  } catch (error) {
+    return activationFailure(
+      isPwaStepTimeoutError(error)
+        ? "service_worker_timeout"
+        : "service_worker_failed",
+      permission,
+    );
+  }
+
+  options.onStage?.("subscription");
 
   let subscription: PushSubscription;
   try {
-    subscription = await currentSubscription(config.publicKey);
+    subscription = await currentSubscription(
+      worker,
+      config.publicKey,
+      technicalTimeoutMs,
+    );
   } catch (error) {
-    const code =
-      error instanceof Error && /service worker/i.test(error.message)
-        ? "service_worker_failed"
-        : "subscription_failed";
-    return { ok: false, code, permission };
+    return activationFailure(
+      isPwaStepTimeoutError(error)
+        ? "subscription_timeout"
+        : "subscription_failed",
+      permission,
+    );
   }
 
+  options.onStage?.("server");
+
   try {
-    const state = await saveSubscription(subscription, preferences);
+    const state = await saveSubscription(
+      subscription,
+      preferences,
+      technicalTimeoutMs,
+    );
+
     try {
       localStorage.setItem("bb_general_push_activated_v1", String(Date.now()));
     } catch {}
 
     await repairGeneralPushOrderBindingFromLastOrder().catch(() => false);
 
+    options.onStage?.("done");
     return { ok: true, code: "subscribed", permission, state };
-  } catch {
-    return { ok: false, code: "server_failed", permission };
+  } catch (error) {
+    return activationFailure(
+      isPwaStepTimeoutError(error) ? "server_timeout" : "server_failed",
+      permission,
+    );
   }
 }
-
 
 export async function ensureCustomerAppPushRegistration(): Promise<boolean> {
   if (!supportsPush() || Notification.permission !== "granted") return false;
 
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
       const config = await loadGeneralPushState();
 
@@ -258,7 +426,13 @@ export async function ensureCustomerAppPushRegistration(): Promise<boolean> {
         return false;
       }
 
-      const subscription = await currentSubscription(config.publicKey);
+      const worker = await registration();
+      const subscription = await currentSubscription(
+        worker,
+        config.publicKey,
+        DEFAULT_TECHNICAL_TIMEOUT_MS,
+      );
+
       await saveSubscription(subscription, ALL_GENERAL_PUSH_PREFERENCES);
 
       try {
@@ -269,18 +443,16 @@ export async function ensureCustomerAppPushRegistration(): Promise<boolean> {
       } catch {}
 
       await repairGeneralPushOrderBindingFromLastOrder().catch(() => false);
-
       return true;
     } catch {
-      if (attempt < 2) {
-        await delay(700 * (attempt + 1));
+      if (attempt < 1) {
+        await delay(650);
       }
     }
   }
 
   return false;
 }
-
 
 export async function updateGeneralPushPreferences(
   preferences: GeneralPushPreferences,
@@ -291,8 +463,19 @@ export async function updateGeneralPushPreferences(
 
   const config = await loadGeneralPushState();
   if (!config.publicKey) throw new Error("push_not_configured");
-  const subscription = await currentSubscription(config.publicKey);
-  return saveSubscription(subscription, preferences);
+
+  const worker = await registration();
+  const subscription = await currentSubscription(
+    worker,
+    config.publicKey,
+    DEFAULT_TECHNICAL_TIMEOUT_MS,
+  );
+
+  return saveSubscription(
+    subscription,
+    preferences,
+    DEFAULT_TECHNICAL_TIMEOUT_MS,
+  );
 }
 
 export async function bindGeneralPushToOrder(
@@ -303,16 +486,22 @@ export async function bindGeneralPushToOrder(
   if (Notification.permission !== "granted") return false;
 
   try {
-    const response = await fetch("/api/push/order", {
-      method: "POST",
-      credentials: "same-origin",
-      headers: {
-        "content-type": "application/json",
-        accept: "application/json",
+    const response = await fetchWithTimeout(
+      "/api/push/order",
+      {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json",
+        },
+        body: JSON.stringify({ orderId, trackingToken }),
+        keepalive: true,
       },
-      body: JSON.stringify({ orderId, trackingToken }),
-      keepalive: true,
-    });
+      SERVER_ATTEMPT_TIMEOUT_MS,
+      "server_timeout",
+    );
+
     const data = await parseJson(response);
     return response.ok && data?.ok === true;
   } catch {
@@ -330,13 +519,16 @@ export async function repairGeneralPushOrderBindingFromLastOrder() {
 }
 
 export async function disableGeneralPush() {
-  // PushSubscription aynı origin üzerindeki Schnellbestellung tarafından da
-  // kullanılabilir. Tarayıcı aboneliğini unsubscribe ederek çalışan Fertig
-  // bildirimini bozma; yalnız genel bildirim kaydını sunucuda pasifleştir.
-  const response = await fetch("/api/push", {
-    method: "DELETE",
-    credentials: "same-origin",
-    headers: { accept: "application/json" },
-  });
+  const response = await fetchWithTimeout(
+    "/api/push",
+    {
+      method: "DELETE",
+      credentials: "same-origin",
+      headers: { accept: "application/json" },
+    },
+    SERVER_ATTEMPT_TIMEOUT_MS,
+    "server_timeout",
+  );
+
   return response.ok;
 }

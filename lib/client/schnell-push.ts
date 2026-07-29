@@ -1,11 +1,24 @@
 "use client";
 
+import {
+  isPwaStepTimeoutError,
+  PwaStepTimeoutError,
+  withPwaStepTimeout,
+} from "@/lib/client/pwa-compat";
+
 type PushConfig = {
   ok?: boolean;
   enabled?: boolean;
   configured?: boolean;
   publicKey?: string;
 };
+
+export type SchnellPushActivationStage =
+  | "permission"
+  | "config"
+  | "service_worker"
+  | "subscription"
+  | "done";
 
 type SchnellPushWindow = Window &
   typeof globalThis & {
@@ -16,11 +29,16 @@ type SchnellPushWindow = Window &
     __bbSchnellPushBindPromises?: Record<string, Promise<boolean>>;
   };
 
+const PERMISSION_TIMEOUT_MS = 30_000;
+const TECHNICAL_TIMEOUT_MS = 12_000;
+const SERVER_TIMEOUT_MS = 8_000;
+
 function browserSupportsPush() {
   return (
     typeof window !== "undefined" &&
     "serviceWorker" in navigator &&
-    "Notification" in window
+    "Notification" in window &&
+    "PushManager" in window
   );
 }
 
@@ -35,41 +53,128 @@ function pushWindow() {
   return window as SchnellPushWindow;
 }
 
-async function loadConfig() {
+async function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init: RequestInit,
+  timeoutMs: number,
+  code: string,
+) {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(
+    () => controller.abort(),
+    Math.max(1_000, timeoutMs),
+  );
+
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (controller.signal.aborted) throw new PwaStepTimeoutError(code);
+    throw error;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
+async function loadConfig(timeoutMs = TECHNICAL_TIMEOUT_MS) {
   if (!browserSupportsPush()) return {};
 
   const currentWindow = pushWindow();
-  currentWindow.__bbSchnellPushConfigPromise ||= fetch(
-    "/api/schnellbestellung/push",
-    {
-      credentials: "same-origin",
-      cache: "no-store",
-    },
-  )
-    .then((response) => response.json().catch(() => ({})))
-    .then((config) => {
-      currentWindow.__bbSchnellPushConfig = config;
-      return config;
-    })
-    .catch(() => ({}));
+
+  if (!currentWindow.__bbSchnellPushConfigPromise) {
+    currentWindow.__bbSchnellPushConfigPromise = fetchWithTimeout(
+      "/api/schnellbestellung/push",
+      {
+        credentials: "same-origin",
+        cache: "no-store",
+      },
+      timeoutMs,
+      "config_timeout",
+    )
+      .then((response) => response.json().catch(() => ({})))
+      .then((config) => {
+        currentWindow.__bbSchnellPushConfig = config;
+        return config;
+      })
+      .catch((error) => {
+        delete currentWindow.__bbSchnellPushConfigPromise;
+        throw error;
+      });
+  }
 
   return currentWindow.__bbSchnellPushConfigPromise;
 }
 
-async function registerWorker() {
+async function registerWorker(timeoutMs = TECHNICAL_TIMEOUT_MS) {
   if (!browserSupportsPush()) throw new Error("push_not_supported");
 
   const currentWindow = pushWindow();
-  currentWindow.__bbSchnellPushRegistrationPromise ||= navigator.serviceWorker
-    .register("/sw.js", { scope: "/" })
-    .then(() => navigator.serviceWorker.ready);
+
+  if (!currentWindow.__bbSchnellPushRegistrationPromise) {
+    currentWindow.__bbSchnellPushRegistrationPromise = (async () => {
+      const registered = await withPwaStepTimeout(
+        navigator.serviceWorker.register("/sw.js", {
+          scope: "/",
+          updateViaCache: "none",
+        }),
+        timeoutMs,
+        "service_worker_timeout",
+      );
+
+      await registered.update().catch(() => undefined);
+
+      return withPwaStepTimeout(
+        navigator.serviceWorker.ready,
+        timeoutMs,
+        "service_worker_timeout",
+      );
+    })().catch((error) => {
+      delete currentWindow.__bbSchnellPushRegistrationPromise;
+      throw error;
+    });
+  }
 
   return currentWindow.__bbSchnellPushRegistrationPromise;
 }
 
+async function getOrCreateSubscription(
+  registration: ServiceWorkerRegistration,
+  publicKey: string,
+  timeoutMs = TECHNICAL_TIMEOUT_MS,
+) {
+  if (!registration.pushManager) throw new Error("push_manager_unavailable");
+
+  const existing = await withPwaStepTimeout(
+    registration.pushManager.getSubscription(),
+    timeoutMs,
+    "subscription_timeout",
+  );
+
+  if (existing) return existing;
+
+  try {
+    return await withPwaStepTimeout(
+      registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: base64UrlToUint8Array(publicKey),
+      }),
+      timeoutMs,
+      "subscription_timeout",
+    );
+  } catch (error) {
+    const recovered = await withPwaStepTimeout(
+      registration.pushManager.getSubscription(),
+      Math.min(timeoutMs, 4_000),
+      "subscription_timeout",
+    ).catch(() => null);
+
+    if (recovered) return recovered;
+    throw error;
+  }
+}
+
 export function prewarmSchnellPush() {
   if (!browserSupportsPush()) return;
-  void loadConfig();
+  void loadConfig().catch(() => undefined);
   void registerWorker().catch(() => undefined);
 }
 
@@ -83,12 +188,18 @@ export type SchnellPushActivationResult =
         | "not_configured"
         | "permission_denied"
         | "permission_default"
+        | "permission_timeout"
+        | "config_timeout"
         | "service_worker_failed"
-        | "subscription_failed";
+        | "service_worker_timeout"
+        | "subscription_failed"
+        | "subscription_timeout";
       permission: NotificationPermission;
     };
 
-export async function activateSchnellPushFromGesture(): Promise<SchnellPushActivationResult> {
+export async function activateSchnellPushFromGesture(
+  onStage?: (stage: SchnellPushActivationStage) => void,
+): Promise<SchnellPushActivationResult> {
   if (!browserSupportsPush()) {
     return {
       ok: false,
@@ -98,19 +209,33 @@ export async function activateSchnellPushFromGesture(): Promise<SchnellPushActiv
   }
 
   const currentWindow = pushWindow();
+  const configPromise = loadConfig()
+    .then((value) => ({ ok: true as const, value }))
+    .catch((error) => ({ ok: false as const, error }));
+  const registrationPromise = registerWorker()
+    .then((value) => ({ ok: true as const, value }))
+    .catch((error) => ({ ok: false as const, error }));
 
-  // Start these before the permission promise resolves. In the installed iOS
-  // web app this function is called directly by the customer's button tap.
-  const configPromise = loadConfig();
-  const registrationPromise = registerWorker();
+  onStage?.("permission");
 
   let permission = Notification.permission;
   if (permission === "default") {
     try {
-      currentWindow.__bbSchnellPushPermissionPromise =
-        Notification.requestPermission();
+      currentWindow.__bbSchnellPushPermissionPromise = withPwaStepTimeout(
+        Notification.requestPermission(),
+        PERMISSION_TIMEOUT_MS,
+        "permission_timeout",
+      );
       permission = await currentWindow.__bbSchnellPushPermissionPromise;
-    } catch {
+    } catch (error) {
+      if (isPwaStepTimeoutError(error)) {
+        delete currentWindow.__bbSchnellPushPermissionPromise;
+        return {
+          ok: false,
+          code: "permission_timeout",
+          permission: Notification.permission,
+        };
+      }
       permission = Notification.permission;
     }
   } else {
@@ -119,83 +244,70 @@ export async function activateSchnellPushFromGesture(): Promise<SchnellPushActiv
   }
 
   if (permission === "denied") {
-    return {
-      ok: false,
-      code: "permission_denied",
-      permission,
-    };
+    return { ok: false, code: "permission_denied", permission };
   }
-
   if (permission !== "granted") {
+    return { ok: false, code: "permission_default", permission };
+  }
+
+  onStage?.("config");
+  const configResult = await configPromise;
+
+  if (!configResult.ok) {
     return {
       ok: false,
-      code: "permission_default",
+      code: isPwaStepTimeoutError(configResult.error)
+        ? "config_timeout"
+        : "not_configured",
       permission,
     };
   }
 
-  const config = await configPromise;
+  const config = configResult.value;
   if (!config.enabled) {
-    return {
-      ok: false,
-      code: "disabled",
-      permission,
-    };
+    return { ok: false, code: "disabled", permission };
   }
   if (!config.configured || !config.publicKey) {
+    return { ok: false, code: "not_configured", permission };
+  }
+
+  onStage?.("service_worker");
+  const registrationResult = await registrationPromise;
+
+  if (!registrationResult.ok) {
     return {
       ok: false,
-      code: "not_configured",
+      code: isPwaStepTimeoutError(registrationResult.error)
+        ? "service_worker_timeout"
+        : "service_worker_failed",
       permission,
     };
   }
 
-  let registration: ServiceWorkerRegistration;
-  try {
-    registration = await registrationPromise;
-  } catch {
-    return {
-      ok: false,
-      code: "service_worker_failed",
-      permission,
-    };
-  }
+  onStage?.("subscription");
 
   try {
-    if (!registration.pushManager) {
-      return {
-        ok: false,
-        code: "unsupported",
-        permission,
-      };
-    }
-
-    const existing = await registration.pushManager.getSubscription();
-    if (!existing) {
-      await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: base64UrlToUint8Array(config.publicKey),
-      });
-    }
+    await getOrCreateSubscription(
+      registrationResult.value,
+      config.publicKey,
+      TECHNICAL_TIMEOUT_MS,
+    );
 
     try {
       window.localStorage.setItem(
         "bb_schnell_push_activated_v1",
         String(Date.now()),
       );
-    } catch {
-      // The subscription itself is the source of truth.
-    }
+    } catch {}
 
-    return {
-      ok: true,
-      code: "subscribed",
-      permission,
-    };
-  } catch {
+    onStage?.("done");
+    return { ok: true, code: "subscribed", permission };
+  } catch (error) {
     return {
       ok: false,
-      code: "subscription_failed",
+      code: isPwaStepTimeoutError(error)
+        ? "subscription_timeout"
+        : "subscription_failed",
       permission,
     };
   }
@@ -206,6 +318,7 @@ export function requestSchnellPushPermissionFromGesture() {
 
   const currentWindow = pushWindow();
   const currentConfig = currentWindow.__bbSchnellPushConfig;
+
   if (currentConfig && (!currentConfig.enabled || !currentConfig.configured)) {
     return;
   }
@@ -219,12 +332,12 @@ export function requestSchnellPushPermissionFromGesture() {
     return;
   }
 
-  // This call intentionally happens directly inside the final order button's
-  // click handler. Android Chrome requires a user gesture for the permission
-  // prompt. No extra application modal or button is introduced.
   try {
-    currentWindow.__bbSchnellPushPermissionPromise =
-      Notification.requestPermission().catch(() => "denied");
+    currentWindow.__bbSchnellPushPermissionPromise = withPwaStepTimeout(
+      Notification.requestPermission(),
+      PERMISSION_TIMEOUT_MS,
+      "permission_timeout",
+    ).catch(() => Notification.permission);
   } catch {
     currentWindow.__bbSchnellPushPermissionPromise = Promise.resolve("denied");
   }
@@ -236,6 +349,7 @@ export async function bindSchnellPushToOrder(orderId: string) {
   const currentWindow = pushWindow();
   currentWindow.__bbSchnellPushBindPromises ||= {};
   const existingBind = currentWindow.__bbSchnellPushBindPromises[orderId];
+
   if (existingBind) return existingBind;
 
   const bindPromise = (async () => {
@@ -246,30 +360,38 @@ export async function bindSchnellPushToOrder(orderId: string) {
       }
 
       const permission = currentWindow.__bbSchnellPushPermissionPromise
-        ? await currentWindow.__bbSchnellPushPermissionPromise
+        ? await withPwaStepTimeout(
+            currentWindow.__bbSchnellPushPermissionPromise,
+            PERMISSION_TIMEOUT_MS,
+            "permission_timeout",
+          )
         : Notification.permission;
+
       if (permission !== "granted") return false;
 
       const registration = await registerWorker();
-      const existing = await registration.pushManager.getSubscription();
-      const subscription =
-        existing ||
-        (await registration.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: base64UrlToUint8Array(config.publicKey),
-        }));
+      const subscription = await getOrCreateSubscription(
+        registration,
+        config.publicKey,
+        TECHNICAL_TIMEOUT_MS,
+      );
 
-      const response = await fetch("/api/schnellbestellung/push", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        credentials: "same-origin",
-        cache: "no-store",
-        keepalive: true,
-        body: JSON.stringify({
-          orderId,
-          subscription: subscription.toJSON(),
-        }),
-      });
+      const response = await fetchWithTimeout(
+        "/api/schnellbestellung/push",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          credentials: "same-origin",
+          cache: "no-store",
+          keepalive: true,
+          body: JSON.stringify({
+            orderId,
+            subscription: subscription.toJSON(),
+          }),
+        },
+        SERVER_TIMEOUT_MS,
+        "server_timeout",
+      );
 
       return response.ok;
     } catch {
@@ -279,6 +401,7 @@ export async function bindSchnellPushToOrder(orderId: string) {
 
   currentWindow.__bbSchnellPushBindPromises[orderId] = bindPromise;
   const result = await bindPromise;
+
   if (!result) delete currentWindow.__bbSchnellPushBindPromises[orderId];
   return result;
 }
