@@ -15,6 +15,10 @@ import {
   hashPaymentShareToken,
   verifyPaymentShareToken,
 } from "@/lib/server/payment-share-token";
+import {
+  normalizePaymentRecoveryToken,
+  paymentRecoveryValueMatches,
+} from "@/lib/server/payment-recovery-token";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -273,6 +277,68 @@ async function paymentPhone(params: {
   return normalizePhone(ensureObj(pending.customer)?.phone);
 }
 
+async function recoveryProfileClaim(params: {
+  paymentSessionId: string;
+  recoveryToken: string;
+}) {
+  const recoveryToken = normalizePaymentRecoveryToken(params.recoveryToken);
+  if (!recoveryToken) {
+    throw new Error("PAYMENT_RECOVERY_TOKEN_INVALID");
+  }
+
+  const tenantId = await getTenantId();
+  const pending = await prisma.order.findFirst({
+    where: {
+      tenantId,
+      id: params.paymentSessionId,
+    },
+    select: {
+      customer: true,
+      meta: true,
+    },
+  });
+
+  if (!pending) {
+    throw new Error("PAYMENT_SESSION_NOT_FOUND");
+  }
+
+  const paymentSession = ensureObj(ensureObj(pending.meta).paymentSession);
+  const expectedHash = String(paymentSession.recoveryTokenHash || "");
+
+  if (!paymentRecoveryValueMatches(recoveryToken, expectedHash)) {
+    throw new Error("PAYMENT_RECOVERY_TOKEN_INVALID");
+  }
+
+  if (String(paymentSession.kind || "online") !== "online") {
+    throw new Error("PAYMENT_PROFILE_SPLIT_NOT_SUPPORTED");
+  }
+
+  if (paymentSession.rememberPayment !== true) {
+    return {
+      skipped: "CONSENT_NOT_GIVEN" as const,
+      checkoutSessionId: "",
+      phone: "",
+    };
+  }
+
+  const shares = Array.isArray(paymentSession.shares)
+    ? paymentSession.shares
+    : [];
+  const checkoutSessionId = shares
+    .map((share: any) => String(share?.checkoutSessionId || "").trim())
+    .find(Boolean);
+
+  if (!checkoutSessionId) {
+    throw new Error("PAYMENT_PROFILE_CHECKOUT_SESSION_MISSING");
+  }
+
+  return {
+    skipped: null,
+    checkoutSessionId,
+    phone: normalizePhone(ensureObj(pending.customer).phone),
+  };
+}
+
 export async function GET(req: Request) {
   try {
     const stripe = getStripeClient();
@@ -325,11 +391,14 @@ export async function POST(req: Request) {
   if (rateError) return rateError;
 
   const body = await req.json().catch(() => ({} as any));
-  const checkoutSessionId = String(body?.checkoutSessionId || "").trim();
+  let checkoutSessionId = String(body?.checkoutSessionId || "").trim();
   const paymentSessionId = String(body?.paymentSessionId || "").trim();
   const shareToken = String(body?.shareToken || "").trim();
+  const recoveryToken = String(
+    body?.recoveryToken || body?.recovery || "",
+  ).trim();
 
-  if (!checkoutSessionId || !paymentSessionId) {
+  if (!paymentSessionId || (!checkoutSessionId && !recoveryToken)) {
     return NextResponse.json(
       {
         ok: false,
@@ -343,6 +412,44 @@ export async function POST(req: Request) {
   }
 
   try {
+    let recoveryPhone = "";
+
+    if (recoveryToken) {
+      const claim = await recoveryProfileClaim({
+        paymentSessionId,
+        recoveryToken,
+      });
+
+      if (claim.skipped) {
+        return NextResponse.json(
+          {
+            ok: true,
+            remembered: false,
+            skipped: claim.skipped,
+          },
+          {
+            headers: NO_STORE_HEADERS,
+          },
+        );
+      }
+
+      if (checkoutSessionId && checkoutSessionId !== claim.checkoutSessionId) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "PAYMENT_PROFILE_SESSION_MISMATCH",
+          },
+          {
+            status: 403,
+            headers: NO_STORE_HEADERS,
+          },
+        );
+      }
+
+      checkoutSessionId = claim.checkoutSessionId;
+      recoveryPhone = claim.phone;
+    }
+
     const stripe = getStripeClient();
     const checkout = await stripe.checkout.sessions.retrieve(
       checkoutSessionId,
@@ -447,15 +554,22 @@ export async function POST(req: Request) {
     });
     const stripeCustomerId = reusableMethod.stripeCustomerId;
 
-    const phone = await paymentPhone({
-      paymentSessionId,
-      shareToken,
-    });
+    const phone =
+      recoveryPhone ||
+      (await paymentPhone({
+        paymentSessionId,
+        shareToken,
+      }));
 
+    const methods = await listSavedPaymentMethods({
+      stripe,
+      customerId: stripeCustomerId,
+    });
     const response = NextResponse.json(
       {
         ok: true,
         remembered: true,
+        methods,
         paymentMethodId: reusableMethod.paymentMethodId,
       },
       {
@@ -470,14 +584,24 @@ export async function POST(req: Request) {
     });
   } catch (error: any) {
     console.error("[payments/profile]", error);
+    const code = String(error?.message || "PAYMENT_PROFILE_SAVE_FAILED");
+    const status =
+      code === "PAYMENT_RECOVERY_TOKEN_INVALID" ||
+      code === "PAYMENT_PROFILE_SESSION_MISMATCH"
+        ? 403
+        : code === "PAYMENT_SESSION_NOT_FOUND"
+          ? 404
+          : code === "PAYMENT_PROFILE_CHECKOUT_SESSION_MISSING"
+            ? 409
+            : 500;
 
     return NextResponse.json(
       {
         ok: false,
-        error: error?.message || "PAYMENT_PROFILE_SAVE_FAILED",
+        error: code,
       },
       {
-        status: 500,
+        status,
         headers: NO_STORE_HEADERS,
       },
     );

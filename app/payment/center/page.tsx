@@ -169,11 +169,15 @@ function PaymentCenterContent() {
     void fetch("/api/payments/profile", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ checkoutSessionId, paymentSessionId }),
+      body: JSON.stringify({
+        checkoutSessionId,
+        paymentSessionId,
+        recoveryToken,
+      }),
       cache: "no-store",
       credentials: "same-origin",
     }).catch(() => null);
-  }, [checkoutSessionId, paymentSessionId]);
+  }, [checkoutSessionId, paymentSessionId, recoveryToken]);
 
   async function mutate(action: string) {
     if (busy) return;

@@ -498,7 +498,11 @@ export default function TVPage() {
         ),
       );
 
-      if (order.mode === "dine_in" && status === "ready") {
+      if (
+        status === "done" ||
+        status === "cancelled" ||
+        (order.mode === "dine_in" && status === "ready")
+      ) {
         setView("finished");
       }
 

@@ -1155,7 +1155,31 @@ export async function fetchOrdersFromTvEndpoint(): Promise<StoredOrder[]> {
         - Eski admin fallback ile bütün geçmişi çekmiyoruz.
         - İlk çalışan endpoint yeterli görülür; böylece eski/arşiv siparişler TV'ye geri karışmaz.
       */
-      return normalizeOrders(data);
+      const root = cleanObj(data);
+      const nestedData = cleanObj(root.data);
+      const allOrders = Array.isArray(root.allOrders)
+        ? root.allOrders
+        : Array.isArray(nestedData.allOrders)
+          ? nestedData.allOrders
+          : [
+              ...(Array.isArray(root.orders)
+                ? root.orders
+                : Array.isArray(nestedData.orders)
+                  ? nestedData.orders
+                  : []),
+              ...(Array.isArray(root.doneOrders)
+                ? root.doneOrders
+                : Array.isArray(nestedData.doneOrders)
+                  ? nestedData.doneOrders
+                  : []),
+            ];
+
+      /*
+       * /api/orders/list keeps the legacy `orders` field active-only and
+       * returns completed rows separately. The TV needs both collections so
+       * an order remains visible in the Fertig/Ausgegeben tab after handover.
+       */
+      return normalizeOrders(allOrders.length ? allOrders : data);
     } catch (error) {
       lastError = error;
     }

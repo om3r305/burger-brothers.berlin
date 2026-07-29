@@ -68,6 +68,7 @@ import type {
   CheckoutToast,
   CheckoutToastTone,
   OrderCreateResult,
+  PaymentProfileResponse,
   PaymentSessionResponse,
   SavedPaymentMethod,
 } from "@/types/checkout";
@@ -168,6 +169,89 @@ function normalizeSavedCheckout(value: unknown): {
 type PaymentMethod = CheckoutPaymentMethod;
 
 const ACTIVE_PAYMENT_RECOVERY_KEY = "bb_active_payment_recovery_v1";
+const PENDING_PAYMENT_PROFILE_CLAIM_KEY =
+  "bb_pending_payment_profile_claim_v1";
+const PAYMENT_PROFILE_CLAIM_MAX_AGE_MS = 72 * 60 * 60 * 1000;
+
+type PendingPaymentProfileClaim = {
+  paymentSessionId: string;
+  recoveryToken: string;
+  createdAt: number;
+};
+
+function readPendingPaymentProfileClaim(): PendingPaymentProfileClaim | null {
+  try {
+    const parsed = parseJsonUnknown(
+      localStorage.getItem(PENDING_PAYMENT_PROFILE_CLAIM_KEY),
+    );
+    if (!isRecord(parsed)) return null;
+
+    const paymentSessionId = stringValue(parsed.paymentSessionId).trim();
+    const recoveryToken = stringValue(parsed.recoveryToken).trim();
+    const createdAt = numberValue(parsed.createdAt, 0);
+
+    if (!paymentSessionId || !recoveryToken || createdAt <= 0) return null;
+    if (Date.now() - createdAt > PAYMENT_PROFILE_CLAIM_MAX_AGE_MS) {
+      localStorage.removeItem(PENDING_PAYMENT_PROFILE_CLAIM_KEY);
+      return null;
+    }
+
+    return { paymentSessionId, recoveryToken, createdAt };
+  } catch {
+    return null;
+  }
+}
+
+function savePendingPaymentProfileClaim(
+  recovery: Pick<ActivePaymentRecovery, "paymentSessionId" | "recoveryToken">,
+) {
+  try {
+    localStorage.setItem(
+      PENDING_PAYMENT_PROFILE_CLAIM_KEY,
+      JSON.stringify({
+        paymentSessionId: recovery.paymentSessionId,
+        recoveryToken: recovery.recoveryToken,
+        createdAt: Date.now(),
+      } satisfies PendingPaymentProfileClaim),
+    );
+  } catch {
+    // The existing HttpOnly-cookie return flow may still complete the save.
+  }
+}
+
+function clearPendingPaymentProfileClaim() {
+  try {
+    localStorage.removeItem(PENDING_PAYMENT_PROFILE_CLAIM_KEY);
+  } catch {
+    // Best-effort cleanup only.
+  }
+}
+
+async function claimPaymentProfileFromRecovery(
+  recovery: Pick<ActivePaymentRecovery, "paymentSessionId" | "recoveryToken">,
+): Promise<PaymentProfileResponse> {
+  const response = await fetch("/api/payments/profile", {
+    method: "POST",
+    credentials: "same-origin",
+    cache: "no-store",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      paymentSessionId: recovery.paymentSessionId,
+      recoveryToken: recovery.recoveryToken,
+    }),
+  });
+  const raw: unknown = await response.json().catch(() => null);
+
+  if (!response.ok || (isRecord(raw) && raw.ok === false)) {
+    throw new Error(
+      isRecord(raw) && typeof raw.error === "string"
+        ? raw.error
+        : "PAYMENT_PROFILE_CLAIM_FAILED",
+    );
+  }
+
+  return parsePaymentProfileResponse(raw);
+}
 
 function browserOpaqueToken(bytesLength = 32) {
   const bytes = new Uint8Array(bytesLength);
@@ -1877,6 +1961,43 @@ export default function CheckoutPage() {
     Record<string, number>
   >({});
 
+  const applyClaimedPaymentProfile = useCallback(
+    (profile: PaymentProfileResponse) => {
+      setPaymentProfileRemembered(profile.remembered);
+      setPaymentProfileMethods(profile.methods);
+      setSelectedSavedPaymentMethodId((current) =>
+        profile.methods.some((item) => item.id === current)
+          ? current
+          : profile.methods[0]?.id || "",
+      );
+
+      if (profile.remembered) {
+        setRememberPaymentMethod(true);
+      }
+    },
+    [],
+  );
+
+  const retryPendingPaymentProfileClaim = useCallback(async () => {
+    const pending = readPendingPaymentProfileClaim();
+    if (!pending) return false;
+
+    try {
+      const profile = await claimPaymentProfileFromRecovery(pending);
+      applyClaimedPaymentProfile(profile);
+      clearPendingPaymentProfileClaim();
+      return profile.remembered;
+    } catch (error: unknown) {
+      /*
+       * Stripe may finalize in another browser context a few moments before
+       * every local payment-session field is available. Keep the signed
+       * recovery claim and retry when the PWA is focused again.
+       */
+      reportCheckoutError("payment-profile-recovery", error);
+      return false;
+    }
+  }, [applyClaimedPaymentProfile]);
+
   const syncActivePaymentRecovery = useCallback(
     async (candidate?: ActivePaymentRecovery | null) => {
       const recovery = candidate ?? readActivePaymentRecovery();
@@ -1899,6 +2020,18 @@ export default function CheckoutPage() {
         const payload = parsePaymentSessionResponse(raw);
 
         if (paymentRecoveryIsTerminal(payload)) {
+          if (payload.finalized && recovery.paymentKind === "online") {
+            /*
+             * A mobile PWA can return from Stripe through the system browser.
+             * In that case Stripe saved the HttpOnly profile cookie in the
+             * browser context, not in the installed PWA. The recovery token
+             * lets this same device securely claim the profile in its current
+             * context without exposing card or wallet credentials.
+             */
+            savePendingPaymentProfileClaim(recovery);
+            await retryPendingPaymentProfileClaim();
+          }
+
           clearActivePaymentRecoveryStorage();
           setActivePaymentRecovery(null);
           setPaymentRecoveryMessage("");
@@ -1925,12 +2058,13 @@ export default function CheckoutPage() {
         reportCheckoutError("payment-recovery-sync", error);
       }
     },
-    [],
+    [retryPendingPaymentProfileClaim],
   );
 
   useEffect(() => {
     const restore = () => {
       setPaymentRecoveryNowMs(Date.now());
+      void retryPendingPaymentProfileClaim();
       void syncActivePaymentRecovery();
     };
     restore();
@@ -1948,7 +2082,7 @@ export default function CheckoutPage() {
         restore as EventListener,
       );
     };
-  }, [syncActivePaymentRecovery]);
+  }, [retryPendingPaymentProfileClaim, syncActivePaymentRecovery]);
 
   useEffect(() => {
     if (!activePaymentRecovery) return;
@@ -2004,17 +2138,7 @@ export default function CheckoutPage() {
       .then((profile) => {
         if (!active) return;
 
-        setPaymentProfileRemembered(profile.remembered);
-        setPaymentProfileMethods(profile.methods);
-        setSelectedSavedPaymentMethodId((current) =>
-          profile.methods.some((item) => item.id === current)
-            ? current
-            : profile.methods[0]?.id || "",
-        );
-
-        if (profile.remembered) {
-          setRememberPaymentMethod(true);
-        }
+        applyClaimedPaymentProfile(profile);
       })
       .catch((error: unknown) => {
         reportCheckoutError("payment-profile", error);
@@ -2027,7 +2151,11 @@ export default function CheckoutPage() {
     return () => {
       active = false;
     };
-  }, [paymentSettings.online, paymentSettings.rememberPaymentMethods]);
+  }, [
+    applyClaimedPaymentProfile,
+    paymentSettings.online,
+    paymentSettings.rememberPaymentMethods,
+  ]);
 
   useEffect(() => {
     if (paymentMethod === "online" && !paymentSettings.online) {
