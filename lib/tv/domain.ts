@@ -884,6 +884,127 @@ export function normalizeItems(value: unknown): StoredOrderItem[] {
     .filter((item): item is StoredOrderItem => Boolean(item));
 }
 
+function itemExtrasUnitTotal(item: StoredOrderItem): number {
+  return +((item.add || []).reduce(
+    (sum, extra) => sum + Math.max(0, num(extra.price)),
+    0,
+  )).toFixed(2);
+}
+
+function resolveItemPricing(params: {
+  items: StoredOrderItem[];
+  merchandiseHint?: number;
+  addExtrasFallback?: boolean;
+}) {
+  const baseSubtotal = +params.items
+    .reduce(
+      (sum, item) =>
+        sum + num(item.price) * Math.max(1, num(item.qty || 1)),
+      0,
+    )
+    .toFixed(2);
+
+  const subtotalWithExtras = +params.items
+    .reduce(
+      (sum, item) =>
+        sum +
+        (num(item.price) + itemExtrasUnitTotal(item)) *
+          Math.max(1, num(item.qty || 1)),
+      0,
+    )
+    .toFixed(2);
+
+  if (Math.abs(subtotalWithExtras - baseSubtotal) <= 0.009) {
+    return {
+      pricesIncludeExtras: true,
+      subtotal: baseSubtotal,
+    };
+  }
+
+  const target = +Math.max(0, num(params.merchandiseHint)).toFixed(2);
+
+  if (target > 0) {
+    const baseDistance = Math.abs(baseSubtotal - target);
+    const withExtrasDistance = Math.abs(subtotalWithExtras - target);
+
+    if (withExtrasDistance + 0.009 < baseDistance) {
+      return {
+        pricesIncludeExtras: false,
+        subtotal: subtotalWithExtras,
+      };
+    }
+
+    if (baseDistance + 0.009 < withExtrasDistance) {
+      return {
+        pricesIncludeExtras: true,
+        subtotal: baseSubtotal,
+      };
+    }
+  }
+
+  const pricesIncludeExtras = params.addExtrasFallback !== true;
+
+  return {
+    pricesIncludeExtras,
+    subtotal: pricesIncludeExtras ? baseSubtotal : subtotalWithExtras,
+  };
+}
+
+function isSchnellPricingOrder(order: Partial<StoredOrder>) {
+  const mode = String(order.mode || "").toLowerCase();
+  const channel = String(order.channel || "").toLowerCase();
+  const meta = cleanObj(order.meta);
+
+  return (
+    mode === "dine_in" ||
+    channel === "schnellbestellung" ||
+    String(meta.source || "").toLowerCase() === "qr_quick_order"
+  );
+}
+
+function getOrderItemPricing(order: Partial<StoredOrder>) {
+  const items = Array.isArray(order.items) ? order.items : [];
+  const merchandiseValue = num(order.merchandise);
+  const pricingSubtotalValue = num(cleanObj(order.pricing).subtotal);
+  const merchandiseHint =
+    merchandiseValue > 0
+      ? merchandiseValue
+      : isSchnellPricingOrder(order)
+        ? 0
+        : pricingSubtotalValue;
+
+  return resolveItemPricing({
+    items,
+    merchandiseHint,
+    addExtrasFallback: isSchnellPricingOrder(order),
+  });
+}
+
+export function getOrderItemUnitTotal(
+  order: Partial<StoredOrder>,
+  item: StoredOrderItem,
+): number {
+  const pricing = getOrderItemPricing(order);
+
+  return +(
+    num(item.price) +
+    (pricing.pricesIncludeExtras ? 0 : itemExtrasUnitTotal(item))
+  ).toFixed(2);
+}
+
+export function getOrderItemLineTotal(
+  order: Partial<StoredOrder>,
+  item: StoredOrderItem,
+): number {
+  return +(
+    getOrderItemUnitTotal(order, item) * Math.max(1, num(item.qty || 1))
+  ).toFixed(2);
+}
+
+export function getOrderItemsSubtotal(order: Partial<StoredOrder>): number {
+  return getOrderItemPricing(order).subtotal;
+}
+
 function hasOrderIdentity(record: UnknownRecord) {
   return Boolean(record.id || record.orderId);
 }
@@ -987,15 +1108,25 @@ export function normalizeOrders(data: unknown): StoredOrder[] {
           meta.orderNote,
         );
 
+        const sourceMerchandise = num(source.merchandise);
+        const pricingSubtotal = num(pricing.subtotal);
+        const schnellPricing = isSchnellOrderLike(source, meta);
+        const computedItemSubtotal = resolveItemPricing({
+          items,
+          merchandiseHint:
+            sourceMerchandise > 0
+              ? sourceMerchandise
+              : schnellPricing
+                ? 0
+                : pricingSubtotal,
+          addExtrasFallback: schnellPricing,
+        }).subtotal;
         const merchandise =
-          num(source.merchandise) ||
-          items.reduce((sum, item) => {
-            const extras = (item.add || []).reduce(
-              (extraSum, extra) => extraSum + num(extra.price),
-              0,
-            );
-            return sum + (num(item.price) + extras) * num(item.qty || 1);
-          }, 0);
+          sourceMerchandise > 0
+            ? sourceMerchandise
+            : pricingSubtotal > 0 && !schnellPricing
+              ? pricingSubtotal
+              : computedItemSubtotal;
 
         const discount = num(source.discount);
         const surcharges = num(source.surcharges);
@@ -1408,12 +1539,15 @@ export function getOrderTotals(order: StoredOrder): {
   const pricing = order.pricing || {};
   const fees = order.fees || {};
 
-  const itemsSum = items.reduce(
-    (sum, item) => sum + num(item.price) * num(item.qty || 1),
-    0,
-  );
-
-  const subtotal = num(pricing.subtotal) > 0 ? num(pricing.subtotal) : itemsSum;
+  const itemsSum = getOrderItemsSubtotal(order);
+  const merchandiseValue = num(order.merchandise);
+  const pricingSubtotalValue = num(pricing.subtotal);
+  const subtotal =
+    merchandiseValue > 0
+      ? merchandiseValue
+      : pricingSubtotalValue > 0
+        ? pricingSubtotalValue
+        : itemsSum;
   const deliveryFee = findDeliveryFeeDeep(order);
   const serviceFee = num(pricing.service ?? fees.service);
   const otherFee = num(pricing.other ?? pricing.misc ?? fees.other);
@@ -1469,7 +1603,10 @@ export function firstNonEmptyText(...values: unknown[]) {
   return "";
 }
 
-export function buildDiscountDetails(order: StoredOrder, totals: ReturnType<typeof getOrderTotals>): DiscountRow[] {
+export function buildDiscountDetails(
+  order: StoredOrder,
+  totals: ReturnType<typeof getOrderTotals>,
+): DiscountRow[] {
   const meta = cleanObj(order?.meta);
   const pricing = cleanObj(order?.pricing);
   const fees = cleanObj(order?.fees);
@@ -1477,10 +1614,11 @@ export function buildDiscountDetails(order: StoredOrder, totals: ReturnType<type
   const couponLifecycle = cleanObj(meta?.couponLifecycle);
 
   const rows: DiscountRow[] = [];
+  let remaining = +Math.max(0, num(totals.discountSum)).toFixed(2);
 
-  const addRow = (label: string, amount: unknown) => {
+  const addRow = (label: string, amount: number) => {
     const cleanLabel = firstNonEmptyText(label, "Rabatt");
-    const cleanAmount = Math.abs(num(amount));
+    const cleanAmount = +Math.max(0, num(amount)).toFixed(2);
 
     if (!cleanLabel || cleanAmount <= 0) return;
 
@@ -1495,15 +1633,42 @@ export function buildDiscountDetails(order: StoredOrder, totals: ReturnType<type
 
     rows.push({
       label: cleanLabel,
-      amount: +cleanAmount.toFixed(2),
+      amount: cleanAmount,
     });
+  };
+
+  const consume = (
+    label: string,
+    rawAmount: unknown,
+    useRemainingWhenMissing = false,
+  ) => {
+    if (remaining <= 0.009) return;
+
+    const requested = Math.abs(num(rawAmount));
+    const amount =
+      requested > 0
+        ? Math.min(remaining, requested)
+        : useRemainingWhenMissing
+          ? remaining
+          : 0;
+
+    if (amount <= 0.009) return;
+
+    const roundedAmount = +amount.toFixed(2);
+    addRow(label, roundedAmount);
+    remaining = +Math.max(0, remaining - roundedAmount).toFixed(2);
   };
 
   const reward = cleanObj(meta?.reward);
   const rewardAmount = Math.abs(num(reward?.discountAmount));
+
   if (rewardAmount > 0) {
-    addRow(
-      `Glücksgewinn – ${firstNonEmptyText(reward?.customerLabel, reward?.label, "Überraschung")}`,
+    consume(
+      `Glücksgewinn – ${firstNonEmptyText(
+        reward?.customerLabel,
+        reward?.label,
+        "Überraschung",
+      )}`,
       rewardAmount,
     );
   }
@@ -1526,7 +1691,7 @@ export function buildDiscountDetails(order: StoredOrder, totals: ReturnType<type
     pricing?.couponTitle,
   );
 
-  const couponAmount = Math.abs(
+  const explicitCouponAmount = Math.abs(
     num(
       order?.couponDiscount ??
         meta?.couponDiscount ??
@@ -1540,18 +1705,39 @@ export function buildDiscountDetails(order: StoredOrder, totals: ReturnType<type
 
   const directOrderDiscount = Math.abs(num(order?.discount));
   const fallbackCouponAmount =
-    couponAmount > 0
-      ? couponAmount
+    explicitCouponAmount > 0
+      ? explicitCouponAmount
       : couponCode
-        ? Math.max(0, totals.discountSum - directOrderDiscount) || totals.discountSum
+        ? Math.max(
+            0,
+            totals.discountSum - directOrderDiscount - rewardAmount,
+          )
         : 0;
 
-  if (couponCode || couponAmount > 0) {
+  if (couponCode || fallbackCouponAmount > 0) {
     const label = couponCode
       ? `Gutschein (${couponCode})${couponTitle ? ` – ${couponTitle}` : ""}`
       : `Gutschein${couponTitle ? ` – ${couponTitle}` : ""}`;
 
-    addRow(label, fallbackCouponAmount);
+    consume(label, fallbackCouponAmount);
+  }
+
+  for (const campaignEntry of cleanArr(meta?.campaigns)) {
+    const campaign = cleanObj(campaignEntry);
+    const label = firstNonEmptyText(
+      campaign?.name,
+      campaign?.badgeText,
+      campaign?.title,
+      "Kampagne / Angebot",
+    );
+
+    consume(
+      label,
+      campaign?.amount ??
+        campaign?.discountAmount ??
+        campaign?.value ??
+        campaign?.total,
+    );
   }
 
   for (const adjustment of order.adjustments || []) {
@@ -1559,13 +1745,10 @@ export function buildDiscountDetails(order: StoredOrder, totals: ReturnType<type
 
     if (type && type !== "discount") continue;
 
-    const amount = Math.abs(
-      num(adjustment?.amount ?? adjustment?.value ?? adjustment?.price ?? adjustment?.total),
+    const code = firstNonEmptyText(
+      adjustment?.code,
+      adjustment?.couponCode,
     );
-
-    if (amount <= 0) continue;
-
-    const code = firstNonEmptyText(adjustment?.code, adjustment?.couponCode);
     const campaign = firstNonEmptyText(
       adjustment?.campaignName,
       adjustment?.campaignTitle,
@@ -1578,7 +1761,13 @@ export function buildDiscountDetails(order: StoredOrder, totals: ReturnType<type
       ? `Kampagne/Rabatt (${code})${campaign ? ` – ${campaign}` : ""}`
       : campaign || "Kampagne/Rabatt";
 
-    addRow(label, amount);
+    consume(
+      label,
+      adjustment?.amount ??
+        adjustment?.value ??
+        adjustment?.price ??
+        adjustment?.total,
+    );
   }
 
   const campaignName = firstNonEmptyText(
@@ -1604,28 +1793,21 @@ export function buildDiscountDetails(order: StoredOrder, totals: ReturnType<type
         fees?.discountAmount,
     ),
   );
-  const campaignAmount =
-    explicitCampaignAmount > 0
-      ? explicitCampaignAmount
-      : campaignName
-        ? Math.max(0, totals.discountSum - fallbackCouponAmount - rewardAmount)
-        : 0;
 
-  if (campaignAmount > 0) {
-    addRow(campaignName || "Rabatt / Angebot", campaignAmount);
+  if (campaignName) {
+    consume(
+      campaignName,
+      explicitCampaignAmount,
+      explicitCampaignAmount <= 0,
+    );
   }
 
   for (const discount of totals.discountItems) {
-    addRow(discount.label || "Rabatt", discount.amount);
+    consume(discount.label || "Rabatt", discount.amount);
   }
 
-  const knownAmount = rows.reduce((sum, row) => sum + Math.abs(num(row.amount)), 0);
-  const missingAmount = Math.max(0, totals.discountSum - knownAmount);
-
-  if (totals.discountSum > 0 && rows.length === 0) {
-    addRow("Rabatt / Angebot", totals.discountSum);
-  } else if (missingAmount > 0.01) {
-    addRow("Weitere Rabatte", missingAmount);
+  if (remaining > 0.009) {
+    consume("Rabatt / Angebot", remaining, true);
   }
 
   return rows;

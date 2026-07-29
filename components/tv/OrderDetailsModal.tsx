@@ -9,10 +9,10 @@ import {
   findTipAmountDeep,
   formatDeliveryLine,
   getDriverName,
+  getOrderItemLineTotal,
   getOrderTotals,
   glass,
   money,
-  num,
 } from "@/lib/tv/domain";
 
 export function OrderDetailsModal({
@@ -118,12 +118,7 @@ export function OrderDetailsModal({
 
               <tbody>
                 {order.items.map((item, index) => {
-                  const extras = Array.isArray(item.add)
-                    ? item.add.reduce(
-                        (total, extra) => total + num(extra.price),
-                        0,
-                      )
-                    : 0;
+                  const lineTotal = getOrderItemLineTotal(order, item);
 
                   return (
                     <tr
@@ -158,11 +153,7 @@ export function OrderDetailsModal({
 
                       <td className="p-2 text-right">{item.qty}</td>
                       <td className="p-2 text-right">
-                        {(
-                          (num(item.price) + extras) *
-                          num(item.qty || 1)
-                        ).toFixed(2)}
-                        €
+                        {lineTotal.toFixed(2)}€
                       </td>
                     </tr>
                   );
@@ -218,34 +209,32 @@ export function OrderDetailsModal({
                 </tr>
               ) : null}
 
-              {discountDetails.length || totals.discountSum ? (
-                <>
-                  <tr className="border-b border-white/10">
-                    <td className="p-2">Rabatte</td>
+              {discountDetails.length ? (
+                discountDetails.map((discount, index) => (
+                  <tr
+                    key={`${discount.label}-${index}`}
+                    className="border-b border-white/10 text-emerald-200/95"
+                  >
+                    <td className="p-2">
+                      <div className="font-medium">
+                        {discount.label}
+                      </div>
+                      <div className="mt-0.5 text-xs text-stone-400">
+                        Grund der Ermäßigung
+                      </div>
+                    </td>
                     <td className="p-2 text-right">
-                      -{money(totals.discountSum)}
+                      -{money(discount.amount)}
                     </td>
                   </tr>
-
-                  {discountDetails.map((discount, index) => (
-                    <tr
-                      key={`${discount.label}-${index}`}
-                      className="border-b border-white/10 text-emerald-200/95"
-                    >
-                      <td className="p-2 pl-6">
-                        <div className="font-medium">
-                          - {discount.label}
-                        </div>
-                        <div className="mt-0.5 text-xs text-stone-400">
-                          Grund der Ermäßigung
-                        </div>
-                      </td>
-                      <td className="p-2 text-right">
-                        -{money(discount.amount)}
-                      </td>
-                    </tr>
-                  ))}
-                </>
+                ))
+              ) : totals.discountSum > 0 ? (
+                <tr className="border-b border-white/10">
+                  <td className="p-2">Rabatt / Angebot</td>
+                  <td className="p-2 text-right">
+                    -{money(totals.discountSum)}
+                  </td>
+                </tr>
               ) : null}
 
               {pickupTip > 0 ? (

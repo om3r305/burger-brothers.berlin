@@ -65,12 +65,12 @@ const LOGO_CROP_PAD    = Number(process.env.LOGO_CROP_PAD || 0);      // crop so
 const BARCODE_HEIGHT   = Number(process.env.BARCODE_HEIGHT || 80); // 40–255
 const BARCODE_MODULE   = Number(process.env.BARCODE_MODULE || 1);  // 1=ince,2=orta,3=kalın
 
-// Kasada toplamı 10 cent basamağına matematiksel yuvarla:
-// 23.58 => 23.60, 37.56 => 37.60, 37.54 => 37.50
-// Eski tam-Euro yuvarlama kapalı; gerekirse .env ile ROUND_TOTAL_STEP_CENTS değiştirilebilir.
+// Varsayılan olarak toplamı kuruşu kuruşuna koru.
+// Yalnız işletme açıkça isterse .env içindeki ROUND_TOTAL_STEP_CENTS ile
+// farklı bir nakit yuvarlama adımı seçilebilir.
 const ROUND_TOTAL_STEP_CENTS = Math.max(
   1,
-  Math.min(100, Number(process.env.ROUND_TOTAL_STEP_CENTS || 10) || 10),
+  Math.min(100, Number(process.env.ROUND_TOTAL_STEP_CENTS || 1) || 1),
 );
 
 /* ====== SABİT MAĞAZA BİLGİLERİ ====== */
@@ -415,29 +415,169 @@ function extractOrderNote(o){
           o?.note || o?.orderNote || o?.deliveryNote ||
           c?.note || c?.deliveryNote || c?.deliveryHint || c?.hinweis || '');
 }
-function buildAddressLine(cust={}){
+function stripHouseNumber(street='', house=''){
+  let clean = String(street || '').trim();
+  const houseText = String(house || '').trim();
+
+  if (houseText) {
+    const escaped = houseText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    clean = clean.replace(new RegExp(`\\s+${escaped}\\s*$`, 'i'), '').trim();
+  }
+
+  // House numbers are intentionally omitted on the kitchen receipt. The full
+  // delivery address remains stored in the order and visible in TV/admin.
+  clean = clean.replace(/\s+\d+[a-zA-Z]?(?:[-/]\d+[a-zA-Z]?)?\s*$/i, '').trim();
+  return clean;
+}
+
+function buildDeliveryAddress(cust={}){
   let zip = String(cust.zip || cust.plz || '').trim();
   let street = String(cust.street || cust['straße'] || cust.strasse || '').trim();
-  let house = String(cust.houseNo || cust.hausnr || cust.house || cust.nr || '').trim();
+  const house = String(cust.houseNo || cust.hausnr || cust.house || cust.nr || '').trim();
+  const free = String(cust.address || '').trim();
 
-  if (!zip || !street || !house){
-    const free = String(cust.address || '').trim();
-    if (free){
-      const parts = free.split('|').map(s=>s.trim());
-      if (!street && parts[0]) {
-        const m = parts[0].match(/^(.+?)\s+(\S+)$/);
-        if (m){ street = m[1]; house = house || m[2]; }
-      }
-      const whole = parts[1] || parts[0] || free;
-      const mz = whole.match(/\b(\d{5})\b/);
-      if (mz && !zip) zip = mz[1];
-      if (!street){
-        const m2 = whole.match(/^(.+?)\s+(\S+)$/);
-        if (m2){ street = m2[1]; house = house || m2[2]; }
-      }
+  if (free){
+    const parts = free.split('|').map(s=>s.trim()).filter(Boolean);
+    const joined = parts.join(' ');
+    const zipMatch = joined.match(/\b(\d{5})\b/);
+    if (!zip && zipMatch) zip = zipMatch[1];
+
+    if (!street){
+      const candidate = parts.find(part => !/^(?:\d{5})(?:\s|$)/.test(part)) || parts[0] || free;
+      street = candidate
+        .replace(/\b\d{5}\b.*$/i, '')
+        .replace(/,.*$/i, '')
+        .trim();
     }
   }
-  return [zip, street, house].filter(Boolean).join(' - ');
+
+  street = stripHouseNumber(street, house);
+  return [zip, street].filter(Boolean).join(' - ');
+}
+
+function firstNonEmptyText(...values){
+  for (const value of values){
+    const textValue = String(value ?? '').trim();
+    if (textValue) return textValue;
+  }
+  return '';
+}
+
+function buildReceiptDiscountRows(o, amounts){
+  const meta = o?.meta && typeof o.meta === 'object' ? o.meta : {};
+  const pricing = o?.pricing && typeof o.pricing === 'object' ? o.pricing : {};
+  const fees = o?.fees && typeof o.fees === 'object' ? o.fees : {};
+  const rows = [];
+
+  const addRow = (label, amount) => {
+    const cleanLabel = firstNonEmptyText(label, 'Rabatt / Angebot');
+    const cleanAmount = Math.abs(round2(num(amount)));
+    if (!cleanLabel || cleanAmount <= 0) return;
+
+    const existing = rows.find(row => row.label.toLowerCase() === cleanLabel.toLowerCase());
+    if (existing){
+      existing.amount = round2(existing.amount + cleanAmount);
+      return;
+    }
+    rows.push({ label: cleanLabel, amount: cleanAmount });
+  };
+
+  if (amounts.rewardDiscount > 0){
+    const reward = meta?.reward && typeof meta.reward === 'object' ? meta.reward : {};
+    const rewardLabel = firstNonEmptyText(
+      reward?.customerLabel,
+      reward?.label,
+      'Überraschung',
+    );
+    addRow(`Glücksgewinn - ${rewardLabel}`, amounts.rewardDiscount);
+  }
+
+  let regularRemaining = Math.max(0, round2(amounts.regularDiscount));
+  const consumeRegular = (label, rawAmount) => {
+    if (regularRemaining <= 0.009) return;
+    const requested = Math.abs(round2(num(rawAmount)));
+    const amount = requested > 0 ? Math.min(regularRemaining, requested) : regularRemaining;
+    if (amount <= 0) return;
+    addRow(label, amount);
+    regularRemaining = Math.max(0, round2(regularRemaining - amount));
+  };
+
+  const campaigns = Array.isArray(meta?.campaigns) ? meta.campaigns : [];
+  for (const campaign of campaigns){
+    const label = firstNonEmptyText(
+      campaign?.name,
+      campaign?.badgeText,
+      campaign?.title,
+      'Kampagne / Angebot',
+    );
+    consumeRegular(label, campaign?.amount);
+  }
+
+  const adjustments = Array.isArray(o?.adjustments) ? o.adjustments : [];
+  for (const adjustment of adjustments){
+    const type = String(adjustment?.type || '').toLowerCase();
+    if (type && type !== 'discount') continue;
+
+    const code = firstNonEmptyText(adjustment?.code, adjustment?.couponCode);
+    const reason = firstNonEmptyText(
+      adjustment?.campaignName,
+      adjustment?.campaignTitle,
+      adjustment?.campaign,
+      adjustment?.reason,
+      adjustment?.source,
+    );
+    const label = code
+      ? `Rabatt (${code})${reason ? ` - ${reason}` : ''}`
+      : reason || 'Rabatt / Angebot';
+    consumeRegular(
+      label,
+      adjustment?.amount ?? adjustment?.value ?? adjustment?.price ?? adjustment?.total,
+    );
+  }
+
+  const campaignLabel = firstNonEmptyText(
+    meta?.campaignName,
+    meta?.campaignTitle,
+    meta?.campaign,
+    meta?.discountReason,
+    meta?.discountLabel,
+    pricing?.campaignName,
+    pricing?.campaignTitle,
+    pricing?.campaign,
+    pricing?.discountReason,
+    pricing?.discountLabel,
+    fees?.discountReason,
+    fees?.discountLabel,
+  );
+  if (campaignLabel) consumeRegular(campaignLabel, regularRemaining);
+  if (regularRemaining > 0.009) consumeRegular('Rabatt / Angebot', regularRemaining);
+
+  if (amounts.couponDiscount > 0){
+    const couponMeta = meta?.couponMeta && typeof meta.couponMeta === 'object' ? meta.couponMeta : {};
+    const couponLifecycle = meta?.couponLifecycle && typeof meta.couponLifecycle === 'object' ? meta.couponLifecycle : {};
+    const code = firstNonEmptyText(
+      o?.coupon,
+      meta?.coupon,
+      couponMeta?.code,
+      couponMeta?.couponCode,
+      couponLifecycle?.code,
+      couponLifecycle?.couponCode,
+    );
+    const title = firstNonEmptyText(
+      couponMeta?.title,
+      couponMeta?.name,
+      couponLifecycle?.title,
+      couponLifecycle?.name,
+      meta?.couponTitle,
+      pricing?.couponTitle,
+    );
+    const label = code
+      ? `Gutschein ${code}${title ? ` - ${title}` : ''}`
+      : `Gutschein${title ? ` - ${title}` : ''}`;
+    addRow(label, amounts.couponDiscount);
+  }
+
+  return rows;
 }
 
 /* ====== ücret tespit: derin & etiket bazlı ====== */
@@ -494,6 +634,84 @@ function euros(v, inCents=false){
   return num(v);
 }
 function round2(x){ return Math.round((x + Number.EPSILON) * 100) / 100; }
+
+function itemExtrasUnitTotal(item){
+  return round2(
+    (Array.isArray(item?.add) ? item.add : []).reduce(
+      (sum, extra) => sum + Math.max(0, num(extra?.price)),
+      0,
+    ),
+  );
+}
+
+function resolveReceiptItemPricing(order, items, merchandiseHint=0){
+  const baseItemsSum = round2(
+    items.reduce(
+      (sum, item) => sum + num(item?.price) * Math.max(1, num(item?.qty || 1)),
+      0,
+    ),
+  );
+  const itemsWithExtrasSum = round2(
+    items.reduce(
+      (sum, item) =>
+        sum +
+        (num(item?.price) + itemExtrasUnitTotal(item)) *
+          Math.max(1, num(item?.qty || 1)),
+      0,
+    ),
+  );
+
+  const extrasDifference = Math.abs(itemsWithExtrasSum - baseItemsSum);
+  if (extrasDifference <= 0.009) {
+    return {
+      pricesIncludeExtras: true,
+      subtotal: baseItemsSum,
+    };
+  }
+
+  const target = round2(num(merchandiseHint));
+  if (target > 0) {
+    const baseDistance = Math.abs(baseItemsSum - target);
+    const withExtrasDistance = Math.abs(itemsWithExtrasSum - target);
+
+    if (withExtrasDistance + 0.009 < baseDistance) {
+      return {
+        pricesIncludeExtras: false,
+        subtotal: itemsWithExtrasSum,
+      };
+    }
+
+    if (baseDistance + 0.009 < withExtrasDistance) {
+      return {
+        pricesIncludeExtras: true,
+        subtotal: baseItemsSum,
+      };
+    }
+  }
+
+  const mode = String(order?.mode || '').toLowerCase();
+  const channel = String(order?.channel || '').toLowerCase();
+  const metaSource = String(order?.meta?.source || '').toLowerCase();
+  const pricesIncludeExtras = !(
+    mode === 'dine_in' ||
+    channel === 'schnellbestellung' ||
+    metaSource === 'qr_quick_order'
+  );
+
+  return {
+    pricesIncludeExtras,
+    subtotal: pricesIncludeExtras ? baseItemsSum : itemsWithExtrasSum,
+  };
+}
+
+function receiptItemUnitPrice(item, pricingMode){
+  const basePrice = num(item?.price);
+  return round2(
+    basePrice +
+      (pricingMode?.pricesIncludeExtras ? 0 : itemExtrasUnitTotal(item)),
+  );
+}
+
 function proRataSplit(amount, partA, partB){
   const total = partA + partB;
   if (total <= 0) return [0,0];
@@ -750,9 +968,13 @@ async function buildTicketFromOrder(o, opts={}){
     return ch ? titleCase(ch) : 'Bestellung';
   })();
   const headerTag = [ isPlanned(o) ? 'Geplant' : '', baseLabel ].filter(Boolean).join(' ');
+  const mode = String(o?.mode || '').toLowerCase();
+  const channel = String(o?.channel || '').toLowerCase();
+  const isDineIn = mode === 'dine_in' || channel === 'schnellbestellung';
+  const isDelivery = mode === 'delivery';
 
-  const gepl = computeGeplant(o);
-  const when = new Date(o?.ts || Date.now());
+  const when = new Date(o?.ts || o?.createdAt || Date.now());
+  const headerTime = isDineIn ? fmtTime(when) : computeGeplant(o);
   const whenStr = `${String(when.getDate()).padStart(2,'0')}.${String(when.getMonth()+1).padStart(2,'0')}.${when.getFullYear()} ${String(when.getHours()).padStart(2,'0')}:${String(when.getMinutes()).padStart(2,'0')}`;
   const name  = String(o?.customer?.name || '').trim();
   const orderId = String(o?.id || '');
@@ -776,9 +998,22 @@ async function buildTicketFromOrder(o, opts={}){
   const F = o?.fees || {};
   const M = o?.meta || {};
   const PAY = o?.payment || M?.payment || {};
-  const itemsSum  = items.reduce((sum,it)=> sum + num(it.price)*num(it.qty||1), 0);
-  const subRaw    = num(o?.merchandise ?? P.subtotal);
-  const subtotal  = subRaw > 0 ? subRaw : itemsSum;
+  const merchandiseValue = num(o?.merchandise);
+  const pricingSubtotalValue = num(P.subtotal);
+  const subtotalHint =
+    merchandiseValue > 0 ? merchandiseValue : pricingSubtotalValue;
+  const receiptItemPricing = resolveReceiptItemPricing(
+    o,
+    items,
+    subtotalHint,
+  );
+  const itemsSum = receiptItemPricing.subtotal;
+  const subtotal =
+    merchandiseValue > 0
+      ? merchandiseValue
+      : pricingSubtotalValue > 0
+        ? pricingSubtotalValue
+        : itemsSum;
   const deliveryFee = findDeliveryFeeDeep(o);
   const serviceFee  = num(PAY.serviceFeeTotal ?? P.service ?? F.service);
   const otherFee    = num(P.other ?? P.misc ?? F.other);
@@ -816,7 +1051,7 @@ async function buildTicketFromOrder(o, opts={}){
   if (items.length){
     for (const it of items){
       const qty   = num(it?.qty||1);
-      const gross = num(it?.price) * qty;
+      const gross = receiptItemUnitPrice(it, receiptItemPricing) * qty;
       const rate  = Number(it?.taxRate);
       if (rate === 7)  { br7  += gross; continue; }
       if (rate === 19) { br19 += gross; continue; }
@@ -856,21 +1091,22 @@ async function buildTicketFromOrder(o, opts={}){
   out.push(init(), selectCodepage(), fontA(), lineSpace(30));
 
   // ===== ÜST BLOK =====
-  const isDineIn = String(o?.mode || '').toLowerCase() === 'dine_in' || String(o?.channel || '').toLowerCase() === 'schnellbestellung';
   const isTakeaway = isDineIn && (M?.takeaway === true || String(M?.fulfillment || '').toLowerCase() === 'takeaway');
   const customerNumber = Number(o?.customerNumber ?? M?.customerNumber ?? 0);
-  if (isDineIn && customerNumber > 0) {
-    out.push(align(1), bold(1), size(3,3), text(String(customerNumber)), size(1,1), text('SALONBESTELLUNG'));
-    if (isTakeaway) out.push(size(2,2), text('ZUM MITNEHMEN'), size(1,1));
-    out.push(bold(0), align(0), text('='.repeat(LINE)));
-  }
 
   const logoChunk = await printLogoIfAny(opts.logoUrl);
   if (logoChunk.length) out.push(logoChunk);
   else out.push(align(1), size(2,2), text(brand), align(0));
 
-  if (headerTag) out.push(align(1), size(2,1), text(headerTag), align(0));
-  out.push(align(1), size(2,2), text(gepl), size(1,1), align(0));
+  if (headerTag) {
+    if (mode === 'delivery' || mode === 'pickup') {
+      // Same strong visual weight as ONLINE BEZAHLT / BARZAHLUNG.
+      out.push(align(1), bold(1), size(2,2), text(headerTag.toUpperCase()), size(1,1), bold(0), align(0));
+    } else {
+      out.push(align(1), size(2,1), text(headerTag), align(0));
+    }
+  }
+  out.push(align(1), size(2,2), text(headerTime), size(1,1), align(0));
 
   out.push(align(1));
   for (const ln of STORE_HEADER_LINES) out.push(text(ln));
@@ -883,7 +1119,8 @@ async function buildTicketFromOrder(o, opts={}){
   for (const g of keys){
     out.push(bold(1), underline(1), size(1,2), text(g), size(1,1), underline(0), bold(0));
     for (const it of map.get(g)){
-      const qty=num(it.qty||1), price=num(it.price||0), line=qty*price;
+      const qty=num(it.qty||1);
+      const line=qty*receiptItemUnitPrice(it, receiptItemPricing);
       const itemName = cleanName(String(it.name||''));
       out.push(bold(1), size(1,1), text(twoCol(`${qty}x ${itemName}`, money(line))), bold(0));
       if (Array.isArray(it.add) && it.add.length){
@@ -930,14 +1167,21 @@ async function buildTicketFromOrder(o, opts={}){
   if (deliveryFee) out.push(text(twoCol('Lieferaufschläge', money(deliveryFee))));
   if (serviceFee)  out.push(text(twoCol('Service',          money(serviceFee))));
   if (otherFee)    out.push(text(twoCol('Sonstiges',        money(otherFee))));
-  if (rewardDiscount) {
-    const rewardLabel = cleanName(String(rewardMeta?.customerLabel || rewardMeta?.label || 'Glücksgewinn'));
-    out.push(bold(1), text(twoCol(`GLÜCKSGEWINN ${rewardLabel}`, '-' + money(rewardDiscount))), bold(0));
-  }
-  if (regularDiscount) out.push(text(twoCol('Rabatt / Angebot', '-' + money(regularDiscount))));
-  if (couponDiscount) {
-    const code = String(o?.coupon || o?.meta?.coupon || '').trim();
-    out.push(text(twoCol(code ? `Gutschein ${code}` : 'Gutschein', '-' + money(couponDiscount))));
+  const discountRows = buildReceiptDiscountRows(o, {
+    regularDiscount,
+    couponDiscount,
+    rewardDiscount,
+  });
+  for (const row of discountRows){
+    out.push(bold(1));
+    const wrappedLabel = wrapLines('', row.label, 29);
+    if (wrappedLabel.length <= 1){
+      out.push(text(twoCol(wrappedLabel[0] || 'Rabatt / Angebot', '-' + money(row.amount))));
+    } else {
+      for (const labelLine of wrappedLabel) out.push(text(labelLine));
+      out.push(text(twoCol('  Rabattbetrag', '-' + money(row.amount))));
+    }
+    out.push(bold(0));
   }
 
   // ===== KDV blokları — HER ZAMAN GÖRÜNSÜN =====
@@ -972,9 +1216,32 @@ async function buildTicketFromOrder(o, opts={}){
   }
   out.push(size(1,1), bold(0), align(0), text('='.repeat(LINE)), text(''));
 
-  // ===== ADRES (barkod ÜSTÜ) + Lifa notu =====
-  const bottomAddress = [buildAddressLine(o?.customer||{}), name].filter(Boolean).join(' - ');
-  if (bottomAddress) out.push(bold(1), text(bottomAddress), bold(0));
+  // Schnellbestellung number and fulfillment now sit directly below BAR OFFEN.
+  // Pickup/delivery receipts keep the top clean and focused on their channel.
+  if (isDineIn && customerNumber > 0) {
+    out.push(align(1), bold(1), size(3,3), text(String(customerNumber)));
+    out.push(size(1,1), text('SALONBESTELLUNG'));
+    if (isTakeaway) out.push(size(2,2), text('ZUM MITNEHMEN'));
+    out.push(size(1,1), bold(0), align(0), text(''));
+  }
+
+  // Delivery kitchen slips need a distance-readable destination. Pickup and
+  // Schnellbestellung intentionally print no customer address at the bottom.
+  if (isDelivery) {
+    const deliveryAddress = buildDeliveryAddress(o?.customer || {});
+    const deliveryCustomerName = /^Nummer\s+\d+$/i.test(name) ? '' : name;
+    if (deliveryAddress || deliveryCustomerName) {
+      out.push(align(1), bold(1), size(2,2));
+      const largeLineWidth = Math.max(12, Math.floor(LINE / 2));
+      if (deliveryAddress) {
+        for (const line of wrapLines('', deliveryAddress, largeLineWidth)) out.push(text(line));
+      }
+      if (deliveryCustomerName) {
+        for (const line of wrapLines('', deliveryCustomerName, largeLineWidth)) out.push(text(line));
+      }
+      out.push(size(1,1), bold(0), align(0), text(''));
+    }
+  }
 
   const orderNote = extractOrderNote(o);
   if (orderNote){
