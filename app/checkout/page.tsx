@@ -298,6 +298,23 @@ function paymentRecoveryIsTerminal(payload: PaymentSessionResponse) {
   );
 }
 
+type PaymentRecoverySyncResult =
+  | "none"
+  | "active"
+  | "terminal"
+  | "unverified";
+
+function paymentRecoveryIsConfirmedOpen(
+  responseOk: boolean,
+  payload: PaymentSessionResponse,
+) {
+  return (
+    responseOk &&
+    !paymentRecoveryIsTerminal(payload) &&
+    ["open", "pending", "processing"].includes(payload.status)
+  );
+}
+
 function formatPaymentRecoveryCountdown(expiresAt: unknown, nowMs: number) {
   const endMs = Date.parse(String(expiresAt || ""));
   if (!Number.isFinite(endMs)) return "";
@@ -1952,8 +1969,14 @@ export default function CheckoutPage() {
     useState<ActivePaymentRecovery | null>(null);
   const [paymentRecoveryBusy, setPaymentRecoveryBusy] = useState(false);
   const [paymentRecoveryMessage, setPaymentRecoveryMessage] = useState("");
+  const [paymentRecoveryChecking, setPaymentRecoveryChecking] = useState(false);
+  const [paymentRecoveryUnverified, setPaymentRecoveryUnverified] =
+    useState(false);
   const [paymentRecoveryNowMs, setPaymentRecoveryNowMs] = useState(() => Date.now());
   const paymentExpirySyncRef = useRef(false);
+  const paymentRecoverySyncPromiseRef =
+    useRef<Promise<PaymentRecoverySyncResult> | null>(null);
+  const paymentRecoverySyncKeyRef = useRef("");
   const [tipChoice, setTipChoice] = useState<TipChoice>("none");
   const [customTip, setCustomTip] = useState("");
   const [splitPeople, setSplitPeople] = useState(2);
@@ -1999,63 +2022,127 @@ export default function CheckoutPage() {
   }, [applyClaimedPaymentProfile]);
 
   const syncActivePaymentRecovery = useCallback(
-    async (candidate?: ActivePaymentRecovery | null) => {
+    async (
+      candidate?: ActivePaymentRecovery | null,
+    ): Promise<PaymentRecoverySyncResult> => {
       const recovery = candidate ?? readActivePaymentRecovery();
 
       if (!recovery) {
         setActivePaymentRecovery(null);
-        return;
+        setPaymentRecoveryChecking(false);
+        setPaymentRecoveryUnverified(false);
+        return "none";
       }
 
-      setActivePaymentRecovery(recovery);
+      const syncKey = `${recovery.paymentSessionId}:${recovery.recoveryToken}`;
+      if (
+        paymentRecoverySyncPromiseRef.current &&
+        paymentRecoverySyncKeyRef.current === syncKey
+      ) {
+        return paymentRecoverySyncPromiseRef.current;
+      }
 
-      try {
-        const response = await fetch(
-          `/api/payments/session?id=${encodeURIComponent(
-            recovery.paymentSessionId,
-          )}&recovery=${encodeURIComponent(recovery.recoveryToken)}`,
-          { cache: "no-store" },
-        );
-        const raw: unknown = await response.json().catch(() => null);
-        const payload = parsePaymentSessionResponse(raw);
-
-        if (paymentRecoveryIsTerminal(payload)) {
-          if (payload.finalized && recovery.paymentKind === "online") {
-            /*
-             * A mobile PWA can return from Stripe through the system browser.
-             * In that case Stripe saved the HttpOnly profile cookie in the
-             * browser context, not in the installed PWA. The recovery token
-             * lets this same device securely claim the profile in its current
-             * context without exposing card or wallet credentials.
-             */
-            savePendingPaymentProfileClaim(recovery);
-            await retryPendingPaymentProfileClaim();
-          }
-
-          clearActivePaymentRecoveryStorage();
-          setActivePaymentRecovery(null);
-          setPaymentRecoveryMessage("");
-          return;
-        }
-
-        const nextRecovery: ActivePaymentRecovery = {
-          ...recovery,
-          expiresAt: payload?.recoveryExpiresAt || recovery.expiresAt || null,
-        };
+      /*
+       * A localStorage recovery record is only a candidate. Do not render the
+       * blocking "Offene Zahlung" modal until the server confirms that the
+       * payment session is still open. This avoids a stale modal flash after
+       * an already completed mobile/PWA payment.
+       */
+      const syncPromise = (async (): Promise<PaymentRecoverySyncResult> => {
+        setPaymentRecoveryChecking(true);
+        setPaymentRecoveryUnverified(false);
+        setPaymentRecoveryMessage("");
 
         try {
-          localStorage.setItem(
-            ACTIVE_PAYMENT_RECOVERY_KEY,
-            JSON.stringify(nextRecovery),
+          const response = await fetch(
+            `/api/payments/session?id=${encodeURIComponent(
+              recovery.paymentSessionId,
+            )}&recovery=${encodeURIComponent(recovery.recoveryToken)}`,
+            { cache: "no-store" },
           );
-        } catch (error: unknown) {
-          reportCheckoutError("payment-recovery-storage", error);
-        }
+          const raw: unknown = await response.json().catch(() => null);
+          const payload = parsePaymentSessionResponse(raw);
 
-        setActivePaymentRecovery(nextRecovery);
-      } catch (error: unknown) {
-        // Keep the local recovery card visible during a temporary network error.
-        reportCheckoutError("payment-recovery-sync", error);
+          if (
+            !response.ok &&
+            (response.status === 429 || response.status >= 500)
+          ) {
+            throw new Error(
+              payload.message ||
+                payload.error ||
+                "Der Zahlungsstatus konnte vorübergehend nicht geprüft werden.",
+            );
+          }
+
+          if (paymentRecoveryIsTerminal(payload)) {
+            if (payload.finalized && recovery.paymentKind === "online") {
+              /*
+               * A mobile PWA can return from Stripe through the system browser.
+               * In that case Stripe saved the HttpOnly profile cookie in the
+               * browser context, not in the installed PWA. The recovery token
+               * lets this same device securely claim the profile in its current
+               * context without exposing card or wallet credentials.
+               */
+              savePendingPaymentProfileClaim(recovery);
+              await retryPendingPaymentProfileClaim();
+            }
+
+            clearActivePaymentRecoveryStorage();
+            setActivePaymentRecovery(null);
+            setPaymentRecoveryMessage("");
+            setPaymentRecoveryUnverified(false);
+            return "terminal";
+          }
+
+          if (!paymentRecoveryIsConfirmedOpen(response.ok, payload)) {
+            throw new Error(
+              payload.message ||
+                payload.error ||
+                "Der Zahlungsstatus konnte nicht sicher bestätigt werden.",
+            );
+          }
+
+          const nextRecovery: ActivePaymentRecovery = {
+            ...recovery,
+            expiresAt: payload.recoveryExpiresAt || recovery.expiresAt || null,
+          };
+
+          try {
+            localStorage.setItem(
+              ACTIVE_PAYMENT_RECOVERY_KEY,
+              JSON.stringify(nextRecovery),
+            );
+          } catch (error: unknown) {
+            reportCheckoutError("payment-recovery-storage", error);
+          }
+
+          setActivePaymentRecovery(nextRecovery);
+          setPaymentRecoveryUnverified(false);
+          return "active";
+        } catch (error: unknown) {
+          /*
+           * Keep the local candidate for duplicate-order safety, but do not
+           * falsely claim that an open payment exists. The checkout remains
+           * visible and only final submission stays blocked until a retry.
+           */
+          reportCheckoutError("payment-recovery-sync", error);
+          setPaymentRecoveryUnverified(true);
+          return "unverified";
+        } finally {
+          setPaymentRecoveryChecking(false);
+        }
+      })();
+
+      paymentRecoverySyncKeyRef.current = syncKey;
+      paymentRecoverySyncPromiseRef.current = syncPromise;
+
+      try {
+        return await syncPromise;
+      } finally {
+        if (paymentRecoverySyncPromiseRef.current === syncPromise) {
+          paymentRecoverySyncPromiseRef.current = null;
+          paymentRecoverySyncKeyRef.current = "";
+        }
       }
     },
     [retryPendingPaymentProfileClaim],
@@ -2431,6 +2518,8 @@ export default function CheckoutPage() {
       (!paymentSettings.online || !paymentSettings.split));
   const disablePaymentSubmit =
     Boolean(activePaymentRecovery) ||
+    paymentRecoveryChecking ||
+    paymentRecoveryUnverified ||
     disableSend ||
     paymentPlanBlocked ||
     paymentMethodUnavailable;
@@ -2703,6 +2792,7 @@ export default function CheckoutPage() {
       clearActivePaymentRecoveryStorage();
       setActivePaymentRecovery(null);
       setPaymentRecoveryMessage("");
+      setPaymentRecoveryUnverified(false);
     } catch (error: unknown) {
       reportCheckoutError("payment-recovery-cancel", error);
       setPaymentRecoveryMessage(
@@ -3401,6 +3491,36 @@ export default function CheckoutPage() {
               Zahlungsbestätigung an die Küche gesendet.
             </div>
           </div>
+
+          {!activePaymentRecovery && paymentRecoveryChecking && (
+            <div className="mb-4 rounded-xl border border-sky-400/35 bg-sky-400/10 p-3 text-sm text-sky-50">
+              <div className="font-bold">Zahlungsstatus wird geprüft</div>
+              <div className="mt-1 text-xs text-stone-300">
+                Eine frühere Zahlung wird kurz und sicher geprüft. Der Checkout
+                bleibt dabei sichtbar.
+              </div>
+            </div>
+          )}
+
+          {!activePaymentRecovery && paymentRecoveryUnverified && (
+            <div className="mb-4 rounded-xl border border-amber-400/45 bg-amber-400/10 p-3 text-sm text-amber-50">
+              <div className="font-bold">
+                Zahlungsstatus noch nicht bestätigt
+              </div>
+              <div className="mt-1 text-xs text-stone-300">
+                Die Verbindung war kurz nicht erreichbar. Zur Sicherheit wird
+                keine zweite Zahlung gestartet, bis der Status geprüft wurde.
+              </div>
+              <button
+                type="button"
+                className="mt-3 rounded-lg bg-amber-400 px-3 py-2 font-bold text-black disabled:opacity-50"
+                disabled={paymentRecoveryChecking}
+                onClick={() => void syncActivePaymentRecovery()}
+              >
+                Erneut prüfen
+              </button>
+            </div>
+          )}
 
           {activePaymentRecovery && (
             <div className="mb-4 rounded-xl border border-amber-400/45 bg-amber-400/10 p-3 text-sm text-amber-50">
@@ -4264,10 +4384,20 @@ export default function CheckoutPage() {
     try {
       const existingRecovery = readActivePaymentRecovery();
       if (existingRecovery) {
-        setActivePaymentRecovery(existingRecovery);
-        throw new Error(
-          "Es gibt bereits eine offene Zahlung. Bitte zuerst auf ‚Zahlung fortsetzen‘ klicken oder die offene Zahlung verwerfen.",
-        );
+        const recoveryState =
+          await syncActivePaymentRecovery(existingRecovery);
+
+        if (recoveryState === "active") {
+          throw new Error(
+            "Es gibt bereits eine offene Zahlung. Bitte zuerst auf ‚Zahlung fortsetzen‘ klicken oder die offene Zahlung verwerfen.",
+          );
+        }
+
+        if (recoveryState === "unverified") {
+          throw new Error(
+            "Der frühere Zahlungsstatus konnte noch nicht geprüft werden. Bitte erneut versuchen.",
+          );
+        }
       }
 
       setSubmitBusy(true);
@@ -4358,6 +4488,7 @@ export default function CheckoutPage() {
       } catch (error: unknown) {
         reportCheckoutError("payment-recovery-storage", error);
       }
+      setPaymentRecoveryUnverified(false);
       setActivePaymentRecovery(recovery);
 
       if (payload.pricingAdjustment?.payableChanged && payload.canonicalPricing) {
@@ -4392,10 +4523,20 @@ export default function CheckoutPage() {
     try {
       const existingRecovery = readActivePaymentRecovery();
       if (existingRecovery) {
-        setActivePaymentRecovery(existingRecovery);
-        throw new Error(
-          "Bitte zuerst die offene Zahlung fortsetzen oder stornieren.",
-        );
+        const recoveryState =
+          await syncActivePaymentRecovery(existingRecovery);
+
+        if (recoveryState === "active") {
+          throw new Error(
+            "Bitte zuerst die offene Zahlung fortsetzen oder stornieren.",
+          );
+        }
+
+        if (recoveryState === "unverified") {
+          throw new Error(
+            "Der frühere Zahlungsstatus konnte noch nicht geprüft werden. Bitte erneut versuchen.",
+          );
+        }
       }
 
       setSubmitBusy(true);
