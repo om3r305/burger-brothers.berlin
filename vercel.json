@@ -10,11 +10,11 @@
     },
     {
       "path": "/api/admin/cron/reconcile-refunds",
-      "schedule": "17 * * * *"
+      "schedule": "17 5 * * *"
     },
     {
       "path": "/api/admin/cron/reward-cleanup",
-      "schedule": "7 * * * *"
+      "schedule": "7 6 * * *"
     }
   ]
 }
