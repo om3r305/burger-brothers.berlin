@@ -74,7 +74,7 @@ export async function GET(req: Request) {
     });
   } catch (error: any) {
     console.error("[admin:showcase:GET]", error);
-    return json({ ok: false, error: error?.message || "SHOWCASE_ADMIN_GET_FAILED" }, 500);
+    return json({ ok: false, error: "SHOWCASE_ADMIN_GET_FAILED" }, 500);
   }
 }
 
@@ -103,7 +103,7 @@ export async function PUT(req: Request) {
     return json({ ok: true, source: "db", draft: saved });
   } catch (error: any) {
     console.error("[admin:showcase:PUT]", error);
-    return json({ ok: false, error: error?.message || "SHOWCASE_DRAFT_SAVE_FAILED" }, 500);
+    return json({ ok: false, error: "SHOWCASE_DRAFT_SAVE_FAILED" }, 500);
   }
 }
 
@@ -156,6 +156,6 @@ export async function POST(req: Request) {
     return json({ ok: true, source: "db", draft: published, published });
   } catch (error: any) {
     console.error("[admin:showcase:POST]", error);
-    return json({ ok: false, error: error?.message || "SHOWCASE_PUBLISH_FAILED" }, 500);
+    return json({ ok: false, error: "SHOWCASE_PUBLISH_FAILED" }, 500);
   }
 }

@@ -152,10 +152,19 @@ ok(camera.includes("loadedmetadata"), "iPhone kamera metadata beklemesi mevcut")
 ok(camera.includes("video.srcObject = stream"), "kamera stream'i video elementine bağlanıyor");
 ok(camera.includes("await video.play()"), "iPhone video oynatma çağrısı bekleniyor");
 ok(camera.includes("webkit-playsinline"), "iPhone inline kamera uyumluluğu mevcut");
-ok(camera.includes("Nochmal aufnehmen") && camera.includes("Foto verwenden"), "tekrar çek ve fotoğrafı kullan akışı mevcut");
+ok(
+  camera.includes("Nochmal aufnehmen") &&
+    camera.includes("✓ Wird mitgesendet") &&
+    camera.includes("setConfirmed(Boolean(file))"),
+  "tekrar çek ve otomatik fotoğraf seçimi akışı mevcut",
+);
 
 const submission = read("app/api/schnellbestellung/reward/submission/route.ts");
-ok(submission.includes("showcase_queue_delayed"), "Showcase geçici hatası müşteri gönderimini kaybettirmiyor");
+ok(
+  submission.includes("showcase_queue_failed") &&
+    submission.includes("warning"),
+  "Showcase geçici hatası müşteri gönderimini kaybettirmiyor",
+);
 ok(submission.includes("reused showcase queue failed"), "yarım kalan paylaşım tekrarında idempotent tamamlama mevcut");
 ok(submission.includes("showcaseQueued"), "istemciye gerçek Showcase kuyruk sonucu dönüyor");
 

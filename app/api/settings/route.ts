@@ -11,7 +11,6 @@ import { createDefaultThemeSettings } from "@/lib/themes";
 import { verifySessionToken } from "@/lib/server/session";
 import { enforceRateLimit, forbiddenResponse, hasTrustedMutationOrigin } from "@/lib/server/request-security";
 import {
-  processDueAutomaticNotifications,
   reconcileSettingsAutomaticNotifications,
 } from "@/lib/server/automatic-notifications";
 
@@ -797,7 +796,7 @@ function errorResponse(error: any, fallback: string, status = 500) {
     {
       ok: false,
       source: "db",
-      error: error?.message || fallback,
+      error: fallback,
     },
     status,
   );
@@ -836,11 +835,6 @@ export async function GET(req: Request) {
 
     if (cached) {
       const visible = (await hasAdminSession(req)) ? cached : publicSettingsView(cached);
-      runAfterResponse(async () => {
-        await processDueAutomaticNotifications().catch((error) => {
-          console.error("[settings:GET] scheduled notification dispatch failed", error);
-        });
-      });
       return NextResponse.json(
         {
           ...visible,
@@ -857,11 +851,6 @@ export async function GET(req: Request) {
     const tenantId = await getTenantId();
     const settings = await readSettingsMap(tenantId);
     writeSettingsMemoryCache(settings);
-    runAfterResponse(async () => {
-      await processDueAutomaticNotifications(tenantId).catch((error) => {
-        console.error("[settings:GET] scheduled notification dispatch failed", error);
-      });
-    });
     const visibleSettings = (await hasAdminSession(req)) ? settings : publicSettingsView(settings);
 
     const fallbackSaved = shouldWriteRuntimeSnapshot()

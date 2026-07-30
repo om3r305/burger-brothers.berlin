@@ -61,7 +61,11 @@ const burgerOnly = {
 const burgerPages = runtime.buildShowcaseMenuPages(burgerOnly, products);
 assert.equal(burgerPages.length, 1, "yalnız Burger seçilince tek kategori oluşturulmalı");
 assert(burgerPages.every((page) => page.category === "burger"), "seçilmeyen gruplar görünmemeli");
-assert.equal(runtime.buildShowcaseMenuPages({ ...burgerOnly, menuCategories: [] }, products).length, 0, "boş seçim tüm gruplara geri düşmemeli");
+assert.equal(
+  runtime.buildShowcaseMenuPages({ ...burgerOnly, menuCategories: [] }, products).length,
+  3,
+  "boş seçim ekranı boş bırakmamalı ve tüm aktif gruplara düşmeli",
+);
 
 const normalized = config.normalizeShowcaseScene({
   ...productScene,
@@ -82,14 +86,19 @@ assert.equal(normalized.menuShowImages, true);
 assert.equal(normalized.menuImageSize, 104);
 
 const normalizedDocument = config.normalizeShowcaseDocument({ settings: { refreshSeconds: 60 } });
-assert.equal(normalizedDocument.settings.refreshSeconds, 5, "eski 60 sn ayarı canlı senkron için 5 sn'ye düşürülmeli");
+assert.equal(normalizedDocument.settings.refreshSeconds, 60, "10–60 sn canlı senkron ayarı korunmalı");
 
-const admin = read("app/admin/showcase/page.tsx");
-assert(admin.includes("üstte ürün görseli, altta ürün adı"), "tek parça ürün yerleşimi admin açıklamasında bulunmalı");
+const admin = [
+  read("app/admin/showcase/page.tsx"),
+  read("components/showcase/admin/ProductSceneEditor.tsx"),
+  read("components/showcase/admin/MenuSceneEditor.tsx"),
+  read("components/showcase/admin/ShowcasePreviewSidebar.tsx"),
+].join("\n");
+assert(admin.includes("Her ürün tek kartta gösterilir"), "tek parça ürün yerleşimi admin açıklamasında bulunmalı");
 assert(admin.includes("Küçük ürün görselleri"), "dijital menü görsel kontrolü bulunmalı");
 assert(admin.includes("menuImageSize"), "dijital menü küçük görsel boyutu ayarlanabilmeli");
 assert(admin.includes("signalShowcasePublished"), "yayın sonrası açık ekranlara anlık sinyal gönderilmeli");
-assert(admin.includes("2–5 saniye"), "admin canlı senkron geri bildirimi bulunmalı");
+assert(admin.includes("10–60 saniye"), "admin canlı senkron geri bildirimi bulunmalı");
 
 const stage = read("components/showcase/ShowcaseStage.tsx");
 const player = read("components/showcase/ShowcasePlayer.tsx");
@@ -99,7 +108,8 @@ assert(!stage.includes("setDetails("), "eski iki aşamalı sağa kaydırma akı�
 assert(stage.includes("menuItemThumb"), "dijital menüde küçük ürün görselleri desteklenmeli");
 assert(stage.includes("scene.menuShowImages !== false"), "küçük görseller admin ayarına bağlı olmalı");
 assert(player.includes("BroadcastChannel"), "aynı cihazdaki açık Showcase sekmeleri anlık güncellenmeli");
-assert(player.includes("Math.min(5"), "uzak TV güncelleme kontrolü en fazla 5 saniye olmalı");
+assert(player.includes("Math.max(\n      10"), "uzak TV güncelleme kontrolü en az 10 saniye olmalı");
+assert(player.includes("Math.min(60"), "uzak TV güncelleme kontrolü en fazla 60 saniye olmalı");
 assert(player.includes("bb_showcase_publish_ping"), "storage tabanlı canlı güncelleme sinyali bulunmalı");
 assert(css.includes(".productSpotlight"), "tek parça ürün kartı CSS'i bulunmalı");
 assert(css.includes(".menuItemThumb"), "küçük menü görseli CSS'i bulunmalı");

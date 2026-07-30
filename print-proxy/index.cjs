@@ -4,10 +4,10 @@
 
 const http = require('http');
 const https = require('https');
-const url = require('url');
 const net = require('net');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 /* ====== .env loader (npm paketi gerekmez) ====== */
 function loadLocalEnv(filePath = path.join(__dirname, '.env')) {
@@ -35,16 +35,40 @@ loadLocalEnv();
 
 /* ====== AYAR ====== */
 const PORT          = Number(process.env.PORT || 7777);
+const BIND_HOST     = String(process.env.PRINT_PROXY_HOST || '127.0.0.1').trim() || '127.0.0.1';
 const PRINTER_IP    = process.env.PRINTER_HOST || process.env.PRINTER_IP || '192.168.0.150';
 const PRINTER_PORT  = Number(process.env.PRINTER_PORT || 9100);
 const PRINTER_CODEPAGE = String(process.env.PRINTER_CODEPAGE || 'CP858').trim().toUpperCase();
+const PRINT_PROXY_TOKEN = String(process.env.PRINT_PROXY_TOKEN || '').trim();
 const ALLOW_ORIGINS = (process.env.ALLOW_ORIGINS || 'https://www.burger-brothers.berlin,https://www.burger-brothers.berlin')
   .split(',').map(s=>s.trim()).filter(Boolean);
+const MAX_JSON_BYTES = Math.max(1024, Math.min(1_048_576, Number(process.env.MAX_JSON_BYTES || 262_144) || 262_144));
+const MAX_COPIES = Math.max(1, Math.min(10, Number(process.env.MAX_PRINT_COPIES || 3) || 3));
+const MAX_LINES = Math.max(1, Math.min(1000, Number(process.env.MAX_PRINT_LINES || 200) || 200));
+const MAX_LINE_CHARS = Math.max(20, Math.min(2000, Number(process.env.MAX_PRINT_LINE_CHARS || 240) || 240));
+const ALLOW_LEGACY_TAX_FALLBACK =
+  String(process.env.PRINT_ALLOW_LEGACY_TAX_FALLBACK || '0') === '1';
+const FISCAL_OPERATION_MODE =
+  String(process.env.FISCAL_OPERATION_MODE || 'unconfigured').trim().toLowerCase();
+
+if (
+  PRINT_PROXY_TOKEN.length < 32 ||
+  /^(BURAYA_|CHANGE_ME|CHANGEME|PLACEHOLDER)/i.test(PRINT_PROXY_TOKEN)
+) {
+  throw new Error('PRINT_PROXY_TOKEN eksik veya zayıf. En az 32 karakterlik rastgele bir token ayarlayın.');
+}
 
 // Varsayılan logo: önce print-proxy klasöründeki local BMP, yoksa URL
 const DEFAULT_LOGO_FILE = path.join(__dirname, process.env.LOGO_FILE || 'logo-thermal.bmp');
 const DEFAULT_LOGO_URL = 'https://www.burger-brothers.berlin/logo-thermal.bmp';
 const LOGO_URL         = process.env.LOGO_URL || DEFAULT_LOGO_URL;
+const LOGO_URL_ORIGINS = new Set(
+  (process.env.LOGO_URL_ORIGINS || 'https://www.burger-brothers.berlin')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean),
+);
+const MAX_LOGO_BYTES = Math.max(64_000, Math.min(5_000_000, Number(process.env.MAX_LOGO_BYTES || 3_000_000) || 3_000_000));
 
 // Dev ortamında self-signed https için
 const ALLOW_INSECURE_LOGO = String(process.env.ALLOW_INSECURE_LOGO || '0') === '1';
@@ -81,27 +105,98 @@ const STORE_HEADER_LINES = [
   'St.Nr: 17/602/03138',
 ];
 
-/* ====== CORS & yardımcılar ====== */
+/* ====== CORS, kimlik doğrulama & yardımcılar ====== */
 function cors(res, reqOrigin='') {
-  const origin = (ALLOW_ORIGINS.includes(reqOrigin) ? reqOrigin : ALLOW_ORIGINS[0]) || '*';
-  res.setHeader('Access-Control-Allow-Origin', origin);
+  if (!reqOrigin || !ALLOW_ORIGINS.includes(reqOrigin)) return false;
+  res.setHeader('Access-Control-Allow-Origin', reqOrigin);
+  res.setHeader('Vary', 'Origin');
   res.setHeader('Access-Control-Allow-Methods', 'OPTIONS, POST, GET');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Print-Proxy-Token');
+  res.setHeader('Access-Control-Max-Age', '600');
+  return true;
 }
-function readJson(req) {
+
+function jsonResponse(res, status, payload) {
+  res.writeHead(status, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Cache-Control': 'no-store',
+    'X-Content-Type-Options': 'nosniff',
+  });
+  res.end(JSON.stringify(payload));
+}
+
+function safeEqual(left, right) {
+  const a = Buffer.from(String(left || ''), 'utf8');
+  const b = Buffer.from(String(right || ''), 'utf8');
+  if (a.length !== b.length || a.length === 0) return false;
+  return crypto.timingSafeEqual(a, b);
+}
+
+function requestAuthorized(req) {
+  return safeEqual(req.headers['x-print-proxy-token'], PRINT_PROXY_TOKEN);
+}
+
+function readJson(req, maxBytes = MAX_JSON_BYTES) {
   return new Promise((resolve, reject) => {
-    let buf=''; req.on('data', c => buf+=c);
-    req.on('end', () => { try{ resolve(buf?JSON.parse(buf):{}); } catch(e){ reject(e); } });
+    let size = 0;
+    const chunks = [];
+    let settled = false;
+
+    req.on('data', (chunk) => {
+      if (settled) return;
+      size += chunk.length;
+      if (size > maxBytes) {
+        settled = true;
+        const error = new Error('payload_too_large');
+        error.statusCode = 413;
+        reject(error);
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => {
+      if (settled) return;
+      try {
+        const raw = Buffer.concat(chunks).toString('utf8');
+        resolve(raw ? JSON.parse(raw) : {});
+      } catch {
+        const error = new Error('invalid_json');
+        error.statusCode = 400;
+        reject(error);
+      }
+    });
     req.on('error', reject);
   });
+}
+
+function requestError(res, error) {
+  const status = Number(error?.statusCode || 500);
+  const code = error?.publicCode ||
+    (status === 413
+      ? 'payload_too_large'
+      : status === 400
+        ? 'invalid_request'
+        : 'print_failed');
+  if (status >= 500) console.error('[print-proxy]', error?.message || error);
+  return jsonResponse(res, status, { ok: false, error: code });
 }
 
 /** HTTPS self-signed destekli, redirect takip eden downloader */
 function httpGetBuffer(absUrl) {
   return new Promise((resolve, reject) => {
     const startUrl = new URL(absUrl);
+    const allowed = (u) =>
+      u.protocol === 'https:' &&
+      !u.username &&
+      !u.password &&
+      LOGO_URL_ORIGINS.has(u.origin);
+
+    if (!allowed(startUrl)) return reject(new Error('logo_url_not_allowed'));
+
     const fetchOnce = (u, depth=0) => {
-      if (depth > 5) return reject(new Error('Too many redirects'));
+      if (!allowed(u)) return reject(new Error('logo_url_not_allowed'));
+      if (depth > 3) return reject(new Error('too_many_redirects'));
       const isHttps = u.protocol === 'https:';
       const lib = isHttps ? https : http;
 
@@ -120,6 +215,7 @@ function httpGetBuffer(absUrl) {
         if ([301,302,303,307,308].includes(code) && res.headers.location) {
           const nextUrl = new URL(res.headers.location, u);
           res.resume();
+          if (!allowed(nextUrl)) return reject(new Error('logo_redirect_not_allowed'));
           return fetchOnce(nextUrl, depth+1);
         }
         if (code >= 400) {
@@ -127,7 +223,16 @@ function httpGetBuffer(absUrl) {
           return reject(new Error('HTTP ' + code));
         }
         const chunks=[];
-        res.on('data', c=>chunks.push(c));
+        let size = 0;
+        res.on('data', (chunk) => {
+          size += chunk.length;
+          if (size > MAX_LOGO_BYTES) {
+            res.destroy();
+            req.destroy(new Error('logo_too_large'));
+            return;
+          }
+          chunks.push(chunk);
+        });
         res.on('end', ()=> resolve(Buffer.concat(chunks)));
       });
       req.on('timeout', ()=>{ req.destroy(new Error('timeout')); });
@@ -138,8 +243,6 @@ function httpGetBuffer(absUrl) {
     fetchOnce(startUrl, 0);
   });
 }
-const httpGetJson = (absUrl) => httpGetBuffer(absUrl).then(b=>JSON.parse(b.toString('utf8')));
-
 function sendToPrinter(buf) {
   return new Promise((resolve, reject) => {
     const sock = new net.Socket();
@@ -354,17 +457,6 @@ function detectCategory(it){
   if (/(snack|beilage|beilagen|wings|sticks|rings|fries)/.test(name)) return 'Extras';
   if (/(extra|zusatz)/.test(name)) return 'Extras';
   return 'Andere';
-}
-
-/* ====== URL'den order çöz ====== */
-async function resolveOrderFromUrl(urlStr){
-  const u = new URL(urlStr);
-  const m = u.pathname.match(/\/print\/barcode\/([^/]+)/i);
-  const orderId = m ? decodeURIComponent(m[1]) : null;
-  if (!orderId) return null;
-  const list = await httpGetJson(`${u.protocol}//${u.host}/api/orders`).catch(()=>null);
-  if (!Array.isArray(list)) return null;
-  return list.find(o=>String(o?.id)===String(orderId)) || null;
 }
 
 /* ====== geplant / hedef saat ====== */
@@ -1055,9 +1147,16 @@ async function buildTicketFromOrder(o, opts={}){
       const rate  = Number(it?.taxRate);
       if (rate === 7)  { br7  += gross; continue; }
       if (rate === 19) { br19 += gross; continue; }
-      const cat = detectCategory(it);
-      if (cat === 'Getränke') br19 += gross;
-      else br7 += gross;
+      if (ALLOW_LEGACY_TAX_FALLBACK) {
+        const cat = detectCategory(it);
+        if (cat === 'Getränke') br19 += gross;
+        else br7 += gross;
+        continue;
+      }
+      const error = new Error('tax_rate_missing');
+      error.statusCode = 422;
+      error.publicCode = 'tax_rate_missing';
+      throw error;
     }
   }
   if (o?.summary){
@@ -1110,6 +1209,21 @@ async function buildTicketFromOrder(o, opts={}){
 
   out.push(align(1));
   for (const ln of STORE_HEADER_LINES) out.push(text(ln));
+  if (FISCAL_OPERATION_MODE === 'external_certified_pos') {
+    out.push(
+      bold(1),
+      text('KEIN STEUERBELEG'),
+      text('Vorgang im Kassensystem erfassen'),
+      bold(0),
+    );
+  } else if (FISCAL_OPERATION_MODE !== 'webshop_only') {
+    out.push(
+      bold(1),
+      text('FISKALMODUS UNGEKLAERT'),
+      text('KEIN STEUERBELEG'),
+      bold(0),
+    );
+  }
   out.push(text(''), align(0));
 
   out.push(text(twoCol('Zeit', whenStr)));
@@ -1260,13 +1374,29 @@ async function buildTicketFromOrder(o, opts={}){
 
 /* ====== HTTP ====== */
 const server = http.createServer(async (req,res)=>{
-  cors(res, req.headers.origin||'');
-  const u = url.parse(req.url, true);
-  if (req.method==='OPTIONS'){ res.statusCode=200; return res.end(); }
+  const reqOrigin = String(req.headers.origin || '');
+  const originAllowed = cors(res, reqOrigin);
+  const u = new URL(req.url || '/', 'http://127.0.0.1');
+
+  if (req.method==='OPTIONS'){
+    if (reqOrigin && !originAllowed) return jsonResponse(res, 403, { ok:false, error:'origin_not_allowed' });
+    res.writeHead(204, {
+      'Cache-Control': 'no-store',
+      'X-Content-Type-Options': 'nosniff',
+    });
+    return res.end();
+  }
+
+  if (reqOrigin && !originAllowed) {
+    return jsonResponse(res, 403, { ok:false, error:'origin_not_allowed' });
+  }
+
+  if (!requestAuthorized(req)) {
+    return jsonResponse(res, 401, { ok:false, error:'unauthorized' });
+  }
 
   if (req.method==='GET' && u.pathname==='/health'){
-    res.writeHead(200, {'Content-Type':'application/json'});
-    return res.end(JSON.stringify({
+    return jsonResponse(res, 200, {
       ok:true,
       printer:{host:PRINTER_IP, port:PRINTER_PORT, codepage: PRINTER_CODEPAGE},
       logoUrl: LOGO_URL || null,
@@ -1282,34 +1412,40 @@ const server = http.createServer(async (req,res)=>{
         autoCrop: LOGO_AUTOCROP,
         cropPad: LOGO_CROP_PAD
       },
-      barcode: { height: BARCODE_HEIGHT, module: BARCODE_MODULE }
-    }));
+      barcode: { height: BARCODE_HEIGHT, module: BARCODE_MODULE },
+      limits: {
+        maxJsonBytes: MAX_JSON_BYTES,
+        maxCopies: MAX_COPIES,
+        maxLines: MAX_LINES,
+        maxLineChars: MAX_LINE_CHARS,
+      },
+      legacyTaxFallback: ALLOW_LEGACY_TAX_FALLBACK,
+      fiscalOperationMode: FISCAL_OPERATION_MODE,
+    });
   }
 
-  // === YENİ: Sadece barkod bas (CODE128) ===
+  // Sadece barkod bas (CODE128)
   if (req.method==='POST' && u.pathname==='/print/barcode'){
     try{
       const body = await readJson(req);
       const content = String(body?.content || '').trim();
-      const copies = Math.max(1, parseInt(body?.copies || 1, 10));
+      const copies = Number.parseInt(body?.copies || 1, 10);
       if (!content) {
-        res.writeHead(400, {'Content-Type':'application/json'});
-        return res.end(JSON.stringify({ok:false, error:'content required'}));
+        return jsonResponse(res, 400, {ok:false, error:'content_required'});
+      }
+      if (!Number.isInteger(copies) || copies < 1 || copies > MAX_COPIES) {
+        return jsonResponse(res, 422, {ok:false, error:'copies_out_of_range'});
       }
       const chunks = [];
       for (let i=0;i<copies;i++){
         chunks.push(init(), selectCodepage(), fontA(), lineSpace(34));
-        // İstersen üstte küçük başlık/metin ekleyebilirsin:
-        // chunks.push(align(1), text('BARKOD'), align(0));
         chunks.push(code128(content));
         chunks.push(lineSpaceDefault(), text('\n'), cut());
       }
       await sendToPrinter(Buffer.concat(chunks));
-      res.writeHead(200, {'Content-Type':'application/json'});
-      return res.end(JSON.stringify({ok:true, printed:content, copies}));
+      return jsonResponse(res, 200, {ok:true, printed:content, copies});
     }catch(e){
-      res.writeHead(500, {'Content-Type':'application/json'});
-      return res.end(JSON.stringify({ok:false, error:String(e)}));
+      return requestError(res, e);
     }
   }
 
@@ -1322,65 +1458,79 @@ const server = http.createServer(async (req,res)=>{
         lineSpaceDefault(), cut()
       ]);
       await sendToPrinter(b);
-      res.writeHead(200, {'Content-Type':'application/json'});
-      return res.end(JSON.stringify({ok:true}));
+      return jsonResponse(res, 200, {ok:true});
     }catch(e){
-      res.writeHead(500, {'Content-Type':'application/json'});
-      return res.end(JSON.stringify({ok:false,error:String(e)}));
+      return requestError(res, e);
     }
   }
 
   if (req.method==='POST' && u.pathname==='/print/lines'){
     try{
       const body=await readJson(req); const lines=Array.isArray(body?.lines)?body.lines:[];
-      const b=Buffer.concat([init(), selectCodepage(), fontA(), lineSpace(34), ...lines.map(l=>text(String(l))), lineSpaceDefault(), cut()]);
+      if (lines.length > MAX_LINES) {
+        return jsonResponse(res, 422, {ok:false, error:'too_many_lines'});
+      }
+      const safeLines = lines.map((line) => String(line || ''));
+      if (safeLines.some((line) => line.length > MAX_LINE_CHARS)) {
+        return jsonResponse(res, 422, {ok:false, error:'line_too_long'});
+      }
+      const b=Buffer.concat([init(), selectCodepage(), fontA(), lineSpace(34), ...safeLines.map(l=>text(l)), lineSpaceDefault(), cut()]);
       await sendToPrinter(b);
-      res.writeHead(200, {'Content-Type':'application/json'});
-      return res.end(JSON.stringify({ok:true,lines:lines.length}));
+      return jsonResponse(res, 200, {ok:true,lines:safeLines.length});
     }catch(e){
-      res.writeHead(500, {'Content-Type':'application/json'});
-      return res.end(JSON.stringify({ok:false,error:String(e)}));
+      return requestError(res, e);
     }
   }
 
   if (req.method==='POST' && u.pathname==='/print/full'){
     try{
       const body=await readJson(req);
+      if (!body?.order || typeof body.order !== 'object' || Array.isArray(body.order)) {
+        return jsonResponse(res, 400, {ok:false, error:'order_required'});
+      }
       const payload=await buildTicketFromOrder(body?.order||{}, body?.options||{});
       await sendToPrinter(payload);
-      res.writeHead(200, {'Content-Type':'application/json'});
-      return res.end(JSON.stringify({ok:true,printed:String(body?.order?.id||'')}));
+      return jsonResponse(res, 200, {ok:true,printed:String(body?.order?.id||'')});
     }catch(e){
-      res.writeHead(500, {'Content-Type':'application/json'});
-      return res.end(JSON.stringify({ok:false,error:String(e)}));
+      return requestError(res, e);
     }
   }
 
+  // Eski isim korunur; güvenlik nedeniyle URL çözümleme kaldırılmıştır.
+  // İstemci doğrulanmış order nesnesini göndermelidir.
   if (req.method==='POST' && u.pathname==='/print/pdf'){
     try{
       const body=await readJson(req);
       let order = body?.order || null;
-      if (!order && body?.url) order = await resolveOrderFromUrl(body.url);
       if (!order){
-        res.writeHead(400, {'Content-Type':'application/json'});
-        return res.end(JSON.stringify({ok:false,error:'order not resolved from url'}));
+        return jsonResponse(res, 400, {
+          ok:false,
+          error: body?.url ? 'url_resolution_disabled' : 'order_required',
+        });
       }
       const payload=await buildTicketFromOrder(order, body?.options||{ brand:'Burger Brothers' });
       await sendToPrinter(payload);
-      res.writeHead(200, {'Content-Type':'application/json'});
-      return res.end(JSON.stringify({ok:true,printed:String(order?.id||'')}));
+      return jsonResponse(res, 200, {ok:true,printed:String(order?.id||'')});
     }catch(e){
-      res.writeHead(500, {'Content-Type':'application/json'});
-      return res.end(JSON.stringify({ok:false,error:String(e)}));
+      return requestError(res, e);
     }
   }
 
-  res.writeHead(404, {'Content-Type':'application/json'});
-  res.end(JSON.stringify({ ok:false, error:'Not found' }));
+  return jsonResponse(res, 404, { ok:false, error:'not_found' });
 });
 
-server.listen(PORT, ()=>{
-  console.log(`✅ print-proxy up on http://127.0.0.1:${PORT}`);
+server.requestTimeout = 15_000;
+server.headersTimeout = 10_000;
+server.keepAliveTimeout = 5_000;
+server.maxHeadersCount = 64;
+
+server.on('clientError', (_error, socket) => {
+  if (!socket.writable) return;
+  socket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n');
+});
+
+server.listen(PORT, BIND_HOST, ()=>{
+  console.log(`✅ print-proxy up on http://${BIND_HOST}:${PORT}`);
   console.log(`➡️  Printer: ${PRINTER_IP}:${PRINTER_PORT} codepage=${PRINTER_CODEPAGE}`);
   if (fs.existsSync(DEFAULT_LOGO_FILE)) console.log(`🖼  Local Logo: ${DEFAULT_LOGO_FILE}`);
   if (LOGO_URL) console.log(`🖼  Logo URL: ${LOGO_URL}  (insecure:${ALLOW_INSECURE_LOGO?'yes':'no'}) thr:${LOGO_THRESHOLD} mw:${LOGO_MAX_WIDTH} bright:${LOGO_BRIGHTEN} gamma:${LOGO_GAMMA} dither:${LOGO_DITHER?'on':'off'} blackBoost:${LOGO_BLACK_BOOST} autocrop:${LOGO_AUTOCROP?'on':'off'} pad:${LOGO_CROP_PAD}`);

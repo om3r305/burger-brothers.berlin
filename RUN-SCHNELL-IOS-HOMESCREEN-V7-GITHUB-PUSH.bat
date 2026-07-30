@@ -1,4 +1,4 @@
-﻿@echo off
+@echo off
 setlocal
 title Burger Brothers Schnellbestellung iOS Home Screen V7
 

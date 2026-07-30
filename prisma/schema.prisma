@@ -47,6 +47,7 @@ model Tenant {
   schnellWinnerSubmissions   SchnellWinnerSubmission[]
   showcaseLiveEvents         ShowcaseLiveEvent[]
   adminInboxNotifications    AdminInboxNotification[]
+  analyticsEvents            AnalyticsEvent[]
 }
 
 /**
@@ -65,7 +66,8 @@ model Product {
   imageUrl    String?
   category    String
 
-  price Decimal @db.Decimal(10, 2)
+  price   Decimal @db.Decimal(10, 2)
+  taxRate Int     @default(7)
 
   active     Boolean   @default(true)
   activeFrom DateTime?
@@ -148,6 +150,8 @@ model Coupon {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  issuedCoupons IssuedCoupon[]
+
   @@unique([tenantId, code])
   @@index([tenantId])
 }
@@ -163,6 +167,7 @@ model IssuedCoupon {
   tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   couponId   String
+  coupon     Coupon @relation(fields: [couponId], references: [id], onDelete: Restrict)
   couponCode String
   code       String
 
@@ -285,6 +290,9 @@ model Order {
   history Json?
   print   Json?
 
+  idempotencyKey String?
+  requestHash    String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -296,6 +304,32 @@ model Order {
   @@index([tenantId, ts])
   @@index([tenantId, archivedAt])
   @@index([tenantId, anonymizedAt])
+  @@unique([tenantId, idempotencyKey], map: "order_tenant_idempotency_unique")
+}
+
+/**
+ * ─────────────────────────────────────────
+ * PRIVACY-MINIMIZED ANALYTICS EVENT
+ * ─────────────────────────────────────────
+ * Query string, raw IP, raw session id and full user-agent are never stored.
+ */
+model AnalyticsEvent {
+  id String @id @default(cuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  event       String
+  path        String
+  sessionHash String?
+  props       Json?
+  consentVersion String
+
+  createdAt DateTime @default(now())
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, event, createdAt])
+  @@index([tenantId, sessionHash, createdAt])
 }
 
 /**
@@ -830,4 +864,3 @@ model AdminInboxNotification {
   @@index([tenantId, status, createdAt])
   @@index([tenantId, sourceType, sourceId])
 }
-

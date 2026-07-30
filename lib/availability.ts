@@ -121,32 +121,122 @@ function safeTimeRange(r?: TimeRange | null): TimeRange | null {
 
 function pad2(n: number) { return n < 10 ? `0${n}` : String(n); }
 
+type ZonedParts = {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+  second: number;
+};
+
+const zonedFormatterCache = new Map<string, Intl.DateTimeFormat>();
+
+function zonedFormatter(tz: string) {
+  const key = tz || DEFAULT_TZ;
+  const cached = zonedFormatterCache.get(key);
+  if (cached) return cached;
+
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: key,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  });
+  zonedFormatterCache.set(key, formatter);
+  return formatter;
+}
+
+function zonedParts(d: Date, tz: string): ZonedParts {
+  if (!(d instanceof Date) || !Number.isFinite(d.valueOf())) {
+    throw new RangeError("invalid_date");
+  }
+
+  const parts = zonedFormatter(tz).formatToParts(d);
+  const values = new Map(parts.map((part) => [part.type, part.value]));
+  return {
+    year: Number(values.get("year")),
+    month: Number(values.get("month")),
+    day: Number(values.get("day")),
+    hour: Number(values.get("hour")),
+    minute: Number(values.get("minute")),
+    second: Number(values.get("second")),
+  };
+}
+
+function parseIsoDate(iso: string) {
+  const match = String(iso || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) throw new RangeError("invalid_iso_date");
+  return {
+    year: Number(match[1]),
+    month: Number(match[2]),
+    day: Number(match[3]),
+  };
+}
+
+function addIsoDays(iso: string, days: number) {
+  const { year, month, day } = parseIsoDate(iso);
+  const value = new Date(Date.UTC(year, month - 1, day + days));
+  return `${value.getUTCFullYear()}-${pad2(value.getUTCMonth() + 1)}-${pad2(value.getUTCDate())}`;
+}
+
+/**
+ * Bir IANA saat dilimindeki duvar saatini gerçek UTC instant'ına çevirir.
+ * Locale metni tekrar parse etmez; DST offset'i Intl parçalarından iteratif çözer.
+ */
+export function zonedDateTimeToDate(
+  value: {
+    year: number;
+    month: number;
+    day: number;
+    hour?: number;
+    minute?: number;
+    second?: number;
+  },
+  tz: string,
+): Date {
+  const desiredUtc = Date.UTC(
+    value.year,
+    value.month - 1,
+    value.day,
+    value.hour || 0,
+    value.minute || 0,
+    value.second || 0,
+  );
+  let guess = desiredUtc;
+
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const actual = zonedParts(new Date(guess), tz);
+    const representedUtc = Date.UTC(
+      actual.year,
+      actual.month - 1,
+      actual.day,
+      actual.hour,
+      actual.minute,
+      actual.second,
+    );
+    const correction = desiredUtc - representedUtc;
+    guess += correction;
+    if (correction === 0) break;
+  }
+
+  const result = new Date(guess);
+  if (!Number.isFinite(result.valueOf())) throw new RangeError("invalid_zoned_date");
+  return result;
+}
+
 export function isoDateInTZ(d: Date, tz: string): string {
-  const dd = new Date(d.toLocaleString("en-US", { timeZone: tz }));
-  const y = dd.getFullYear();
-  const m = dd.getMonth() + 1;
-  const day = dd.getDate();
-  return `${y}-${pad2(m)}-${pad2(day)}`;
+  const local = zonedParts(d, tz);
+  return `${local.year}-${pad2(local.month)}-${pad2(local.day)}`;
 }
 
-export function nowInTZ(tz: string): Date {
-  return new Date(new Date().toLocaleString("en-US", { timeZone: tz }));
-}
-
-function timeOn(dateInTZ: Date, hhmm: string, tz: string): Date {
-  const [hh, mm] = hhmm.split(":").map((v) => parseInt(v, 10));
-  const y = dateInTZ.getFullYear();
-  const m = dateInTZ.getMonth();
-  const d = dateInTZ.getDate();
-  const isoLocal = `${y}-${pad2(m + 1)}-${pad2(d)}T${pad2(hh)}:${pad2(mm)}:00`;
-  const fixed = new Date(new Date(`${isoLocal} GMT`).toLocaleString("en-US", { timeZone: tz }));
-  return isNaN(fixed.getTime()) ? new Date(isoLocal) : fixed;
-}
-
-function dayIndexInTZ(d: Date, tz: string): DayIndex {
-  const local = new Date(d.toLocaleString("en-US", { timeZone: tz }));
-  const js = local.getDay(); // 0=Sun..6=Sat
-  return (((js + 6) % 7) as DayIndex); // Mon=0..Sun=6
+export function nowInTZ(_tz: string): Date {
+  // Date gerçek bir instant taşır. Saat dilimi yalnız formatlama/takvim hesabında uygulanır.
+  return new Date();
 }
 
 function normHHMM(s?: string): `${number}:${number}` | null {
@@ -162,18 +252,34 @@ function normHHMM(s?: string): `${number}:${number}` | null {
 
 export type Interval = { start: Date; end: Date };
 
-function getWindowsFor(mode: Mode, atInTZ: Date, plan: OpeningPlan, tz: string): Interval[] {
-  const iso = isoDateInTZ(atInTZ, tz);
+function getWindowsForIso(mode: Mode, iso: string, plan: OpeningPlan, tz: string): Interval[] {
   let ranges: DayHours | undefined = plan.specials?.[iso];
   if (ranges === undefined) {
-    const day = dayIndexInTZ(atInTZ, tz);
+    const date = parseIsoDate(iso);
+    const jsDay = new Date(Date.UTC(date.year, date.month - 1, date.day)).getUTCDay();
+    const day = (((jsDay + 6) % 7) as DayIndex);
     ranges = mode === "pickup" ? plan.pickup[day] : plan.delivery[day];
   }
   if (!ranges || !ranges.length) return [];
-  return ranges.map((r) => ({
-    start: timeOn(atInTZ, r.start, tz),
-    end: timeOn(atInTZ, r.end, tz),
-  }));
+  const date = parseIsoDate(iso);
+  return ranges.map((r) => {
+    const [startHour, startMinute] = r.start.split(":").map(Number);
+    const [endHour, endMinute] = r.end.split(":").map(Number);
+    return {
+      start: zonedDateTimeToDate(
+        { ...date, hour: startHour, minute: startMinute },
+        tz,
+      ),
+      end: zonedDateTimeToDate(
+        { ...date, hour: endHour, minute: endMinute },
+        tz,
+      ),
+    };
+  });
+}
+
+function getWindowsFor(mode: Mode, atInTZ: Date, plan: OpeningPlan, tz: string): Interval[] {
+  return getWindowsForIso(mode, isoDateInTZ(atInTZ, tz), plan, tz);
 }
 
 export function isOpenAt(
@@ -196,11 +302,10 @@ export function nextOpenWindow(
   tz: string = DEFAULT_TZ,
   maxDaysScan = 7
 ): Interval | null {
-  const base = new Date(from.toLocaleString("en-US", { timeZone: tz }));
+  const baseIso = isoDateInTZ(from, tz);
   for (let i = 0; i <= maxDaysScan; i++) {
-    const probe = new Date(base);
-    probe.setDate(probe.getDate() + i);
-    const wins = getWindowsFor(mode, probe, plan, tz);
+    const iso = addIsoDays(baseIso, i);
+    const wins = getWindowsForIso(mode, iso, plan, tz);
     if (!wins.length) continue;
 
     if (i === 0) {
@@ -225,6 +330,8 @@ export type ValidateOpts = {
   siteClosed?: boolean;
   allowPreorder?: boolean;
   daysAhead?: number;
+  /** Testler ve deterministik server doğrulaması için mevcut instant. */
+  now?: Date;
 };
 
 export type ValidationResult =
@@ -249,7 +356,10 @@ export function validatePlannedTime(
 
   if (siteClosed) return { ok: false, reason: "Heute geschlossen." };
 
-  const now = nowInTZ(tz);
+  const now = opts.now ? new Date(opts.now) : nowInTZ(tz);
+  if (!Number.isFinite(now.valueOf()) || !Number.isFinite(plannedAt.valueOf())) {
+    return { ok: false, reason: "Ungültige Zeitangabe." };
+  }
   const leadMin = mode === "pickup" ? leadPickupMin : leadDeliveryMin;
 
   if (!allowPreorder) {
@@ -339,10 +449,8 @@ export function statusLabel(
 }
 
 export function fmtTime(d: Date, tz: string = DEFAULT_TZ): string {
-  const dd = new Date(d.toLocaleString("de-DE", { timeZone: tz }));
-  const hh = pad2(dd.getHours());
-  const mm = pad2(dd.getMinutes());
-  return `${hh}:${mm}`;
+  const local = zonedParts(d, tz);
+  return `${pad2(local.hour)}:${pad2(local.minute)}`;
 }
 
 export function buildSlotsForDate(
@@ -396,18 +504,13 @@ export function ceilToSlot(d: Date, slotMinutes: number): Date {
 /** “HH:MM” → Date (verilen gün & TZ) */
 export function parseHHMMToDateInTZ(hhmm: string, baseDayInTZ: Date, tz: string): Date {
   const [hh, mm] = (hhmm || "00:00").split(":").map((n) => parseInt(n, 10) || 0);
-  const y = baseDayInTZ.getFullYear();
-  const m = baseDayInTZ.getMonth();
-  const d = baseDayInTZ.getDate();
-  const isoLocal = `${y}-${pad2(m + 1)}-${pad2(d)}T${pad2(hh)}:${pad2(mm)}:00`;
-  const fixed = new Date(new Date(`${isoLocal} GMT`).toLocaleString("en-US", { timeZone: tz }));
-  return isNaN(fixed.getTime()) ? new Date(isoLocal) : fixed;
+  const date = parseIsoDate(isoDateInTZ(baseDayInTZ, tz));
+  return zonedDateTimeToDate({ ...date, hour: hh, minute: mm }, tz);
 }
 
 /** Date → “HH:MM” (TZ) */
 export function formatHHMMInTZ(d: Date, tz: string = DEFAULT_TZ): string {
-  const dd = new Date(d.toLocaleString("en-US", { timeZone: tz }));
-  return `${pad2(dd.getHours())}:${pad2(dd.getMinutes())}`;
+  return fmtTime(d, tz);
 }
 
 /** En erken mümkün zamanı (lead + pencere + tamponlara göre) döndürür. */

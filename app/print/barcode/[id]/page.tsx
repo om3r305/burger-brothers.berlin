@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 /**
  * /print/barcode
- * - ID ile yazdır (proxy /print/pdf, URL: https://site/print/barcode/{ID})
+ * - ID ile yazdır (yetkili orders API’den order okunur, proxy /print/full)
  * - JSON order ile yazdır (proxy /print/full)
  *
  * Gerekli .env:
@@ -23,22 +23,30 @@ export default function PrintBarcodePage() {
   const [busy, setBusy] = useState<"id" | "json" | null>(null);
   const [msg, setMsg] = useState<string>("");
 
-  // Origin’i güvenli üret (SSR yok, client)
-  const origin = useMemo(() => {
-    try {
-      return window.location.origin;
-    } catch {
-      return "";
-    }
-  }, []);
-
   const canUseProxy = !!PROXY;
 
   async function postJson(path: string, body: any) {
+    const tokenResponse = await fetch("/api/print/token", {
+      method: "GET",
+      cache: "no-store",
+    });
+    const tokenPayload = await tokenResponse.json().catch(() => ({}));
+    const proxyToken =
+      tokenResponse.ok && typeof tokenPayload?.token === "string"
+        ? tokenPayload.token
+        : "";
+
+    if (proxyToken.length < 32) {
+      throw new Error("PRINT_PROXY_TOKEN fehlt oder Sitzung ist nicht berechtigt.");
+    }
+
     const url = `${PROXY}${path}`;
     const res = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "x-print-proxy-token": proxyToken,
+      },
       body: JSON.stringify(body),
     });
     if (!res.ok) {
@@ -48,7 +56,7 @@ export default function PrintBarcodePage() {
     return res.json().catch(() => ({}));
   }
 
-  // 1) ID ile yazdır: proxy /print/pdf —> resolveOrderFromUrl('/print/barcode/{id}') —> /api/orders
+  // 1) ID ile yazdır: yetkili API’den order nesnesini al, sonra proxy /print/full.
   async function handlePrintById() {
     setMsg("");
     if (!canUseProxy) {
@@ -61,9 +69,28 @@ export default function PrintBarcodePage() {
     }
     setBusy("id");
     try {
-      // Proxy, bu URL’den ID’yi çözüp aynı hostta /api/orders çağırır:
-      const urlForProxy = `${origin}/print/barcode/${encodeURIComponent(orderId.trim())}`;
-      const out = await postJson("/print/pdf", { url: urlForProxy, options: { brand: "Burger Brothers" } });
+      const ordersResponse = await fetch("/api/orders/list?all=1&take=1000", {
+        method: "GET",
+        cache: "no-store",
+      });
+      const ordersPayload = await ordersResponse.json().catch(() => ({}));
+      if (!ordersResponse.ok) {
+        throw new Error(`Bestellung konnte nicht gelesen werden (${ordersResponse.status}).`);
+      }
+      const orders = Array.isArray(ordersPayload?.allOrders)
+        ? ordersPayload.allOrders
+        : Array.isArray(ordersPayload?.items)
+          ? ordersPayload.items
+          : [];
+      const order = orders.find(
+        (item: any) => String(item?.id || "") === orderId.trim(),
+      );
+      if (!order) throw new Error("Bestellung nicht gefunden.");
+
+      const out = await postJson("/print/full", {
+        order,
+        options: { brand: "Burger Brothers" },
+      });
       setMsg(out?.ok ? `OK – gedruckt: ${out?.printed || orderId}` : "Druck fehlgeschlagen.");
     } catch (e: any) {
       setMsg(e?.message || "Fehler");
@@ -177,8 +204,8 @@ export default function PrintBarcodePage() {
             </button>
           </div>
           <div style={{ marginTop: 8, fontSize: 12, opacity: 0.8 }}>
-            Proxy, <code>/print/pdf</code> çağrısında <code>{origin}/print/barcode/&lt;ID&gt;</code> URL’sinden ID’yi çözer ve
-            aynı hostta <code>/api/orders</code> arayıp siparişi bulur.
+            Sipariş yalnız yetkili uygulama API’sinden okunur ve doğrulanmış order
+            nesnesi yerel proxy’ye gönderilir. Proxy dış URL çağırmaz.
           </div>
         </div>
 
@@ -271,9 +298,9 @@ export default function PrintBarcodePage() {
 
         {/* Küçük ipuçları */}
         <div style={{ marginTop: 14, fontSize: 12, opacity: 0.8, lineHeight: 1.5 }}>
-          <div>• Proxy cihazında port <code>7777</code> LAN’dan erişilebilir olmalı.</div>
+          <div>• Proxy varsayılan olarak yalnız <code>127.0.0.1:7777</code> üzerinde çalışır.</div>
           <div>
-            • Proxy’yi başlatırken <code>ALLOW_ORIGINS={origin}</code> vermeyi unutma (CORS).
+            • Vercel ve yerel proxy’de aynı güçlü <code>PRINT_PROXY_TOKEN</code> ayarlanmalıdır.
           </div>
           <div>• Yazıcı IP/port: <code>PRINTER_IP</code> / <code>PRINTER_PORT</code>.</div>
         </div>

@@ -597,7 +597,7 @@ export async function GET(req: Request) {
         sizeBytes: 0,
         status: "error",
         meta: null,
-        error: error?.message || "BACKUP_EXPORT_FAILED",
+        error: "BACKUP_EXPORT_FAILED",
       });
     }
 
@@ -605,7 +605,7 @@ export async function GET(req: Request) {
       {
         ok: false,
         source: "db",
-        error: error?.message || "BACKUP_EXPORT_FAILED",
+        error: "BACKUP_EXPORT_FAILED",
       },
       500,
     );
@@ -672,7 +672,7 @@ export async function POST(req: Request) {
         sizeBytes: 0,
         status: "error",
         meta: null,
-        error: error?.message || "BACKUP_EXPORT_FAILED",
+        error: "BACKUP_EXPORT_FAILED",
       });
     }
 
@@ -680,7 +680,7 @@ export async function POST(req: Request) {
       {
         ok: false,
         source: "db",
-        error: error?.message || "BACKUP_EXPORT_FAILED",
+        error: "BACKUP_EXPORT_FAILED",
       },
       500,
     );

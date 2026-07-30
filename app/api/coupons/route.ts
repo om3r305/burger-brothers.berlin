@@ -1235,7 +1235,7 @@ export async function GET(req: Request) {
     });
   } catch (error: any) {
     console.error("GET /api/coupons failed:", error);
-    return errorJson(error?.message || "COUPONS_GET_FAILED", 500);
+    return errorJson("COUPONS_GET_FAILED", 500);
   }
 }
 
@@ -1581,7 +1581,7 @@ export async function POST(req: Request) {
     return errorJson("unknown_action", 400);
   } catch (error: any) {
     console.error("POST /api/coupons failed:", error);
-    return errorJson(error?.message || "COUPONS_POST_FAILED", 500);
+    return errorJson("COUPONS_POST_FAILED", 500);
   }
 }
 
@@ -1637,6 +1637,6 @@ export async function DELETE(req: Request) {
     });
   } catch (error: any) {
     console.error("DELETE /api/coupons failed:", error);
-    return errorJson(error?.message || "COUPONS_DELETE_FAILED", 500);
+    return errorJson("COUPONS_DELETE_FAILED", 500);
   }
 }

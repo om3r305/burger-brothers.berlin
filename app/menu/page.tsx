@@ -1000,7 +1000,7 @@ export default function MenuPage() {
       <div className="bb-menu-header mb-4 flex flex-col gap-3 sm:mb-6 sm:flex-row sm:items-center sm:justify-between">
         <Link href="/" className="flex items-center gap-3">
           <Image
-            src="/logo-burger-brothers.png"
+            src="/logo-burger-brothers.webp"
             alt="Burger Brothers Berlin"
             width={42}
             height={42}
@@ -1096,7 +1096,8 @@ export default function MenuPage() {
                         campaignLabel={
                           badge ? (countdown ? `${badge} · ${countdown}` : badge) : undefined
                         }
-                        coverRatio="16/10"
+                        coverRatio="3/2"
+                        normalizeTransparentImage
                         topSellerRank={topSellerRank}
                       />
                     </div>
@@ -1120,6 +1121,16 @@ export default function MenuPage() {
           grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
           gap: 16px;
           align-items: stretch;
+        }
+
+        .bb-menu-page .bb-menu-product-cover {
+          border: 1px solid rgba(245, 158, 11, 0.12);
+          background:
+            radial-gradient(circle at 50% 46%, rgba(255, 154, 45, 0.11), transparent 58%),
+            linear-gradient(180deg, rgba(27, 21, 17, 0.97), rgba(10, 8, 7, 0.99));
+          box-shadow:
+            inset 0 0 34px rgba(255, 145, 0, 0.035),
+            0 10px 24px rgba(0, 0, 0, 0.16);
         }
 
         .grid-cards > .menu-card {

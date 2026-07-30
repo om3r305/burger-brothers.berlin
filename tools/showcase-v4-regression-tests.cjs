@@ -61,7 +61,11 @@ const burgerOnly = {
 const burgerPages = runtime.buildShowcaseMenuPages(burgerOnly, products);
 assert.equal(burgerPages.length, 1, "yalnız Burger seçilince tek kategori oluşturulmalı");
 assert(burgerPages.every((page) => page.category === "burger"), "Fries/içecek gibi seçilmeyen gruplar görünmemeli");
-assert.equal(runtime.buildShowcaseMenuPages({ ...burgerOnly, menuCategories: [] }, products).length, 0, "boş seçim tüm gruplara geri düşmemeli");
+assert.equal(
+  runtime.buildShowcaseMenuPages({ ...burgerOnly, menuCategories: [] }, products).length,
+  3,
+  "boş seçim ekranı boş bırakmamalı ve tüm aktif gruplara düşmeli",
+);
 
 const normalized = config.normalizeShowcaseScene({
   ...productScene,
@@ -77,7 +81,11 @@ assert.equal(normalized.productImageY, 40);
 assert.equal(normalized.productImageFit, "contain");
 assert.deepEqual(normalized.menuCategories, ["burger", "extras", "drinks"]);
 
-const admin = read("app/admin/showcase/page.tsx");
+const admin = [
+  read("app/admin/showcase/page.tsx"),
+  read("components/showcase/admin/ProductSceneEditor.tsx"),
+  read("components/showcase/admin/ShowcasePreviewSidebar.tsx"),
+].join("\n");
 assert(admin.includes("Ürün görseli yerleşimi"), "ürün görsel boyut/konum paneli bulunmalı");
 assert(admin.includes("21:9 Geniş"), "ultra geniş önizleme bulunmalı");
 assert(admin.includes("9:16 Dikey"), "dikey önizleme bulunmalı");

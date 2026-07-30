@@ -40,7 +40,7 @@ function TrackIndexContent() {
       <div className="w-full rounded-3xl border border-stone-700/60 bg-stone-950/90 p-5 shadow-2xl sm:p-7">
         <div className="mb-5 flex items-center gap-3">
           <img
-            src="/logo-burger-brothers.png"
+            src="/logo-burger-brothers.webp"
             alt="Burger Brothers Berlin"
             className="h-12 w-12 rounded-full"
           />

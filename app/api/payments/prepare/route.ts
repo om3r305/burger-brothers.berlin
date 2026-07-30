@@ -845,7 +845,7 @@ export async function POST(req: Request) {
               requestIdHash,
               recoveryTokenHash,
               recoveryExpiresAt: recoveryExpiresAt.toISOString(),
-              error: error?.message || "STRIPE_PAYMENT_CREATE_FAILED",
+              error: "STRIPE_PAYMENT_CREATE_FAILED",
               shares: checkoutShares,
             },
           }),
@@ -1027,7 +1027,7 @@ export async function POST(req: Request) {
     return json(
       {
         ok: false,
-        error: error?.message || "PAYMENT_PREPARE_FAILED",
+        error: "PAYMENT_PREPARE_FAILED",
         message,
       },
       status,

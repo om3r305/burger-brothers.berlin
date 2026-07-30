@@ -7,7 +7,7 @@ import { useSettings } from "@/lib/useSettings";
 
 type TCtx = { logoUrl?: string; themeId: string };
 const ThemeCtx = createContext<TCtx>({
-  logoUrl: "/logo-burger-brothers.png",
+  logoUrl: "/logo-burger-brothers.webp",
   themeId: "classic",
 });
 
@@ -16,7 +16,7 @@ export default function ThemeProvider({ children }: { children: React.ReactNode 
 
   const theme: any = (settings as any)?.theme ?? {};
   const themeId = String(theme.id ?? "classic");
-  const logoUrl = String(theme.logoUrl ?? "/logo-burger-brothers.png");
+  const logoUrl = String(theme.logoUrl ?? "/logo-burger-brothers.webp");
   const showSnow = !!theme.snow;
 
   useEffect(() => {
@@ -34,5 +34,5 @@ export default function ThemeProvider({ children }: { children: React.ReactNode 
 }
 
 export function useThemeLogo() {
-  return useContext(ThemeCtx)?.logoUrl || "/logo-burger-brothers.png";
+  return useContext(ThemeCtx)?.logoUrl || "/logo-burger-brothers.webp";
 }

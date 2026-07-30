@@ -68,6 +68,7 @@ export type SchnellCatalogRecord = {
   category: SchnellCategory;
   rawCategory: string;
   price: number;
+  taxRate: 7 | 19;
   extrasJson: unknown[];
   allergens: unknown;
   activeFrom?: Date | null;
@@ -126,7 +127,7 @@ export const DEFAULT_SCHNELL_SETTINGS: SchnellSettings = {
   tvEnabled: true,
   soundEnabled: true,
   autoPrint: true,
-  locationCheckEnabled: false,
+  locationCheckEnabled: true,
   takeawayEnabled: true,
   orderHistoryEnabled: true,
   liveReadyAlertEnabled: true,
@@ -139,7 +140,7 @@ export const DEFAULT_SCHNELL_SETTINGS: SchnellSettings = {
   historyDays: 90,
   radiusMeters: 100,
   maxAccuracyMeters: 75,
-  qrMode: "static",
+  qrMode: "dynamic",
   staticQrId: "",
   qrTtlMinutes: 10,
   qrGraceMinutes: 2,
@@ -317,7 +318,7 @@ function normalizeCampaign(value: unknown, index: number): SchnellCampaign | nul
 export function normalizeSchnellSettings(value: unknown): SchnellSettings {
   const raw = obj(value);
   const defaults = DEFAULT_SCHNELL_SETTINGS;
-  const qrMode: SchnellQrMode = raw.qrMode === "dynamic" ? "dynamic" : "static";
+  const qrMode: SchnellQrMode = raw.qrMode === "static" ? "static" : "dynamic";
   const storedOrderWindow = clamp(
     raw.orderWindowMinutes,
     5,
@@ -337,7 +338,7 @@ export function normalizeSchnellSettings(value: unknown): SchnellSettings {
     tvEnabled: raw.tvEnabled !== false,
     soundEnabled: raw.soundEnabled !== false,
     autoPrint: raw.autoPrint !== false,
-    locationCheckEnabled: raw.locationCheckEnabled === true,
+    locationCheckEnabled: raw.locationCheckEnabled !== false,
     takeawayEnabled: raw.takeawayEnabled !== false,
     orderHistoryEnabled: raw.orderHistoryEnabled !== false,
     liveReadyAlertEnabled: raw.liveReadyAlertEnabled !== false,
@@ -985,6 +986,12 @@ function normalizeGroupVariantProducts(
         category,
         rawCategory: category,
         price: Math.round((basePrice + depositAmount) * 100) / 100,
+        taxRate:
+          Number(variant?.taxRate ?? group?.taxRate) === 7
+            ? 7
+            : category === "drinks"
+              ? 19
+              : 7,
         extrasJson: [],
         allergens:
           variant?.allergens ??
@@ -1015,6 +1022,7 @@ function normalizeProductRecord(product: any): SchnellCatalogRecord {
     category,
     rawCategory: cleanText(product?.category, 100) || category,
     price: Math.max(0, toFiniteNumber(product?.price, 0)),
+    taxRate: Number(product?.taxRate) === 19 ? 19 : 7,
     extrasJson: Array.isArray(product?.extrasJson) ? product.extrasJson : [],
     allergens: product?.allergens ?? [],
     activeFrom: product?.activeFrom ?? null,
@@ -1309,6 +1317,7 @@ async function prepareCashSchnellOrder(params: {
       name: product.name,
       category: normalizeSchnellCategory(product.category),
       price: campaignPrice.price,
+      taxRate: product.taxRate,
       originalPrice: campaignPrice.originalPrice,
       qty,
       add: extras,

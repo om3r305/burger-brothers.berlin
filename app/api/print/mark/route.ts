@@ -277,7 +277,7 @@ export async function POST(req: Request) {
       {
         ok: false,
         source: "db",
-        error: error?.message || "PRINT_MARK_FAILED",
+        error: "PRINT_MARK_FAILED",
       },
       500,
     );

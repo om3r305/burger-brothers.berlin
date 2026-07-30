@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // print-agent/agent.mjs
 // Burger Brothers Berlin print bridge.
-// Amaç: Otomatik yazdırmayı TV'deki manuel yazdırma ile aynı tasarıma bağlamak.
-// Bu agent kendi fiş tasarımını üretmez; mevcut print-proxy /print/full endpointine gönderir.
+// Amaç: TV manuel onaylı yazdırma düzeninde print-agent'ın otomatik basmasını kontrol etmek.
+// Varsayılan olarak otomatik yazdırma kapalıdır; gerekirse config ile açılabilir.
+// Bu agent kendi fiş tasarımını üretmez; açık olduğunda mevcut print-proxy /print/full endpointine gönderir.
 // Böylece manuel TV baskısı ve otomatik agent baskısı aynı logo/KDV/barkod dizaynını kullanır.
 // Node 20+ gerekir. Ek npm paketi gerekmez.
 
@@ -24,6 +25,21 @@ function trimSlash(value) {
   return String(value || "").trim().replace(/\/+$/, "");
 }
 
+function boolFromEnvOrConfig(envValue, configValue, fallback = false) {
+  const raw = envValue != null && envValue !== "" ? envValue : configValue;
+
+  if (raw == null || raw === "") return fallback;
+  if (typeof raw === "boolean") return raw;
+  if (typeof raw === "number") return raw !== 0;
+
+  const text = String(raw).trim().toLowerCase();
+
+  if (["1", "true", "yes", "ja", "on", "auto", "enabled"].includes(text)) return true;
+  if (["0", "false", "no", "nein", "off", "manual", "disabled"].includes(text)) return false;
+
+  return fallback;
+}
+
 function loadConfig() {
   const configPath = process.argv[2] || process.env.PRINT_AGENT_CONFIG || DEFAULT_CONFIG_PATH;
 
@@ -34,19 +50,26 @@ function loadConfig() {
   const fileCfg = readJson(configPath);
 
   const cfg = {
+    /*
+      WICHTIG:
+      autoPrint ist absichtlich standardmäßig AUS.
+      Die Bestellung soll erst auf dem TV mit "Annehmen & Drucken" bestätigt werden.
+      Danach druckt der TV direkt über den lokalen print-proxy.
+      Nur wenn du später wieder echtes Agent-Autoprint willst:
+        - config.json: "autoPrint": true
+        - oder ENV: PRINT_AGENT_AUTO_PRINT=1
+    */
+    autoPrint: boolFromEnvOrConfig(
+      process.env.PRINT_AGENT_AUTO_PRINT,
+      fileCfg.autoPrint,
+      false,
+    ),
+
     // Gerçek domain / Vercel
     baseUrl: trimSlash(process.env.PRINT_BASE_URL || fileCfg.baseUrl || ""),
 
     // Vercel ENV'deki PRINT_AGENT_TOKEN ile aynı olmalı
     token: process.env.PRINT_AGENT_TOKEN || fileCfg.token || "",
-
-    // Local print-proxy için ayrı token; yoksa agent tokeni kullanılır.
-    proxyToken:
-      process.env.PRINT_PROXY_TOKEN ||
-      fileCfg.proxyToken ||
-      process.env.PRINT_AGENT_TOKEN ||
-      fileCfg.token ||
-      "",
 
     // Agent adı DB print meta içinde görünür
     agentName: process.env.PRINT_AGENT_NAME || fileCfg.agentName || "shop-tv-1",
@@ -55,6 +78,11 @@ function loadConfig() {
     printProxyUrl: trimSlash(
       process.env.PRINT_PROXY_URL || fileCfg.printProxyUrl || "http://127.0.0.1:7777",
     ),
+    printProxyToken:
+      process.env.PRINT_PROXY_TOKEN ||
+      fileCfg.printProxyToken ||
+      fileCfg.token ||
+      "",
 
     // /api/print/jobs tarafına bilgi amaçlı gönderilir
     printerName: process.env.PRINTER_NAME || fileCfg.printerName || "print-proxy",
@@ -80,6 +108,9 @@ function loadConfig() {
 
   if (!cfg.baseUrl) throw new Error("baseUrl eksik.");
   if (!cfg.printProxyUrl) throw new Error("printProxyUrl eksik.");
+  if (String(cfg.printProxyToken).trim().length < 32) {
+    throw new Error("PRINT_PROXY_TOKEN/printProxyToken eksik veya 32 karakterden kısa.");
+  }
 
   return cfg;
 }
@@ -149,7 +180,7 @@ async function proxyJson(cfg, pathname, options = {}) {
   const url = `${cfg.printProxyUrl}${pathname}`;
   const headers = {
     "Content-Type": "application/json",
-    "x-print-proxy-token": cfg.proxyToken,
+    "x-print-proxy-token": cfg.printProxyToken,
     ...(options.headers || {}),
   };
 
@@ -241,6 +272,7 @@ function normalizeItemsForProxy(items = []) {
     id: item.id ? String(item.id) : undefined,
     sku: item.sku ? String(item.sku) : undefined,
     name: clean(item.name || item.title || "Artikel"),
+    description: clean(item.description || item.desc || item.itemDescription),
     category: clean(item.category || item.group || item.type),
     group: clean(item.group || item.category || item.type),
     price: num(item.price ?? item.unitPrice, 0),
@@ -419,8 +451,29 @@ async function main() {
 
   await checkProxy(cfg);
 
+  if (!cfg.autoPrint) {
+    log("Otomatik yazdirma KAPALI.");
+    log("Siparisler TV ekraninda Annehmen & Drucken ile kabul edilince basilir.");
+  } else {
+    log("Otomatik yazdirma ACIK.");
+  }
+
+  let lastIdleLogAt = 0;
+
   while (!stopped) {
     try {
+      if (!cfg.autoPrint) {
+        const now = Date.now();
+
+        if (now - lastIdleLogAt > 60_000) {
+          lastIdleLogAt = now;
+          log("Beklemede: autoPrint=false, is cekilmiyor ve otomatik baski yapilmiyor.");
+        }
+
+        await sleep(Math.max(1, cfg.pollSeconds) * 1000);
+        continue;
+      }
+
       const jobs = await fetchJobs(cfg);
 
       if (jobs.length) {

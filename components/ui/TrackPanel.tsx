@@ -97,16 +97,14 @@ export default function TrackPanel({ variant = "default" }: TrackPanelProps) {
     setBusy(true);
 
     try {
-      const res = await fetch(
-        `/api/track/lookup?trackingToken=${encodeURIComponent(trackingToken)}`,
-        {
-          method: "GET",
-          cache: "no-store",
-          headers: {
-            accept: "application/json",
-          },
+      const res = await fetch("/api/track/lookup", {
+        method: "GET",
+        cache: "no-store",
+        headers: {
+          accept: "application/json",
+          "x-order-tracking-token": trackingToken,
         },
-      );
+      });
 
       if (res.ok) {
         const json = await res.json().catch(() => ({} as any));

@@ -5,6 +5,7 @@ import {
   DEFAULT_PLAN,
   isOpenAt,
   nowInTZ,
+  parseHHMMToDateInTZ,
   planFromSettings,
   validatePlannedTime,
 } from "@/lib/availability";
@@ -47,7 +48,9 @@ function digits(value: any) {
 }
 
 function number(value: any, fallback = 0) {
-  const parsed = Number(String(value ?? "").replace(",", "."));
+  const normalized = String(value ?? "").trim().replace(",", ".");
+  if (!normalized) return fallback;
+  const parsed = Number(normalized);
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
@@ -96,12 +99,7 @@ function officialStreetExists(plz: string, value: string) {
 }
 
 function todayAt(hhmm: string, timezone: string) {
-  const [hours, minutes] = hhmm.split(":").map((part) => Number(part));
-  const base = nowInTZ(timezone);
-  const iso = `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, "0")}-${String(
-    base.getDate(),
-  ).padStart(2, "0")}T${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:00`;
-  return new Date(new Date(`${iso} GMT`).toLocaleString("en-US", { timeZone: timezone }));
+  return parseHHMMToDateInTZ(hhmm, nowInTZ(timezone), timezone);
 }
 
 function normalizePlanned(value: any) {
@@ -128,18 +126,25 @@ function validateCustomer(order: any, settings: any, mode: OrderMode) {
   const name = text(customer.name ?? order?.customerName);
   const phone = digits(customer.phone ?? order?.phone);
   const email = text(customer.email ?? order?.email);
-  const phoneDigits = Math.min(
-    20,
-    Math.max(1, Math.round(number(settings?.validation?.phoneDigits, 11))),
+  const phoneMinDigits = Math.min(
+    15,
+    Math.max(6, Math.round(number(settings?.validation?.phoneMinDigits, 7))),
+  );
+  const phoneMaxDigits = Math.min(
+    15,
+    Math.max(
+      phoneMinDigits,
+      Math.round(number(settings?.validation?.phoneMaxDigits, 15)),
+    ),
   );
 
   if (!name || name.length > 120) {
     throw new OrderValidationError("ORDER_CUSTOMER_NAME_INVALID", "Bitte einen gültigen Namen eingeben.");
   }
-  if (phone.length !== phoneDigits) {
+  if (phone.length < phoneMinDigits || phone.length > phoneMaxDigits) {
     throw new OrderValidationError(
       "ORDER_CUSTOMER_PHONE_INVALID",
-      `Die Telefonnummer muss genau ${phoneDigits} Ziffern enthalten.`,
+      `Die Telefonnummer muss ${phoneMinDigits} bis ${phoneMaxDigits} Ziffern enthalten.`,
     );
   }
   if (email && (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) {

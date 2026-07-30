@@ -196,7 +196,7 @@ export default function SchnellbestellungAccessDisplay() {
     <main className="grid min-h-screen place-items-center bg-black p-5 text-white sm:p-10">
       <section className="w-full max-w-3xl text-center">
         <img
-          src="/logo-burger-brothers.png"
+          src="/logo-burger-brothers.webp"
           className="mx-auto h-24 w-24 rounded-full object-contain sm:h-32 sm:w-32"
           alt="Burger Brothers"
         />

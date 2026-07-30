@@ -9,6 +9,7 @@ export type ShowcaseSceneType =
   | "message"
   | "weather"
   | "reviews"
+  | "schnell-promo"
   | "review-qr"
   | "countdown"
   | "bestseller"
@@ -35,12 +36,35 @@ export type ShowcaseReview = {
   source: "google" | "manual";
 };
 
+export type ShowcaseWeatherCondition =
+  | "clear"
+  | "partly-cloudy"
+  | "cloudy"
+  | "fog"
+  | "drizzle"
+  | "rain"
+  | "storm"
+  | "snow";
+
 export type ShowcaseWeather = {
   temperature: number;
   apparentTemperature?: number;
   weatherCode: number;
+  condition?: ShowcaseWeatherCondition;
   label: string;
   emoji: string;
+  isDay?: boolean;
+  relativeHumidity?: number;
+  precipitation?: number;
+  rain?: number;
+  showers?: number;
+  snowfall?: number;
+  windSpeed?: number;
+  windGusts?: number;
+  highTemperature?: number;
+  lowTemperature?: number;
+  sunrise?: string;
+  sunset?: string;
   updatedAt: string;
   source?: "open-meteo" | "cache_fallback";
   locationLabel?: string;
@@ -139,6 +163,15 @@ export type ShowcaseScene = {
   reviewOnlyWithPhoto?: boolean;
   reviewLimit?: number;
   reviewSort?: "newest" | "random";
+  /** Google yorum sahnesinden hemen sonra otomatik gösterilen bağımsız çağrı ekranı. */
+  reviewCtaEnabled?: boolean;
+  reviewCtaDurationSeconds?: number;
+  reviewCtaTitle?: string;
+  reviewCtaBody?: string;
+  reviewCtaBadge?: string;
+  reviewCtaQrUrl?: string;
+  reviewCtaQrLabel?: string;
+  reviewCtaAccent?: string;
   countdownTargetAt?: string;
   bestsellerPeriodDays?: number;
   bestsellerLimit?: number;
@@ -152,6 +185,8 @@ export type ShowcaseScene = {
     | "easter"
     | "germany"
     | "berlin"
+    | "school"
+    | "vegan"
     | "celebration"
     | "winter"
     | "classic";
@@ -238,6 +273,11 @@ export type ShowcaseBranding = {
   themeCornerLeft: string;
   themeCornerRight: string;
   themeParticles: string[];
+  themeEffect?: string;
+  themeMotifs?: string[];
+  themeBurst?: string[];
+  /** Google değerlendirme bağlantısı; sipariş QR adresinden bilinçli olarak ayrıdır. */
+  reviewsUrl?: string;
   locationLabel: string;
   siteUrl: string;
 };

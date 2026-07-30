@@ -9,6 +9,10 @@ import { useCart } from "@/components/store";
 import CartSummary, { CartSummaryMobile } from "@/components/CartSummary";
 import NavBar from "@/components/NavBar";
 import CategoryBlurb from "@/components/CategoryBlurb";
+import {
+  optimizedLocalImageUrl,
+  restoreLocalImageFallback,
+} from "@/lib/media/local-optimized-image";
 
 const LS_PRODUCTS = "bb_products_v1";
 
@@ -339,7 +343,7 @@ export default function HotDogsPage() {
       <div className="bb-menu-header bb-category-header bb-hotdogs-header mb-4 flex flex-col gap-3 sm:mb-6 sm:flex-row sm:items-center sm:justify-between">
         <Link href="/" className="flex items-center gap-3">
           <Image
-            src="/logo-burger-brothers.png"
+            src="/logo-burger-brothers.webp"
             alt="Burger Brothers Berlin"
             width={42}
             height={42}
@@ -409,11 +413,14 @@ export default function HotDogsPage() {
                     <div className="cover" aria-hidden>
                       {h.imageUrl ? (
                         <Image
-                          src={h.imageUrl}
+                          src={optimizedLocalImageUrl(h.imageUrl) || h.imageUrl}
                           alt={h.name}
                           fill
-                          sizes="(max-width:768px) 100vw, 33vw"
+                          sizes="(max-width:639px) 46vw, (max-width:1023px) 33vw, 25vw"
                           className="object-cover"
+                          onError={(event) =>
+                            restoreLocalImageFallback(event.currentTarget, h.imageUrl)
+                          }
                         />
                       ) : (
                         <div className="cover-fallback" />

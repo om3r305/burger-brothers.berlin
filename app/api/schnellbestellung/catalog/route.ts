@@ -203,6 +203,7 @@ export async function GET(req: Request) {
           categoryLabel: schnellCategoryLabel(product.category),
           categoryOrder: SCHNELL_CATEGORY_ORDER.indexOf(product.category),
           price: campaignPrice.price,
+          taxRate: Number(product.taxRate) === 19 ? 19 : 7,
           originalPrice: campaignPrice.originalPrice,
           campaignBadge: campaignPrice.badgeText,
           campaignName: campaignPrice.campaign?.name,

@@ -5,6 +5,7 @@ export type SessionPayload = {
   role: SessionRole;
   exp: number;
   nonce: string;
+  ver: string;
   sub?: string;
 };
 
@@ -54,6 +55,20 @@ function tokenPrefix(role: SessionRole) {
   return "driver:";
 }
 
+function sessionVersion(role: SessionRole) {
+  const roleVersion =
+    role === "admin"
+      ? process.env.ADMIN_SESSION_VERSION
+      : role === "tv"
+        ? process.env.TV_SESSION_VERSION
+        : process.env.DRIVER_SESSION_VERSION;
+  return String(
+    roleVersion || process.env.SESSION_VERSION || "1",
+  )
+    .trim()
+    .slice(0, 32);
+}
+
 export async function createSessionToken(
   role: SessionRole,
   maxAgeSeconds: number,
@@ -63,6 +78,7 @@ export async function createSessionToken(
     role,
     exp: Math.floor(Date.now() / 1000) + maxAgeSeconds,
     nonce: crypto.randomUUID(),
+    ver: sessionVersion(role),
     ...(subject ? { sub: String(subject).slice(0, 160) } : {}),
   };
   const encoded = b64url(encoder.encode(JSON.stringify(payload)));
@@ -114,6 +130,7 @@ export async function readSessionToken(
 
     if (
       payload.role !== expectedRole ||
+      payload.ver !== sessionVersion(expectedRole) ||
       !Number.isFinite(payload.exp) ||
       payload.exp <= Math.floor(Date.now() / 1000)
     ) {

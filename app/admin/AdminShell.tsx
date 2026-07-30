@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 import AdminAttentionBell from "@/components/admin/AdminAttentionBell";
 import AdminPwaControls from "@/components/admin/AdminPwaControls";
 import { LS_SETTINGS } from "@/lib/settings";
+import { getThemePreset } from "@/lib/themes";
 
 type NavItem = {
   href: string;
@@ -29,6 +30,13 @@ const NAV: NavItem[] = [
   { href: "/admin/drivers", label: "Fahrer", icon: "🚗", match: (p) => p.startsWith("/admin/drivers") },
 ];
 
+const MOBILE_QUICK_NAV = [
+  { href: "/admin", label: "Ürünler", icon: "🍔", match: (p: string) => p === "/admin" },
+  { href: "/admin/orders", label: "Sipariş", icon: "🧾", match: (p: string) => p.startsWith("/admin/orders") },
+  { href: "/admin/notifications", label: "Bildirim", icon: "🔔", match: (p: string) => p.startsWith("/admin/notifications") },
+  { href: "/admin/showcase", label: "Vitrin", icon: "📺", match: (p: string) => p.startsWith("/admin/showcase") },
+] as const;
+
 function useThemeLabel() {
   const [label, setLabel] = useState("");
 
@@ -39,14 +47,8 @@ function useThemeLabel() {
       const name = String(
         settings?.theme?.name ?? settings?.theme?.active ?? "classic",
       ).toLowerCase();
-      const labels: Record<string, string> = {
-        default: "Classic",
-        classic: "Classic",
-        neon: "Neon ✨",
-        halloween: "Halloween 🎃",
-        christmas: "Christmas 🎄",
-      };
-      setLabel(labels[name] ?? "Classic");
+      const preset = getThemePreset(name);
+      setLabel(`${preset.icon} ${preset.label}`);
     } catch {
       setLabel("Classic");
     }
@@ -219,9 +221,45 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
           </div>
         ) : null}
 
-        <div className="bb-admin-content min-w-0 p-3 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] sm:p-4 lg:p-6">
+        <div className="bb-admin-content min-w-0 overflow-x-clip p-3 pb-[calc(env(safe-area-inset-bottom)+6.5rem)] sm:p-4 lg:p-6 lg:pb-6">
           {children}
         </div>
+
+        <nav
+          className="fixed inset-x-2 bottom-[calc(env(safe-area-inset-bottom)+.45rem)] z-[1180] grid grid-cols-5 gap-1 rounded-2xl border border-white/10 bg-stone-950/95 p-1.5 shadow-[0_-14px_42px_rgba(0,0,0,.5)] backdrop-blur-xl lg:hidden"
+          aria-label="Hızlı admin menüsü"
+        >
+          {MOBILE_QUICK_NAV.map((item) => {
+            const active = item.match(pathname);
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                aria-current={active ? "page" : undefined}
+                className={[
+                  "flex min-h-12 min-w-0 flex-col items-center justify-center gap-0.5 rounded-xl px-1 text-[9px] font-black transition",
+                  active
+                    ? "bg-amber-400 text-black"
+                    : "text-stone-400 active:bg-white/10 active:text-white",
+                ].join(" ")}
+              >
+                <span className="text-base leading-none" aria-hidden="true">
+                  {item.icon}
+                </span>
+                <span className="max-w-full truncate">{item.label}</span>
+              </Link>
+            );
+          })}
+          <button
+            type="button"
+            onClick={() => setMenuOpen(true)}
+            className="flex min-h-12 min-w-0 flex-col items-center justify-center gap-0.5 rounded-xl px-1 text-[9px] font-black text-stone-400 transition active:bg-white/10 active:text-white"
+            aria-label="Tüm admin menüsünü aç"
+          >
+            <span className="text-base leading-none" aria-hidden="true">☰</span>
+            <span>Menü</span>
+          </button>
+        </nav>
       </section>
     </div>
   );

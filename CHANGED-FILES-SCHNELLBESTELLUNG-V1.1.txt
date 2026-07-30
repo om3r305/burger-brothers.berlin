@@ -1,0 +1,10 @@
+app/admin/schnellbestellung/page.tsx
+app/api/schnellbestellung/access-token/route.ts
+app/schnellbestellung/access-display/page.tsx
+tools/schnellbestellung-regression-tests.cjs
+README-SCHNELLBESTELLUNG.md
+VERIFY-SCHNELLBESTELLUNG.md
+CHANGED-FILES-SCHNELLBESTELLUNG-V1.1.txt
+PUSH-SCHNELLBESTELLUNG-V1.1-TO-GITHUB.ps1
+SCHNELLBESTELLUNG-V1.1-QR-FIX-REPORT.md
+SHA256SUMS-SCHNELLBESTELLUNG-V1.1.txt

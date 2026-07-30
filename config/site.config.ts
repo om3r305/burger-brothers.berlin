@@ -2,7 +2,7 @@
 export const siteConfig = {
   brand: {
     name: "Burger Brothers Berlin",
-    logoPath: "/logo-burger-brothers.png",
+    logoPath: "/logo-burger-brothers.webp",
     slogan: "Retro-Optik mit ruhigen Flammen.",
   },
 

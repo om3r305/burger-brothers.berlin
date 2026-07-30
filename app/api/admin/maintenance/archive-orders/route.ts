@@ -284,7 +284,7 @@ export async function GET(req: Request) {
       {
         ok: false,
         source: "db",
-        error: error?.message || "ARCHIVE_ORDERS_PREVIEW_FAILED",
+        error: "ARCHIVE_ORDERS_PREVIEW_FAILED",
         startedAt: startedAt.toISOString(),
         finishedAt: finishedAt.toISOString(),
       },
@@ -366,7 +366,7 @@ export async function POST(req: Request) {
         startedAt,
         finishedAt,
         meta: null,
-        error: error?.message || "ARCHIVE_ORDERS_FAILED",
+        error: "ARCHIVE_ORDERS_FAILED",
       });
     }
 
@@ -374,7 +374,7 @@ export async function POST(req: Request) {
       {
         ok: false,
         source: "db",
-        error: error?.message || "ARCHIVE_ORDERS_FAILED",
+        error: "ARCHIVE_ORDERS_FAILED",
         startedAt: startedAt.toISOString(),
         finishedAt: finishedAt.toISOString(),
       },

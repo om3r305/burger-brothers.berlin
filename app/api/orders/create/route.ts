@@ -1,5 +1,6 @@
 // app/api/orders/create/route.ts
 import { NextResponse } from "next/server";
+import { createHash } from "node:crypto";
 import { runAfterResponse } from "@/lib/server/after-response";
 import { prisma, getTenantId } from "@/lib/db";
 import { enforceRateLimit, forbiddenResponse, hasTrustedMutationOrigin } from "@/lib/server/request-security";
@@ -52,6 +53,8 @@ const ORDER_SCHEMA_FIELDS = new Set([
   "driver",
   "print",
   "history",
+  "idempotencyKey",
+  "requestHash",
   "doneAt",
   "cancelledAt",
   "archivedAt",
@@ -70,6 +73,9 @@ const CUSTOMER_SCHEMA_FIELDS = new Set([
   "plz",
   "lastOrderAt",
   "stats",
+  "vip",
+  "blocked",
+  "notes",
   "emailOptIn",
   "createdAt",
   "updatedAt",
@@ -101,6 +107,57 @@ function isDecimalLike(value: any) {
 function normPhone(value: any) {
   const digits = String(value || "").replace(/\D/g, "");
   return digits.length ? digits : null;
+}
+
+function normEmail(value: any) {
+  const email = String(value || "").trim().toLowerCase();
+  return email && email.includes("@") ? email : null;
+}
+
+function normalizeIdempotencyKey(value: any) {
+  const key = String(value || "").trim();
+  if (!key) return "";
+  return /^[A-Za-z0-9:_-]{16,128}$/.test(key) ? key : "";
+}
+
+function orderRequestHash(value: {
+  mode: OrderMode;
+  source: OrderSource;
+  planned: string | null;
+  customer: any;
+  items: any[];
+  merchandise: number;
+  discount: number;
+  surcharges: number;
+  coupon: string | null;
+  couponDiscount: number;
+  total: number;
+}) {
+  const customer = ensureObj(value.customer);
+  const canonical = sanitizeJson({
+    mode: value.mode,
+    source: value.source,
+    planned: value.planned || null,
+    customer: {
+      name: cleanText(customer.name),
+      phone: normPhone(customer.phone),
+      email: normEmail(customer.email),
+      address: cleanText(customer.addressLine ?? customer.address),
+      plz: cleanText(customer.plz ?? customer.zip),
+      note: cleanText(customer.deliveryHint ?? customer.note),
+    },
+    items: value.items,
+    totals: {
+      merchandise: value.merchandise,
+      discount: value.discount,
+      surcharges: value.surcharges,
+      coupon: value.coupon,
+      couponDiscount: value.couponDiscount,
+      total: value.total,
+    },
+  });
+
+  return createHash("sha256").update(JSON.stringify(canonical)).digest("hex");
 }
 
 function normCouponCode(value: any) {
@@ -345,6 +402,35 @@ function normalizeCustomer(order: any) {
   });
 }
 
+async function assertCustomerMayOrder(tenantId: string, customer: any) {
+  const phone = normPhone(customer?.phone);
+  const email = normEmail(customer?.email);
+  const OR: any[] = [];
+
+  if (phone) OR.push({ phone });
+  if (email) OR.push({ email });
+  if (!OR.length) return;
+
+  const blocked = await prisma.customer.findFirst({
+    where: {
+      tenantId,
+      blocked: true,
+      OR,
+    },
+    select: {
+      id: true,
+    },
+  });
+
+  if (blocked) {
+    throw new OrderValidationError(
+      "CUSTOMER_BLOCKED",
+      "Diese Bestellung kann nicht angenommen werden. Bitte kontaktieren Sie uns.",
+      403,
+    );
+  }
+}
+
 function normalizeItems(order: any) {
   return ensureArr(order?.items).map((item: any, index) => {
     const add = ensureArr(item?.add ?? item?.extras);
@@ -357,6 +443,10 @@ function normalizeItems(order: any) {
       description: cleanText(item?.description ?? item?.desc ?? item?.itemDescription) || undefined,
       category: item?.category != null ? String(item.category) : undefined,
       price: toNum(item?.price ?? item?.unitPrice, 0),
+      taxRate:
+        Number(item?.taxRate) === 7 || Number(item?.taxRate) === 19
+          ? Number(item.taxRate)
+          : undefined,
       qty: Math.max(1, toNum(item?.qty ?? item?.quantity ?? 1, 1)),
       add: add.length
         ? add.map((extra: any) => ({
@@ -1309,6 +1399,33 @@ function serializeOrder(row: any) {
   });
 }
 
+function duplicateOrderResponse(existing: any) {
+  const serializedExisting = serializeOrder(existing);
+  const id = String(existing?.id || "");
+
+  return NextResponse.json(
+    {
+      ok: true,
+      source: "db",
+      duplicate: true,
+      id,
+      orderId: id,
+      etaMin: existing?.etaMin ?? null,
+      planned: existing?.planned ?? null,
+      trackingToken: readOrderTrackingToken(existing),
+      notifySent: false,
+      order: serializedExisting,
+      item: serializedExisting,
+      data: serializedExisting,
+    },
+    {
+      headers: {
+        "Cache-Control": "no-store, no-cache, must-revalidate",
+      },
+    },
+  );
+}
+
 
 function pad2(value: number) {
   return String(value).padStart(2, "0");
@@ -1645,6 +1762,25 @@ export async function POST(req: Request) {
 
   const body = await req.json().catch(() => ({} as any));
   const order = body?.order && typeof body.order === "object" ? body.order : body;
+  const rawIdempotencyKey =
+    req.headers.get("idempotency-key") ??
+    req.headers.get("x-idempotency-key") ??
+    body?.idempotencyKey ??
+    order?.idempotencyKey ??
+    ensureObj(order?.meta)?.idempotencyKey ??
+    ensureObj(order?.meta)?.clientRequestId ??
+    "";
+  const idempotencyKey = normalizeIdempotencyKey(rawIdempotencyKey);
+
+  if (cleanText(rawIdempotencyKey) && !idempotencyKey) {
+    return NextResponse.json(
+      { ok: false, error: "INVALID_IDEMPOTENCY_KEY" },
+      {
+        status: 400,
+        headers: { "Cache-Control": "no-store" },
+      },
+    );
+  }
 
   /*
    * Online / Getrennt zahlen siparişleri yalnızca Stripe tarafından gerçekten
@@ -1730,7 +1866,7 @@ export async function POST(req: Request) {
           ok: false,
           source: "telegram_emergency",
           emergencyMode: true,
-          error: error?.message || "EMERGENCY_TELEGRAM_FAILED",
+          error: "EMERGENCY_TELEGRAM_FAILED",
           message: "Notfall-Telegram konnte nicht gesendet werden.",
         },
         {
@@ -1764,29 +1900,7 @@ export async function POST(req: Request) {
       });
 
       if (existing) {
-        const serializedExisting = serializeOrder(existing);
-
-        return NextResponse.json(
-          {
-            ok: true,
-            source: "db",
-            duplicate: true,
-            id,
-            orderId: id,
-            etaMin: existing?.etaMin ?? null,
-            planned: existing?.planned ?? null,
-            trackingToken: readOrderTrackingToken(existing),
-            notifySent: false,
-            order: serializedExisting,
-            item: serializedExisting,
-            data: serializedExisting,
-          },
-          {
-            headers: {
-              "Cache-Control": "no-store, no-cache, must-revalidate",
-            },
-          },
-        );
+        return duplicateOrderResponse(existing);
       }
     }
 
@@ -1804,6 +1918,16 @@ export async function POST(req: Request) {
     const nowMs = Date.now();
 
     const customer = normalizeCustomer(order);
+    await assertCustomerMayOrder(tenantId, customer);
+
+    if (!protectedOnlinePayment && source === "web" && !idempotencyKey) {
+      throw new OrderValidationError(
+        "IDEMPOTENCY_KEY_REQUIRED",
+        "Die Bestellung benötigt eine sichere Wiederholungs-ID. Bitte Seite aktualisieren und erneut senden.",
+        400,
+      );
+    }
+
     const rebuiltPricing = verifiedPaymentFinalize
       ? rebuildOrderPricingFromVerifiedPayment(order)
       : await rebuildOrderPricingFromDatabase({
@@ -1875,6 +1999,41 @@ export async function POST(req: Request) {
       : null;
     const couponDiscount = +(rebuiltPricing.couponDiscountCents / 100).toFixed(2);
     const total = +(rebuiltPricing.payableCents / 100).toFixed(2);
+    const requestHash = orderRequestHash({
+      mode,
+      source,
+      planned,
+      customer,
+      items,
+      merchandise,
+      discount,
+      surcharges,
+      coupon,
+      couponDiscount,
+      total,
+    });
+
+    if (idempotencyKey && !verifiedPaymentFinalize) {
+      const existing = await prisma.order.findFirst({
+        where: {
+          tenantId,
+          idempotencyKey,
+        },
+      });
+
+      if (existing) {
+        if (existing.requestHash && existing.requestHash !== requestHash) {
+          return NextResponse.json(
+            { ok: false, error: "IDEMPOTENCY_KEY_REUSED" },
+            {
+              status: 409,
+              headers: { "Cache-Control": "no-store" },
+            },
+          );
+        }
+        return duplicateOrderResponse(existing);
+      }
+    }
 
     const builtMeta = buildOrderMeta({
         order,
@@ -1933,6 +2092,13 @@ export async function POST(req: Request) {
       acceptStatus: "waiting_accept",
       printStatus: "waiting_accept",
       pricing: rebuiltPricing.pricingMeta,
+      fiscalOperationMode:
+        String(process.env.FISCAL_OPERATION_MODE || "").trim() ||
+        "unconfigured",
+      fiscalReceiptRequired:
+        (verifiedPaymentFinalize ? incomingPaymentMethod : "cash") === "cash",
+      idempotencyKey: idempotencyKey || null,
+      requestHash,
     });
 
     const data: Record<string, any> = {
@@ -1953,6 +2119,8 @@ export async function POST(req: Request) {
       ts: new Date(nowMs),
       planned,
       etaMin,
+      idempotencyKey: idempotencyKey || null,
+      requestHash,
     };
 
     if (hasOrderField("etaAdjustMin")) {
@@ -1971,41 +2139,70 @@ export async function POST(req: Request) {
       data.print = null;
     }
 
-    const created = await prisma.$transaction(async (tx: any) => {
-      const redeemedIssued = await redeemIssuedCouponIfNeeded({
-        tx,
-        tenantId,
-        coupon,
-        customerPhone: customer?.phone,
-        orderId: id,
-        couponDiscount,
-        nowMs,
+    let created: any;
+    try {
+      created = await prisma.$transaction(async (tx: any) => {
+        const redeemedIssued = await redeemIssuedCouponIfNeeded({
+          tx,
+          tenantId,
+          coupon,
+          customerPhone: customer?.phone,
+          orderId: id,
+          couponDiscount,
+          nowMs,
+        });
+
+        const finalMeta = redeemedIssued
+          ? markCouponRedeemedInMeta({
+              meta: baseMeta,
+              issued: redeemedIssued,
+              coupon: coupon || "",
+              couponDiscount,
+              orderId: id,
+              nowMs,
+            })
+          : baseMeta;
+
+        const finalData: Record<string, any> = {
+          ...data,
+          meta: finalMeta,
+        };
+
+        if (hasOrderField("history")) {
+          finalData.history = sanitizeJson(ensureObj(finalMeta)?.history ?? []);
+        }
+
+        return tx.order.create({
+          data: finalData as any,
+        });
       });
+    } catch (createError: any) {
+      if (createError?.code === "P2002" && idempotencyKey) {
+        const racedExisting = await prisma.order.findFirst({
+          where: {
+            tenantId,
+            idempotencyKey,
+          },
+        });
 
-      const finalMeta = redeemedIssued
-        ? markCouponRedeemedInMeta({
-            meta: baseMeta,
-            issued: redeemedIssued,
-            coupon: coupon || "",
-            couponDiscount,
-            orderId: id,
-            nowMs,
-          })
-        : baseMeta;
-
-      const finalData: Record<string, any> = {
-        ...data,
-        meta: finalMeta,
-      };
-
-      if (hasOrderField("history")) {
-        finalData.history = sanitizeJson(ensureObj(finalMeta)?.history ?? []);
+        if (racedExisting) {
+          if (
+            racedExisting.requestHash &&
+            racedExisting.requestHash !== requestHash
+          ) {
+            return NextResponse.json(
+              { ok: false, error: "IDEMPOTENCY_KEY_REUSED" },
+              {
+                status: 409,
+                headers: { "Cache-Control": "no-store" },
+              },
+            );
+          }
+          return duplicateOrderResponse(racedExisting);
+        }
       }
-
-      return tx.order.create({
-        data: finalData as any,
-      });
-    });
+      throw createError;
+    }
 
     await upsertCustomerFromOrder(tenantId, order, total);
 
@@ -2113,10 +2310,13 @@ export async function POST(req: Request) {
   } catch (error: any) {
     console.error("❌ create order error", error);
 
-    const errorCode = error?.code || error?.message || "bad_request";
     const isCouponError = Boolean(error?.couponError);
     const isPricingError = error instanceof OrderPricingError;
     const isValidationError = error instanceof OrderValidationError;
+    const errorCode =
+      isCouponError || isPricingError || isValidationError
+        ? String(error?.code || "ORDER_VALIDATION_FAILED")
+        : "ORDER_CREATE_FAILED";
     const status = Number(
       error?.status ||
         (isPricingError || isValidationError
@@ -2135,8 +2335,10 @@ export async function POST(req: Request) {
           ? mapCouponErrorMessage(errorCode)
           : isPricingError || isValidationError
             ? error.message
-            : errorCode,
-        ...(error?.details ? { details: error.details } : {}),
+            : "Die Bestellung konnte nicht gespeichert werden.",
+        ...((isPricingError || isValidationError) && error?.details
+          ? { details: error.details }
+          : {}),
         couponError: isCouponError,
       },
       {

@@ -165,6 +165,6 @@ export async function GET(
       },
     });
   } catch (error: any) {
-    return json({ ok: false, error: error?.message || "TRACKING_LOOKUP_FAILED" }, 500);
+    return json({ ok: false, error: "TRACKING_LOOKUP_FAILED" }, 500);
   }
 }

@@ -3,6 +3,10 @@ import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma, getTenantId } from "@/lib/db";
 import { requireMutationRole, requireSessionRole } from "@/lib/server/request-security";
+import {
+  decryptBackupPayload,
+  isEncryptedBackupEnvelope,
+} from "@/lib/server/backup-crypto";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -249,6 +253,7 @@ function normalizeProductData(tenantId: string, row: any) {
     imageUrl: input.imageUrl ?? null,
     category,
     price: toNumber(input.price, 0),
+    taxRate: Number(input.taxRate) === 19 ? 19 : 7,
     active: toBool(input.active, true),
     activeFrom: toDate(input.activeFrom),
     activeTo: toDate(input.activeTo),
@@ -1027,7 +1032,20 @@ export async function POST(req: Request) {
     tenantId = await getTenantId();
 
     const body = await req.json().catch(() => ({} as any));
-    const backup = getBackupData(body);
+    const rawBackup = getBackupData(body);
+    let backup = rawBackup;
+
+    if (isEncryptedBackupEnvelope(rawBackup)) {
+      try {
+        backup = decryptBackupPayload(rawBackup);
+      } catch (error) {
+        console.error("[admin/backup/import] decrypt failed", error);
+        return jsonResponse(
+          { ok: false, error: "BACKUP_DECRYPTION_FAILED" },
+          400,
+        );
+      }
+    }
     const sections = parseSections(body?.sections ?? backup?.sections ?? "all");
 
     const dryRun = body?.dryRun !== false && body?.confirm !== true;
@@ -1088,7 +1106,7 @@ export async function POST(req: Request) {
         tenantId,
         status: "error",
         meta: null,
-        error: error?.message || "BACKUP_IMPORT_FAILED",
+        error: "BACKUP_IMPORT_FAILED",
       });
     }
 
@@ -1096,7 +1114,7 @@ export async function POST(req: Request) {
       {
         ok: false,
         source: "db",
-        error: error?.message || "BACKUP_IMPORT_FAILED",
+        error: "BACKUP_IMPORT_FAILED",
       },
       500,
     );

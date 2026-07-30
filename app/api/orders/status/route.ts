@@ -22,6 +22,10 @@ import {
   orderAssignedToDriver,
   sanitizeOrderForDriver,
 } from "@/lib/server/driver-order";
+import {
+  decideOrderStatusTransition,
+  type OrderActorRole,
+} from "@/lib/server/order-status-policy";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -850,7 +854,11 @@ function buildStatusUpdateData(
     ts: nowMs,
     action: historyAction,
     by,
-    note: body?.note ? String(body.note) : undefined,
+    note: body?.overrideReason
+      ? `override: ${String(body.overrideReason).trim()}`
+      : body?.note
+        ? String(body.note)
+        : undefined,
   };
 
   const history = [...oldHistory, historyEntry];
@@ -867,6 +875,16 @@ function buildStatusUpdateData(
     nextMeta.lastStatusAt = nowMs;
     nextMeta.lastStatusBy = by;
     nextMeta.lastStatus = next;
+
+    if (body?.overrideReason) {
+      nextMeta.lastStatusOverride = {
+        from: previousStatus,
+        to: next,
+        reason: String(body.overrideReason).trim(),
+        at: nowMs,
+        by,
+      };
+    }
 
     // Her gerçek non-ready -> ready geçişi telefona ayrı bir olay olarak gider.
     // Böylece Fertig -> Neu/Preparing -> tekrar Fertig akışında müşteri ikinci
@@ -993,12 +1011,12 @@ function jsonResponse(payload: Record<string, any>, status = 200) {
   });
 }
 
-function errorResponse(error: any, fallback: string, status = 500) {
+function errorResponse(_error: unknown, fallback: string, status = 500) {
   return jsonResponse(
     {
       ok: false,
       source: "db",
-      error: error?.message || fallback,
+      error: fallback,
     },
     status,
   );
@@ -1153,21 +1171,35 @@ async function handleStatusUpdate(req: Request) {
 
     const metaObj = ensureObj((row as any)?.meta);
 
-    if (
-      isSchnellOrderLike(row, metaObj) &&
-      requestedStatus === "out_for_delivery"
-    ) {
-      return securityJson(
-        { ok: false, error: "dine_in_cannot_be_out_for_delivery" },
-        409,
-      );
-    }
-
     const currentStatus = normalizeStatus(metaObj?.statusManual ?? (row as any)?.status) || "new";
+    const orderMode = isSchnellOrderLike(row, metaObj)
+      ? "dine_in"
+      : normalizeMode((row as any)?.mode);
+    const actorRole: OrderActorRole = isAdmin ? "admin" : isTv ? "tv" : "driver";
     let effectiveBody: any = {
       ...body,
       by: isAdmin ? cleanText(body?.by, "admin") : isTv ? "tv" : "driver",
     };
+
+    if (requestedStatus) {
+      const transition = decideOrderStatusTransition({
+        current: currentStatus,
+        next: requestedStatus,
+        role: actorRole,
+        mode: orderMode,
+        overrideReason: body?.overrideReason,
+      });
+
+      if (!transition.allowed) {
+        return securityJson(
+          {
+            ok: false,
+            error: transition.error || "status_transition_not_allowed",
+          },
+          transition.requiresOverrideReason ? 409 : 403,
+        );
+      }
+    }
 
     if (
       !isAdmin &&
@@ -1199,13 +1231,6 @@ async function handleStatusUpdate(req: Request) {
       !isAdmin
     ) {
       return securityJson({ ok: false, error: "payment_session_not_operational_order" }, 403);
-    }
-
-    if (requestedStatus === "cancelled" && !isAdmin) {
-      return securityJson(
-        { ok: false, error: "order_cancellation_requires_admin" },
-        403,
-      );
     }
 
     if (driverSubject) {
@@ -1274,7 +1299,7 @@ async function handleStatusUpdate(req: Request) {
               refunds: [
                 {
                   paymentIntentId: "",
-                  error: error?.message || "REFUND_FAILED",
+                  error: "REFUND_FAILED",
                 },
               ],
               at: new Date().toISOString(),

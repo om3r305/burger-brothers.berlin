@@ -1,4 +1,4 @@
-﻿@echo off
+@echo off
 setlocal
 title Burger Brothers Schnellbestellung Complete V2.2 GitHub Push
 

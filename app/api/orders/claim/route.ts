@@ -989,7 +989,7 @@ export async function POST(req: Request) {
       {
         ok: false,
         source: "db",
-        error: error?.message || "ORDER_CLAIM_FAILED",
+        error: "ORDER_CLAIM_FAILED",
         message: "Auftrag konnte nicht übernommen werden.",
       },
       500,

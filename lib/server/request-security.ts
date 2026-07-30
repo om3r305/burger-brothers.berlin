@@ -351,6 +351,19 @@ export async function enforceRateLimit(
   const safeWindow = Math.max(1_000, Math.floor(windowMs));
   const rawIdentity = String(identity || getClientIp(req)).slice(0, 256);
   const key = rateIdentity(`${scope}:${rawIdentity}`);
+  const remoteConfigured = Boolean(remoteRateConfig());
+  const remoteRequired = process.env.RATE_LIMIT_REQUIRE_REMOTE === "1";
+
+  if (remoteRequired && !remoteConfigured) {
+    console.error("[rate-limit] persistent store is required but not configured");
+    return securityJson(
+      {
+        ok: false,
+        error: "rate_limit_unavailable",
+      },
+      503,
+    );
+  }
 
   let retryAfterMs: number | null = null;
 

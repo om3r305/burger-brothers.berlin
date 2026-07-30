@@ -5,7 +5,12 @@ import QRCode from "react-qr-code";
 import {
   buildShowcaseMenuPages,
   selectedProductsForScene,
+  showcaseReviewsForScene,
 } from "@/lib/showcase/runtime";
+import {
+  optimizedLocalImageUrl,
+  restoreLocalImageFallback,
+} from "@/lib/media/local-optimized-image";
 import type {
   ShowcaseCampaign,
   ShowcaseProduct,
@@ -14,6 +19,7 @@ import type {
   ShowcaseSnapshot,
 } from "@/lib/showcase/types";
 import { resolveWeatherMessage, SPECIAL_DAY_PRESETS } from "@/lib/showcase/presets";
+import WeatherExperience from "./WeatherExperience";
 import styles from "./ShowcaseStage.module.css";
 
 type Props = {
@@ -21,6 +27,7 @@ type Props = {
   scene: ShowcaseScene;
   sceneIndex: number;
   sceneCount: number;
+  contentIndex?: number;
   preview?: boolean;
   previewAspect?: ShowcasePreviewAspect;
   online?: boolean;
@@ -107,8 +114,21 @@ function Clock() {
   const [now, setNow] = useState(() => new Date());
 
   useEffect(() => {
-    const timer = window.setInterval(() => setNow(new Date()), 1_000);
-    return () => window.clearInterval(timer);
+    let interval = 0;
+    const update = () => setNow(new Date());
+    const alignment = window.setTimeout(() => {
+      update();
+      interval = window.setInterval(update, 60_000);
+    }, 60_000 - (Date.now() % 60_000) + 80);
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") update();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.clearTimeout(alignment);
+      if (interval) window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, []);
 
   return (
@@ -148,13 +168,14 @@ function SharpQr({ value, label }: { value: string; label?: string }) {
 }
 
 function Logo({ url, name }: { url: string; name: string }) {
+  const original = url || "/logo-burger-brothers.png";
   return (
     <img
-      src={url || "/logo-burger-brothers.png"}
+      src={optimizedLocalImageUrl(original) || original}
       alt={name}
       className={styles.logo}
       onError={(event) => {
-        event.currentTarget.src = "/logo-burger-brothers.png";
+        restoreLocalImageFallback(event.currentTarget, original);
       }}
     />
   );
@@ -178,9 +199,13 @@ function ThemeDecorations({ snapshot }: { snapshot: ShowcaseSnapshot }) {
   const branding = snapshot.branding;
   if (!branding.themeDecorationsEnabled) return null;
 
-  const particles = Array.isArray(branding.themeParticles)
-    ? branding.themeParticles.filter(Boolean)
-    : [];
+  const particles = branding.themeSnow
+    ? ["❄", "·", "✦"]
+    : Array.isArray(branding.themeMotifs) && branding.themeMotifs.length
+      ? branding.themeMotifs.filter(Boolean)
+      : Array.isArray(branding.themeParticles)
+        ? branding.themeParticles.filter(Boolean)
+        : [];
 
   return (
     <div
@@ -189,6 +214,7 @@ function ThemeDecorations({ snapshot }: { snapshot: ShowcaseSnapshot }) {
         branding.themeMotionEnabled ? styles.themeMotion : styles.themeStill,
         branding.themeSnow ? styles.themeSnow : "",
       ].join(" ")}
+      data-effect={branding.themeEffect || "ember"}
       aria-hidden="true"
     >
       <div className={styles.themeGarland} />
@@ -201,7 +227,7 @@ function ThemeDecorations({ snapshot }: { snapshot: ShowcaseSnapshot }) {
       </span>
       {particles.length ? (
         <div className={styles.themeParticles}>
-          {Array.from({ length: 18 }, (_, index) => (
+          {Array.from({ length: 10 }, (_, index) => (
             <span
               key={`${branding.themeId}-${index}`}
               className={styles.themeParticle}
@@ -234,7 +260,14 @@ function Background({ scene, snapshot }: { scene: ShowcaseScene; snapshot: Showc
   return (
     <>
       <div className={styles.gradientBase} />
-      {isImage ? <img src={videoUrl} alt="" className={mediaClass} /> : null}
+      {isImage ? (
+        <img
+          src={optimizedLocalImageUrl(videoUrl) || videoUrl}
+          alt=""
+          className={mediaClass}
+          onError={(event) => restoreLocalImageFallback(event.currentTarget, videoUrl)}
+        />
+      ) : null}
       {isVideo ? (
         <video
           key={videoUrl}
@@ -425,8 +458,9 @@ function ProductFlowScene({
         <div className={styles.productHalo} />
         {imageUrl ? (
           <img
-            src={imageUrl}
+            src={optimizedLocalImageUrl(imageUrl) || imageUrl}
             alt={product.name}
+            onError={(event) => restoreLocalImageFallback(event.currentTarget, imageUrl)}
             className={
               productImageFit === "cover"
                 ? styles.productSpotlightImageCover
@@ -568,7 +602,13 @@ function MenuScene({ scene, snapshot }: { scene: ShowcaseScene; snapshot: Showca
           <article className={styles.menuItem} key={product.id}>
             {scene.menuShowImages !== false && product.imageUrl ? (
               <div className={styles.menuItemThumb}>
-                <img src={product.imageUrl} alt="" />
+                <img
+                  src={optimizedLocalImageUrl(product.imageUrl) || product.imageUrl}
+                  alt=""
+                  onError={(event) =>
+                    restoreLocalImageFallback(event.currentTarget, product.imageUrl)
+                  }
+                />
               </div>
             ) : null}
             <div className={styles.menuItemMain}>
@@ -734,8 +774,47 @@ function MessageScene({ scene, snapshot }: { scene: ShowcaseScene; snapshot: Sho
   );
 }
 
+function SchnellPromoScene({ scene, snapshot }: { scene: ShowcaseScene; snapshot: ShowcaseSnapshot }) {
+  const title = visibleText(scene.title);
+  const subtitle = visibleText(scene.subtitle);
+  const body = visibleText(scene.body);
+  const qrUrl = visibleText(scene.qrUrl);
+  const qrLabel = visibleText(scene.qrLabel);
 
-function PremiumScene({ scene, snapshot, sceneIndex }: { scene: ShowcaseScene; snapshot: ShowcaseSnapshot; sceneIndex: number }) {
+  return (
+    <div className={styles.schnellPromoScene}>
+      <div className={styles.schnellPromoHalo} aria-hidden="true" />
+      <div className={styles.schnellPromoCopy}>
+        {scene.showLogo !== false ? (
+          <Logo url={snapshot.branding.logoUrl} name={snapshot.branding.shopName} />
+        ) : null}
+        {scene.badge ? <div className={styles.schnellPromoBadge}>✦ {scene.badge} ✦</div> : null}
+        {title ? <h2>{title}</h2> : null}
+        {subtitle ? <p className={styles.schnellPromoSubtitle}>{subtitle}</p> : null}
+        {body ? <div className={styles.schnellPromoBody}>{body}</div> : null}
+        <div className={styles.schnellPromoSignature}>DEIN BURGER BROTHERS TEAM</div>
+      </div>
+      <div className={styles.schnellPromoVisual}>
+        <div className={styles.schnellGiftMark} aria-hidden="true">
+          <span>🎁</span>
+          <i>+</i>
+          <span>🍔</span>
+        </div>
+        {qrUrl && scene.showQr !== false ? (
+          <SharpQr value={qrUrl} label={qrLabel} />
+        ) : (
+          <div className={styles.schnellQrMissing}>
+            <strong>QR</strong>
+            <span>Schnell-Link im Admin hinterlegen</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+
+function PremiumScene({ scene, snapshot, contentIndex }: { scene: ShowcaseScene; snapshot: ShowcaseSnapshot; contentIndex: number }) {
   const title = visibleText(scene.title);
   const subtitle = visibleText(scene.subtitle);
   const body = visibleText(scene.body);
@@ -747,32 +826,26 @@ function PremiumScene({ scene, snapshot, sceneIndex }: { scene: ShowcaseScene; s
     const weather = snapshot.weather;
     const automaticBody = resolveWeatherMessage(weather, new Date(), scene.weatherMessages);
     return (
-      <div className={`${styles.premiumScene} ${styles.weatherScene}`}>
-        <div className={styles.weatherEmoji}>{weather?.emoji || "🌤️"}</div>
-        <div className={styles.premiumEyebrow}>{weather?.locationLabel || "BERLIN-TEGEL"}</div>
-        <h1>{title || (weather && Number.isFinite(weather.temperature) ? `${Math.round(weather.temperature)}°C` : "WETTER")}</h1>
-        <div className={styles.weatherLabel}>{subtitle || weather?.label || "Wird aktualisiert"}</div>
-        <p>{weather ? (scene.weatherMode === "custom" ? body : automaticBody) : "Aktuelle Wetterdaten werden gerade geladen."}</p>
-        {weather?.updatedAt ? (
-          <small className={styles.dataTimestamp}>
-            {weather.stale ? "Letzte verfügbare Daten" : "Aktualisiert"} {new Date(weather.updatedAt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}
-          </small>
-        ) : null}
+      <div className={styles.weatherScene}>
+        <WeatherExperience
+          weather={weather}
+          title={title}
+          subtitle={subtitle}
+          message={
+            weather
+              ? scene.weatherMode === "custom"
+                ? body
+                : automaticBody
+              : "Aktuelle Wetterdaten werden gerade geladen."
+          }
+        />
       </div>
     );
   }
 
   if (scene.type === "reviews") {
-    const filtered = (snapshot.reviews || []).filter(
-      (review) => review.approved !== false &&
-        review.rating >= (scene.reviewMinRating || 4) &&
-        (!scene.reviewOnlyWithPhoto || (review.photoUrls || []).length > 0),
-    );
-    const list = scene.reviewSort === "random"
-      ? [...filtered].sort((a, b) => a.id.localeCompare(b.id))
-      : [...filtered].sort((a, b) => Date.parse(b.updateTime || b.createTime || "") - Date.parse(a.updateTime || a.createTime || ""));
-    const limited = list.slice(0, scene.reviewLimit || 8);
-    const review = limited.length ? limited[sceneIndex % limited.length] : undefined;
+    const reviews = showcaseReviewsForScene(scene, snapshot.reviews || []);
+    const review = reviews.length ? reviews[contentIndex % reviews.length] : undefined;
     return (
       <div className={styles.reviewScene}>
         {review?.photoUrls?.[0] ? <img src={review.photoUrls[0]} alt="Kundenfoto" className={styles.reviewPhoto} /> : null}
@@ -787,14 +860,23 @@ function PremiumScene({ scene, snapshot, sceneIndex }: { scene: ShowcaseScene; s
   }
 
   if (isReviewQr) {
+    const reviewUrl = visibleText(scene.qrUrl || snapshot.branding.reviewsUrl);
     return (
       <div className={styles.reviewQrScene}>
         <div className={styles.reviewQrCopy}>
           <div className={styles.premiumEyebrow}>{scene.badge || "GOOGLE BEWERTUNG"}</div>
           <h1>{title || "DEINE MEINUNG ZÄHLT ❤️"}</h1>
           <p>{body || "Teile dein Burger-Erlebnis. Dein Foto könnte schon bald hier erscheinen."}</p>
+          <div className={styles.reviewFamilySignature}>BURGER BROTHERS · BERLIN-TEGEL</div>
         </div>
-        <SharpQr value={scene.qrUrl || snapshot.document.settings.qrUrl} label={scene.qrLabel || "Jetzt bewerten"} />
+        {reviewUrl ? (
+          <SharpQr value={reviewUrl} label={scene.qrLabel || "Jetzt bewerten & Foto teilen"} />
+        ) : (
+          <div className={styles.reviewQrMissing}>
+            <strong>G</strong>
+            <span>Google-Link im Admin hinterlegen</span>
+          </div>
+        )}
       </div>
     );
   }
@@ -845,7 +927,15 @@ function PremiumScene({ scene, snapshot, sceneIndex }: { scene: ShowcaseScene; s
           <div className={styles.bestsellerGrid}>
             {items.map((item, index) => (
               <div key={`${item.name}-${index}`} className={styles.bestsellerCard}>
-                {item.imageUrl ? <img src={item.imageUrl} alt={item.name} /> : null}
+                {item.imageUrl ? (
+                  <img
+                    src={optimizedLocalImageUrl(item.imageUrl) || item.imageUrl}
+                    alt={item.name}
+                    onError={(event) =>
+                      restoreLocalImageFallback(event.currentTarget, item.imageUrl)
+                    }
+                  />
+                ) : null}
                 <span>#{index + 1}</span>
                 <strong>{item.name}</strong>
                 {item.displayPrice != null ? <em>{money(item.displayPrice)}</em> : null}
@@ -879,6 +969,7 @@ export default function ShowcaseStage({
   scene,
   sceneIndex,
   sceneCount,
+  contentIndex = 0,
   preview = false,
   previewAspect = "landscape",
   online = true,
@@ -927,9 +1018,10 @@ export default function ShowcaseStage({
         } as React.CSSProperties
       }
       aria-label={scene.name}
+      data-theme-effect={snapshot.branding.themeEffect || "ember"}
     >
       <Background scene={scene} snapshot={snapshot} />
-      {scene.type === "product" || scene.type === "menu" ? null : (
+      {scene.type === "product" || scene.type === "menu" || scene.type === "weather" ? null : (
         <ThemeDecorations snapshot={snapshot} />
       )}
       <div className={styles.sceneCanvas}>
@@ -952,7 +1044,8 @@ export default function ShowcaseStage({
           {scene.type === "image" ? <ImageScene scene={scene} snapshot={snapshot} /> : null}
           {scene.type === "qr" && scene.qrVariant !== "google-review" ? <QrScene scene={scene} snapshot={snapshot} /> : null}
           {scene.type === "message" && scene.messageVariant !== "special-day" ? <MessageScene scene={scene} snapshot={snapshot} /> : null}
-          {(scene.type === "weather" || scene.type === "reviews" || scene.type === "bestseller" || scene.type === "review-qr" || scene.type === "countdown" || scene.type === "special-day" || (scene.type === "qr" && scene.qrVariant === "google-review") || (scene.type === "campaign" && scene.campaignVariant === "countdown") || (scene.type === "message" && scene.messageVariant === "special-day")) ? <PremiumScene scene={scene} snapshot={snapshot} sceneIndex={sceneIndex} /> : null}
+          {scene.type === "schnell-promo" ? <SchnellPromoScene scene={scene} snapshot={snapshot} /> : null}
+          {(scene.type === "weather" || scene.type === "reviews" || scene.type === "bestseller" || scene.type === "review-qr" || scene.type === "countdown" || scene.type === "special-day" || (scene.type === "qr" && scene.qrVariant === "google-review") || (scene.type === "campaign" && scene.campaignVariant === "countdown") || (scene.type === "message" && scene.messageVariant === "special-day")) ? <PremiumScene scene={scene} snapshot={snapshot} contentIndex={contentIndex} /> : null}
         </div>
 
         <div className={styles.topChrome}>

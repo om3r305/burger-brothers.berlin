@@ -703,7 +703,7 @@ export default function SchnellClient() {
       <header className="sticky top-0 z-20 border-b border-white/10 bg-stone-950/95 px-4 py-3 backdrop-blur">
         <div className="mx-auto flex max-w-3xl items-center gap-3">
           <img
-            src="/logo-burger-brothers.png"
+            src="/logo-burger-brothers.webp"
             className="h-11 w-11 rounded-full"
             alt="Burger Brothers"
           />

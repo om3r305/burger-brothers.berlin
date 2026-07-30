@@ -18,6 +18,7 @@ import {
   showcaseCategoryLabel,
 } from "./runtime";
 import { campaignScenePatch } from "./editor";
+import { weatherPresentation } from "./weather";
 import type {
   ShowcaseBranding,
   ShowcaseCampaign,
@@ -454,10 +455,9 @@ async function fetchShowcaseWeather(): Promise<ShowcaseWeather | null> {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 4_500);
       const response = await fetch(
-        "https://api.open-meteo.com/v1/forecast?latitude=52.588&longitude=13.289&current=temperature_2m,apparent_temperature,weather_code&timezone=Europe%2FBerlin",
+        "https://api.open-meteo.com/v1/forecast?latitude=52.588&longitude=13.289&current=temperature_2m,apparent_temperature,relative_humidity_2m,precipitation,rain,showers,snowfall,weather_code,wind_speed_10m,wind_gusts_10m,is_day&daily=temperature_2m_max,temperature_2m_min,sunrise,sunset&forecast_days=1&timezone=Europe%2FBerlin",
         { cache: "no-store", signal: controller.signal },
-      );
-      clearTimeout(timer);
+      ).finally(() => clearTimeout(timer));
       if (!response.ok) throw new Error(`OPEN_METEO_${response.status}`);
       const data: any = await response.json();
       const temperature = Number(data?.current?.temperature_2m);
@@ -466,17 +466,32 @@ async function fetchShowcaseWeather(): Promise<ShowcaseWeather | null> {
       if (!Number.isFinite(temperature) || !Number.isFinite(code)) {
         throw new Error("OPEN_METEO_INVALID_PAYLOAD");
       }
-      const rainy = [51,53,55,56,57,61,63,65,66,67,80,81,82,95,96,99].includes(code);
-      const snowy = [71,73,75,77,85,86].includes(code);
-      const foggy = [45,48].includes(code);
-      const cloudy = [1,2,3].includes(code);
+      const isDay = Number(data?.current?.is_day) !== 0;
+      const presentation = weatherPresentation(code, isDay);
+      const optionalNumber = (value: unknown) => {
+        const numeric = Number(value);
+        return Number.isFinite(numeric) ? numeric : undefined;
+      };
       const value: ShowcaseWeather = {
         temperature,
         apparentTemperature: Number.isFinite(apparentTemperature) ? apparentTemperature : undefined,
         weatherCode: code,
-        label: snowy ? "Schnee" : rainy ? "Regen" : foggy ? "Nebel" : cloudy ? "Bewölkt" : "Sonnig",
-        emoji: snowy ? "❄️" : rainy ? "🌧️" : foggy ? "🌫️" : cloudy ? "☁️" : "☀️",
-        updatedAt: data?.current?.time ? new Date(data.current.time).toISOString() : new Date().toISOString(),
+        condition: presentation.condition,
+        label: presentation.label,
+        emoji: presentation.emoji,
+        isDay,
+        relativeHumidity: optionalNumber(data?.current?.relative_humidity_2m),
+        precipitation: optionalNumber(data?.current?.precipitation),
+        rain: optionalNumber(data?.current?.rain),
+        showers: optionalNumber(data?.current?.showers),
+        snowfall: optionalNumber(data?.current?.snowfall),
+        windSpeed: optionalNumber(data?.current?.wind_speed_10m),
+        windGusts: optionalNumber(data?.current?.wind_gusts_10m),
+        highTemperature: optionalNumber(data?.daily?.temperature_2m_max?.[0]),
+        lowTemperature: optionalNumber(data?.daily?.temperature_2m_min?.[0]),
+        sunrise: data?.daily?.sunrise?.[0] ? String(data.daily.sunrise[0]) : undefined,
+        sunset: data?.daily?.sunset?.[0] ? String(data.daily.sunset[0]) : undefined,
+        updatedAt: new Date().toISOString(),
         source: "open-meteo",
         locationLabel: "BERLIN-TEGEL",
         stale: false,
@@ -601,6 +616,10 @@ export async function buildShowcaseSnapshot(req: Request, requestedSlug = "main"
     themeCornerLeft: preset.cornerLeft,
     themeCornerRight: preset.cornerRight,
     themeParticles: showSnow ? ["❄", "·", "✦"] : preset.particles,
+    themeEffect: preset.effect,
+    themeMotifs: preset.motifs,
+    themeBurst: preset.burst,
+    reviewsUrl: String(settings?.contact?.reviewsUrl || "").trim(),
     locationLabel: "13507 Berlin Tegel",
     siteUrl,
   };
@@ -672,6 +691,10 @@ export function defaultShowcaseSnapshot(req: Request): ShowcaseSnapshot {
       themeCornerLeft: "🍔",
       themeCornerRight: "🔥",
       themeParticles: [],
+      themeEffect: "ember",
+      themeMotifs: [],
+      themeBurst: ["✦", "🔥"],
+      reviewsUrl: "",
       locationLabel: "13507 Berlin Tegel",
       siteUrl,
     },

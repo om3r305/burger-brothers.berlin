@@ -1,8 +1,92 @@
 import type {
   ShowcaseProduct,
+  ShowcaseReview,
   ShowcaseScene,
   ShowcaseSnapshot,
 } from "./types";
+
+export const DEFAULT_REVIEW_CTA = {
+  title: "WERDE TEIL UNSERER BURGER BROTHERS FAMILIE ❤️",
+  body: "Teile deinen Besuch auf Google und lade dein Lieblingsfoto hoch. Vielleicht erscheint dein Beitrag schon bald hier auf unserem Bildschirm. Danke, dass du ein Teil von uns bist!",
+  badge: "DEINE MEINUNG ZÄHLT",
+  qrLabel: "Jetzt bewerten & Foto teilen",
+  durationSeconds: 18,
+  accent: "#f5b942",
+} as const;
+
+function stableReviewScore(value: string) {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+export function showcaseReviewsForScene(
+  scene: ShowcaseScene,
+  reviews: ShowcaseReview[] = [],
+) {
+  const filtered = reviews.filter(
+    (review) =>
+      review.approved !== false &&
+      review.rating >= Number(scene.reviewMinRating || 4) &&
+      (!scene.reviewOnlyWithPhoto || Boolean(review.photoUrls?.length)),
+  );
+  const sorted =
+    scene.reviewSort === "random"
+      ? [...filtered].sort(
+          (a, b) =>
+            stableReviewScore(`${scene.id}:${a.id}`) -
+            stableReviewScore(`${scene.id}:${b.id}`),
+        )
+      : [...filtered].sort(
+          (a, b) =>
+            Date.parse(b.updateTime || b.createTime || "") -
+              Date.parse(a.updateTime || a.createTime || "") ||
+            a.id.localeCompare(b.id),
+        );
+  return sorted.slice(0, Math.max(1, Number(scene.reviewLimit || 8)));
+}
+
+export function createReviewCtaScene(scene: ShowcaseScene): ShowcaseScene {
+  return {
+    id: `${scene.id}--review-cta`,
+    type: "review-qr",
+    name: `${scene.name} · Google çağrısı`,
+    enabled: true,
+    durationSeconds: Math.max(
+      8,
+      Math.min(90, Number(scene.reviewCtaDurationSeconds || DEFAULT_REVIEW_CTA.durationSeconds)),
+    ),
+    transition: scene.transition || "fade",
+    title: scene.reviewCtaTitle || DEFAULT_REVIEW_CTA.title,
+    body: scene.reviewCtaBody || DEFAULT_REVIEW_CTA.body,
+    badge: scene.reviewCtaBadge || DEFAULT_REVIEW_CTA.badge,
+    qrUrl: scene.reviewCtaQrUrl,
+    qrLabel: scene.reviewCtaQrLabel || DEFAULT_REVIEW_CTA.qrLabel,
+    qrVariant: "google-review",
+    accent: scene.reviewCtaAccent || scene.accent || DEFAULT_REVIEW_CTA.accent,
+    fit: "contain",
+    showLogo: true,
+    showQr: true,
+    showPrice: false,
+    muted: true,
+  };
+}
+
+/**
+ * Yorum çağrısını editörde ayrı bir playlist satırı oluşturmadan yorum
+ * sahnesinin hemen arkasına yerleştirir. Sanal sahne kaydedilmez; yayın
+ * döngüsünde üretilir ve bu nedenle sıralama hiçbir zaman kopmaz.
+ */
+export function expandShowcaseScenesForPlayback(scenes: ShowcaseScene[]) {
+  return scenes.flatMap((scene) =>
+    scene.type === "reviews" && scene.reviewCtaEnabled !== false
+      ? [scene, createReviewCtaScene(scene)]
+      : [scene],
+  );
+}
 
 export const SHOWCASE_CATEGORY_ORDER = [
   "burger",

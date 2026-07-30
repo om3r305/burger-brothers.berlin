@@ -77,7 +77,7 @@ export async function POST(req: Request) {
     return NextResponse.json(
       {
         received: false,
-        error: error?.message || "STRIPE_WEBHOOK_FAILED",
+        error: "STRIPE_WEBHOOK_FAILED",
       },
       { status: 400 },
     );

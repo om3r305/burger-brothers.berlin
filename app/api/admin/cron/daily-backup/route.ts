@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getTenantId, prisma } from "@/lib/db";
 import { secretMatches } from "@/lib/server/request-security";
+import { enforcePersonalDataRetention } from "@/lib/server/data-retention";
+import { encryptBackupPayload } from "@/lib/server/backup-crypto";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -755,18 +757,26 @@ export async function GET(req: NextRequest) {
 
   const supabaseUrl = String(process.env.SUPABASE_URL || "").trim();
   const serviceRoleKey = String(process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
+  const backupEncryptionKey = String(
+    process.env.BACKUP_ENCRYPTION_KEY || "",
+  ).trim();
   const bucket = String(process.env.BACKUP_BUCKET || DEFAULT_BACKUP_BUCKET).trim();
   const retentionDays = Math.max(
     1,
     Math.trunc(Number(process.env.BACKUP_RETENTION_DAYS || DEFAULT_RETENTION_DAYS)),
   );
 
-  if (!supabaseUrl || !serviceRoleKey || !bucket) {
+  if (!supabaseUrl || !serviceRoleKey || !bucket || !backupEncryptionKey) {
     return jsonResponse(
       {
         ok: false,
         error: "MISSING_BACKUP_ENV",
-        required: ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "BACKUP_BUCKET"],
+        required: [
+          "SUPABASE_URL",
+          "SUPABASE_SERVICE_ROLE_KEY",
+          "BACKUP_BUCKET",
+          "BACKUP_ENCRYPTION_KEY",
+        ],
         message: "Otomatik yedekleme için gerekli environment değişkenleri eksik.",
       },
       500,
@@ -780,6 +790,20 @@ export async function GET(req: NextRequest) {
     },
   });
 
+  const bucketInfo = await supabase.storage.getBucket(bucket);
+  if (bucketInfo.error || !bucketInfo.data || bucketInfo.data.public === true) {
+    console.error("[daily-backup] private bucket check failed", bucketInfo.error);
+    return jsonResponse(
+      {
+        ok: false,
+        error: bucketInfo.data?.public
+          ? "BACKUP_BUCKET_MUST_BE_PRIVATE"
+          : "BACKUP_BUCKET_CHECK_FAILED",
+      },
+      500,
+    );
+  }
+
   let tenantId = "";
 
   try {
@@ -789,7 +813,7 @@ export async function GET(req: NextRequest) {
       {
         ok: false,
         error: "TENANT_RESOLVE_FAILED",
-        detail: error?.message || String(error),
+        detail: "TENANT_RESOLVE_FAILED",
       },
       500,
     );
@@ -820,6 +844,25 @@ export async function GET(req: NextRequest) {
     console.warn("[daily-backup] tracking cleanup skipped", error);
   }
 
+  const personalDataCleanup = await enforcePersonalDataRetention({
+    tenantId,
+    orderRetentionDays: Number(process.env.ORDER_PII_RETENTION_DAYS || 90),
+    customerRetentionDays: Number(
+      process.env.CUSTOMER_PII_RETENTION_DAYS || 365,
+    ),
+    analyticsRetentionDays: Number(
+      process.env.ANALYTICS_RETENTION_DAYS || 30,
+    ),
+    batchSize: Number(process.env.PII_CLEANUP_BATCH_SIZE || 250),
+  }).catch((error) => {
+    console.error("[daily-backup] personal-data cleanup failed", error);
+    return {
+      error: "PERSONAL_DATA_CLEANUP_FAILED",
+      ordersAnonymized: 0,
+      customersAnonymized: 0,
+    };
+  });
+
   const allOrders = await safeFindMany(db.order, {
     where: { tenantId },
     orderBy: [{ createdAt: "asc" }],
@@ -828,13 +871,22 @@ export async function GET(req: NextRequest) {
   const summaryResult = await rebuildSummaries(tenantId, allOrders);
   const backupPayload = await buildBackupPayload(tenantId);
 
-  const fileName = `burger-brothers-auto-backup-${nowStamp()}.json`;
+  const fileName = `burger-brothers-auto-backup-${nowStamp()}.json.enc`;
   const storagePath = `daily/${fileName}`;
-  const jsonText = JSON.stringify(backupPayload, null, 2);
+  let jsonText = "";
+  try {
+    jsonText = JSON.stringify(encryptBackupPayload(backupPayload));
+  } catch (error) {
+    console.error("[daily-backup] encryption failed", error);
+    return jsonResponse(
+      { ok: false, error: "BACKUP_ENCRYPTION_FAILED" },
+      500,
+    );
+  }
   const sizeBytes = Buffer.byteLength(jsonText, "utf8");
 
   const uploadResult = await supabase.storage.from(bucket).upload(storagePath, jsonText, {
-    contentType: "application/json; charset=utf-8",
+    contentType: "application/octet-stream",
     upsert: true,
   });
 
@@ -892,6 +944,7 @@ export async function GET(req: NextRequest) {
       summary: summaryResult,
       cleanup: cleanupResult,
       trackingCleanup,
+      personalDataCleanup,
       retentionDays,
       startedAt: startedAt.toISOString(),
       finishedAt: finishedAt.toISOString(),
@@ -912,6 +965,7 @@ export async function GET(req: NextRequest) {
     summary: summaryResult,
     cleanup: cleanupResult,
     trackingCleanup,
+    personalDataCleanup,
     startedAt: startedAt.toISOString(),
     finishedAt: finishedAt.toISOString(),
     durationMs: finishedAt.valueOf() - startedAt.valueOf(),

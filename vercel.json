@@ -7,6 +7,14 @@
     {
       "path": "/api/admin/cron/expire-payments",
       "schedule": "15 4 * * *"
+    },
+    {
+      "path": "/api/admin/cron/reconcile-refunds",
+      "schedule": "17 * * * *"
+    },
+    {
+      "path": "/api/admin/cron/reward-cleanup",
+      "schedule": "7 * * * *"
     }
   ]
 }

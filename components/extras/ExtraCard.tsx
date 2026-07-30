@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { useState } from "react";
 import { useCart } from "@/components/store";
+import { optimizedLocalImageUrl } from "@/lib/media/local-optimized-image";
 
 type Props = {
   sku: string;
@@ -32,6 +33,9 @@ export default function ExtraCard({
   const [qty, setQty] = useState(1);
   const [note, setHinweise] = useState("");
   const [fallback, setFallback] = useState(false);
+  const originalImage = image || "/logo-burger-brothers.png";
+  const displayImage =
+    optimizedLocalImageUrl(originalImage) || originalImage;
 
   const safeQty = Math.max(1, Number(qty) || 1);
   const lineTotal = price * safeQty;
@@ -67,17 +71,19 @@ export default function ExtraCard({
       <div className="cover relative mb-3 h-40 w-full overflow-hidden rounded-xl bg-stone-800/50">
         {fallback ? (
           <img
-            src={image || "/logo-burger-brothers.png"}
+            src={originalImage}
             alt={name}
+            loading="lazy"
+            decoding="async"
             className="absolute inset-0 h-full w-full object-cover"
           />
         ) : (
           <Image
-            src={image || "/logo-burger-brothers.png"}
+            src={displayImage}
             alt={name}
             fill
             className="object-cover"
-            sizes="(max-width:768px) 100vw, 33vw"
+            sizes="(max-width:639px) 46vw, (max-width:1023px) 33vw, 25vw"
             priority={false}
             onError={() => setFallback(true)}
           />

@@ -7,6 +7,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { LS_SETTINGS } from "@/lib/settings";
 import AdminAttentionBell from "@/components/admin/AdminAttentionBell";
+import { getThemePreset } from "@/lib/themes";
 
 type NavItem = {
   href: string;
@@ -36,14 +37,8 @@ function useThemeLabel() {
       const raw = localStorage.getItem(LS_SETTINGS);
       const s = raw ? JSON.parse(raw) : {};
       const name = String(s?.theme?.name ?? s?.theme?.active ?? "classic").toLowerCase();
-      const map: Record<string, string> = {
-        default: "Classic",
-        classic: "Classic",
-        neon: "Neon ✨",
-        halloween: "Halloween 🎃",
-        christmas: "Christmas 🎄",
-      };
-      setLabel(map[name] ?? "Classic");
+      const preset = getThemePreset(name);
+      setLabel(`${preset.icon} ${preset.label}`);
     } catch {}
   }, []);
   return label;

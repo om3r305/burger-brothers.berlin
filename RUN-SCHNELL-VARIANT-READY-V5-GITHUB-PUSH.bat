@@ -1,4 +1,4 @@
-﻿@echo off
+@echo off
 setlocal
 title Burger Brothers Variant Ready V5 GitHub Push
 

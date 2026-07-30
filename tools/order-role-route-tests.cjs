@@ -125,6 +125,13 @@ Module._load = function patchedLoad(request, parent, isMain) {
       },
     };
   }
+  if (request === "@/lib/server/general-push") {
+    return {
+      notifyGeneralOrderStatus: async () => ({ sent: 0 }),
+      notifyNearbyDelivery: async () => ({ sent: 0 }),
+      notifyOrderRefundExecuted: async () => ({ sent: 0 }),
+    };
+  }
   if (request === "@/lib/server/request-security") {
     return {
       hasSessionRole: async (req, role) => req.headers.get("x-test-role") === role,

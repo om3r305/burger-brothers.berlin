@@ -1,0 +1,9 @@
+VALIDATION
+
+- extractTrackingToken fonksiyonu TypeScript transpile edilerek çalıştırıldı.
+- Query parametresi: query-token-123 -> başarılı.
+- Header, query değerinin önüne geçiyor -> başarılı.
+- Body, header ve query değerlerinin önüne geçiyor -> başarılı.
+- Tam Next.js production build bu ortamda çalıştırılmadı.
+- GitHub PowerShell dosyası commit/push öncesinde kullanıcının tam projesinde
+  Prisma generate ve production build çalıştırır.

@@ -28,7 +28,11 @@ type Props = {
 const weatherLabels: Record<WeatherCopyKey, string> = {
   rainMorning: "Yağmur · gündüz",
   rainEvening: "Yağmur · akşam",
+  drizzle: "Çiseleme",
+  storm: "Fırtına / gök gürültüsü",
   snowCold: "Kar / soğuk",
+  fog: "Sis",
+  windy: "Kuvvetli rüzgâr",
   hot: "Sıcak hava",
   lateNight: "Gece geç saat",
   evening: "Akşam",
@@ -74,7 +78,7 @@ export default function PremiumSceneSettings({
   const isReviewQr = scene.type === "qr" && scene.qrVariant === "google-review";
   const isCountdown = scene.type === "campaign" && scene.campaignVariant === "countdown";
   const isSpecialDay = scene.type === "message" && scene.messageVariant === "special-day";
-  const visible = scene.type === "weather" || scene.type === "reviews" || scene.type === "bestseller" || isReviewQr || isCountdown || isSpecialDay;
+  const visible = scene.type === "weather" || scene.type === "reviews" || scene.type === "schnell-promo" || scene.type === "bestseller" || isReviewQr || isCountdown || isSpecialDay;
   if (!visible) return null;
 
   const approved = reviews.filter((review) => review.approved);
@@ -113,7 +117,53 @@ export default function PremiumSceneSettings({
               <b>Toplam:</b> {reviews.length} · <b>Onaylı:</b> {approved.length} · <b>Bu filtreyle gösterilebilir:</b> {eligible.length}
               {eligible.length === 0 ? <div className="mt-1 text-amber-300">Bu filtrelere uyan onaylı yorum yok. Minimum yıldızı veya fotoğraf filtresini kontrol et.</div> : null}
             </div>
+            <div className="sm:col-span-2 xl:col-span-3 rounded-xl border border-emerald-700/40 bg-emerald-950/20 p-3">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm font-black text-emerald-100">Yorumdan hemen sonra otomatik çağrı</div>
+                  <div className="mt-1 text-xs leading-relaxed text-emerald-200/75">Ayrı bir playlist sahnesi gerekmez. Her Google yorumundan hemen sonra bu ekran otomatik gelir.</div>
+                </div>
+                <button type="button" className={`${inputClass} !w-auto min-w-32 text-left`} onClick={() => onChange({ reviewCtaEnabled: scene.reviewCtaEnabled === false }, true)}>
+                  {scene.reviewCtaEnabled === false ? "Kapalı" : "Açık"}
+                </button>
+              </div>
+              {scene.reviewCtaEnabled !== false ? (
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                  <Field label="Çağrı süresi (saniye)">
+                    <input type="number" min={8} max={90} className={inputClass} value={scene.reviewCtaDurationSeconds || 18} onChange={(event) => onChange({ reviewCtaDurationSeconds: Number(event.target.value) })} />
+                  </Field>
+                  <Field label="Küçük başlık / rozet">
+                    <input className={inputClass} value={scene.reviewCtaBadge ?? ""} placeholder="DEINE MEINUNG ZÄHLT" onChange={(event) => onChange({ reviewCtaBadge: event.target.value })} />
+                  </Field>
+                  <Field label="Vurgu rengi">
+                    <input type="color" className={`${inputClass} h-11 p-1`} value={scene.reviewCtaAccent || "#f5b942"} onChange={(event) => onChange({ reviewCtaAccent: event.target.value })} />
+                  </Field>
+                  <div className="sm:col-span-2 xl:col-span-3">
+                    <Field label="Çağrı başlığı">
+                      <input className={inputClass} value={scene.reviewCtaTitle ?? ""} placeholder="WERDE TEIL UNSERER BURGER BROTHERS FAMILIE ❤️" onChange={(event) => onChange({ reviewCtaTitle: event.target.value })} />
+                    </Field>
+                  </div>
+                  <div className="sm:col-span-2 xl:col-span-3">
+                    <Field label="Aile / fotoğraf çağrı metni">
+                      <textarea rows={4} className={inputClass} value={scene.reviewCtaBody ?? ""} placeholder="Teile deinen Besuch auf Google und lade dein Lieblingsfoto hoch..." onChange={(event) => onChange({ reviewCtaBody: event.target.value })} />
+                    </Field>
+                  </div>
+                  <Field label="Google değerlendirme bağlantısı" hint="Sipariş QR adresinden tamamen ayrıdır. Boşsa genel Ayarlar > İletişim bölümündeki Google yorum bağlantısı kullanılır.">
+                    <input className={inputClass} value={scene.reviewCtaQrUrl || ""} placeholder="https://g.page/r/..." onChange={(event) => onChange({ reviewCtaQrUrl: event.target.value || undefined })} />
+                  </Field>
+                  <Field label="QR alt yazısı">
+                    <input className={inputClass} value={scene.reviewCtaQrLabel ?? ""} placeholder="Jetzt bewerten & Foto teilen" onChange={(event) => onChange({ reviewCtaQrLabel: event.target.value })} />
+                  </Field>
+                </div>
+              ) : null}
+            </div>
           </>
+        ) : null}
+
+        {scene.type === "schnell-promo" ? (
+          <div className="sm:col-span-2 xl:col-span-3 rounded-xl border border-orange-600/35 bg-orange-950/20 p-3 text-xs leading-relaxed text-orange-100">
+            <b>Bağımsız Schnell ekranı:</b> Bu sahne genel duyuru paneline bağlı değildir. Başlık, hediye metni, masa sipariş bağlantısı, QR etiketi, renk ve yayın saati yalnız bu sahneden yönetilir. QR hedefini yukarıdaki “QR hedefi” alanından değiştirebilirsin.
+          </div>
         ) : null}
 
         {scene.type === "weather" ? (
@@ -128,6 +178,8 @@ export default function PremiumSceneSettings({
               <b>Canlı kaynak:</b> {weather?.source === "cache_fallback" ? "Open-Meteo · son sağlam veri" : "Open-Meteo"}<br />
               <b>Konum:</b> {weather?.locationLabel || "Berlin-Tegel"}<br />
               <b>Son veri:</b> {weather ? `${Math.round(weather.temperature)}°C · ${weather.label} · ${new Date(weather.updatedAt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}` : "Henüz canlı veri alınamadı"}<br />
+              <b>Detay:</b> {weather ? `Hissedilen ${Math.round(weather.apparentTemperature ?? weather.temperature)}° · Nem ${Math.round(weather.relativeHumidity || 0)}% · Rüzgâr ${Math.round(weather.windSpeed || 0)} km/h` : "–"}<br />
+              <b>Dinamik atmosfer:</b> {weather ? `${weather.condition || "otomatik"} · ${weather.isDay === false ? "gece" : "gündüz"} · yağmur/kar/sis/bulut efektleri canlı veriye bağlı` : "Canlı veri bekleniyor"}<br />
               <b>Şu an seçilen otomatik metin:</b> {automaticWeatherText || "Aktuelle Wetterdaten werden gerade geladen."}
               {weather?.stale ? <div className="mt-1 text-amber-300">Bağlantı sorunu nedeniyle son sağlam hava verisi kullanılıyor.</div> : null}
             </div>

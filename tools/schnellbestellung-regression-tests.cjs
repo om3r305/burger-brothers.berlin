@@ -87,7 +87,7 @@ assert(core.includes('channel: "schnellbestellung"'));
 assert(core.includes("idempotencyKey"));
 assert(core.includes('path: ["idempotencyKey"]'));
 assert(core.includes("heinz\\s+"), "Only plain table ketchup/mayo should be hidden");
-assert(core.includes('qrMode: "static"'));
+assert(core.includes('qrMode: "dynamic"'));
 assert(core.includes('typ: "schnell-static-access"'));
 assert(core.includes("getSchnellCampaignPrice"));
 assert(core.includes("isComplimentaryTableSauce"));
@@ -105,7 +105,7 @@ assert(
 );
 assert(core.includes("timeWarningMinutes"));
 assert(core.includes("timeCriticalMinutes"));
-assert(core.includes("locationCheckEnabled: false"));
+assert(core.includes("locationCheckEnabled: true"));
 assert(core.includes("backgroundReadyPushEnabled"));
 assert(core.includes("iosHomeScreenFlowEnabled: boolean"));
 assert(core.includes("iosHomeScreenFlowEnabled: false"));

@@ -2,6 +2,7 @@ import { timingSafeEqual } from "crypto";
 import { NextResponse } from "next/server";
 import { createSessionToken } from "@/lib/server/session";
 import { enforceRateLimit } from "@/lib/server/request-security";
+import { verifyTotp } from "@/lib/server/totp";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -66,8 +67,14 @@ export async function POST(req: Request) {
     const body = await req.json().catch(() => ({}));
     const user = String(body?.user ?? "").trim();
     const pass = String(body?.pass ?? "");
+    const totpSecret = String(process.env.ADMIN_TOTP_SECRET || "").trim();
+    const totpRequired = isProd() || Boolean(totpSecret);
 
-    if (!safeEqual(user, adminUser) || !safeEqual(pass, adminPass)) {
+    if (
+      !safeEqual(user, adminUser) ||
+      !safeEqual(pass, adminPass) ||
+      (totpRequired && !verifyTotp(body?.totp, totpSecret))
+    ) {
       return json(
         {
           ok: false,
@@ -79,14 +86,14 @@ export async function POST(req: Request) {
 
     const res = json({ ok: true });
 
-    const sessionToken = await createSessionToken("admin", 60 * 60 * 12);
+    const sessionToken = await createSessionToken("admin", 60 * 60 * 8);
 
     res.cookies.set(ADMIN_COOKIE, sessionToken, {
       httpOnly: true,
-      sameSite: "lax",
+      sameSite: "strict",
       secure: isProd(),
       path: "/",
-      maxAge: 60 * 60 * 12,
+      maxAge: 60 * 60 * 8,
     });
 
     return res;

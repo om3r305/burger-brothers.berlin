@@ -706,7 +706,7 @@ export async function GET(req: Request) {
     return await validateFromRequest(req);
   } catch (error: any) {
     console.error("GET /api/coupons/validate failed:", error);
-    return errorJson(error?.message || "COUPON_VALIDATE_GET_FAILED", 500);
+    return errorJson("COUPON_VALIDATE_GET_FAILED", 500);
   }
 }
 
@@ -720,6 +720,6 @@ export async function POST(req: Request) {
     return await validateFromRequest(req);
   } catch (error: any) {
     console.error("POST /api/coupons/validate failed:", error);
-    return errorJson(error?.message || "COUPON_VALIDATE_POST_FAILED", 500);
+    return errorJson("COUPON_VALIDATE_POST_FAILED", 500);
   }
 }

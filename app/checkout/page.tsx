@@ -2,8 +2,7 @@
 "use client";
 
 import Link from "next/link";
-import TrackPanel from "@/components/ui/TrackPanel";
-import CouponBox from "@/components/CouponBox";
+import dynamic from "next/dynamic";
 import {
   useCallback,
   useEffect,
@@ -37,6 +36,7 @@ import {
   buildSlotsForDate,
   validatePlannedTime,
   nowInTZ,
+  parseHHMMToDateInTZ,
 } from "@/lib/availability";
 
 import { getStreets, searchStreets, normalizePlz } from "@/lib/streets";
@@ -87,6 +87,26 @@ import {
   recordValue,
   stringValue,
 } from "@/lib/checkout/runtime";
+
+const CouponBox = dynamic(() => import("@/components/CouponBox"), {
+  ssr: false,
+  loading: () => (
+    <div
+      className="h-28 animate-pulse rounded-2xl border border-white/5 bg-white/[0.025]"
+      aria-label="Gutscheinbereich wird geladen"
+    />
+  ),
+});
+
+const TrackPanel = dynamic(() => import("@/components/ui/TrackPanel"), {
+  ssr: false,
+  loading: () => (
+    <div
+      className="h-20 animate-pulse rounded-2xl border border-white/5 bg-white/[0.025]"
+      aria-label="Bestellverfolgung wird geladen"
+    />
+  ),
+});
 
 /* ───────── helpers ───────── */
 
@@ -416,6 +436,19 @@ const PROFILE_KEY = "bb_checkout_profile_v2";
 const ORDER_RETRY_TOTAL_MS = 5 * 60 * 1000;
 const ORDER_RETRY_INTERVAL_MS = 30 * 1000;
 
+function createCheckoutIdempotencyKey() {
+  try {
+    if (typeof globalThis.crypto?.randomUUID === "function") {
+      return `web-${globalThis.crypto.randomUUID()}`;
+    }
+    const bytes = new Uint8Array(16);
+    globalThis.crypto.getRandomValues(bytes);
+    return `web-${Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("")}`;
+  } catch {
+    return `web-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
+  }
+}
+
 const pad2 = (n: number) => (n < 10 ? `0${n}` : String(n));
 
 const normCode = (s: string) =>
@@ -434,16 +467,7 @@ function hhmmInTZ(d: Date, tz: string) {
 }
 
 function todayAt(hhmm: string, tz: string) {
-  const [h, m] = (hhmm || "").split(":").map((x) => parseInt(x, 10));
-  const base = nowInTZ(tz);
-  const y = base.getFullYear();
-  const mo = base.getMonth();
-  const da = base.getDate();
-  const iso = `${y}-${pad2(mo + 1)}-${pad2(da)}T${pad2(h || 0)}:${pad2(
-    m || 0,
-  )}:00`;
-
-  return new Date(new Date(`${iso} GMT`).toLocaleString("en-US", { timeZone: tz }));
+  return parseHHMMToDateInTZ(hhmm, nowInTZ(tz), tz);
 }
 
 function normalizePlannedHHMM(value: unknown): string {
@@ -1587,14 +1611,15 @@ export default function CheckoutPage() {
     void refreshRemoteSettings();
 
     /*
-      Siparis baska cihazdan geldiginde aktif rota firsatini checkout acikken
-      de al. 10 saniye, canli banner icin hizli fakat DB icin hafif bir araliktir.
+      Sipariş başka cihazdan geldiğinde aktif rota fırsatını checkout açıkken
+      de al. 15 saniye, fırsat banner'ını güncel tutarken gereksiz DB trafiğini
+      ve mobil radyo uyanmalarını azaltır.
     */
     const settingsPollId = window.setInterval(() => {
       if (document.visibilityState === "visible") {
         void refreshRemoteSettings();
       }
-    }, 10_000);
+    }, 15_000);
 
     const onStorage = (event: StorageEvent) => {
       if (!event.key || event.key === LS_SETTINGS) {
@@ -1660,7 +1685,14 @@ export default function CheckoutPage() {
     ),
   );
 
-  const phoneDigits = toNum(settingsRaw?.validation?.phoneDigits, 11) || 11;
+  const phoneMinDigits = Math.max(
+    6,
+    Math.min(15, toNum(settingsRaw?.validation?.phoneMinDigits, 7) || 7),
+  );
+  const phoneMaxDigits = Math.max(
+    phoneMinDigits,
+    Math.min(15, toNum(settingsRaw?.validation?.phoneMaxDigits, 15) || 15),
+  );
 
   const paymentSettings = useMemo(
     () => ({
@@ -1951,11 +1983,6 @@ export default function CheckoutPage() {
     emergencySending?: boolean;
   } | null>(null);
   const [routeDealNowMs, setRouteDealNowMs] = useState(() => Date.now());
-
-  useEffect(() => {
-    const id = window.setInterval(() => setRouteDealNowMs(Date.now()), 1000);
-    return () => window.clearInterval(id);
-  }, []);
 
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cash");
   const [rememberPaymentMethod, setRememberPaymentMethod] = useState(true);
@@ -2336,6 +2363,22 @@ export default function CheckoutPage() {
   });
   const activeRouteDeal = eligibleRouteDeal as ActiveRouteDeal | null;
 
+  useEffect(() => {
+    if (!activeRouteDeal) {
+      setRouteDealNowMs(Date.now());
+      return;
+    }
+
+    const tick = () => {
+      if (document.visibilityState === "visible") {
+        setRouteDealNowMs(Date.now());
+      }
+    };
+    tick();
+    const id = window.setInterval(tick, 1_000);
+    return () => window.clearInterval(id);
+  }, [activeRouteDeal?.id, activeRouteDeal?.expiresAt]);
+
   const routeDealBaseTotal = +((afterDiscount - couponAmount) + surcharges).toFixed(2);
   const routeDealBenefit = useMemo(
     () =>
@@ -2474,7 +2517,9 @@ export default function CheckoutPage() {
   );
 
   const nameOk = isFilled(addr.name);
-  const phoneOk = digitsOnly(addr.phone).length === phoneDigits;
+  const phoneLength = digitsOnly(addr.phone).length;
+  const phoneOk =
+    phoneLength >= phoneMinDigits && phoneLength <= phoneMaxDigits;
   const zipOk =
     orderMode === "pickup" ? true : digitsOnly(addr.zip).length === 5 && plzKnown;
   const streetOk =
@@ -3231,7 +3276,10 @@ export default function CheckoutPage() {
             />
           </Field>
 
-          <Field label={`Telefon * (${phoneDigits} Ziffern)`} htmlFor="checkout-phone">
+          <Field
+            label={`Telefon * (${phoneMinDigits}–${phoneMaxDigits} Ziffern)`}
+            htmlFor="checkout-phone"
+          >
             <input
               id="checkout-phone"
               autoComplete="tel"
@@ -3239,7 +3287,9 @@ export default function CheckoutPage() {
               pattern="[\d+\s()-]+"
               value={addr.phone}
               onChange={(event) => {
-                const only = event.target.value.replace(/\D/g, "").slice(0, phoneDigits);
+                const only = event.target.value
+                  .replace(/\D/g, "")
+                  .slice(0, phoneMaxDigits);
                 setAddr({ ...addr, phone: only });
               }}
               className={checkoutInputClass(phoneOk)}
@@ -3247,8 +3297,8 @@ export default function CheckoutPage() {
             />
             <FieldHint
               ok={phoneOk}
-              okText={`Telefonnummer ist korrekt (${phoneDigits} Ziffern).`}
-              errorText={`Bitte genau ${phoneDigits} Ziffern eingeben.`}
+              okText="Telefonnummer ist korrekt."
+              errorText={`Bitte ${phoneMinDigits} bis ${phoneMaxDigits} Ziffern eingeben.`}
             />
           </Field>
 
@@ -4826,6 +4876,7 @@ export default function CheckoutPage() {
     orderBase: CheckoutOrderDraft,
   ): Promise<OrderCreateResult> {
     const startedAt = Date.now();
+    const idempotencyKey = createCheckoutIdempotencyKey();
     let attempt = 1;
     let lastError: unknown = null;
 
@@ -4897,7 +4948,10 @@ export default function CheckoutPage() {
       try {
         const response = await fetch("/api/orders/create", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "Idempotency-Key": idempotencyKey,
+          },
           body: JSON.stringify({
             order: orderBase,
             notify: true,
@@ -4943,7 +4997,10 @@ export default function CheckoutPage() {
 
     const emergencyResponse = await fetch("/api/orders/create", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "Idempotency-Key": idempotencyKey,
+      },
       body: JSON.stringify({
         order: {
           ...orderBase,

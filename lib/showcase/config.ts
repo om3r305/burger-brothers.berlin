@@ -21,6 +21,7 @@ const SCENE_TYPES = new Set<ShowcaseSceneType>([
   "message",
   "weather",
   "reviews",
+  "schnell-promo",
   "review-qr",
   "countdown",
   "bestseller",
@@ -161,13 +162,39 @@ export function createDefaultShowcaseDocument(siteUrl = "https://www.burger-brot
         fit: "contain",
         muted: true,
       },
+      {
+        id: "schnell-ueberraschung",
+        type: "schnell-promo",
+        name: "Schnell / Hediye / Masa QR",
+        enabled: true,
+        durationSeconds: 24,
+        transition: "fade",
+        title: "SCHNELL BESTELLEN & ÜBERRASCHEN LASSEN",
+        subtitle: "Direkt im Restaurant bestellen",
+        body: "Scanne den QR-Code, bestelle direkt an deinem Platz und entdecke unsere Überraschungen. Viel Glück wünscht dir dein Burger Brothers Team!",
+        badge: "ÜBERRASCHUNGEN WARTEN",
+        qrUrl: "/schnellbestellung/enter",
+        qrLabel: "QR-Code scannen & direkt bestellen",
+        accent: "#ff9d2e",
+        showLogo: true,
+        showQr: true,
+        fit: "contain",
+        muted: true,
+      },
     ],
   };
 }
 
 export function normalizeShowcaseScene(value: any, fallbackDuration = 45): ShowcaseScene {
   const legacyType = SCENE_TYPES.has(value?.type) ? value.type as ShowcaseSceneType : "message";
-  const type = canonicalSceneType(legacyType);
+  const looksLikeLegacySchnellPromo =
+    legacyType === "message" &&
+    /\bschnell(?:bestellung)?\b/i.test(
+      `${cleanText(value?.name, 120)} ${cleanText(value?.title, 180)}`,
+    );
+  const type = looksLikeLegacySchnellPromo
+    ? "schnell-promo"
+    : canonicalSceneType(legacyType);
   const transition = TRANSITIONS.has(value?.transition) ? value.transition : "fade";
   const accent = /^#[0-9a-f]{6}$/i.test(String(value?.accent || ""))
     ? String(value.accent)
@@ -241,12 +268,16 @@ export function normalizeShowcaseScene(value: any, fallbackDuration = 45): Showc
     menuImageSize: numberInRange(value?.menuImageSize, 58, 36, 104),
     campaignId: cleanText(value?.campaignId, 120) || undefined,
     campaignAutoContent: bool(value?.campaignAutoContent, true),
-    qrUrl: cleanUrl(value?.qrUrl) || undefined,
-    qrLabel: cleanText(value?.qrLabel, 120),
+    qrUrl: cleanUrl(value?.qrUrl) || (type === "schnell-promo" ? "/schnellbestellung/enter" : undefined),
+    qrLabel: hasOwn(value, "qrLabel")
+      ? cleanText(value?.qrLabel, 120)
+      : type === "schnell-promo"
+        ? "QR-Code scannen & direkt bestellen"
+        : "",
     accent,
     fit: value?.fit === "contain" ? "contain" : "cover",
     showLogo: bool(value?.showLogo, showLogoFallback),
-    showQr: bool(value?.showQr, false),
+    showQr: bool(value?.showQr, type === "schnell-promo"),
     showPrice: bool(value?.showPrice, true),
     muted: bool(value?.muted, true),
     videoPlaybackMode: value?.videoPlaybackMode === "hold" ? "hold" : "loop",
@@ -265,10 +296,20 @@ export function normalizeShowcaseScene(value: any, fallbackDuration = 45): Showc
     reviewOnlyWithPhoto: bool(value?.reviewOnlyWithPhoto, false),
     reviewLimit: numberInRange(value?.reviewLimit, 8, 1, 30),
     reviewSort: value?.reviewSort === "random" ? "random" : "newest",
+    reviewCtaEnabled: bool(value?.reviewCtaEnabled, true),
+    reviewCtaDurationSeconds: numberInRange(value?.reviewCtaDurationSeconds, 18, 8, 90),
+    reviewCtaTitle: cleanText(value?.reviewCtaTitle, 220),
+    reviewCtaBody: cleanText(value?.reviewCtaBody, 1_200),
+    reviewCtaBadge: cleanText(value?.reviewCtaBadge, 100),
+    reviewCtaQrUrl: cleanUrl(value?.reviewCtaQrUrl) || undefined,
+    reviewCtaQrLabel: cleanText(value?.reviewCtaQrLabel, 140),
+    reviewCtaAccent: /^#[0-9a-f]{6}$/i.test(String(value?.reviewCtaAccent || ""))
+      ? String(value.reviewCtaAccent)
+      : undefined,
     countdownTargetAt: cleanDate(value?.countdownTargetAt) || undefined,
     bestsellerPeriodDays: numberInRange(value?.bestsellerPeriodDays, 7, 1, 365),
     bestsellerLimit: numberInRange(value?.bestsellerLimit, 5, 1, 10),
-    specialTheme: ["love", "mother", "father", "halloween", "christmas", "new-year", "easter", "germany", "berlin", "celebration", "winter", "classic"].includes(value?.specialTheme)
+    specialTheme: ["love", "mother", "father", "halloween", "christmas", "new-year", "easter", "germany", "berlin", "school", "vegan", "celebration", "winter", "classic"].includes(value?.specialTheme)
       ? value.specialTheme
       : "classic",
     specialEmoji: cleanText(value?.specialEmoji, 16),

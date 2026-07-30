@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { prisma, getTenantId } from "@/lib/db";
-import { requireSessionRole } from "@/lib/server/request-security";
+import {
+  enforceRateLimit,
+  requireSessionRole,
+} from "@/lib/server/request-security";
 import { readTemporaryWinnerPhoto } from "@/lib/server/reward-photo-storage";
 import { verifyWinnerPhotoAccessToken } from "@/lib/server/showcase-live-events";
 
@@ -11,6 +14,9 @@ export async function GET(
   req: Request,
   context: { params: Promise<{ id: string }> },
 ) {
+  const rateError = await enforceRateLimit(req, "rewards:photo:read", 120, 60_000);
+  if (rateError) return rateError;
+
   const { id: rawId } = await context.params;
   const id = String(rawId || "").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 120);
   if (!id) return new NextResponse(null, { status: 404 });

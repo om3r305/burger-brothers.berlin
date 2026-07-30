@@ -41,7 +41,7 @@ const basics = read("components/showcase/admin/SceneBasicsEditor.tsx");
 const media = read("components/showcase/admin/MediaLibraryPanel.tsx");
 const history = read("hooks/showcase/use-showcase-editor.ts");
 
-must((editor.match(/\n  "[a-z-]+",/g) || []).length === 11, "admin yalnız 11 sade sahne türü gösteriyor");
+must((editor.match(/\n  "[a-z-]+",/g) || []).length === 12, "admin yalnız 12 sade sahne türü gösteriyor");
 for (const mapping of ['if (type === "review-qr") return "qr"', 'if (type === "social-video") return "video"', 'if (type === "countdown") return "campaign"', 'if (type === "special-day") return "message"']) must(editor.includes(mapping), `eski sahne dönüşümü: ${mapping}`);
 must(!page.includes("window.confirm") && !basics.includes("window.confirm"), "native window.confirm tamamen kaldırıldı");
 must(page.includes("ConfirmModal") && read("components/showcase/admin/ConfirmModal.tsx").includes('role="dialog"'), "özel onay modalı kullanılıyor");
@@ -62,7 +62,7 @@ must(stage.includes("SPECIAL_DAY_PRESETS") && premium.includes("SPECIAL_DAY_PRES
 must(premium.includes("Hazır Almanca hava metinleri") && premium.includes("Canlı kaynak") && premium.includes("Şu an seçilen otomatik metin"), "hava kaynağı ve hazır metinler admin içinde görünür");
 must(server.includes("WEATHER_TTL_MS") && server.includes("cache_fallback"), "canlı hava 10 dakika cache ve son sağlam fallback kullanıyor");
 must(premium.includes("Yayın kuralı") && premium.includes("Bu filtreyle gösterilebilir"), "yorum onay filtresi görünür");
-must(stage.includes("review.approved !== false") && stage.includes("reviewMinRating"), "TV yalnız uygun onaylı yorumları gösteriyor");
+must(runtime.includes("review.approved !== false") && runtime.includes("reviewMinRating"), "TV yalnız uygun onaylı yorumları gösteriyor");
 must(player.includes("knownVersion") && player.includes("unchanged") && player.includes("5 * 60_000"), "TV hafif sürüm kontrolü ve periyodik canlı veri yenilemesi kullanıyor");
 must(publicRoute.includes("readPublishedShowcaseVersion") && publicRoute.includes("lastSuccessfulSnapshots"), "public API sürüm kontrolü ve ekran bazlı fallback kullanıyor");
 must(media.includes("onUpload(file).finally") && page.includes("inspectShowcaseFile"), "medya yükleme modüle ayrıldı ve input güvenli sıfırlanıyor");

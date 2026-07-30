@@ -387,7 +387,7 @@ export async function GET(req: Request) {
       {
         ok: false,
         source: "db",
-        error: error?.message || "PRINT_JOBS_FAILED",
+        error: "PRINT_JOBS_FAILED",
       },
       500,
     );

@@ -163,7 +163,7 @@ export async function GET(
       },
     });
   } catch (error: any) {
-    return json({ ok: false, error: error?.message || "TRACKING_GET_FAILED" }, 500);
+    return json({ ok: false, error: "TRACKING_GET_FAILED" }, 500);
   }
 }
 
@@ -304,6 +304,6 @@ export async function POST(
       },
     });
   } catch (error: any) {
-    return json({ ok: false, error: error?.message || "TRACKING_POST_FAILED" }, 500);
+    return json({ ok: false, error: "TRACKING_POST_FAILED" }, 500);
   }
 }

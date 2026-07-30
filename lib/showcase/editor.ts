@@ -17,6 +17,7 @@ export const CANONICAL_SCENE_TYPES = [
   "message",
   "weather",
   "reviews",
+  "schnell-promo",
   "bestseller",
 ] as const satisfies readonly ShowcaseSceneType[];
 
@@ -33,6 +34,7 @@ export const TYPE_LABELS: Record<CanonicalShowcaseSceneType, string> = {
   message: "Duyuru / Özel gün",
   weather: "Hava durumu",
   reviews: "Google yorumları",
+  "schnell-promo": "Schnell / Hediye / Masa QR",
   bestseller: "Bestseller",
 };
 
@@ -47,6 +49,7 @@ export const TYPE_ICONS: Record<CanonicalShowcaseSceneType, string> = {
   message: "💬",
   weather: "🌤️",
   reviews: "⭐",
+  "schnell-promo": "🎁",
   bestseller: "🏆",
 };
 
@@ -168,7 +171,39 @@ export function createShowcaseScene(
     case "weather":
       return { ...common, name: "Hava durumu", title: "", body: "", showQr: false, weatherMode: "auto" };
     case "reviews":
-      return { ...common, name: "Google yorumları", title: "", reviewMinRating: 4, reviewOnlyWithPhoto: false, reviewLimit: 8, reviewSort: "newest", showQr: false };
+      return {
+        ...common,
+        name: "Google yorumları + otomatik çağrı",
+        title: "",
+        reviewMinRating: 4,
+        reviewOnlyWithPhoto: false,
+        reviewLimit: 8,
+        reviewSort: "newest",
+        reviewCtaEnabled: true,
+        reviewCtaDurationSeconds: 18,
+        reviewCtaTitle: "WERDE TEIL UNSERER BURGER BROTHERS FAMILIE ❤️",
+        reviewCtaBody: "Teile deinen Besuch auf Google und lade dein Lieblingsfoto hoch. Vielleicht erscheint dein Beitrag schon bald hier auf unserem Bildschirm. Danke, dass du ein Teil von uns bist!",
+        reviewCtaBadge: "DEINE MEINUNG ZÄHLT",
+        reviewCtaQrUrl: "",
+        reviewCtaQrLabel: "Jetzt bewerten & Foto teilen",
+        reviewCtaAccent: "#f5b942",
+        showQr: false,
+      };
+    case "schnell-promo":
+      return {
+        ...common,
+        name: "Schnell / Hediye / Masa QR",
+        title: "SCHNELL BESTELLEN & ÜBERRASCHEN LASSEN",
+        subtitle: "Direkt im Restaurant bestellen",
+        body: "Scanne den QR-Code, bestelle direkt an deinem Platz und entdecke unsere Überraschungen. Viel Glück wünscht dir dein Burger Brothers Team!",
+        badge: "ÜBERRASCHUNGEN WARTEN",
+        durationSeconds: 24,
+        qrUrl: "/schnellbestellung/enter",
+        qrLabel: "QR-Code scannen & direkt bestellen",
+        showLogo: true,
+        showQr: true,
+        accent: "#ff9d2e",
+      };
     case "bestseller":
       return { ...common, name: "Bestseller", title: "UNSERE BESTSELLER", bestsellerPeriodDays: 7, bestsellerLimit: 5, showQr: false };
   }
@@ -234,14 +269,14 @@ export function campaignScenePatch(
   };
 }
 
-export function reviewQrPatch(document: ShowcaseDocument): Partial<ShowcaseScene> {
+export function reviewQrPatch(_document: ShowcaseDocument): Partial<ShowcaseScene> {
   return {
     qrVariant: "google-review",
     name: "Google yorum çağrısı",
     title: "DEINE MEINUNG ZÄHLT ❤️",
     body: "Teile dein Burger-Erlebnis. Dein Foto könnte schon bald hier erscheinen.",
-    qrUrl: document.settings.qrUrl,
-    qrLabel: "Jetzt bewerten",
+    qrUrl: "",
+    qrLabel: "Jetzt bewerten & Foto teilen",
     showQr: true,
   };
 }

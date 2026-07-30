@@ -7,6 +7,7 @@ import {
   stopRewardCelebrationSound,
 } from "@/lib/client/reward-celebration";
 import type { SchnellRewardPublic } from "@/lib/rewards/config";
+import RewardStage from "./RewardStage";
 
 const RewardCamera = dynamic(() => import("./RewardCamera"), { ssr: false });
 
@@ -21,21 +22,6 @@ type SubmitResult = {
   showcaseQueued: boolean;
   photoPending: boolean;
 };
-
-const CONFETTI = Array.from({ length: 56 }, (_, index) => ({
-  id: index,
-  left: `${(index * 37) % 100}%`,
-  delay: `${(index % 12) * 0.06}s`,
-  duration: `${1.9 + (index % 7) * 0.17}s`,
-  rotate: `${(index * 47) % 360}deg`,
-}));
-
-const FIREWORKS = [
-  { left: "12%", top: "16%", delay: "0s" },
-  { left: "82%", top: "19%", delay: ".45s" },
-  { left: "22%", top: "68%", delay: ".85s" },
-  { left: "78%", top: "66%", delay: "1.15s" },
-];
 
 export default function RewardCelebration({
   orderId,
@@ -158,79 +144,33 @@ export default function RewardCelebration({
   return (
     <div className="fixed inset-0 z-[1600] overflow-y-auto bg-[radial-gradient(circle_at_top,#b45309_0%,#7c2d12_22%,#240704_55%,#020202_100%)] px-4 py-5 text-white">
       {phase === "celebrate" ? (
-        <>
-          <div className="pointer-events-none fixed inset-0 overflow-hidden">
-            <div className="absolute inset-0 animate-[bbRewardGlow_1.8s_ease-in-out_infinite] bg-[radial-gradient(circle_at_center,rgba(251,191,36,.18),transparent_58%)]" />
-            {CONFETTI.map((piece) => (
-              <span
-                key={piece.id}
-                className="absolute -top-8 h-4 w-2 animate-[bbRewardFall_linear_infinite] rounded-sm odd:bg-amber-300 even:bg-fuchsia-400 [&:nth-child(3n)]:bg-emerald-300 [&:nth-child(5n)]:bg-cyan-300"
-                style={{
-                  left: piece.left,
-                  animationDelay: piece.delay,
-                  animationDuration: piece.duration,
-                  rotate: piece.rotate,
-                }}
+        <main className="relative mx-auto min-h-[calc(100dvh-2.5rem)] max-w-xl">
+          <RewardStage
+            mode="customer"
+            headline="DU HAST GEWONNEN!"
+            reward={reward.customerLabel}
+            orderNumber={customerNumber}
+            message="Der Gewinn wurde direkt auf deine Bestellung angewendet."
+          >
+            <div className="mt-6 h-1.5 w-full max-w-md overflow-hidden rounded-full bg-white/10">
+              <div
+                className="bbRewardCountdown h-full origin-left animate-[bbRewardCountdown_linear_forwards] rounded-full bg-gradient-to-r from-amber-300 via-yellow-200 to-orange-400"
+                style={{ animationDuration: `${celebrationSeconds}s` }}
               />
-            ))}
-            {FIREWORKS.map((firework, index) => (
-              <span
-                key={index}
-                className="absolute h-20 w-20 -translate-x-1/2 -translate-y-1/2 animate-[bbRewardFirework_1.5s_ease-out_infinite] rounded-full border-4 border-amber-200/80 shadow-[0_0_35px_rgba(251,191,36,.9)]"
-                style={{ left: firework.left, top: firework.top, animationDelay: firework.delay }}
-              />
-            ))}
-            <div className="absolute bottom-[10%] left-[10%] animate-bounce text-6xl">🍔</div>
-            <div className="absolute bottom-[12%] right-[10%] animate-bounce text-6xl [animation-delay:.25s]">🍀</div>
-          </div>
+            </div>
 
-          <main className="relative mx-auto grid min-h-[calc(100dvh-2.5rem)] max-w-xl place-items-center text-center">
-            <section className="w-full overflow-hidden rounded-[2.5rem] border border-amber-200/50 bg-black/60 p-6 shadow-[0_0_90px_rgba(251,191,36,.38)] backdrop-blur-xl sm:p-9">
-              <div className="mx-auto grid h-24 w-24 place-items-center rounded-full border-4 border-amber-300/60 bg-gradient-to-br from-amber-300 to-orange-600 shadow-[0_0_45px_rgba(251,191,36,.65)]">
-                <img
-                  src="/logo-burger-brothers.png"
-                  alt="Burger Brothers"
-                  className="h-20 w-20 animate-[bbRewardPop_.65s_ease-out] rounded-full object-contain"
-                />
-              </div>
-              <p className="mt-5 text-sm font-black uppercase tracking-[0.28em] text-amber-300">
-                Bestellnummer {customerNumber}
-              </p>
-              <h1 className="mt-3 text-4xl font-black leading-[.95] sm:text-6xl">
-                DU HAST
-                <span className="mt-1 block bg-gradient-to-r from-amber-200 via-yellow-300 to-orange-400 bg-clip-text text-transparent">
-                  GEWONNEN!
-                </span>
-              </h1>
-              <div className="mx-auto mt-6 animate-[bbRewardPrize_1.25s_ease-in-out_infinite] rounded-[2rem] border-2 border-emerald-200/45 bg-gradient-to-br from-emerald-300/20 to-cyan-300/10 px-5 py-7 shadow-[0_0_45px_rgba(110,231,183,.22)]">
-                <p className="text-3xl font-black leading-tight text-emerald-100 sm:text-4xl">
-                  🎁 {reward.customerLabel}
-                </p>
-                <p className="mt-3 text-sm font-bold text-white/75">
-                  Der Gewinn wurde direkt auf deine Bestellung angewendet.
-                </p>
-              </div>
-
-              <div className="mt-6 h-1.5 overflow-hidden rounded-full bg-white/10">
-                <div
-                  className="h-full origin-left animate-[bbRewardCountdown_linear_forwards] rounded-full bg-gradient-to-r from-amber-300 to-emerald-300"
-                  style={{ animationDuration: `${celebrationSeconds}s` }}
-                />
-              </div>
-
-              <button
-                type="button"
-                onClick={() => {
-                  stopRewardCelebrationSound();
-                  setPhase(reward.photoMode === "off" ? "sent" : "share");
-                }}
-                className="mt-5 rounded-full border border-white/15 bg-white/5 px-5 py-2 text-sm font-bold text-white/80"
-              >
-                Weiter
-              </button>
-            </section>
-          </main>
-        </>
+            <button
+              type="button"
+              onClick={() => {
+                stopRewardCelebrationSound();
+                setPhase(reward.photoMode === "off" ? "sent" : "share");
+              }}
+              className="mt-5 min-h-11 rounded-full border border-amber-200/25 bg-amber-100/10 px-6 py-2 text-sm font-black text-amber-50 transition hover:bg-amber-100/15"
+            >
+              Weiter
+            </button>
+          </RewardStage>
+        </main>
       ) : null}
 
       {phase === "share" ? (

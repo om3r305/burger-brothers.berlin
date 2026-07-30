@@ -4,6 +4,8 @@
 import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { siteConfig } from "@/config/site.config";
+import { ANALYTICS_CONSENT_KEY } from "@/components/AnalyticsPing";
+import { ANALYTICS_CONSENT_RESET_EVENT } from "@/components/PrivacyConsent";
 
 /** Admin ayarlarını okuyabileceğimiz tüm anahtarlar */
 const LS_KEYS = ["bb_site_config_override", "bb_settings_v1", "bb_settings_v6"] as const;
@@ -133,6 +135,20 @@ function readContactFromLocalStorage(): Contact {
 export default function Footer() {
   const pathname = usePathname();
   const isLanding = pathname === "/";
+  const operationalRoute =
+    pathname === "/admin" ||
+    pathname.startsWith("/admin/") ||
+    pathname === "/tv" ||
+    pathname.startsWith("/tv/") ||
+    pathname === "/showcase" ||
+    pathname.startsWith("/showcase/") ||
+    pathname === "/driver" ||
+    pathname.startsWith("/driver/") ||
+    pathname === "/dashboard" ||
+    pathname.startsWith("/dashboard/") ||
+    pathname === "/schnellbestellung" ||
+    pathname.startsWith("/schnellbestellung/") ||
+    pathname.startsWith("/print/");
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   // SSR-safe: siteConfig ile başlat, mount’ta LS ile güncelle
@@ -143,6 +159,7 @@ export default function Footer() {
 
   // iPhone/Android ana ekran uygulaması algılama
   useEffect(() => {
+    if (operationalRoute) return;
     const detect = () => {
       const standalone =
         Boolean((navigator as any)?.standalone) ||
@@ -160,7 +177,7 @@ export default function Footer() {
     return () => {
       media?.removeEventListener?.("change", detect);
     };
-  }, []);
+  }, [operationalRoute]);
 
   // Ana ekran uygulamasında Google bağlantısını uygulama içi yeni pencereye
   // değil, aynı dış navigasyona verir. iOS bunu Safari'ye aktarır ve Safari'de
@@ -178,6 +195,7 @@ export default function Footer() {
 
   // LS’ten yükle + diğer sekmelerde değişirse güncelle
   useEffect(() => {
+    if (operationalRoute) return;
     setContact(readContactFromLocalStorage());
 
     const onStorage = (e: StorageEvent) => {
@@ -188,10 +206,11 @@ export default function Footer() {
 
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
-  }, []);
+  }, [operationalRoute]);
 
   // Flash buton tık sesi
   useEffect(() => {
+    if (operationalRoute) return;
     audioRef.current = new Audio(
       "https://cdn.pixabay.com/download/audio/2021/09/14/audio_9b8f3e2b3e.mp3?filename=menu-click-110624.mp3",
     );
@@ -210,7 +229,7 @@ export default function Footer() {
 
     document.addEventListener("click", onClick, true);
     return () => document.removeEventListener("click", onClick, true);
-  }, []);
+  }, [operationalRoute]);
 
   // WhatsApp link (numara + opsiyonel mesaj)
   const waNumberRaw =
@@ -251,6 +270,8 @@ export default function Footer() {
 
     return `${base} border border-white/15 bg-stone-950/75 text-stone-100 shadow-black/35 hover:bg-stone-900/85`;
   };
+
+  if (operationalRoute) return null;
 
   return (
     <footer
@@ -438,6 +459,26 @@ export default function Footer() {
           >
             App &amp; Benachrichtigungen
           </a>
+          <div className="mt-1 flex flex-wrap justify-center gap-x-3 gap-y-1 md:justify-end">
+            <a className="underline-offset-4 hover:underline" href="/impressum">
+              Impressum
+            </a>
+            <a className="underline-offset-4 hover:underline" href="/datenschutz">
+              Datenschutz
+            </a>
+            <button
+              type="button"
+              className="underline-offset-4 hover:underline"
+              onClick={() => {
+                localStorage.removeItem(ANALYTICS_CONSENT_KEY);
+                window.dispatchEvent(
+                  new Event(ANALYTICS_CONSENT_RESET_EVENT),
+                );
+              }}
+            >
+              Statistik-Einstellung
+            </button>
+          </div>
         </div>
       </div>
     </footer>

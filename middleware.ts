@@ -79,6 +79,13 @@ export function apiAccess(path: string, methodRaw: string): Access {
 
   if (path === "/api/settings" && readOnly) return "public";
   if (path === "/api/showcase" && readOnly) return "public";
+  if (
+    path === "/api/showcase/events" &&
+    (readOnly || method === "POST")
+  ) {
+    return "public";
+  }
+  if (child(path, "/api/rewards/photos") && readOnly) return "public";
   if (path === "/api/products" && readOnly) return "public";
   if (path === "/api/catalog" && readOnly) return "public";
   if (path === "/api/groups" && readOnly) return "public";
@@ -195,6 +202,7 @@ export function apiAccess(path: string, methodRaw: string): Access {
 
   if (
     path === "/api/pause" ||
+    path === "/api/print/token" ||
     child(path, "/api/print/test") ||
     child(path, "/api/brian") ||
     child(path, "/api/diagnostics") ||
@@ -251,7 +259,7 @@ export function contentSecurityPolicy(
 function nextPageResponse(req: NextRequest) {
   const nonce = createNonce();
   const allowLocalPrintProxy =
-    req.nextUrl.pathname === "/tv" || req.nextUrl.pathname === "/tv/";
+    child(req.nextUrl.pathname, "/tv") || child(req.nextUrl.pathname, "/print");
   const csp = contentSecurityPolicy(nonce, { allowLocalPrintProxy });
   const requestHeaders = new Headers(req.headers);
   requestHeaders.set("x-nonce", nonce);

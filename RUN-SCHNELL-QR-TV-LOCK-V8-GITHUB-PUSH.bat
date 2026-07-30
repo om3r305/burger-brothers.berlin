@@ -1,4 +1,4 @@
-﻿@echo off
+@echo off
 setlocal
 title Burger Brothers Schnell QR + TV Lock V8
 

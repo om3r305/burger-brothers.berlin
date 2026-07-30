@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run prisma:generate
+      - run: npm run artifact:check
+      - run: npm run typecheck
+      - run: npm run hardening:test
+      - run: npm run security:test
+      - run: npm run schnell:test
+      - run: npm run notifications:test
+      - run: npm run brian:test
+      - run: npm run build
+      - run: npm audit --audit-level=high

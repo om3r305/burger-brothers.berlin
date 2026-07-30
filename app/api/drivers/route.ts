@@ -207,7 +207,7 @@ export async function GET(req: Request) {
     return json({ ok: true, source: "db", items, drivers: items });
   } catch (error: any) {
     return json(
-      { ok: false, error: error?.message || "DRIVERS_GET_FAILED" },
+      { ok: false, error: "DRIVERS_GET_FAILED" },
       500,
     );
   }
@@ -258,7 +258,7 @@ export async function POST(req: Request) {
     return response;
   } catch (error: any) {
     return json(
-      { ok: false, error: error?.message || "DRIVER_LOGIN_FAILED" },
+      { ok: false, error: "DRIVER_LOGIN_FAILED" },
       500,
     );
   }
@@ -347,7 +347,7 @@ export async function PUT(req: Request) {
     });
   } catch (error: any) {
     return json(
-      { ok: false, error: error?.message || "DRIVERS_PUT_FAILED" },
+      { ok: false, error: "DRIVERS_PUT_FAILED" },
       500,
     );
   }

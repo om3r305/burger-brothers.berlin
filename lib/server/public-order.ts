@@ -32,6 +32,9 @@ export function extractTrackingToken(req: Request, body?: any) {
   let query = "";
 
   try {
+    if (process.env.ALLOW_LEGACY_TRACKING_QUERY_TOKEN !== "1") {
+      throw new Error("legacy_query_disabled");
+    }
     const url = new URL(req.url);
     query =
       url.searchParams.get("trackingToken") ||

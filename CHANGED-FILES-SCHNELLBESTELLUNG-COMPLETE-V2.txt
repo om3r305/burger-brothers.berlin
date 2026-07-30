@@ -1,0 +1,62 @@
+BURGER BROTHERS SCHNELLBESTELLUNG COMPLETE V2
+
+DEĞİŞTİRİLEN / EKLENEN PROJE DOSYALARI
+
+app/admin/schnellbestellung/page.tsx
+  Statik/dinamik QR yönetimi ve Schnellbestellung'a özel kampanya UI.
+app/api/admin/schnellbestellung/route.ts
+  Admin ayarları, ürün seçici kataloğu, statik QR yenileme ve oturum iptali.
+app/api/orders/list/route.ts
+  dine_in modunun TV listesinde korunması; driver delivery filtresi korunur.
+app/api/orders/status/route.ts
+  dine_in normalizasyonu ve out_for_delivery güvenlik engeli.
+app/api/pause/route.ts
+  DB-first Schnellbestellung pause alanı.
+app/api/schnellbestellung/access-token/route.ts
+  Statik/dinamik QR token cevabı.
+app/api/schnellbestellung/catalog/route.ts
+  Kategori sırası, açıklamalar, alerjenler, temel masa sosu filtresi ve kampanya fiyatı.
+app/schnellbestellung/access-display/page.tsx
+  Statik/dinamik QR görünümü; PNG/SVG/print.
+app/schnellbestellung/success/page.tsx
+  Bestellung beenden/çıkış butonu.
+app/tv/page.tsx
+  dine-in kabulünde ETA kaldırılması; ayrı ses/pause bağlantıları.
+components/schnellbestellung/SchnellClient.tsx
+  İçerik, alerjen, mobil sepet, özel onay modalı ve kalıcı idempotency key.
+components/tv/AcceptOrderOverlay.tsx
+  VOR ORT kabul ekranı; büyük numara, saat ve detaysız ETA.
+components/tv/OrderCard.tsx
+  VOR ORT kartı, büyük numara, saat ve dine-in status aksiyonları.
+components/tv/OrderDetailsModal.tsx
+  Schnellbestellung/VOR ORT etiketi.
+components/tv/PauseBlock.tsx
+  Schnellbestellung pause switch.
+components/tv/SummaryGrid.tsx
+  Schnellbestellung sayacı.
+components/tv/TvSidebar.tsx
+  Ayrı dine-in ses kontrolü bağlantısı.
+components/tv/TvSoundControls.tsx
+  Schnellbestellung ses aç/kapat/test UI.
+hooks/tv/use-tv-pause.ts
+  dineIn pause state.
+hooks/tv/use-tv-sound.ts
+  Ayrı dine-in ses state, preload, play ve cleanup.
+lib/pause.ts
+  dineIn pause veri modeli ve mesajı.
+lib/server/schnellbestellung.ts
+  QR modu, server fiyatlandırma/kampanyalar, sauce filtresi, transaction/idempotency ve günlük numara.
+lib/tv/domain.ts
+  dine_in mode/sound/title/ETA davranışı.
+public/sounds/dine-in.wav
+  Schnellbestellung'a özel yeni sipariş sesi.
+tools/schnellbestellung-regression-tests.cjs
+  Yeni davranışların regression kontrolleri.
+
+TESLİM / OPERASYON DOSYALARI
+README-SCHNELLBESTELLUNG-COMPLETE-V2.md
+VERIFY-SCHNELLBESTELLUNG-COMPLETE-V2.md
+CHANGED-FILES-SCHNELLBESTELLUNG-COMPLETE-V2.txt
+SHA256SUMS-SCHNELLBESTELLUNG-COMPLETE-V2.txt
+PUSH-SCHNELLBESTELLUNG-COMPLETE-V2-TO-GITHUB.ps1
+RUN-SCHNELLBESTELLUNG-COMPLETE-V2-GITHUB-PUSH.bat

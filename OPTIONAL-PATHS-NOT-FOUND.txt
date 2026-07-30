@@ -1,0 +1,7 @@
+﻿middleware.js
+next.config.js
+next.config.ts
+providers
+scripts
+store
+stores

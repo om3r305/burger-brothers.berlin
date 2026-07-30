@@ -25,6 +25,7 @@ type Product = {
   sku?: string;
   name: string;
   price: number;
+  taxRate?: 7 | 19;
   category: Category;
   imageUrl?: string;
   description?: string;
@@ -446,6 +447,14 @@ function normalizeProductFromDb(p: any): Product {
     sku,
     name: String(p?.name ?? ""),
     price: Number(p?.price ?? 0),
+    taxRate:
+      Number(p?.taxRate) === 19
+        ? 19
+        : Number(p?.taxRate) === 7
+          ? 7
+          : category === "drinks"
+            ? 19
+            : 7,
     category,
     imageUrl: p?.imageUrl || p?.image || p?.cover || undefined,
     description: p?.description || undefined,
@@ -600,6 +609,7 @@ export default function AdminPage() {
 
   const [name, setName] = useState("");
   const [price, setPrice] = useState<number>(9.9);
+  const [taxRate, setTaxRate] = useState<7 | 19>(7);
   const [category, setCategory] = useState<Category>("burger");
   const [imageUrl, setImageUrl] = useState("");
   const [description, setDescription] = useState("");
@@ -840,6 +850,7 @@ export default function AdminPage() {
       sku: old?.sku || makeSku(category, name.trim()),
       name: name.trim(),
       price: Number.isFinite(price) ? price : 0,
+      taxRate,
       category,
       imageUrl: imageUrl.trim() || undefined,
       description: description.trim() || undefined,
@@ -865,6 +876,7 @@ export default function AdminPage() {
     setEditId(null);
     setName("");
     setPrice(9.9);
+    setTaxRate(7);
     setCategory("burger");
     setImageUrl("");
     setDescription("");
@@ -897,6 +909,7 @@ export default function AdminPage() {
     setEditId(p.id);
     setName(p.name);
     setPrice(p.price);
+    setTaxRate(p.taxRate === 19 ? 19 : 7);
     setCategory(normalizeCategoryForUi(p.category));
     setImageUrl(p.imageUrl || "");
     setDescription(p.description || "");
@@ -1231,6 +1244,12 @@ export default function AdminPage() {
           sku: p.sku || p.code || makeSku(cat, String(p.name ?? "")),
           name: String(p.name ?? ""),
           price: Number(p.price) || 0,
+          taxRate:
+            Number(p.taxRate) === 7 || Number(p.taxRate) === 19
+              ? Number(p.taxRate)
+              : cat === "drinks"
+                ? 19
+                : 7,
           category: cat,
           imageUrl: p.imageUrl || undefined,
           description: p.description || undefined,
@@ -1437,7 +1456,11 @@ export default function AdminPage() {
                     <div className="mb-1 text-sm opacity-80">Kategorie *</div>
                     <select
                       value={category}
-                      onChange={(e) => setCategory(e.target.value as Category)}
+                      onChange={(e) => {
+                        const next = e.target.value as Category;
+                        setCategory(next);
+                        if (!editId) setTaxRate(next === "drinks" ? 19 : 7);
+                      }}
                       className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2 outline-none"
                     >
                       {CATS.map((c) => (
@@ -1445,6 +1468,22 @@ export default function AdminPage() {
                           {c.label}
                         </option>
                       ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <div className="mb-1 text-sm opacity-80">
+                      MwSt.-Satz *
+                    </div>
+                    <select
+                      value={taxRate}
+                      onChange={(e) =>
+                        setTaxRate(Number(e.target.value) === 19 ? 19 : 7)
+                      }
+                      className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2 outline-none"
+                    >
+                      <option value={7}>7 %</option>
+                      <option value={19}>19 %</option>
                     </select>
                   </div>
 
@@ -1678,7 +1717,7 @@ export default function AdminPage() {
                               </div>
 
                               <div className="font-medium">
-                                {p.name} — {p.price.toFixed(2)} €
+                                {p.name} — {p.price.toFixed(2)} € · MwSt. {p.taxRate === 19 ? 19 : 7} %
                               </div>
                               <span className={`rounded-full px-2 py-0.5 text-[11px] ${st.cls}`}>
                                 {st.label}

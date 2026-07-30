@@ -1,0 +1,27 @@
+﻿BURGER BROTHERS SHOWCASE — BOŞ METİN/FALLBACK DÜZELTMESİ
+
+Sorunun kaynağı
+- normalizeShowcaseScene boş metinleri undefined değerine çeviriyordu.
+- ShowcaseStage bu undefined değerleri sabit fallback yazılarla dolduruyordu.
+- Genel kayan yazı ve QR açıklaması da boşken varsayılan metne geri dönüyordu.
+
+Düzeltilen davranış
+- Başlık, alt başlık, rozet, ek metin ve QR açıklaması boşsa ekranda gösterilmez.
+- Kayan yazı boşsa tamamen gizlenir.
+- QR etiketi boşsa QR kodunun altında boş/default yazı oluşmaz.
+- Yeni oluşturulan sahneler yine başlangıç metinleriyle gelir; kullanıcı bunları silebilir.
+- Ürün adı, fiyatı, menü grup/ürün bilgileri ve sistemsel marka bilgileri korunur.
+- Cloudinary yükleme, sahne zamanlayıcısı, dijital menü ve ödeme sistemi değiştirilmedi.
+
+Değişen dosyalar
+- lib/showcase/config.ts
+- components/showcase/ShowcaseStage.tsx
+- app/admin/showcase/page.tsx
+- package.json
+- tools/showcase-empty-text-regression-tests.cjs
+
+Doğrulama
+- Yeni boş metin davranış testi geçti.
+- Showcase ana regresyon testi geçti.
+- V4, V5, V6 ve zamanlayıcı regresyon testleri geçti.
+- Teslimat scripti gerçek projede ayrıca Prisma, TypeScript ve temiz production build çalıştırır.

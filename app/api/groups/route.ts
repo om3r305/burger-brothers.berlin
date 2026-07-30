@@ -96,7 +96,7 @@ function jsonError(error: any, fallback: string, status = 500) {
     {
       ok: false,
       source: "db",
-      error: error?.message || fallback,
+      error: fallback,
     },
     {
       status,

@@ -17,6 +17,7 @@ function safeBackTo(value: string | null) {
 function AdminLoginInner() {
   const [u, setU] = useState("");
   const [p, setP] = useState("");
+  const [totp, setTotp] = useState("");
   const [loading, setLoading] = useState(false);
 
   const router = useRouter();
@@ -40,6 +41,7 @@ function AdminLoginInner() {
         body: JSON.stringify({
           user: u.trim(),
           pass: p,
+          totp,
         }),
       });
 
@@ -72,6 +74,20 @@ function AdminLoginInner() {
           value={u}
           onChange={(event) => setU(event.target.value)}
           autoComplete="username"
+          disabled={loading}
+        />
+
+        <input
+          className="mb-4 w-full rounded-md bg-stone-800/70 px-3 py-2 outline-none"
+          inputMode="numeric"
+          pattern="[0-9]{6}"
+          maxLength={6}
+          placeholder="Authenticator-Code (6-stellig)"
+          value={totp}
+          onChange={(event) =>
+            setTotp(event.target.value.replace(/\D/g, "").slice(0, 6))
+          }
+          autoComplete="one-time-code"
           disabled={loading}
         />
 

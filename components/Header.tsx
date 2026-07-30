@@ -20,7 +20,7 @@ export default function Header() {
       <div className="bb-site-header__inner mx-auto flex max-w-7xl items-center justify-between px-6 py-3">
         <Link href="/" className="flex items-center gap-3">
           <Image
-            src="/logo-burger-brothers.png"
+            src="/logo-burger-brothers.webp"
             alt="Burger Brothers Berlin"
             width={36}
             height={36}

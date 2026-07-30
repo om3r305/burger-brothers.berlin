@@ -1,4 +1,4 @@
-﻿@echo off
+@echo off
 setlocal
 title Burger Brothers Schnell Push + Order Limit V6 GitHub Push
 

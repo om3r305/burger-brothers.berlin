@@ -11,6 +11,7 @@ import AnalyticsPing from "@/components/AnalyticsPing";
 import AppRouteTransition from "@/components/AppRouteTransition";
 import CatalogProvider from "@/components/catalog/CatalogProvider";
 import CustomerAppBootstrap from "@/components/CustomerAppBootstrap";
+import PrivacyConsent from "@/components/PrivacyConsent";
 
 /* 🔧 SSG yerine runtime render (prerender hatalarını engelle) */
 export const dynamic = "force-dynamic";
@@ -287,6 +288,7 @@ body:has(#bb-landing-page) .bb-mobile-footer-gap {
 
         {/* Öffentliche Besucher-Statistik für Admin > Statistiken */}
         <AnalyticsPing />
+        <PrivacyConsent />
 
         {/* 🔁 Server → localStorage ayar senkronu */}
         <SettingsSync />

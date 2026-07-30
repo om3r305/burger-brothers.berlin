@@ -4,6 +4,7 @@ import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useCart } from "@/components/store";
+import { optimizedLocalImageUrl } from "@/lib/media/local-optimized-image";
 
 type ExtraInput =
   | { id: string; label: string; price?: number }
@@ -68,9 +69,9 @@ function MedalBadgeImage({
 }) {
   const sizeMap: Record<1 | 2 | 3, number> = { 1: 70, 2: 55, 3: 40 };
   const srcMap: Record<1 | 2 | 3, string> = {
-    1: "/badges/medal-gold.png",
-    2: "/badges/medal-silver.png",
-    3: "/badges/medal-bronze.png",
+    1: "/badges/medal-gold.webp",
+    2: "/badges/medal-silver.webp",
+    3: "/badges/medal-bronze.webp",
   };
   const [fail, setFail] = useState(false);
 
@@ -202,6 +203,49 @@ const DEFAULT_NORMALIZED_IMAGE_LAYOUT: NormalizedImageLayout = {
   scale: 1,
 };
 
+const IMAGE_LAYOUT_CACHE_KEY = "bb_product_image_layout_v2";
+const imageLayoutCache = new Map<string, NormalizedImageLayout>();
+let imageLayoutCacheHydrated = false;
+
+function hydrateImageLayoutCache() {
+  if (imageLayoutCacheHydrated || typeof window === "undefined") return;
+  imageLayoutCacheHydrated = true;
+  try {
+    const parsed = JSON.parse(
+      sessionStorage.getItem(IMAGE_LAYOUT_CACHE_KEY) || "{}",
+    ) as Record<string, NormalizedImageLayout>;
+    for (const [key, value] of Object.entries(parsed)) {
+      if (
+        Number.isFinite(value?.left) &&
+        Number.isFinite(value?.top) &&
+        Number.isFinite(value?.scale)
+      ) {
+        imageLayoutCache.set(key, value);
+      }
+    }
+  } catch {
+    // A fresh in-memory cache is enough when sessionStorage is unavailable.
+  }
+}
+
+function cachedImageLayout(src: string) {
+  hydrateImageLayoutCache();
+  return imageLayoutCache.get(src);
+}
+
+function cacheImageLayout(src: string, value: NormalizedImageLayout) {
+  imageLayoutCache.set(src, value);
+  if (typeof window === "undefined") return;
+  try {
+    const compact = Object.fromEntries(
+      Array.from(imageLayoutCache.entries()).slice(-80),
+    );
+    sessionStorage.setItem(IMAGE_LAYOUT_CACHE_KEY, JSON.stringify(compact));
+  } catch {
+    // Layout remains cached in memory for the current page.
+  }
+}
+
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
@@ -216,17 +260,44 @@ function NormalizedTransparentImage({
   onError: () => void;
 }) {
   const [layout, setLayout] = useState<NormalizedImageLayout>(
-    DEFAULT_NORMALIZED_IMAGE_LAYOUT,
+    () => cachedImageLayout(src) || DEFAULT_NORMALIZED_IMAGE_LAYOUT,
   );
+  const scheduledAnalysisRef = useRef<{
+    id: number;
+    mode: "idle" | "timeout";
+  } | null>(null);
+
+  useEffect(() => {
+    setLayout(cachedImageLayout(src) || DEFAULT_NORMALIZED_IMAGE_LAYOUT);
+    return () => {
+      const scheduled = scheduledAnalysisRef.current;
+      if (!scheduled) return;
+      if (scheduled.mode === "idle") {
+        const idleWindow = window as Window & {
+          cancelIdleCallback?: (id: number) => void;
+        };
+        idleWindow.cancelIdleCallback?.(scheduled.id);
+      } else {
+        window.clearTimeout(scheduled.id);
+      }
+      scheduledAnalysisRef.current = null;
+    };
+  }, [src]);
 
   const analyzeImage = (element: HTMLImageElement) => {
     try {
+      const cached = cachedImageLayout(src);
+      if (cached) {
+        setLayout(cached);
+        return;
+      }
+
       const naturalWidth = element.naturalWidth;
       const naturalHeight = element.naturalHeight;
 
       if (!naturalWidth || !naturalHeight) return;
 
-      const sampleWidth = Math.min(360, naturalWidth);
+      const sampleWidth = Math.min(240, naturalWidth);
       const sampleHeight = Math.max(
         1,
         Math.round((sampleWidth / naturalWidth) * naturalHeight),
@@ -305,10 +376,37 @@ function NormalizedTransparentImage({
       const left = (1 - visibleWidth * scale) / 2 - x0 * scale;
       const top = targetBottom - y1 * scale;
 
-      setLayout({ left, top, scale });
+      const nextLayout = { left, top, scale };
+      setLayout(nextLayout);
+      cacheImageLayout(src, nextLayout);
     } catch {
       // Uzak görsel CORS nedeniyle okunamazsa güvenli object-contain fallback'i kalır.
       setLayout(DEFAULT_NORMALIZED_IMAGE_LAYOUT);
+    }
+  };
+
+  const scheduleAnalysis = (element: HTMLImageElement) => {
+    if (cachedImageLayout(src)) return;
+    const run = () => {
+      scheduledAnalysisRef.current = null;
+      analyzeImage(element);
+    };
+    const idleWindow = window as Window & {
+      requestIdleCallback?: (
+        callback: () => void,
+        options?: { timeout: number },
+      ) => number;
+    };
+    if (idleWindow.requestIdleCallback) {
+      scheduledAnalysisRef.current = {
+        id: idleWindow.requestIdleCallback(run, { timeout: 650 }),
+        mode: "idle",
+      };
+    } else {
+      scheduledAnalysisRef.current = {
+        id: window.setTimeout(run, 32),
+        mode: "timeout",
+      };
     }
   };
 
@@ -326,9 +424,9 @@ function NormalizedTransparentImage({
         src={src}
         alt={alt}
         fill
-        sizes="(max-width: 768px) 100vw, 33vw"
+        sizes="(max-width: 639px) 46vw, (max-width: 1023px) 33vw, 25vw"
         className="select-none object-fill"
-        onLoad={(event) => analyzeImage(event.currentTarget)}
+        onLoad={(event) => scheduleAnalysis(event.currentTarget)}
         onError={onError}
       />
     </div>
@@ -553,6 +651,7 @@ export default function ProductCard({
     .slice(0, 3);
 
   const CoverSingle = ({ src }: { src: string }) => {
+    const optimizedSrc = optimizedLocalImageUrl(src) || src;
     if (normalizeTransparentImage) {
       if (useNativeImg) {
         return (
@@ -560,6 +659,7 @@ export default function ProductCard({
             src={src}
             alt={name}
             loading="lazy"
+            decoding="async"
             className="absolute inset-0 h-full w-full object-contain"
           />
         );
@@ -567,7 +667,7 @@ export default function ProductCard({
 
       return (
         <NormalizedTransparentImage
-          src={src}
+          src={optimizedSrc}
           alt={name}
           onError={() => setUseNativeImg(true)}
         />
@@ -575,13 +675,13 @@ export default function ProductCard({
     }
 
     return useNativeImg ? (
-      <img src={src} alt={name} loading="lazy" className="absolute inset-0 h-full w-full object-cover" />
+      <img src={src} alt={name} loading="lazy" decoding="async" className="absolute inset-0 h-full w-full object-cover" />
     ) : (
       <Image
-        src={src}
+        src={optimizedSrc}
         alt={name}
         fill
-        sizes="(max-width: 768px) 100vw, 33vw"
+        sizes="(max-width: 639px) 46vw, (max-width: 1023px) 33vw, 25vw"
         className="object-cover"
         onError={() => setUseNativeImg(true)}
       />

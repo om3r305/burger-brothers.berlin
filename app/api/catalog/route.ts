@@ -441,6 +441,13 @@ function normalizeProductInput(item: any) {
     item?.photoUrl === undefined
       ? null
       : String(item?.imageUrl ?? item?.image ?? item?.cover ?? item?.photoUrl ?? "");
+  const numericTaxRate = Number(item?.taxRate);
+  const taxRate =
+    numericTaxRate === 7 || numericTaxRate === 19
+      ? numericTaxRate
+      : category === "drinks"
+        ? 19
+        : 7;
 
   return {
     sku,
@@ -449,6 +456,7 @@ function normalizeProductInput(item: any) {
     imageUrl,
     category,
     price: toDecimal(item?.price),
+    taxRate,
     active: normalizeBool(item?.active ?? item?.enabled, true),
     activeFrom: toDate(item?.activeFrom ?? item?.startAt ?? item?.startsAt),
     activeTo: toDate(item?.activeTo ?? item?.endAt ?? item?.endsAt),
@@ -474,6 +482,7 @@ function serializeProduct(row: any) {
     category,
     categoryKey: category,
     price: decimalToNumber(row?.price),
+    taxRate: Number(row?.taxRate) === 19 ? 19 : 7,
     active: row?.active !== false,
     activeFrom: toIso(row?.activeFrom),
     activeTo: toIso(row?.activeTo),
@@ -650,7 +659,7 @@ function errorResponse(error: any, fallback: string, status = 500) {
     {
       ok: false,
       source: "db",
-      error: error?.message || fallback,
+      error: fallback,
     },
     status,
   );
@@ -664,6 +673,7 @@ function productDataForDb(item: ReturnType<typeof normalizeProductInput>) {
   if (hasProductField("imageUrl")) data.imageUrl = item.imageUrl;
   if (hasProductField("category")) data.category = item.category;
   if (hasProductField("price")) data.price = item.price;
+  if (hasProductField("taxRate")) data.taxRate = item.taxRate;
   if (hasProductField("active")) data.active = item.active;
   if (hasProductField("activeFrom")) data.activeFrom = item.activeFrom;
   if (hasProductField("activeTo")) data.activeTo = item.activeTo;

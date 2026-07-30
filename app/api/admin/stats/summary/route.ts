@@ -898,7 +898,7 @@ export async function GET(req: Request) {
       {
         ok: false,
         source: "db",
-        error: error?.message || "STATS_SUMMARY_GET_FAILED",
+        error: "STATS_SUMMARY_GET_FAILED",
       },
       500,
     );
@@ -946,7 +946,7 @@ export async function POST(req: Request) {
       {
         ok: false,
         source: "db",
-        error: error?.message || "STATS_SUMMARY_POST_FAILED",
+        error: "STATS_SUMMARY_POST_FAILED",
       },
       500,
     );

@@ -86,7 +86,7 @@ export async function GET(req: Request) {
     const state = await readShowcaseAdminState(requestOrigin(req));
     return json({ ok: true, media: state.media, storage: storagePayload() });
   } catch (error: any) {
-    return json({ ok: false, error: error?.message || "SHOWCASE_MEDIA_GET_FAILED" }, 500);
+    return json({ ok: false, error: "SHOWCASE_MEDIA_GET_FAILED" }, 500);
   }
 }
 
@@ -196,7 +196,7 @@ export async function POST(req: Request) {
     return json({ ok: false, error: "UNKNOWN_MEDIA_ACTION" }, 400);
   } catch (error: any) {
     console.error("[admin:showcase:media:POST]", error);
-    return json({ ok: false, error: error?.message || "SHOWCASE_MEDIA_POST_FAILED" }, 500);
+    return json({ ok: false, error: "SHOWCASE_MEDIA_POST_FAILED" }, 500);
   }
 }
 
@@ -244,6 +244,6 @@ export async function DELETE(req: Request) {
     return json({ ok: true, media: next });
   } catch (error: any) {
     console.error("[admin:showcase:media:DELETE]", error);
-    return json({ ok: false, error: error?.message || "SHOWCASE_MEDIA_DELETE_FAILED" }, 500);
+    return json({ ok: false, error: "SHOWCASE_MEDIA_DELETE_FAILED" }, 500);
   }
 }

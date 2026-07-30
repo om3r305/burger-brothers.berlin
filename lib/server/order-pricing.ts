@@ -49,6 +49,7 @@ type CanonicalCatalogItem = {
   name: string;
   category: string;
   priceCents: number;
+  taxRate: 7 | 19;
   active: boolean;
   activeFrom: Date | null;
   activeTo: Date | null;
@@ -65,6 +66,7 @@ type CanonicalOrderItem = {
   description?: string;
   category: string;
   price: number;
+  taxRate: 7 | 19;
   qty: number;
   add?: Array<{
     id?: string;
@@ -84,6 +86,12 @@ type CanonicalOrderItem = {
   canonicalUnitPrice: number;
   canonicalSource: CanonicalCatalogItem["source"];
 };
+
+function normalizeTaxRate(value: unknown, category: string): 7 | 19 {
+  const numeric = Number(value);
+  if (numeric === 7 || numeric === 19) return numeric;
+  return normalizeCategory(category) === "drinks" ? 19 : 7;
+}
 
 
 type NormalizedCampaign = {
@@ -335,6 +343,10 @@ function groupVariantsToCatalog(
         name: fullName,
         category,
         priceCents: toCents(variant?.price ?? variant?.preis),
+        taxRate: normalizeTaxRate(
+          variant?.taxRate ?? group?.taxRate,
+          category,
+        ),
         active: variant?.active !== false && variant?.enabled !== false,
         activeFrom: toDate(variant?.activeFrom ?? variant?.startAt),
         activeTo: toDate(variant?.activeTo ?? variant?.endAt),
@@ -383,6 +395,7 @@ async function loadCatalog(tenantId: string, settings: any) {
       name: String(row?.name ?? row?.sku ?? "Artikel").trim(),
       category: normalizeCategory(row?.category),
       priceCents: toCents(row?.price),
+      taxRate: normalizeTaxRate(row?.taxRate, row?.category),
       active: row?.active !== false,
       activeFrom: toDate(row?.activeFrom),
       activeTo: toDate(row?.activeTo),
@@ -739,6 +752,7 @@ function canonicalizeItems(params: {
       category: catalogItem.category,
       // Mevcut checkout/fiş uyumluluğu: item.price seçili extralar dahil birim fiyattır.
       price: fromCents(unitPriceCents),
+      taxRate: catalogItem.taxRate,
       qty,
       add: extras.length
         ? extras.map((extra) => ({

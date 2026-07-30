@@ -481,14 +481,14 @@ async function fetchOrderFromDb(trackingToken: string): Promise<TrackedOrder | n
   if (!token) return null;
 
   try {
-    const res = await fetch(
-      `/api/track/lookup?trackingToken=${encodeURIComponent(token)}&t=${Date.now()}`,
-      {
-        method: "GET",
-        cache: "no-store",
-        headers: { accept: "application/json" },
+    const res = await fetch("/api/track/lookup", {
+      method: "GET",
+      cache: "no-store",
+      headers: {
+        accept: "application/json",
+        "x-order-tracking-token": token,
       },
-    );
+    });
 
     if (!res.ok) return null;
 
@@ -506,14 +506,14 @@ async function fetchTrackingPosition(trackingToken: string): Promise<LivePos | n
   if (!token) return null;
 
   try {
-    const res = await fetch(
-      `/api/track/by-order/${encodeURIComponent(token)}?trackingToken=${encodeURIComponent(token)}&t=${Date.now()}`,
-      {
-        method: "GET",
-        cache: "no-store",
-        headers: { accept: "application/json" },
+    const res = await fetch("/api/track/by-order/current", {
+      method: "GET",
+      cache: "no-store",
+      headers: {
+        accept: "application/json",
+        "x-order-tracking-token": token,
       },
-    );
+    });
 
     if (!res.ok) return null;
 
@@ -741,7 +741,7 @@ export default function TrackDetailPage() {
 
       <header className="text-center">
         <img
-          src="/logo-burger-brothers.png"
+          src="/logo-burger-brothers.webp"
           className="mx-auto h-14 w-14"
           alt="Burger Brothers"
         />

@@ -1,0 +1,416 @@
+.stage {
+  position: relative;
+  isolation: isolate;
+  width: 100%;
+  min-height: 100%;
+  overflow: hidden;
+  contain: paint;
+  color: #fff;
+  background:
+    radial-gradient(circle at 50% 38%, rgba(157, 62, 16, .72), transparent 34%),
+    radial-gradient(circle at 18% 80%, rgba(116, 39, 18, .36), transparent 32%),
+    linear-gradient(145deg, #1d0906 0%, #0b0403 55%, #020202 100%);
+}
+
+.tv {
+  position: fixed;
+  inset: 0;
+  z-index: 2400;
+  height: 100dvh;
+}
+
+.customer {
+  min-height: calc(100dvh - 2.5rem);
+  border-radius: clamp(24px, 6vw, 44px);
+}
+
+.atmosphere,
+.spotlight,
+.rays,
+.halo,
+.confetti {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.spotlight {
+  background:
+    linear-gradient(112deg, transparent 0 25%, rgba(255, 211, 126, .075) 39%, transparent 52%),
+    linear-gradient(248deg, transparent 0 27%, rgba(255, 211, 126, .06) 40%, transparent 53%);
+}
+
+.rays {
+  left: 50%;
+  top: 43%;
+  width: min(105vmax, 1600px);
+  height: min(105vmax, 1600px);
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  opacity: .15;
+  background: repeating-conic-gradient(
+    from 0deg,
+    rgba(255, 205, 112, .34) 0deg 4deg,
+    transparent 4deg 16deg
+  );
+  animation: rewardRays 42s linear infinite;
+}
+
+.halo {
+  inset: 10% 14%;
+  border: 1px solid rgba(255, 201, 105, .13);
+  border-radius: 50%;
+  box-shadow:
+    inset 0 0 120px rgba(255, 135, 49, .055),
+    0 0 120px rgba(255, 135, 49, .05);
+}
+
+.confetti {
+  z-index: 2;
+  overflow: hidden;
+}
+
+.confetti i {
+  position: absolute;
+  top: -8%;
+  left: var(--reward-x);
+  display: block;
+  width: clamp(5px, .55vmin, 9px);
+  height: clamp(18px, 2.2vmin, 34px);
+  border-radius: 2px;
+  opacity: .82;
+  background: linear-gradient(180deg, #fff0b7, #d99a2d);
+  transform: translate3d(0, -10vh, 0) rotate(var(--reward-rotate));
+  animation: rewardFall var(--reward-duration) linear infinite;
+  animation-delay: var(--reward-delay);
+}
+
+.confetti i[data-tone="1"] {
+  background: linear-gradient(180deg, #f4f7ff, #aab6ca);
+}
+
+.confetti i[data-tone="2"] {
+  background: linear-gradient(180deg, #d8ffd8, #57b884);
+}
+
+.confetti i[data-tone="3"] {
+  background: linear-gradient(180deg, #ffc8a0, #e16f36);
+}
+
+.content {
+  position: relative;
+  z-index: 3;
+  width: 100%;
+  min-height: inherit;
+  height: 100%;
+  padding: max(4.5vh, 26px) max(4vw, 20px);
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: clamp(16px, 2.3vh, 30px);
+}
+
+.kicker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(10px, 1.3vw, 22px);
+  color: #f7c96e;
+  font-size: clamp(11px, 1.25vw, 21px);
+  font-weight: 950;
+  letter-spacing: .24em;
+  text-align: center;
+}
+
+.kicker span {
+  width: clamp(28px, 5vw, 78px);
+  height: 1px;
+  background: linear-gradient(90deg, transparent, #f7c96e);
+}
+
+.kicker span:last-child {
+  transform: rotate(180deg);
+}
+
+.presentation {
+  width: min(94vw, 1500px);
+  min-height: 0;
+  display: grid;
+  place-items: center;
+}
+
+.presentation.withPhoto {
+  grid-template-columns: minmax(230px, .72fr) minmax(0, 1.28fr);
+  gap: clamp(28px, 5vw, 88px);
+}
+
+.photoFrame {
+  position: relative;
+  width: min(39vw, 48vh, 540px);
+  aspect-ratio: 4 / 5;
+  padding: clamp(8px, .75vw, 13px);
+  border: 1px solid rgba(255, 230, 173, .72);
+  border-radius: clamp(24px, 2.8vw, 44px);
+  background: linear-gradient(145deg, #fff4d2, #a97429);
+  box-shadow:
+    0 35px 90px rgba(0, 0, 0, .5),
+    0 0 0 7px rgba(255, 202, 101, .08);
+  transform: rotate(-1.4deg);
+}
+
+.photoFrame img {
+  width: 100%;
+  height: 100%;
+  border-radius: calc(clamp(24px, 2.8vw, 44px) - 7px);
+  object-fit: cover;
+}
+
+.photoSeal {
+  position: absolute;
+  right: clamp(-12px, -1vw, -7px);
+  bottom: clamp(18px, 2vw, 34px);
+  width: clamp(54px, 6vw, 92px);
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  border: 4px solid #6f3a10;
+  border-radius: 50%;
+  color: #5d2a0b;
+  background: #f8cf74;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, .34);
+  font-size: clamp(16px, 1.8vw, 28px);
+  font-weight: 1000;
+  letter-spacing: -.04em;
+}
+
+.copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.logoRing {
+  width: clamp(86px, 10vh, 150px);
+  aspect-ratio: 1;
+  padding: clamp(4px, .45vw, 8px);
+  border: 1px solid rgba(255, 216, 145, .55);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle, rgba(255, 221, 155, .16), transparent 68%),
+    rgba(10, 4, 2, .78);
+  box-shadow:
+    0 18px 45px rgba(0, 0, 0, .35),
+    0 0 48px rgba(255, 175, 70, .18);
+  animation: rewardLogoIn .7s cubic-bezier(.17, .84, .38, 1.25) both;
+}
+
+.logoRing img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: contain;
+}
+
+.copy h1 {
+  max-width: 14ch;
+  margin: clamp(14px, 2.2vh, 30px) 0 0;
+  color: #fff;
+  font-size: clamp(43px, 6.8vw, 118px);
+  font-weight: 1000;
+  letter-spacing: -.055em;
+  line-height: .91;
+  text-wrap: balance;
+  text-shadow: 0 18px 42px rgba(0, 0, 0, .48);
+}
+
+.prizeCard {
+  width: min(100%, 850px);
+  margin-top: clamp(20px, 3vh, 40px);
+  padding: clamp(16px, 2vw, 30px);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: clamp(14px, 2vw, 28px);
+  border: 1px solid rgba(245, 205, 123, .48);
+  border-radius: clamp(20px, 2.4vw, 36px);
+  background:
+    linear-gradient(135deg, rgba(255, 218, 143, .16), rgba(255, 255, 255, .035)),
+    rgba(23, 9, 4, .78);
+  box-shadow:
+    0 28px 70px rgba(0, 0, 0, .36),
+    inset 0 1px rgba(255, 255, 255, .12);
+  text-align: left;
+}
+
+.prizeIcon {
+  width: clamp(58px, 6.5vw, 102px);
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  border-radius: clamp(17px, 1.7vw, 25px);
+  color: #1a0b05;
+  background: linear-gradient(145deg, #ffe29d, #d49a32);
+  box-shadow: 0 13px 30px rgba(0, 0, 0, .28);
+}
+
+.prizeIcon svg {
+  width: 68%;
+  height: 68%;
+  fill: currentColor;
+}
+
+.prizeRibbon {
+  fill: #7e2d16;
+}
+
+.prizeBow {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 7;
+}
+
+.prizeCard span {
+  display: block;
+  color: #e7bd6b;
+  font-size: clamp(9px, .85vw, 15px);
+  font-weight: 950;
+  letter-spacing: .2em;
+}
+
+.prizeCard strong {
+  display: block;
+  margin-top: .16em;
+  overflow-wrap: anywhere;
+  color: #fff3ce;
+  font-size: clamp(25px, 3.7vw, 65px);
+  font-weight: 950;
+  line-height: 1;
+}
+
+.orderNumber {
+  margin-top: clamp(15px, 2vh, 26px);
+  padding: .6em 1.05em;
+  border: 1px solid rgba(255, 255, 255, .13);
+  border-radius: 999px;
+  color: rgba(255, 255, 255, .65);
+  background: rgba(0, 0, 0, .27);
+  font-size: clamp(11px, 1.15vw, 19px);
+  font-weight: 850;
+  letter-spacing: .13em;
+}
+
+.orderNumber strong {
+  margin-left: .45em;
+  color: #fff;
+  font-size: 1.24em;
+}
+
+.copy > p {
+  max-width: 42ch;
+  margin: clamp(14px, 2vh, 25px) 0 0;
+  color: rgba(255, 255, 255, .77);
+  font-size: clamp(15px, 1.65vw, 29px);
+  font-weight: 650;
+  line-height: 1.35;
+  text-wrap: balance;
+}
+
+.customer .content {
+  padding: clamp(22px, 5vw, 42px) clamp(16px, 5vw, 38px);
+  align-content: center;
+}
+
+.customer .presentation {
+  width: 100%;
+}
+
+.customer .logoRing {
+  width: clamp(82px, 23vw, 112px);
+}
+
+.customer .copy h1 {
+  max-width: 11ch;
+  font-size: clamp(42px, 13vw, 68px);
+}
+
+.customer .prizeCard {
+  margin-top: 24px;
+  padding: 16px;
+  border-radius: 24px;
+}
+
+.customer .prizeCard strong {
+  font-size: clamp(24px, 7.5vw, 38px);
+}
+
+.customer .prizeIcon {
+  width: clamp(58px, 17vw, 78px);
+}
+
+@media (max-width: 760px), (max-aspect-ratio: 4/5) {
+  .tv .content {
+    padding: 5vh 6vw;
+  }
+
+  .tv .presentation.withPhoto {
+    grid-template-columns: 1fr;
+    gap: 2.4vh;
+  }
+
+  .tv .photoFrame {
+    width: min(42vw, 30vh, 270px);
+    aspect-ratio: 1;
+  }
+
+  .tv .logoRing {
+    display: none;
+  }
+
+  .tv .copy h1 {
+    margin-top: 0;
+    font-size: clamp(42px, 12vw, 86px);
+  }
+
+  .tv .prizeCard strong {
+    font-size: clamp(26px, 7vw, 48px);
+  }
+
+  .kicker {
+    font-size: clamp(9px, 2.7vw, 16px);
+    letter-spacing: .16em;
+  }
+}
+
+@keyframes rewardFall {
+  from {
+    transform: translate3d(0, -10vh, 0) rotate(var(--reward-rotate));
+  }
+  to {
+    transform: translate3d(var(--reward-drift), 114vh, 0) rotate(calc(var(--reward-rotate) + 410deg));
+  }
+}
+
+@keyframes rewardRays {
+  to { transform: translate(-50%, -50%) rotate(360deg); }
+}
+
+@keyframes rewardLogoIn {
+  from { opacity: 0; transform: scale(.7); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rays,
+  .confetti i,
+  .logoRing {
+    animation: none !important;
+  }
+
+  .confetti {
+    opacity: .28;
+  }
+}

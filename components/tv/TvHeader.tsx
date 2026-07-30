@@ -24,7 +24,7 @@ export function TvHeader({
 
         <div className="flex items-center gap-2">
           <img
-            src="/logo-burger-brothers.png"
+            src="/logo-burger-brothers.webp"
             className="h-14 w-14"
             alt="Logo"
           />

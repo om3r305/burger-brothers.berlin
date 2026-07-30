@@ -69,12 +69,14 @@ assert(rewardConfig.includes('photoRetentionMinutes: 60'));
 assert(rewardConfig.includes('photoMode: "name_photo"'));
 assert(rewardConfig.includes('targetScreenSlugs: ["brand"]'));
 
-// Daily random winner schedule: one random slot per daily winner, spread into segments.
-assert(rewardEngine.includes('generateRewardSlots'));
-assert(rewardEngine.includes('const segment = duration / count'));
+// Adaptive spontaneous winner schedule: no reward is lost when no order arrives
+// at a preselected clock time.
+assert(!rewardEngine.includes('generateRewardSlots'));
+assert(rewardEngine.includes('computeAdaptiveWinChance'));
 assert(rewardEngine.includes('createHmac("sha256", rewardSecret())'));
-assert(rewardEngine.includes('Only the latest reached slot is claimable'));
-assert(rewardEngine.includes('if (nextDueSlot < 0 || claimed.has(nextDueSlot)) return null'));
+assert(rewardEngine.includes('minOrdersBetweenWins'));
+assert(rewardEngine.includes('if (progress >= 0.96)'));
+assert(rewardEngine.includes('slotIndex: nextWinSequence'));
 assert(rewardEngine.includes('deviceWins >= program.maxWinsPerDevicePerDay'));
 assert(rewardEngine.includes('weightedChoice<RewardCandidate>'));
 
@@ -102,18 +104,20 @@ assert(schnellClient.includes('bb_schnell_reward:'));
 assert(successPage.includes('RewardCelebration'));
 assert(successPage.includes('window.setTimeout(() => setRewardVisible(true), 700)'));
 assert(successPage.includes('/api/schnellbestellung/status'));
-assert(celebration.includes('HERZLICHEN GLÜCKWUNSCH'));
-assert(celebration.includes('Animation überspringen'));
+assert(celebration.includes('DU HAST'));
+assert(celebration.includes('GEWONNEN!'));
+assert(celebration.includes('Weiter'));
 assert(celebration.includes('Dein Gewinn bleibt auch ohne Namen oder Foto vollständig gültig'));
-assert(celebration.includes('Math.max(3, reward.celebrationSeconds)'));
+assert(celebration.includes('Math.max(5, Math.min(12, reward.celebrationSeconds || 7))'));
 
-// Front-camera-first capture, local preview, retake, explicit use, no upload before approval.
+// Front-camera-first capture, local preview, retake, automatic local selection,
+// and no upload before consent/submission.
 assert(camera.includes('facingMode: { ideal: "user" }'));
 assert(camera.includes('capture="user"'));
 assert(camera.includes('Nochmal aufnehmen'));
-assert(camera.includes('Foto verwenden'));
+assert(camera.includes('setConfirmed(Boolean(file))'));
+assert(camera.includes('onChange(file, nextUrl)'));
 assert(camera.includes('canvas.toBlob(resolve, "image/webp", 0.82)'));
-assert(camera.includes('onClick={() => onChange(selectedFile, previewUrl)}'));
 assert(camera.indexOf('uploadTemporaryWinnerPhoto') === -1, 'Kamera bileseni dogrudan yukleme yapmamali');
 assert(submissionRoute.includes('const consent = String(form.get("consent") || "") === "true"'));
 assert(submissionRoute.includes('if (!consent)'));
@@ -139,7 +143,8 @@ assert(submissionRoute.includes('createAdminInboxNotification'));
 assert(submissionRoute.includes('winner_photo_approval'));
 assert(adminAttention.includes('status: "unread"'));
 assert(attentionBell.includes('/api/admin/attention'));
-assert(attentionBell.includes('Notification.permission === "granted"'));
+assert(attentionBell.includes('"serviceWorker" in navigator'));
+assert(attentionBell.includes('BB_ADMIN_PUSH'));
 assert(reviewRoute.includes('google_review_approval'));
 assert(reviewRoute.includes('Yeni Google yorumu onay bekliyor'));
 assert(reviewRoute.includes('resolveAdminInboxNotification'));
@@ -155,13 +160,17 @@ assert(showcasePlayer.includes('delay - elapsed'));
 assert(showcaseEvents.includes('verifyShowcaseEventAckToken'));
 assert(showcaseEvents.includes('status: "played"'));
 assert(showcaseEventServer.includes('SHOWCASE_EVENT_SECRET_NOT_CONFIGURED'));
-assert(showcaseEventServer.includes('expiresAt = new Date(now.getTime() + 2 * 60_000)'));
+assert(showcaseEventServer.includes('const lifetimeMs = Math.max('));
+assert(showcaseEventServer.includes('(params.program.showcaseDurationSeconds + 120) * 1_000'));
+assert(showcaseEventServer.includes('const expiresAt = new Date(scheduledAt.getTime() + lifetimeMs)'));
 
 // TV/receipt show the reward once and keep old order flow intact.
 assert(tvCard.includes('🎁 {reward.customerLabel || reward.label}'));
 assert(tvDomain.includes('Glücksgewinn –'));
-assert(tvDomain.includes('totals.discountSum - fallbackCouponAmount - rewardAmount'));
-assert(printProxy.includes('GLÜCKSGEWINN'));
+assert(tvDomain.includes('let remaining = +Math.max(0, num(totals.discountSum)).toFixed(2)'));
+assert(tvDomain.includes('rewardAmount'));
+assert(tvDomain.includes('consume('));
+assert(printProxy.includes('Glücksgewinn - ${rewardLabel}'));
 assert(printProxy.includes('regularDiscount - rewardDiscount'));
 
 // Additive DB migration with uniqueness against duplicate order/slot wins.

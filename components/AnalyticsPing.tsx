@@ -3,6 +3,8 @@
 import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 
+export const ANALYTICS_CONSENT_KEY = "bb_analytics_consent_v1";
+export const ANALYTICS_CONSENT_EVENT = "bb:analytics-consent";
 const ENDPOINT = "/api/analytics/collect";
 const SESSION_KEY = "bb_analytics_session_id";
 
@@ -15,61 +17,46 @@ function shouldSkip(pathname: string) {
   return false;
 }
 
+function hasConsent() {
+  try {
+    return localStorage.getItem(ANALYTICS_CONSENT_KEY) === "granted";
+  } catch {
+    return false;
+  }
+}
+
 function getSessionId() {
   try {
     const existing = sessionStorage.getItem(SESSION_KEY);
     if (existing) return existing;
-
-    const id =
-      typeof crypto !== "undefined" && "randomUUID" in crypto
-        ? crypto.randomUUID()
-        : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-
+    const id = crypto.randomUUID();
     sessionStorage.setItem(SESSION_KEY, id);
     return id;
   } catch {
-    return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    return "";
   }
 }
 
 function sendAnalytics(pathname: string) {
-  try {
-    const path =
-      typeof window !== "undefined"
-        ? `${pathname}${window.location.search || ""}`
-        : pathname;
+  if (!hasConsent()) return;
+  const payload = JSON.stringify({
+    event: "page_view",
+    path: pathname,
+    sessionId: getSessionId(),
+    consentVersion: "analytics-v1",
+    props: { pathname },
+  });
 
-    const payload = JSON.stringify({
-      event: "page_view",
-      path,
-      sessionId: getSessionId(),
-      props: {
-        pathname,
-      },
-    });
-
-    if (typeof navigator !== "undefined" && navigator.sendBeacon) {
-      const blob = new Blob([payload], {
-        type: "application/json",
-      });
-
-      const sent = navigator.sendBeacon(ENDPOINT, blob);
-      if (sent) return;
-    }
-
-    fetch(ENDPOINT, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        accept: "application/json",
-      },
-      body: payload,
-      cache: "no-store",
-      keepalive: true,
-    }).catch(() => {});
-  } catch {
-    // Analytics darf die Seite niemals blockieren.
-  }
+  fetch(ENDPOINT, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      accept: "application/json",
+    },
+    body: payload,
+    cache: "no-store",
+    keepalive: true,
+  }).catch(() => undefined);
 }
 
 export default function AnalyticsPing() {
@@ -77,7 +64,10 @@ export default function AnalyticsPing() {
 
   useEffect(() => {
     if (!pathname || shouldSkip(pathname)) return;
-    sendAnalytics(pathname);
+    const send = () => sendAnalytics(pathname);
+    send();
+    window.addEventListener(ANALYTICS_CONSENT_EVENT, send);
+    return () => window.removeEventListener(ANALYTICS_CONSENT_EVENT, send);
   }, [pathname]);
 
   return null;

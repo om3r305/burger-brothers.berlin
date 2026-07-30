@@ -14,6 +14,7 @@ const modalPath = path.join(
   "OrderDetailsModal.tsx",
 );
 const logoPath = path.join(root, "print-proxy", "logo-thermal.bmp");
+const proxyToken = "receipt-regression-token-0123456789abcdef";
 
 function wait(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -44,6 +45,7 @@ async function waitForHealth(port, child) {
       const response = await fetch(`http://127.0.0.1:${port}/health`, {
         headers: {
           origin: "https://www.burger-brothers.berlin",
+          "x-print-proxy-token": proxyToken,
         },
       });
 
@@ -62,6 +64,7 @@ async function postOrder(port, order) {
     headers: {
       "content-type": "application/json",
       origin: "https://www.burger-brothers.berlin",
+      "x-print-proxy-token": proxyToken,
     },
     body: JSON.stringify({ order }),
   });
@@ -166,6 +169,8 @@ function lineStartingWith(text, label) {
       LOGO_URL: "http://127.0.0.1/unused.bmp",
       CUT_ENABLED: "0",
       ROUND_TOTAL_STEP_CENTS: "1",
+      PRINT_PROXY_TOKEN: proxyToken,
+      FISCAL_OPERATION_MODE: "webshop_only",
       TZ: "Europe/Berlin",
     },
     stdio: ["ignore", "pipe", "pipe"],

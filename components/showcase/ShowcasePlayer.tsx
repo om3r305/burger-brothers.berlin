@@ -9,6 +9,7 @@ import {
 import {
   buildShowcaseMenuPages,
   effectiveShowcaseSceneDuration,
+  expandShowcaseScenesForPlayback,
   selectedProductsForScene,
 } from "@/lib/showcase/runtime";
 import type { ShowcaseSnapshot } from "@/lib/showcase/types";
@@ -95,7 +96,7 @@ function defaultSnapshot(): ShowcaseSnapshot {
     campaigns: [],
     branding: {
       shopName: "Burger Brothers Berlin",
-      logoUrl: "/logo-burger-brothers.png",
+      logoUrl: "/logo-burger-brothers.webp",
       themeId: "classic",
       themeColor: "#0b0704",
       themeVideoUrl: "/flames/flame-loop.mp4",
@@ -105,6 +106,10 @@ function defaultSnapshot(): ShowcaseSnapshot {
       themeCornerLeft: "🍔",
       themeCornerRight: "🔥",
       themeParticles: [],
+      themeEffect: "ember",
+      themeMotifs: [],
+      themeBurst: ["✦", "🔥"],
+      reviewsUrl: "",
       locationLabel: "13507 Berlin Tegel",
       siteUrl,
     },
@@ -155,6 +160,7 @@ export default function ShowcasePlayer({ screenSlug = "main" }: { screenSlug?: s
   const cacheKey = `${CACHE_KEY}:${screenSlug}`;
   const [snapshot, setSnapshot] = useState<ShowcaseSnapshot | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [playbackCycle, setPlaybackCycle] = useState(0);
   const [online, setOnline] = useState(true);
   const [scheduleNow, setScheduleNow] = useState(() => Date.now());
   const [liveEvent, setLiveEvent] = useState<ShowcaseWinnerEvent | null>(null);
@@ -178,6 +184,7 @@ export default function ShowcasePlayer({ screenSlug = "main" }: { screenSlug?: s
   const sceneTimerStartedAtRef = useRef(0);
   const sceneTimerRemainingMsRef = useRef(0);
   const sceneTimerPlaybackKeyRef = useRef("");
+  const sceneVisitCountsRef = useRef(new Map<string, number>());
   snapshotRef.current = snapshot;
   liveEventRef.current = liveEvent;
 
@@ -203,22 +210,26 @@ export default function ShowcasePlayer({ screenSlug = "main" }: { screenSlug?: s
   const activeScenes = useMemo(() => {
     const scenes = snapshot?.document?.scenes || [];
     const active = scenes.filter((scene) => sceneIsActive(scene, scheduleNow));
-    return active.length
+    const playable = active.length
       ? active
       : createDefaultShowcaseDocument(snapshot?.branding?.siteUrl).scenes;
+    return expandShowcaseScenesForPlayback(playable);
   }, [scheduleNow, snapshot?.document, snapshot?.branding?.siteUrl]);
 
   const activeSceneCountRef = useRef(1);
+  const activeScenesRef = useRef(activeScenes);
   const currentPlaybackKeyRef = useRef("");
   const advancedPlaybackKeyRef = useRef("");
 
   const scene = activeScenes[activeIndex] || activeScenes[0];
   const playbackKey = snapshot
-    ? `${snapshot.document.version}:${scene.id}:${activeIndex}:${activeScenes.length}`
+    ? `${snapshot.document.version}:${scene.id}:${activeIndex}:${activeScenes.length}:${playbackCycle}`
     : "";
 
   activeSceneCountRef.current = Math.max(1, activeScenes.length);
+  activeScenesRef.current = activeScenes;
   currentPlaybackKeyRef.current = playbackKey;
+  const contentIndex = sceneVisitCountsRef.current.get(scene.id) || 0;
 
   const displayScene = useMemo(() => {
     if (resolvedMedia.playbackKey !== playbackKey) return scene;
@@ -287,9 +298,18 @@ export default function ShowcasePlayer({ screenSlug = "main" }: { screenSlug?: s
     if (advancedPlaybackKeyRef.current === currentPlaybackKey) return;
     advancedPlaybackKeyRef.current = currentPlaybackKey;
 
-    setActiveIndex((current) =>
-      (current + 1) % Math.max(1, activeSceneCountRef.current),
-    );
+    setActiveIndex((current) => {
+      const next = (current + 1) % Math.max(1, activeSceneCountRef.current);
+      const nextScene = activeScenesRef.current[next];
+      if (nextScene?.type === "reviews") {
+        sceneVisitCountsRef.current.set(
+          nextScene.id,
+          (sceneVisitCountsRef.current.get(nextScene.id) || 0) + 1,
+        );
+      }
+      return next;
+    });
+    setPlaybackCycle((current) => current + 1);
   }, []);
 
   const load = useCallback(async (quiet = false, forceFull = false) => {
@@ -314,6 +334,7 @@ export default function ShowcasePlayer({ screenSlug = "main" }: { screenSlug?: s
           return { ...fresh, document: previous.document };
         }
         setActiveIndex(0);
+        setPlaybackCycle((cycle) => cycle + 1);
         return fresh;
       });
     } catch (error) {
@@ -523,6 +544,10 @@ export default function ShowcasePlayer({ screenSlug = "main" }: { screenSlug?: s
   }, [playbackKey]);
 
   useEffect(() => {
+    sceneVisitCountsRef.current.clear();
+  }, [snapshot?.document?.version]);
+
+  useEffect(() => {
     if (!playbackKey || sceneDurationSeconds <= 0) return;
 
     const fullDurationMs = sceneDurationSeconds * 1_000;
@@ -645,7 +670,7 @@ export default function ShowcasePlayer({ screenSlug = "main" }: { screenSlug?: s
   if (!snapshot) {
     return (
       <div id="bb-showcase-root" className="fixed inset-0 z-[1200] grid place-items-center bg-black">
-        <img src="/logo-burger-brothers.png" alt="Burger Brothers Berlin" className="h-36 w-36 object-contain" />
+        <img src="/logo-burger-brothers.webp" alt="Burger Brothers Berlin" className="h-36 w-36 object-contain" />
       </div>
     );
   }
@@ -679,6 +704,7 @@ export default function ShowcasePlayer({ screenSlug = "main" }: { screenSlug?: s
           scene={displayScene}
           sceneIndex={activeIndex}
           sceneCount={activeScenes.length}
+          contentIndex={contentIndex}
           online={online}
           onVideoEnded={() => {
             // Video uzunluğu sahne süresini belirlemez. "hold" modunda video

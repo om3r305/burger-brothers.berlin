@@ -59,6 +59,8 @@ function applyRootTheme(
     (activeTheme === "christmas" || activeTheme === "winter");
 
   root.setAttribute("data-bb-theme", activeTheme);
+  const preset = getThemePreset(activeTheme);
+  root.setAttribute("data-bb-theme-effect", preset.effect);
   root.setAttribute(
     "data-bb-effects",
     !fixedClassic && settings.decorationsEnabled ? "1" : "0",
@@ -73,6 +75,12 @@ function applyRootTheme(
     admin ? "admin" : isolated ? "route-isolated" : resolved.source,
   );
   root.setAttribute("data-bb-theme-isolated", isolated ? "1" : "0");
+  const deviceMemory = Number((navigator as Navigator & { deviceMemory?: number }).deviceMemory || 8);
+  const lite =
+    deviceMemory <= 4 ||
+    navigator.hardwareConcurrency <= 4 ||
+    window.matchMedia("(max-width: 720px)").matches;
+  root.setAttribute("data-bb-performance", lite ? "lite" : "full");
 
   if (body) {
     for (const className of Array.from(body.classList)) {
@@ -112,14 +120,16 @@ function applyRootTheme(
   return next;
 }
 
-function particleStyle(index: number): CSSProperties {
-  const left = (index * 17 + 7) % 96;
-  const delay = -((index * 1.37) % 12);
-  const duration = 9 + (index % 6) * 1.7;
-  const size = 14 + (index % 4) * 4;
+function motifStyle(index: number): CSSProperties {
+  const left = (index * 23 + 7) % 94;
+  const top = (index * 37 + 11) % 86;
+  const delay = -((index * 1.17) % 8);
+  const duration = 8 + (index % 4) * 1.8;
+  const size = 13 + (index % 4) * 3;
 
   return {
     left: `${left}%`,
+    top: `${top}%`,
     animationDelay: `${delay}s`,
     animationDuration: `${duration}s`,
     fontSize: `${size}px`,
@@ -175,6 +185,62 @@ export default function ThemeClient() {
     };
   }, [pathname]);
 
+  useEffect(() => {
+    if (
+      !resolved ||
+      !resolved.settings.decorationsEnabled ||
+      !resolved.settings.motionEnabled ||
+      isAdminPath(pathname) ||
+      isThemeIsolatedPath(pathname)
+    ) {
+      return;
+    }
+
+    let lastBurstAt = 0;
+    const timers = new Set<number>();
+    const onClick = (event: MouseEvent) => {
+      if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+      if (Date.now() - lastBurstAt < 280) return;
+      const source = event.target;
+      if (!(source instanceof Element)) return;
+      const target = source.closest(
+        ".card-cta,.bb-theme-primary,.bb-btn,.nav-pill,[data-bb-theme-action='primary']",
+      );
+      if (!(target instanceof HTMLElement) || target.closest("[aria-disabled='true']")) return;
+
+      lastBurstAt = Date.now();
+      const preset = getThemePreset(resolved.theme);
+      const rect = target.getBoundingClientRect();
+      const burst = document.createElement("span");
+      burst.className = "bb-theme-burst";
+      burst.dataset.effect = preset.effect;
+      burst.style.setProperty("--bb-burst-x", `${rect.left + rect.width / 2}px`);
+      burst.style.setProperty("--bb-burst-y", `${rect.top + rect.height / 2}px`);
+
+      for (let index = 0; index < 6; index += 1) {
+        const spark = document.createElement("i");
+        spark.textContent = preset.burst[index % preset.burst.length] || "✦";
+        spark.style.setProperty("--bb-burst-angle", `${index * 60}deg`);
+        spark.style.setProperty("--bb-burst-distance", `${38 + (index % 3) * 11}px`);
+        burst.appendChild(spark);
+      }
+
+      document.body.appendChild(burst);
+      const timer = window.setTimeout(() => {
+        burst.remove();
+        timers.delete(timer);
+      }, 900);
+      timers.add(timer);
+    };
+
+    document.addEventListener("click", onClick, { passive: true });
+    return () => {
+      document.removeEventListener("click", onClick);
+      timers.forEach((timer) => window.clearTimeout(timer));
+      document.querySelectorAll(".bb-theme-burst").forEach((element) => element.remove());
+    };
+  }, [pathname, resolved]);
+
   const decoration = useMemo(() => {
     if (
       !resolved ||
@@ -189,13 +255,14 @@ export default function ThemeClient() {
     const showSnow =
       resolved.settings.snow &&
       (resolved.theme === "christmas" || resolved.theme === "winter");
-    const particles = showSnow
+    const motifs = showSnow
       ? ["❄", "·", "✦"]
-      : preset.particles;
+      : preset.motifs;
 
     return {
       preset,
-      particles,
+      motifs,
+      count: preset.density === 2 ? 10 : preset.density === 1 ? 7 : 0,
     };
   }, [pathname, resolved]);
 
@@ -205,10 +272,13 @@ export default function ThemeClient() {
     <div
       className="bb-theme-decorations"
       data-theme={decoration.preset.id}
+      data-effect={decoration.preset.effect}
       aria-hidden="true"
     >
       <div className="bb-theme-garland" />
-      <div className="bb-theme-atmosphere" />
+      <div className="bb-theme-atmosphere bb-theme-atmosphere--one" />
+      <div className="bb-theme-atmosphere bb-theme-atmosphere--two" />
+      <div className="bb-theme-orbit" />
       <span className="bb-theme-corner bb-theme-corner--left">
         {decoration.preset.cornerLeft}
       </span>
@@ -216,15 +286,15 @@ export default function ThemeClient() {
         {decoration.preset.cornerRight}
       </span>
 
-      <div className="bb-theme-particles">
-        {Array.from({ length: 18 }, (_, index) => (
+      <div className="bb-theme-motifs">
+        {Array.from({ length: decoration.count }, (_, index) => (
           <span
             key={`${decoration.preset.id}-${index}`}
-            className="bb-theme-particle"
-            style={particleStyle(index)}
+            className="bb-theme-motif"
+            style={motifStyle(index)}
           >
-            {decoration.particles.length
-              ? decoration.particles[index % decoration.particles.length]
+            {decoration.motifs.length
+              ? decoration.motifs[index % decoration.motifs.length]
               : ""}
           </span>
         ))}

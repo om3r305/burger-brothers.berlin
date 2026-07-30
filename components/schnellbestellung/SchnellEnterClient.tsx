@@ -933,7 +933,7 @@ export default function SchnellEnterClient({ token }: { token: string }) {
           src={
             appleMobile
               ? "/schnell-icon-180.png?v=1"
-              : "/logo-burger-brothers.png"
+              : "/logo-burger-brothers.webp"
           }
           className={
             appleMobile

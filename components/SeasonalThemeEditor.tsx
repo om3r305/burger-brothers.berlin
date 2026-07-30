@@ -243,7 +243,7 @@ export default function SeasonalThemeEditor({
           <div className="mt-4 grid gap-2 sm:grid-cols-2">
             <ToggleRow
               label="Dekorationen"
-              description="Kürbisse, Lichter, Schnee und saisonale Details."
+              description="Eigene Atmosphäre, Motive und leichte Button-Reaktionen je Design."
               checked={settings.decorationsEnabled}
               onChange={(decorationsEnabled) => commit({ decorationsEnabled })}
             />
@@ -263,9 +263,15 @@ export default function SeasonalThemeEditor({
         </div>
 
         <div
-          className="bb-theme-preview overflow-hidden rounded-2xl border p-4"
+          className="bb-theme-preview relative overflow-hidden rounded-2xl border p-4"
           data-preview-theme={resolved.theme}
+          data-preview-effect={resolvedPreset.effect}
         >
+          <div className="bb-theme-preview-decor" aria-hidden="true">
+            <span>{resolvedPreset.cornerLeft}</span>
+            <span>{resolvedPreset.motifs[0] || "✦"}</span>
+            <span>{resolvedPreset.cornerRight}</span>
+          </div>
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="text-xs font-bold uppercase tracking-[0.18em] opacity-75">
@@ -276,6 +282,9 @@ export default function SeasonalThemeEditor({
               </div>
               <div className="mt-1 text-xs leading-relaxed opacity-80">
                 {resolvedPreset.description}
+              </div>
+              <div className="mt-2 text-[10px] font-bold uppercase tracking-[.14em] opacity-60">
+                Theme Engine v2 · {resolvedPreset.effect}
               </div>
             </div>
             <span className="rounded-full border border-white/20 bg-black/20 px-2 py-1 text-[11px] font-semibold">
@@ -561,6 +570,9 @@ export default function SeasonalThemeEditor({
             })}
           </div>
         )}
+        <div className="mt-3 rounded-xl border border-amber-500/25 bg-amber-500/5 px-3 py-2 text-xs leading-relaxed text-amber-100/85">
+          Ostern und Vatertag werden für das geladene Jahr exakt berechnet und deshalb nicht blind jährlich wiederholt. Berliner Zeugnis- und Schulstart-Termine sind als editierbare Zeitfenster markiert, weil sie sich je Schuljahr ändern.
+        </div>
       </div>
     </div>
   );

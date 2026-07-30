@@ -20,7 +20,7 @@ export default function TvRouteError({
     <main className="flex min-h-[100dvh] items-center justify-center bg-slate-950 p-5 text-slate-100">
       <section className="w-full max-w-xl rounded-3xl border border-rose-400/30 bg-slate-900/90 p-6 text-center shadow-2xl">
         <img
-          src="/logo-burger-brothers.png"
+          src="/logo-burger-brothers.webp"
           alt="Burger Brothers"
           className="mx-auto h-16 w-16"
         />

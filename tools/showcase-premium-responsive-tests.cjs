@@ -1,0 +1,16 @@
+const fs = require('fs');
+const assert = require('assert');
+const stage = fs.readFileSync('components/showcase/ShowcaseStage.tsx','utf8');
+const css = fs.readFileSync('components/showcase/ShowcaseStage.module.css','utf8');
+const admin = fs.readFileSync('app/admin/showcase/page.tsx','utf8');
+const presets = fs.readFileSync('lib/showcase/presets.ts','utf8');
+const premiumSettings = fs.readFileSync('components/showcase/admin/PremiumSceneSettings.tsx','utf8');
+assert(stage.includes('sceneIndex: number'), 'PremiumScene sceneIndex prop eksik');
+assert(stage.includes('sceneIndex={sceneIndex}'), 'PremiumScene sceneIndex aktarimi eksik');
+assert(stage.includes('resolveWeatherMessage'), 'Sahne hava metin motoruna bağlı değil');
+assert(presets.includes('export function resolveWeatherMessage'), 'Saat/hava bazli metin motoru eksik');
+assert(css.includes('@container (max-aspect-ratio: 4/5)'), 'Dikey ekran container uyumu eksik');
+assert(css.includes('.countdown { width:100%; display:grid'), 'Countdown responsive grid eksik');
+assert(admin.includes('automaticWeatherText'), 'Admin hava durumu önizlemesi eksik');
+assert(premiumSettings.includes('Hava ve saate göre otomatik'), 'Hava durumu otomatik mod ayari eksik');
+console.log('OK: Premium sahne responsive ve runtime testleri geçti.');

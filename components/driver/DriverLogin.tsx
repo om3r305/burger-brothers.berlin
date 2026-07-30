@@ -44,7 +44,7 @@ export function DriverLogin({
         <div className={`rounded-2xl p-6 ${glass}`}>
           <div className="mb-6 text-center">
             <img
-              src="/logo-burger-brothers.png"
+              src="/logo-burger-brothers.webp"
               className="mx-auto h-16 w-16"
               alt="Burger Brothers Berlin"
             />

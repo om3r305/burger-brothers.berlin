@@ -1,0 +1,24 @@
+VERCEL / STRIPE SON DURUM
+========================
+
+Bu WhatsApp + kayıtlı ödeme güncellemesi için YENİ env gerekmiyor.
+Mevcut değerler kalacak:
+
+STRIPE_SECRET_KEY=sk_test_... veya sk_live_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+NEXT_PUBLIC_BASE_URL=https://www.burger-brothers.berlin
+
+Webhook URL:
+https://www.burger-brothers.berlin/api/stripe/webhook
+
+Eventler:
+checkout.session.completed
+checkout.session.async_payment_succeeded
+checkout.session.async_payment_failed
+checkout.session.expired
+
+PayPal kullanmak için Stripe Dashboard > Payment methods bölümünde PayPal'ı
+aktif et. Gelecekte tekrar kullanılabilen PayPal ödemeleri Stripe hesabının
+future/recurring payment uygunluğuna ve PayPal onayına bağlı olabilir.
+
+Gizli sk_ ve whsec_ değerlerini GitHub'a koyma.

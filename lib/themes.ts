@@ -6,9 +6,13 @@ export const THEME_IDS = [
   "neon",
   "easter",
   "summer",
+  "fathersday",
+  "school",
+  "veganweek",
   "fan",
   "oktoberfest",
   "lights",
+  "germany",
   "halloween",
   "blackweek",
   "christmas",
@@ -18,6 +22,24 @@ export const THEME_IDS = [
 ] as const;
 
 export type ThemeId = (typeof THEME_IDS)[number];
+export type ThemeEffect =
+  | "ember"
+  | "circuit"
+  | "petals"
+  | "sunrays"
+  | "heritage"
+  | "confetti"
+  | "leaves"
+  | "stadium"
+  | "diamonds"
+  | "aurora"
+  | "ribbons"
+  | "fog"
+  | "facets"
+  | "festive-lights"
+  | "frost"
+  | "fireworks"
+  | "hearts";
 export type ThemeMode = "manual" | "automatic";
 export type ThemeScheduleStatus =
   | "active"
@@ -35,6 +57,10 @@ export type ThemePreset = {
   cornerLeft: string;
   cornerRight: string;
   particles: string[];
+  effect: ThemeEffect;
+  motifs: string[];
+  burst: string[];
+  density: 0 | 1 | 2;
 };
 
 export type ThemeScheduleEntry = {
@@ -82,6 +108,10 @@ export const THEME_PRESETS: ThemePreset[] = [
     cornerLeft: "🍔",
     cornerRight: "🔥",
     particles: [],
+    effect: "ember",
+    motifs: ["✦", "·"],
+    burst: ["✦", "🔥", "·"],
+    density: 1,
   },
   {
     id: "neon",
@@ -92,6 +122,10 @@ export const THEME_PRESETS: ThemePreset[] = [
     cornerLeft: "⚡",
     cornerRight: "✦",
     particles: ["✦", "·", "⚡"],
+    effect: "circuit",
+    motifs: ["⌁", "＋", "✦"],
+    burst: ["⚡", "✦", "＋"],
+    density: 1,
   },
   {
     id: "easter",
@@ -102,6 +136,10 @@ export const THEME_PRESETS: ThemePreset[] = [
     cornerLeft: "🐰",
     cornerRight: "🥚",
     particles: ["🌸", "·", "🌿"],
+    effect: "petals",
+    motifs: ["❀", "🌿", "·"],
+    burst: ["🌸", "✦", "🌿"],
+    density: 1,
   },
   {
     id: "summer",
@@ -112,6 +150,52 @@ export const THEME_PRESETS: ThemePreset[] = [
     cornerLeft: "☀️",
     cornerRight: "🥤",
     particles: ["✦", "☀", "·"],
+    effect: "sunrays",
+    motifs: ["☀", "✦", "≈"],
+    burst: ["☀", "✦", "🥤"],
+    density: 1,
+  },
+  {
+    id: "fathersday",
+    label: "Vatertag",
+    icon: "🧢",
+    description: "Kraftvolles Navy–Kupfer-Design für Christi Himmelfahrt und Vatertag.",
+    themeColor: "#07131d",
+    cornerLeft: "🧢",
+    cornerRight: "🍔",
+    particles: ["◆", "✦", "·"],
+    effect: "heritage",
+    motifs: ["◆", "ⅹ", "✦"],
+    burst: ["◆", "🍔", "✦"],
+    density: 1,
+  },
+  {
+    id: "school",
+    label: "Schulstart / Zeugnis",
+    icon: "🎓",
+    description: "Fröhliches, klares Design für Schulstart, Zeugnisse und verdiente Belohnungen.",
+    themeColor: "#111232",
+    cornerLeft: "🎓",
+    cornerRight: "⭐",
+    particles: ["★", "✦", "·"],
+    effect: "confetti",
+    motifs: ["★", "▰", "✦"],
+    burst: ["★", "🎉", "✦"],
+    density: 2,
+  },
+  {
+    id: "veganweek",
+    label: "Vegan Week",
+    icon: "🌱",
+    description: "Ruhiger Smaragd-Look für Vegan Week und pflanzliche Aktionen.",
+    themeColor: "#05170f",
+    cornerLeft: "🌱",
+    cornerRight: "🥬",
+    particles: ["❧", "·", "✦"],
+    effect: "leaves",
+    motifs: ["❧", "⌁", "·"],
+    burst: ["🌱", "❧", "✦"],
+    density: 1,
   },
   {
     id: "fan",
@@ -122,6 +206,10 @@ export const THEME_PRESETS: ThemePreset[] = [
     cornerLeft: "⚽",
     cornerRight: "🏟️",
     particles: ["⚽", "·", "✦"],
+    effect: "stadium",
+    motifs: ["○", "╱", "✦"],
+    burst: ["⚽", "✦", "★"],
+    density: 1,
   },
   {
     id: "oktoberfest",
@@ -132,6 +220,10 @@ export const THEME_PRESETS: ThemePreset[] = [
     cornerLeft: "🥨",
     cornerRight: "🍺",
     particles: ["◇", "🥨", "·"],
+    effect: "diamonds",
+    motifs: ["◇", "◆", "·"],
+    burst: ["🥨", "◇", "✦"],
+    density: 1,
   },
   {
     id: "lights",
@@ -142,6 +234,24 @@ export const THEME_PRESETS: ThemePreset[] = [
     cornerLeft: "✨",
     cornerRight: "🏙️",
     particles: ["✦", "✧", "·"],
+    effect: "aurora",
+    motifs: ["✦", "╱", "✧"],
+    burst: ["✦", "✧", "⚡"],
+    density: 2,
+  },
+  {
+    id: "germany",
+    label: "Deutschland / Einheit",
+    icon: "🇩🇪",
+    description: "Reduziertes Schwarz–Rot–Gold für den Tag der Deutschen Einheit.",
+    themeColor: "#100b05",
+    cornerLeft: "🇩🇪",
+    cornerRight: "🤝",
+    particles: ["◆", "·", "✦"],
+    effect: "ribbons",
+    motifs: ["━", "◆", "✦"],
+    burst: ["◆", "✦", "🤝"],
+    density: 1,
   },
   {
     id: "halloween",
@@ -152,6 +262,10 @@ export const THEME_PRESETS: ThemePreset[] = [
     cornerLeft: "🎃",
     cornerRight: "🦇",
     particles: ["🦇", "✦", "·"],
+    effect: "fog",
+    motifs: ["⌁", "🦇", "·"],
+    burst: ["🎃", "🦇", "✦"],
+    density: 1,
   },
   {
     id: "blackweek",
@@ -162,6 +276,10 @@ export const THEME_PRESETS: ThemePreset[] = [
     cornerLeft: "◆",
     cornerRight: "✦",
     particles: ["✦", "◆", "·"],
+    effect: "facets",
+    motifs: ["◆", "◇", "✦"],
+    burst: ["◆", "✦", "★"],
+    density: 1,
   },
   {
     id: "christmas",
@@ -172,6 +290,10 @@ export const THEME_PRESETS: ThemePreset[] = [
     cornerLeft: "🎄",
     cornerRight: "🎅",
     particles: ["❄", "✦", "·"],
+    effect: "festive-lights",
+    motifs: ["✦", "●", "❄"],
+    burst: ["🎄", "✦", "❄"],
+    density: 2,
   },
   {
     id: "winter",
@@ -182,6 +304,10 @@ export const THEME_PRESETS: ThemePreset[] = [
     cornerLeft: "❄️",
     cornerRight: "☕",
     particles: ["❄", "·", "✦"],
+    effect: "frost",
+    motifs: ["❄", "✦", "·"],
+    burst: ["❄", "✦", "◇"],
+    density: 1,
   },
   {
     id: "newyear",
@@ -192,6 +318,10 @@ export const THEME_PRESETS: ThemePreset[] = [
     cornerLeft: "🎆",
     cornerRight: "🥂",
     particles: ["✦", "★", "·"],
+    effect: "fireworks",
+    motifs: ["✦", "★", "·"],
+    burst: ["✦", "★", "🎆"],
+    density: 2,
   },
   {
     id: "valentines",
@@ -202,6 +332,10 @@ export const THEME_PRESETS: ThemePreset[] = [
     cornerLeft: "❤️",
     cornerRight: "🍔",
     particles: ["♥", "♡", "·"],
+    effect: "hearts",
+    motifs: ["♥", "♡", "·"],
+    burst: ["♥", "♡", "✦"],
+    density: 1,
   },
 ];
 
@@ -267,6 +401,18 @@ export function normalizeThemeId(value: any): ThemeId {
     summer: "summer",
     sommer: "summer",
     berlinsommer: "summer",
+    fathersday: "fathersday",
+    father: "fathersday",
+    vatertag: "fathersday",
+    maennertag: "fathersday",
+    männertag: "fathersday",
+    school: "school",
+    schulstart: "school",
+    zeugnis: "school",
+    karne: "school",
+    veganweek: "veganweek",
+    vegan: "veganweek",
+    pflanzlich: "veganweek",
     fan: "fan",
     fansommer: "fan",
     football: "fan",
@@ -277,6 +423,10 @@ export function normalizeThemeId(value: any): ThemeId {
     lights: "lights",
     berlinlights: "lights",
     festivaloflights: "lights",
+    germany: "germany",
+    deutschland: "germany",
+    deutscheeinheit: "germany",
+    tagderdeutscheneinheit: "germany",
     halloween: "halloween",
     blackweek: "blackweek",
     blackfriday: "blackweek",
@@ -398,6 +548,43 @@ function localDateTime(
   return `${year}-${pad(month)}-${pad(day)}T${pad(hour)}:${pad(minute)}`;
 }
 
+function easterSunday(year: number) {
+  const a = year % 19;
+  const b = Math.floor(year / 100);
+  const c = year % 100;
+  const d = Math.floor(b / 4);
+  const e = b % 4;
+  const f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4);
+  const k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31);
+  const day = ((h + l - 7 * m + 114) % 31) + 1;
+  return new Date(year, month - 1, day, 12);
+}
+
+function shiftedDate(date: Date, days: number) {
+  return new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate() + days,
+    12,
+  );
+}
+
+function localDateTimeFromDate(date: Date, hour = 0, minute = 0) {
+  return localDateTime(
+    date.getFullYear(),
+    date.getMonth() + 1,
+    date.getDate(),
+    hour,
+    minute,
+  );
+}
+
 export function createRecommendedThemeSchedule(
   year = new Date().getFullYear(),
 ): ThemeScheduleEntry[] {
@@ -408,6 +595,7 @@ export function createRecommendedThemeSchedule(
     startAt: string,
     endAt: string,
     priority: number,
+    repeatYearly = true,
   ): ThemeScheduleEntry => ({
     id: rid(`theme-${theme}`),
     name,
@@ -415,11 +603,14 @@ export function createRecommendedThemeSchedule(
     enabled: true,
     startAt,
     endAt,
-    repeatYearly: true,
+    repeatYearly,
     priority,
     createdAt: now,
     updatedAt: now,
   });
+
+  const easter = easterSunday(year);
+  const ascension = shiftedDate(easter, 39);
 
   return [
     make(
@@ -438,10 +629,19 @@ export function createRecommendedThemeSchedule(
     ),
     make(
       "easter",
-      "Frühling / Ostern",
-      localDateTime(year, 3, 25),
-      localDateTime(year, 4, 15, 23, 59),
+      `Frühling / Ostern ${year}`,
+      localDateTimeFromDate(shiftedDate(easter, -7)),
+      localDateTimeFromDate(shiftedDate(easter, 1), 23, 59),
       50,
+      false,
+    ),
+    make(
+      "fathersday",
+      `Vatertag ${year}`,
+      localDateTimeFromDate(shiftedDate(ascension, -2)),
+      localDateTimeFromDate(shiftedDate(ascension, 3), 23, 59),
+      72,
+      false,
     ),
     make(
       "summer",
@@ -458,11 +658,32 @@ export function createRecommendedThemeSchedule(
       60,
     ),
     make(
+      "school",
+      "Zeugnis-Belohnung · Berlin (Termin prüfen)",
+      localDateTime(year, 1, 25),
+      localDateTime(year, 2, 5, 23, 59),
+      48,
+    ),
+    make(
+      "school",
+      "Schulstart · Berlin (Termin prüfen)",
+      localDateTime(year, 8, 20),
+      localDateTime(year, 9, 10, 23, 59),
+      48,
+    ),
+    make(
       "oktoberfest",
       "Oktoberfest / Wiesn",
       localDateTime(year, 9, 15),
       localDateTime(year, 10, 5, 23, 59),
       65,
+    ),
+    make(
+      "germany",
+      "Tag der Deutschen Einheit",
+      localDateTime(year, 9, 29),
+      localDateTime(year, 10, 4, 23, 59),
+      78,
     ),
     make(
       "lights",
@@ -477,6 +698,13 @@ export function createRecommendedThemeSchedule(
       localDateTime(year, 10, 21),
       localDateTime(year, 11, 1, 23, 59),
       90,
+    ),
+    make(
+      "veganweek",
+      "World Vegan Week",
+      localDateTime(year, 10, 28),
+      localDateTime(year, 11, 7, 23, 59),
+      58,
     ),
     make(
       "blackweek",

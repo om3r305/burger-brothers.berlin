@@ -64,7 +64,7 @@ export default async function TVLoginPage({
       <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-white/[0.06] p-6 shadow-[inset_0_1px_0_0_rgba(255,255,255,.20)] ring-1 ring-black/10">
         <div className="mb-6 flex flex-col items-center gap-3">
           <img
-            src="/logo-burger-brothers.png"
+            src="/logo-burger-brothers.webp"
             alt="Burger Brothers"
             className="h-16 w-16"
           />

@@ -118,7 +118,10 @@ export default function SceneBasicsEditor({ scene, document, products, campaigns
         {scene.type === "video" ? <label className="flex items-center justify-between gap-3 text-sm">Video sesi<input type="checkbox" checked={scene.muted === false} onChange={(event) => onChange({ muted: !event.target.checked }, true)} /></label> : <span />}
       </div></div>
       {scene.type === "video" && scene.muted === false ? <div className="md:col-span-2 rounded-xl border border-amber-700/50 bg-amber-950/30 p-3 text-xs text-amber-200">Sesli otomatik oynatma bazı Smart TV ve tarayıcılarda engellenebilir. En güvenli kullanım sessiz videodur.</div> : null}
-      <Field label="QR hedefi (boş = varsayılan)"><input className={inputClass} value={scene.qrUrl || ""} placeholder={document.settings.qrUrl} onChange={(event) => onChange({ qrUrl: event.target.value })} /></Field>
+      <Field
+        label={scene.type === "schnell-promo" ? "Schnell / masa QR hedefi" : scene.type === "qr" && scene.qrVariant === "google-review" ? "Google değerlendirme QR hedefi" : "QR hedefi (boş = varsayılan)"}
+        hint={scene.type === "schnell-promo" || (scene.type === "qr" && scene.qrVariant === "google-review") ? "Bu bağlantı sipariş sitesinin genel QR adresinden bağımsızdır." : undefined}
+      ><input className={inputClass} value={scene.qrUrl || ""} placeholder={scene.type === "schnell-promo" ? "/schnellbestellung/enter" : scene.type === "qr" && scene.qrVariant === "google-review" ? "https://g.page/r/..." : document.settings.qrUrl} onChange={(event) => onChange({ qrUrl: event.target.value })} /></Field>
       <Field label="QR açıklaması" hint="Boş bırakırsan QR kodunun altında açıklama gösterilmez."><input className={inputClass} value={scene.qrLabel ?? ""} onChange={(event) => onChange({ qrLabel: event.target.value })} /></Field>
     </div>
   );

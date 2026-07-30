@@ -165,10 +165,15 @@ Module._load = function patchedLoad(request, parent, isMain) {
   return originalLoad.call(this, request, parent, isMain);
 };
 
-function getRequest(url, role = "") {
+function getRequest(url, role = "", trackingToken = "") {
   return new Request(url, {
     method: "GET",
-    headers: role ? { "x-test-role": role } : undefined,
+    headers: {
+      ...(role ? { "x-test-role": role } : {}),
+      ...(trackingToken
+        ? { "x-order-tracking-token": trackingToken }
+        : {}),
+    },
   });
 }
 
@@ -183,8 +188,9 @@ async function main() {
   tokenOrderLookups = 0;
   const tokenResponseWithTv = await lookupRoute.GET(
     getRequest(
-      `https://example.test/api/track/lookup?trackingToken=${encodeURIComponent(TOKEN)}`,
+      "https://example.test/api/track/lookup",
       "tv",
+      TOKEN,
     ),
   );
   assert.equal(tokenResponseWithTv.status, 200);
@@ -196,6 +202,15 @@ async function main() {
   assert.equal(JSON.stringify(tokenPayloadWithTv).includes("must-not-leak"), false);
   assert.equal(directOrderLookups, 0);
   assert.equal(tokenOrderLookups, 1);
+
+  // Tracking tokens in query strings are disabled by default to prevent
+  // browser history, referrer and access-log leakage.
+  const legacyQueryResponse = await lookupRoute.GET(
+    getRequest(
+      `https://example.test/api/track/lookup?trackingToken=${encodeURIComponent(TOKEN)}`,
+    ),
+  );
+  assert.notEqual(legacyQueryResponse.status, 200);
 
   // Existing TV operation remains unchanged when no customer token is supplied.
   directOrderLookups = 0;
@@ -214,8 +229,9 @@ async function main() {
   tokenOrderLookups = 0;
   const positionResponseWithTv = await byOrderRoute.GET(
     getRequest(
-      `https://example.test/api/track/by-order/${encodeURIComponent(TOKEN)}?trackingToken=${encodeURIComponent(TOKEN)}`,
+      `https://example.test/api/track/by-order/${encodeURIComponent(TOKEN)}`,
       "tv",
+      TOKEN,
     ),
     { params: { orderId: TOKEN } },
   );

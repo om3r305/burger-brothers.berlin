@@ -322,7 +322,7 @@ export default function SaucesPage() {
       <div className="bb-menu-header bb-category-header bb-sauces-header mb-4 flex flex-col gap-3 sm:mb-6 sm:flex-row sm:items-center sm:justify-between">
         <Link href="/" className="flex items-center gap-3">
           <NextImage
-            src="/logo-burger-brothers.png"
+            src="/logo-burger-brothers.webp"
             alt="Burger Brothers Berlin"
             width={42}
             height={42}

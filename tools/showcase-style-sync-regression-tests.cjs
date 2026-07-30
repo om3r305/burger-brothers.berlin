@@ -30,7 +30,7 @@ const requiredCss = [
   ".special_halloween",
   ".special_christmas",
   "@container",
-  "SHOWCASE_PREMIUM_STYLE_SYNC_V3_20260724",
+  "@container (max-aspect-ratio: 4/5)",
 ];
 
 for (const token of requiredCss) {

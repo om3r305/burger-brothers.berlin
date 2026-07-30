@@ -10,8 +10,8 @@ const celebration = read("components/rewards/RewardCelebration.tsx");
 const route = read("app/api/schnellbestellung/reward/submission/route.ts");
 
 assert.match(camera, /onDraftChange\?: \(hasUnconfirmedPhoto: boolean\)/);
-assert.match(camera, /setConfirmed\(true\)/);
-assert.match(camera, /onDraftChange\?\.\(Boolean\(file\)\)/);
+assert.match(camera, /setConfirmed\(Boolean\(file\)\)/);
+assert.match(camera, /onDraftChange\?\.\(false\)/);
 assert.match(camera, /✓ Foto ausgewählt/);
 assert.match(camera, /✓ Wird mitgesendet/);
 

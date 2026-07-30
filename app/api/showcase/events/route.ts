@@ -4,6 +4,11 @@ import {
   createShowcaseEventAckToken,
   verifyShowcaseEventAckToken,
 } from "@/lib/server/showcase-live-events";
+import {
+  enforceRateLimit,
+  forbiddenResponse,
+  hasTrustedMutationOrigin,
+} from "@/lib/server/request-security";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,6 +24,9 @@ function cleanSlug(value: unknown) {
 }
 
 export async function GET(req: Request) {
+  const rateError = await enforceRateLimit(req, "showcase:events:read", 240, 60_000);
+  if (rateError) return rateError;
+
   const screen = cleanSlug(new URL(req.url).searchParams.get("screen")) || "main";
   const tenantId = await getTenantId();
   const now = new Date();
@@ -66,6 +74,19 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  if (!hasTrustedMutationOrigin(req)) return forbiddenResponse("origin_not_allowed");
+
+  const rateError = await enforceRateLimit(req, "showcase:events:ack", 120, 60_000);
+  if (rateError) return rateError;
+
+  const contentLength = Number(req.headers.get("content-length") || 0);
+  if (contentLength > 8_192) {
+    return NextResponse.json(
+      { ok: false, error: "payload_too_large" },
+      { status: 413, headers: HEADERS },
+    );
+  }
+
   const body = await req.json().catch(() => ({}));
   const id = String(body?.id || "").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 120);
   const token = String(body?.ackToken || "");

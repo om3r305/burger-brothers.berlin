@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import styles from "./page.module.css";
 
 type NotificationKind =
   | "campaign"
@@ -10,6 +11,7 @@ type NotificationKind =
   | "nearby";
 
 type Audience = "all" | "plz" | "phone";
+type MobilePanel = "compose" | "automation" | "history";
 
 type RecentItem = {
   id: string;
@@ -147,6 +149,7 @@ export default function AdminNotificationsPage() {
   const [adminRouteStreetGroups, setAdminRouteStreetGroups] = useState<NearbyDeliverySettings["streetGroups"]>([]);
   const [message, setMessage] = useState("");
   const [tone, setTone] = useState<"ok" | "error" | "info">("info");
+  const [mobilePanel, setMobilePanel] = useState<MobilePanel>("compose");
 
   const selectedKind = useMemo(
     () => KIND_OPTIONS.find((item) => item.value === kind) || KIND_OPTIONS[0],
@@ -329,8 +332,11 @@ export default function AdminNotificationsPage() {
   };
 
   return (
-    <main className="mx-auto max-w-7xl space-y-6">
-      <header className="rounded-3xl border border-stone-800 bg-stone-950/70 p-5 shadow-xl">
+    <main
+      className={`${styles.page} mx-auto max-w-7xl space-y-4 sm:space-y-6`}
+      data-mobile-panel={mobilePanel}
+    >
+      <header className={`${styles.header} rounded-3xl border border-stone-800 bg-stone-950/70 p-5 shadow-xl`}>
         <div className="text-xs font-black uppercase tracking-[0.22em] text-emerald-400">
           Android + iOS Web Push
         </div>
@@ -342,7 +348,7 @@ export default function AdminNotificationsPage() {
         </p>
       </header>
 
-      <section className="grid gap-4 md:grid-cols-3">
+      <section className={`${styles.stats} grid gap-4 md:grid-cols-3`}>
         <div className="rounded-3xl border border-white/10 bg-white/[0.05] p-5">
           <div className="text-sm text-stone-400">Aktif cihaz</div>
           <div className="mt-2 text-4xl font-black text-white">
@@ -363,8 +369,47 @@ export default function AdminNotificationsPage() {
         </div>
       </section>
 
-      <section className="grid gap-6 xl:grid-cols-[1.25fr_.75fr]">
-        <div className="rounded-3xl border border-stone-800 bg-stone-950/70 p-5 shadow-xl sm:p-6">
+      <nav className={styles.mobileTabs} aria-label="Bildirim bölümleri">
+        {([
+          ["compose", "✍️", "Yeni bildirim"],
+          ["automation", "⚙️", "Otomasyon"],
+          ["history", "🕘", "Geçmiş"],
+        ] as const).map(([value, icon, label]) => (
+          <button
+            key={value}
+            type="button"
+            data-active={mobilePanel === value}
+            onClick={() => setMobilePanel(value)}
+          >
+            <span aria-hidden="true">{icon}</span>
+            <br />
+            {label}
+          </button>
+        ))}
+      </nav>
+
+      {message ? (
+        <div
+          role={tone === "error" ? "alert" : "status"}
+          className={[
+            styles.globalMessage,
+            "rounded-2xl border px-4 py-3 text-sm font-semibold",
+            tone === "ok"
+              ? "border-emerald-400/30 bg-emerald-950/95 text-emerald-100"
+              : tone === "error"
+                ? "border-red-400/30 bg-red-950/95 text-red-100"
+                : "border-amber-400/30 bg-amber-950/95 text-amber-100",
+          ].join(" ")}
+        >
+          {message}
+        </div>
+      ) : null}
+
+      <section
+        className={`${styles.panel} ${styles.composeGrid} grid gap-6 xl:grid-cols-[1.25fr_.75fr]`}
+        data-admin-panel="compose"
+      >
+        <div className={`${styles.composeCard} rounded-3xl border border-stone-800 bg-stone-950/70 p-5 shadow-xl sm:p-6`}>
           <h2 className="text-xl font-black text-white">Yeni bildirim</h2>
 
           <div className="mt-5 grid gap-4 sm:grid-cols-2">
@@ -444,28 +489,31 @@ export default function AdminNotificationsPage() {
             />
           </label>
 
-          <div className="mt-4 grid gap-4 sm:grid-cols-2">
-            <label className="block text-sm text-stone-300">
-              Tıklanınca açılacak sayfa
-              <input
-                value={url}
-                onChange={(event) => setUrl(event.target.value)}
-                placeholder="/menu"
-                className="mt-2 w-full rounded-xl border border-stone-700 bg-stone-900 px-4 py-3 text-white"
-              />
-            </label>
-            <label className="block text-sm text-stone-300">
-              Görsel URL (opsiyonel)
-              <input
-                value={imageUrl}
-                onChange={(event) => setImageUrl(event.target.value)}
-                placeholder="https://..."
-                className="mt-2 w-full rounded-xl border border-stone-700 bg-stone-900 px-4 py-3 text-white"
-              />
-            </label>
-          </div>
+          <details className={styles.advancedDetails}>
+            <summary>Gelişmiş bağlantı ve görsel ayarları</summary>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="block text-sm text-stone-300">
+                Tıklanınca açılacak sayfa
+                <input
+                  value={url}
+                  onChange={(event) => setUrl(event.target.value)}
+                  placeholder="/menu"
+                  className="mt-2 w-full rounded-xl border border-stone-700 bg-stone-900 px-4 py-3 text-white"
+                />
+              </label>
+              <label className="block text-sm text-stone-300">
+                Görsel URL (opsiyonel)
+                <input
+                  value={imageUrl}
+                  onChange={(event) => setImageUrl(event.target.value)}
+                  placeholder="https://..."
+                  className="mt-2 w-full rounded-xl border border-stone-700 bg-stone-900 px-4 py-3 text-white"
+                />
+              </label>
+            </div>
+          </details>
 
-          <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+          <div className={`${styles.actions} mt-6 flex flex-col gap-3 sm:flex-row`}>
             <button
               type="button"
               disabled={Boolean(busy)}
@@ -484,27 +532,12 @@ export default function AdminNotificationsPage() {
             </button>
           </div>
 
-          {message ? (
-            <div
-              className={[
-                "mt-5 rounded-2xl border px-4 py-3 text-sm font-semibold",
-                tone === "ok"
-                  ? "border-emerald-400/30 bg-emerald-500/10 text-emerald-100"
-                  : tone === "error"
-                    ? "border-red-400/30 bg-red-500/10 text-red-100"
-                    : "border-amber-400/30 bg-amber-500/10 text-amber-100",
-              ].join(" ")}
-            >
-              {message}
-            </div>
-          ) : null}
         </div>
 
-        <aside className="rounded-3xl border border-stone-800 bg-stone-950/70 p-5 shadow-xl sm:p-6">
-          <div className="text-sm font-black uppercase tracking-[0.18em] text-stone-500">
-            Telefon önizlemesi
-          </div>
-          <div className="mt-5 rounded-[2rem] border border-white/10 bg-gradient-to-b from-stone-800 to-stone-950 p-5 shadow-2xl">
+        <aside className="rounded-3xl border border-stone-800 bg-stone-950/70 p-4 shadow-xl sm:p-6">
+          <details className={styles.previewDetails}>
+            <summary>Telefon önizlemesini göster</summary>
+            <div className="rounded-[2rem] border border-white/10 bg-gradient-to-b from-stone-800 to-stone-950 p-5 shadow-2xl">
             <div className="flex items-center gap-3">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
@@ -521,17 +554,21 @@ export default function AdminNotificationsPage() {
             <div className="mt-1 text-sm leading-6 text-stone-300">
               {body || selectedKind.body}
             </div>
-          </div>
+            </div>
 
-          <div className="mt-5 rounded-2xl border border-amber-300/15 bg-amber-500/5 p-4 text-xs leading-5 text-stone-400">
-            Kampanya, kupon ve yakın teslimat bildirimleri yalnız müşterinin
-            ilgili izni açıksa gider. “İkiz mahalle” mesajında başka müşterinin
-            adı, siparişi veya kesin adresi gösterilmez.
-          </div>
+            <div className="mt-4 rounded-2xl border border-amber-300/15 bg-amber-500/5 p-4 text-xs leading-5 text-stone-400">
+              Kampanya, kupon ve yakın teslimat bildirimleri yalnız müşterinin
+              ilgili izni açıksa gider. “İkiz mahalle” mesajında başka müşterinin
+              adı, siparişi veya kesin adresi gösterilmez.
+            </div>
+          </details>
         </aside>
       </section>
 
-      <section className="rounded-3xl border border-stone-800 bg-stone-950/70 p-5 shadow-xl sm:p-6">
+      <section
+        className={`${styles.panel} ${styles.automationPanel} rounded-3xl border border-stone-800 bg-stone-950/70 p-5 shadow-xl sm:p-6`}
+        data-admin-panel="automation"
+      >
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <div className="text-xs font-black uppercase tracking-[0.2em] text-amber-300">
@@ -553,71 +590,78 @@ export default function AdminNotificationsPage() {
           </label>
         </div>
 
-        <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-          {booleanSettingKeys.map(({ key, label }) => (
-            <label key={key} className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.04] p-3 text-sm font-bold text-stone-200">
-              <input
-                type="checkbox"
-                checked={nearbySettings[key]}
-                onChange={(event) => setNearby(key, event.target.checked)}
-                className="h-5 w-5 accent-emerald-400"
-              />
-              {label}
-            </label>
-          ))}
-        </div>
+        <details className={styles.automationDetails}>
+          <summary>Hedefleme kurallarını ve sınırları düzenle</summary>
 
-        <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {numberSettingKeys.map(({ key, label, min, max }) => (
-            <label key={key} className="block text-sm text-stone-300">
-              {label}
-              <input
-                type="number"
-                min={min}
-                max={max}
-                value={nearbySettings[key]}
-                onChange={(event) => setNearby(key, Number(event.target.value))}
-                className="mt-2 w-full rounded-xl border border-stone-700 bg-stone-900 px-4 py-3 text-white"
-              />
-            </label>
-          ))}
-        </div>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+            {booleanSettingKeys.map(({ key, label }) => (
+              <label key={key} className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.04] p-3 text-sm font-bold text-stone-200">
+                <input
+                  type="checkbox"
+                  checked={nearbySettings[key]}
+                  onChange={(event) => setNearby(key, event.target.checked)}
+                  className="h-5 w-5 accent-emerald-400"
+                />
+                {label}
+              </label>
+            ))}
+          </div>
 
-        <div className="mt-5 rounded-2xl border border-emerald-400/20 bg-emerald-500/[0.06] p-4 text-sm leading-6 text-stone-300">
-          <div className="font-black text-emerald-200">Admin Settings adresleri otomatik kullanılıyor</div>
-          <p className="mt-1">
-            Admin → Settings → Rota Fırsatları bölümündeki kural adı push
-            başlığı; müşteri metni push açıklaması olarak kullanılır. PLZ, sokak ve
-            <strong className="text-white"> Fırsat süresi dakika</strong> değeri
-            aynı aktif fırsattan alınır. Rota fırsatı aktifse push ayrıca bu
-            bölümdeki eski otomasyon anahtarına bağlı kalmadan çalışır. Sipariş
-            Unterwegs olduğunda fırsat kapanır. Tanımlı aktif grup:
-            <strong className="ml-1 text-white">{adminRouteStreetGroups.length}</strong>
-          </p>
-        </div>
+          <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {numberSettingKeys.map(({ key, label, min, max }) => (
+              <label key={key} className="block text-sm text-stone-300">
+                {label}
+                <input
+                  type="number"
+                  min={min}
+                  max={max}
+                  value={nearbySettings[key]}
+                  onChange={(event) => setNearby(key, Number(event.target.value))}
+                  className="mt-2 w-full rounded-xl border border-stone-700 bg-stone-900 px-4 py-3 text-white"
+                />
+              </label>
+            ))}
+          </div>
 
-        <label className="mt-5 block text-sm text-stone-300">
-          Ek özel sokak grupları — Grup [PLZ]: Sokak 1; Sokak 2
-          <textarea
-            value={streetGroupsText}
-            onChange={(event) => setStreetGroupsText(event.target.value)}
-            rows={5}
-            placeholder={"Tegel Zentrum [13507]: Berliner Straße; Schlieperstraße\nBorsigwalde [13509]: Holzhauser Straße; Miraustraße"}
-            className="mt-2 w-full rounded-xl border border-stone-700 bg-stone-900 px-4 py-3 text-white"
-          />
-        </label>
+          <div className="mt-5 rounded-2xl border border-emerald-400/20 bg-emerald-500/[0.06] p-4 text-sm leading-6 text-stone-300">
+            <div className="font-black text-emerald-200">Admin Settings adresleri otomatik kullanılıyor</div>
+            <p className="mt-1">
+              Admin → Settings → Rota Fırsatları bölümündeki kural adı push
+              başlığı; müşteri metni push açıklaması olarak kullanılır. PLZ, sokak ve
+              <strong className="text-white"> Fırsat süresi dakika</strong> değeri
+              aynı aktif fırsattan alınır. Rota fırsatı aktifse push ayrıca bu
+              bölümdeki eski otomasyon anahtarına bağlı kalmadan çalışır. Sipariş
+              Unterwegs olduğunda fırsat kapanır. Tanımlı aktif grup:
+              <strong className="ml-1 text-white">{adminRouteStreetGroups.length}</strong>
+            </p>
+          </div>
 
-        <button
-          type="button"
-          onClick={() => void saveNearbySettings()}
-          disabled={Boolean(busy)}
-          className="mt-5 rounded-xl bg-amber-300 px-6 py-3 font-black text-black transition hover:bg-amber-200 disabled:opacity-50"
-        >
-          {busy === "nearby" ? "Kaydediliyor…" : "Yakın teslimat ayarlarını kaydet"}
-        </button>
+          <label className="mt-5 block text-sm text-stone-300">
+            Ek özel sokak grupları — Grup [PLZ]: Sokak 1; Sokak 2
+            <textarea
+              value={streetGroupsText}
+              onChange={(event) => setStreetGroupsText(event.target.value)}
+              rows={5}
+              placeholder={"Tegel Zentrum [13507]: Berliner Straße; Schlieperstraße\nBorsigwalde [13509]: Holzhauser Straße; Miraustraße"}
+              className="mt-2 w-full rounded-xl border border-stone-700 bg-stone-900 px-4 py-3 text-white"
+            />
+          </label>
+
+          <button
+            type="button"
+            onClick={() => void saveNearbySettings()}
+            disabled={Boolean(busy)}
+            className="mt-5 min-h-12 w-full rounded-xl bg-amber-300 px-6 py-3 font-black text-black transition hover:bg-amber-200 disabled:opacity-50 sm:w-auto"
+          >
+            {busy === "nearby" ? "Kaydediliyor…" : "Yakın teslimat ayarlarını kaydet"}
+          </button>
+        </details>
       </section>
 
-      <section className="rounded-3xl border border-stone-800 bg-stone-950/70 p-5 shadow-xl sm:p-6">
+      <section
+        className={`${styles.panel} ${styles.historyPanel} rounded-3xl border border-stone-800 bg-stone-950/70 p-5 shadow-xl sm:p-6`}
+        data-admin-panel="history"
+      >
         <div className="flex items-center justify-between gap-4">
           <h2 className="text-xl font-black text-white">Son gönderimler</h2>
           <button
@@ -629,7 +673,7 @@ export default function AdminNotificationsPage() {
           </button>
         </div>
 
-        <div className="mt-4 overflow-x-auto">
+        <div className={`${styles.desktopHistory} mt-4 overflow-x-auto`}>
           <table className="w-full min-w-[760px] text-left text-sm">
             <thead className="text-stone-500">
               <tr>
@@ -664,6 +708,40 @@ export default function AdminNotificationsPage() {
               ) : null}
             </tbody>
           </table>
+        </div>
+
+        <div className={styles.mobileHistory}>
+          {recent.map((item) => (
+            <article key={item.id} className={styles.historyCard}>
+              <div className="text-sm font-black leading-5 text-white">
+                {item.title}
+              </div>
+              <div className="mt-1 line-clamp-2 text-xs leading-5 text-stone-500">
+                {item.body}
+              </div>
+              <div className={styles.historyMeta}>
+                <div>
+                  <span>Tür / durum</span>
+                  <strong>{item.kind} · {item.status}</strong>
+                </div>
+                <div>
+                  <span>Başarılı</span>
+                  <strong className="text-emerald-300">
+                    {item.successCount}/{item.recipientCount}
+                  </strong>
+                </div>
+                <div>
+                  <span>Tarih</span>
+                  <strong>{formatDate(item.sentAt || item.createdAt)}</strong>
+                </div>
+              </div>
+            </article>
+          ))}
+          {!recent.length ? (
+            <div className="py-8 text-center text-sm text-stone-500">
+              Henüz gönderim yok.
+            </div>
+          ) : null}
         </div>
       </section>
     </main>

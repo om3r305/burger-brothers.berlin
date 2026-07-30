@@ -142,6 +142,7 @@ export async function POST(req: Request) {
             imageUrl: item?.imageUrl ? String(item.imageUrl) : null,
             category: cleanText(item?.category, "burger"),
             price: toDecimal(item?.price),
+            taxRate: Number(item?.taxRate) === 19 ? 19 : 7,
             active: typeof item?.active === "boolean" ? item.active : true,
             activeFrom: toDateOrNull(item?.activeFrom),
             activeTo: toDateOrNull(item?.activeTo),
@@ -158,6 +159,7 @@ export async function POST(req: Request) {
             imageUrl: item?.imageUrl ? String(item.imageUrl) : null,
             category: cleanText(item?.category, "burger"),
             price: toDecimal(item?.price),
+            taxRate: Number(item?.taxRate) === 19 ? 19 : 7,
             active: typeof item?.active === "boolean" ? item.active : true,
             activeFrom: toDateOrNull(item?.activeFrom),
             activeTo: toDateOrNull(item?.activeTo),
@@ -235,7 +237,7 @@ export async function POST(req: Request) {
     return json(
       {
         ok: false,
-        error: error?.message || "BOOTSTRAP_FAILED",
+        error: "BOOTSTRAP_FAILED",
       },
       500,
     );

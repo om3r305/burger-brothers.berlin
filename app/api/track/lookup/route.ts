@@ -667,7 +667,7 @@ export async function GET(req: Request) {
     return okResponse(result.order, result.code, operational);
   } catch (error: any) {
     console.error("[track/lookup] GET failed:", error);
-    return errorResponse(error?.message || "lookup_failed", 500);
+    return errorResponse("TRACKING_LOOKUP_FAILED", 500);
   }
 }
 
@@ -722,6 +722,6 @@ export async function POST(req: Request) {
     return okResponse(result.order, result.code, operational);
   } catch (error: any) {
     console.error("[track/lookup] POST failed:", error);
-    return errorResponse(error?.message || "lookup_failed", 500);
+    return errorResponse("TRACKING_LOOKUP_FAILED", 500);
   }
 }

@@ -11,6 +11,8 @@ export type SpecialDayTheme =
   | "easter"
   | "germany"
   | "berlin"
+  | "school"
+  | "vegan"
   | "celebration"
   | "winter";
 
@@ -23,6 +25,9 @@ export type SpecialDayPresetKey =
   | "easter"
   | "may-day"
   | "germany-unity"
+  | "school-report"
+  | "school-start"
+  | "vegan-week"
   | "oktoberfest"
   | "halloween"
   | "st-martin"
@@ -124,6 +129,36 @@ export const SPECIAL_DAY_PRESETS: Record<SpecialDayPresetKey, SpecialDayPreset> 
     body: "Gemeinsam feiern, gemeinsam genießen.",
     badge: "3. OKTOBER",
     scheduleLabel: "1–3 Ekim",
+  },
+  "school-report": {
+    key: "school-report",
+    label: "Karne / Zeugnis hediyesi",
+    theme: "school",
+    emoji: "🎓",
+    title: "ZEUGNIS GESCHAFFT? DAS MUSS GEFEIERT WERDEN!",
+    body: "Starke Leistung verdient eine leckere Belohnung. Feiert euren Erfolg gemeinsam bei Burger Brothers.",
+    badge: "ZEUGNIS-BELOHNUNG",
+    scheduleLabel: "25 Ocak–5 Şubat · Berlin tarihini kontrol et",
+  },
+  "school-start": {
+    key: "school-start",
+    label: "Okula dönüş / Schulstart",
+    theme: "school",
+    emoji: "⭐",
+    title: "EIN STARKER START INS NEUE SCHULJAHR",
+    body: "Wir wünschen allen Schülerinnen und Schülern einen großartigen Start – mit Mut, Freude und gutem Geschmack.",
+    badge: "SCHULSTART IN BERLIN",
+    scheduleLabel: "20 Ağustos–10 Eylül · Berlin tarihini kontrol et",
+  },
+  "vegan-week": {
+    key: "vegan-week",
+    label: "Vegan Week",
+    theme: "vegan",
+    emoji: "🌱",
+    title: "PFLANZLICH. SAFTIG. RICHTIG LECKER.",
+    body: "Entdecke unsere veganen Favoriten und genieße vollen Burger-Geschmack – ganz ohne Kompromisse.",
+    badge: "VEGAN WEEK",
+    scheduleLabel: "28 Ekim–7 Kasım",
   },
   oktoberfest: {
     key: "oktoberfest",
@@ -296,6 +331,9 @@ export function specialDayPresetIsActive(key: string | undefined, now = Date.now
     case "easter": return sameLocalDay(date, easterSunday(year), 4);
     case "may-day": return fixedRange(date, 4, 30, 5, 1);
     case "germany-unity": return fixedRange(date, 10, 1, 10, 3);
+    case "school-report": return fixedRange(date, 1, 25, 2, 5);
+    case "school-start": return fixedRange(date, 8, 20, 9, 10);
+    case "vegan-week": return fixedRange(date, 10, 28, 11, 7);
     case "oktoberfest": return fixedRange(date, 9, 15, 10, 6);
     case "halloween": return fixedRange(date, 10, 24, 10, 31);
     case "st-martin": return fixedRange(date, 11, 9, 11, 11);
@@ -311,7 +349,11 @@ export function specialDayPresetIsActive(key: string | undefined, now = Date.now
 export type WeatherCopyKey =
   | "rainMorning"
   | "rainEvening"
+  | "drizzle"
+  | "storm"
   | "snowCold"
+  | "fog"
+  | "windy"
   | "hot"
   | "lateNight"
   | "evening"
@@ -320,25 +362,105 @@ export type WeatherCopyKey =
   | "sunny";
 
 export const DEFAULT_WEATHER_MESSAGES: Record<WeatherCopyKey, string> = {
-  rainMorning: "Regen in Tegel? Zeit für einen heißen Burger.",
-  rainEvening: "Draußen nass. Dein Burger kommt heiß nach Hause.",
-  snowCold: "Kalt draußen. Heiß, frisch und käsig bei uns.",
-  hot: "Burger heiß. Getränke eiskalt. So schmeckt der Sommer.",
-  lateNight: "Später Hunger? Wir haben da eine sehr gute Idee.",
-  evening: "Feierabend in Berlin. Jetzt fehlt nur noch der Burger.",
-  lunch: "Mittagspause? Mach sie richtig lecker.",
-  cloudy: "Grauer Himmel. Goldene Pommes. Gute Entscheidung.",
-  sunny: "Sonne über Tegel. Zeit für einen richtig guten Burger.",
+  rainMorning: "Tegel macht heute auf Dusche. Wir halten mit heißen Burgern dagegen.",
+  rainEvening: "Wenn Berlin draußen plätschert, darf drinnen der Cheddar schmelzen.",
+  drizzle: "Ein bisschen Nieselregen? Perfektes Wetter für eine richtig gute Burgerpause.",
+  storm: "Draußen macht der Himmel Theater. Drinnen übernimmt nur der Geschmack.",
+  snowCold: "Schneeflocken draußen, Käsefäden drinnen – fairer Tausch, oder?",
+  fog: "Tegel versteckt sich im Nebel. Den Weg zum Burger findet man trotzdem.",
+  windy: "Berlin pustet heute ordentlich. Wir halten Burger und Pommes für dich fest.",
+  hot: "Berlin hat den Grill aufgedreht. Die Drinks stehen schon eiskalt.",
+  lateNight: "Der Tag ist durch. Dein Burger muss es noch lange nicht sein.",
+  evening: "Feierabend fragt: Sofa oder Burger? Wir sagen ganz klar: beides.",
+  lunch: "Kurze Pause, große Entscheidung: mit oder ohne extra Cheddar?",
+  cloudy: "Tegel trägt heute Grau. Unsere Pommes bleiben Gold.",
+  sunny: "Sonne über Tegel – heute darf selbst der Burger kurz posieren.",
+};
+
+const WEATHER_MESSAGE_VARIANTS: Record<WeatherCopyKey, readonly string[]> = {
+  rainMorning: [
+    DEFAULT_WEATHER_MESSAGES.rainMorning,
+    "Regenschirm auf, App auf, Burger auswählen – so geht Wetterplanung in Tegel.",
+    "Berlin gießt die Straßen. Wir kümmern uns um etwas deutlich Leckereres.",
+  ],
+  rainEvening: [
+    DEFAULT_WEATHER_MESSAGES.rainEvening,
+    "Nasse Straßen, warmer Burger, trockene Couch. Klingt nach einem Plan.",
+    "Der Regen klopft ans Fenster. Wir lieber mit einer heißen Bestellung.",
+  ],
+  drizzle: [
+    DEFAULT_WEATHER_MESSAGES.drizzle,
+    "Das Wetter kann sich nicht entscheiden. Beim Burger helfen wir gern.",
+    "Ein paar Tropfen draußen, ganz viel Geschmack drinnen.",
+  ],
+  storm: [
+    DEFAULT_WEATHER_MESSAGES.storm,
+    "Blitz und Donner können laut sein. Unser Burger überzeugt ohne Geschrei.",
+    "Heute knallt nur das Wetter – und vielleicht der erste Biss.",
+  ],
+  snowCold: [
+    DEFAULT_WEATHER_MESSAGES.snowCold,
+    "Kalte Hände? Burger Brothers hat da eine ziemlich warme Antwort.",
+    "Tegel wird zum Winterfilm. Der Burger übernimmt die Hauptrolle.",
+  ],
+  fog: [
+    DEFAULT_WEATHER_MESSAGES.fog,
+    "Draußen wenig Sicht, bei uns klare Sache: frisch, heiß, lecker.",
+    "Der Nebel macht geheimnisvoll. Unsere Burger verraten trotzdem alles.",
+  ],
+  windy: [
+    DEFAULT_WEATHER_MESSAGES.windy,
+    "Heute fliegt fast alles – außer dein Burger, den passen wir gut auf.",
+    "Kräftiger Wind in Tegel. Zeit für etwas, das wirklich Bodenhaftung hat.",
+  ],
+  hot: [
+    DEFAULT_WEATHER_MESSAGES.hot,
+    "Sonne satt, Drinks kalt, Burger saftig. Mehr Sommer braucht Tegel nicht.",
+    "Heißer Tag? Extra Eis im Drink, extra Geschmack im Burger.",
+  ],
+  lateNight: [
+    DEFAULT_WEATHER_MESSAGES.lateNight,
+    "Tegel wird leiser. Dein Hunger offenbar nicht – verstehen wir.",
+    "Schon spät? Für eine gute Burgeridee ist es erstaunlich selten zu spät.",
+  ],
+  evening: [
+    DEFAULT_WEATHER_MESSAGES.evening,
+    "Der Arbeitstag ist vorbei. Jetzt beginnt der leckere Teil.",
+    "Abend in Berlin: Füße hoch, Burger ran.",
+  ],
+  lunch: [
+    DEFAULT_WEATHER_MESSAGES.lunch,
+    "Mittagspause ist kurz. Der gute Geschmack darf trotzdem groß sein.",
+    "Der Magen hat abgestimmt. Das Ergebnis war ziemlich eindeutig: Burger.",
+  ],
+  cloudy: [
+    DEFAULT_WEATHER_MESSAGES.cloudy,
+    "Die Wolken sind grau. Unser Cheddar hat zum Glück andere Pläne.",
+    "Kein Sonnenstrahl? Dann bringen wir eben das Gold auf den Teller.",
+  ],
+  sunny: [
+    DEFAULT_WEATHER_MESSAGES.sunny,
+    "Tegel strahlt. Wir legen beim Burger noch eine Portion drauf.",
+    "Sonnenwetter und Burgerlaune – Berlin kann heute wirklich was.",
+  ],
 };
 
 export function weatherMessageKey(weather: ShowcaseWeather | null | undefined, hour: number): WeatherCopyKey {
   const label = String(weather?.label || "").toLowerCase();
-  const rainy = label.includes("regen") || label.includes("schauer") || label.includes("gewitter");
+  const code = Number(weather?.weatherCode);
+  const stormy = [95, 96, 99].includes(code) || label.includes("gewitter");
+  const drizzle = [51, 53, 55, 56, 57].includes(code) || label.includes("niesel");
+  const rainy = [61, 63, 65, 66, 67, 80, 81, 82].includes(code) || label.includes("regen") || label.includes("schauer");
   const snowy = label.includes("schnee");
-  const cloudy = label.includes("bewölkt") || label.includes("wolk") || label.includes("nebel");
+  const foggy = label.includes("nebel");
+  const cloudy = label.includes("bewölkt") || label.includes("wolk") || label.includes("bedeckt");
   const temperature = weather && Number.isFinite(weather.temperature) ? Math.round(weather.temperature) : null;
+  if (stormy) return "storm";
+  if (drizzle) return "drizzle";
   if (rainy) return hour >= 17 ? "rainEvening" : "rainMorning";
   if (snowy || (temperature != null && temperature <= 4)) return "snowCold";
+  if (foggy) return "fog";
+  if (Number(weather?.windGusts || weather?.windSpeed || 0) >= 45) return "windy";
   if (temperature != null && temperature >= 27) return "hot";
   if (hour >= 21 || hour < 5) return "lateNight";
   if (hour >= 17) return "evening";
@@ -353,5 +475,15 @@ export function resolveWeatherMessage(
   overrides?: Partial<Record<WeatherCopyKey, string>>,
 ) {
   const key = weatherMessageKey(weather, date.getHours());
-  return String(overrides?.[key] || DEFAULT_WEATHER_MESSAGES[key]).trim();
+  const custom = String(overrides?.[key] || "").trim();
+  if (custom) return custom;
+
+  const variants = WEATHER_MESSAGE_VARIANTS[key];
+  const weatherSeed = Number(weather?.weatherCode || 0);
+  const dateSeed =
+    date.getFullYear() * 372 +
+    (date.getMonth() + 1) * 31 +
+    date.getDate() +
+    Math.floor(date.getHours() / 3);
+  return variants[Math.abs(dateSeed + weatherSeed) % variants.length];
 }

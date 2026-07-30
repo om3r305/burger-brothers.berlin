@@ -62,8 +62,14 @@ assert.doesNotMatch(adminRewards, /take: 1_000/);
 assert.match(adminRewards, /prisma\.order\.count/);
 assert.match(moderation, /30_000/);
 assert.match(attention, /30_000/);
-assert.match(submission, /runAfterResponse/);
-assert.match(submission, /Storage \+ submission kaydı müşteriye dönmeden önce tamamlanır/);
+assert.doesNotMatch(
+  submission,
+  /runAfterResponse/,
+  "Reward queue durability must not rely on a serverless after-response callback",
+);
+assert.match(submission, /Kuyruk\/bildirim bayrakları yalnız kalıcı DB yazımı/);
+assert.match(submission, /showcaseQueued = events\.length > 0/);
+assert.match(submission, /notificationQueued = true/);
 
 assert.match(enter, /LOCATION_DEADLINE_MS = 10_000/);
 assert.match(enter, /maximumAge: 120_000/);

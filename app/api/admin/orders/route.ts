@@ -904,8 +904,8 @@ function errorResponse(error: any, fallback: string, status = 500) {
     {
       ok: false,
       source: "db",
-      error: error?.message || fallback,
-      message: error?.message || fallback,
+      error: fallback,
+      message: fallback,
     },
     status,
   );

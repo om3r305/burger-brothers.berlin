@@ -1,0 +1,58 @@
+﻿BURGER BROTHERS SHOWCASE
+HAFTALIK PROGRAM + VIDEO SAHNE SURESI TESLIMATI
+
+EKLENENLER
+
+1. HAFTALIK YAYIN PROGRAMI
+- Bütün sahne türlerinde kullanılabilir.
+- Program açık/kapalı seçeneği.
+- Pazartesi-Pazar gün seçimi.
+- Başlangıç ve bitiş saati.
+- Sabit ve güvenli Europe/Berlin saat dilimi.
+- Hazır “Hafta içi 10:00–16:00” Mittagsmenü ayarı.
+- 09:59 görünmez, 10:00 görünür, 15:59 görünür, 16:00 görünmez.
+- Cumartesi/Pazar seçilmediyse hafta sonu gösterilmez.
+- Gece yarısını aşan saatler de desteklenir.
+- Admin panelinde canlı “şu anda gösterilir / program dışında” bilgisi.
+- TV açık kalsa bile her dakika program yeniden değerlendirilir.
+- Sahne tipi değiştirilse bile program ayarları korunur.
+- Program açıkken gün seçilmemişse yayınlama validasyonu engeller.
+
+2. VIDEO SAHNE SURESI
+- Video dosyasının gerçek uzunluğu artık sahne süresini değiştirmez.
+- Yükleme sırasında 15 saniyelik video sahneyi otomatik 15 saniye yapmaz.
+- “Sahne süresi boyunca tekrarla” varsayılandır.
+- “Bir kez oynat, son karede beklet” alternatifi vardır.
+- 15 saniyelik video + 60 saniyelik sahne = video 60 saniye boyunca döner.
+- Video bittiğinde sonraki sahneye erken geçilmez.
+- Geçişi yalnız sahnenin ana zamanlayıcısı yapar.
+
+DEĞİŞEN DOSYALAR
+- app/admin/showcase/page.tsx
+- components/showcase/ShowcasePlayer.tsx
+- components/showcase/ShowcaseStage.tsx
+- components/showcase/admin/SceneBasicsEditor.tsx
+- components/showcase/admin/WeeklyScheduleEditor.tsx (yeni)
+- lib/showcase/config.ts
+- lib/showcase/editor.ts
+- lib/showcase/schedule.ts (yeni)
+- lib/showcase/types.ts
+- tools/showcase-empty-text-regression-tests.cjs
+- tools/showcase-schedule-video-loop-tests.cjs (yeni)
+- package.json
+
+DOĞRULAMALAR
+- Yeni program sınır testleri geçti.
+- 10:00 başlangıç ve 16:00 kesin kapanış testi geçti.
+- Hafta sonu gizleme testi geçti.
+- Gece yarısını aşan program testi geçti.
+- Değişen TS/TSX dosyalarının syntax transpile kontrolü geçti.
+- Mevcut Final Hardening, Final V2, route ve boş metin testleri geçti.
+- Tam typecheck ve production build kurulum scriptinde gerçek proje üzerinde zorunludur.
+- Test/build başarısızsa kaynak dosyalar otomatik geri yüklenir.
+- Build başarılı, GitHub push başarısızsa çalışan yerel düzeltme korunur.
+
+GÜVENLİK
+- git init kullanılmaz.
+- .env, API anahtarları, tokenlar, DB ve medya dosyaları pakette yoktur.
+- Yalnız bu teslimatın dosyaları GitHub klasörüne kopyalanır ve git add yapılır.

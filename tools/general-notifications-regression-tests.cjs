@@ -308,10 +308,13 @@ assertContains(
   settingsRoute,
   [
     "reconcileSettingsAutomaticNotifications",
-    "processDueAutomaticNotifications",
     "previousSettings",
   ],
   "Settings automatic trigger",
+);
+assert(
+  !settingsRoute.includes("processDueAutomaticNotifications"),
+  "Public settings reads must not execute due-notification side effects",
 );
 const settingsLib = read("lib/settings.ts");
 const settingsPage = read("app/admin/settings/page.tsx");
