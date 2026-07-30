@@ -3,6 +3,10 @@
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 import { useCart } from "@/components/store";
+import {
+  optimizedLocalImageUrl,
+  restoreLocalImageFallback,
+} from "@/lib/media/local-optimized-image";
 
 /* ==== Tipler ==== */
 type Variant = {
@@ -49,9 +53,9 @@ export default function VariantGroupCard({
   const [open, setOpen] = useState(false);
   const [note, setHinweise] = useState("");
   const [counts, setCounts] = useState<Record<string, number>>({});
-  const [fallback, setFallback] = useState(false);
 
   const cat: NonNullable<Props["category"]> = (category ?? "drinks") as any;
+  const displayImage = optimizedLocalImageUrl(image) || image || "";
 
   /** 🔐 Varyant erişilebilir mi? (aktif + tarih aralığı) */
   const isVAvail = (v: Variant) => {
@@ -125,20 +129,18 @@ export default function VariantGroupCard({
       {/* ==== BODY ==== */}
       <div className="product-card__body">
         {/* Kapak — h-48 ile daha büyük görsel */}
-        <div className="relative mb-2 h-48 w-full overflow-hidden rounded-xl bg-stone-800/50">
-          {image ? (
-            fallback ? (
-              <img src={image} alt={name} className="h-full w-full object-cover" />
-            ) : (
-              <Image
-                src={image}
-                alt={name}
-                fill
-                sizes="(max-width: 768px) 100vw, 33vw"
-                className="object-cover"
-                onError={() => setFallback(true)}
-              />
-            )
+        <div className="bb-menu-product-cover relative mb-2 h-48 w-full overflow-hidden rounded-xl">
+          {displayImage ? (
+            <Image
+              src={displayImage}
+              alt={name}
+              fill
+              sizes="(max-width: 768px) 100vw, 33vw"
+              className="object-cover"
+              onError={(event) =>
+                restoreLocalImageFallback(event.currentTarget, image)
+              }
+            />
           ) : (
             <div className="absolute inset-0 grid place-items-center text-stone-400">Kein Bild</div>
           )}

@@ -643,7 +643,16 @@ html[data-bb-theme] .product-card {
     0 0 28px var(--bb-muted-glow);
 }
 
-html[data-bb-theme] :is(.bb-menu-product-cover, .bb-schnell-product-media) {
+html[data-bb-theme] :is(
+  .bb-menu-product-cover,
+  .bb-schnell-product-media,
+  .bb-drinks-card .product-card__body > div:first-child,
+  .bb-extras-card .product-card__body > div:first-child,
+  .bb-bubble-tea-card .card > div:first-child,
+  .bb-sauces-card .card > div:first-child,
+  .bb-donuts-card .card > div:first-child,
+  .bb-hotdogs-card .cover
+) {
   border-color: var(--bb-product-media-border) !important;
   background-color: var(--bb-surface-strong) !important;
   background-image: var(--bb-product-media-bg) !important;

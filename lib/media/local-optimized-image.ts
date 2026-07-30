@@ -1,6 +1,9 @@
 const OPTIMIZABLE_LOCAL_PATH =
   /^\/(?:images|badges)\/.+\.png$/i;
 
+const DURSTLOESCHER_LOCAL_PATH =
+  /^\/images\/drinks\/[^?#]*durst[^?#]*$/i;
+
 function splitAssetUrl(value: string) {
   const match = String(value || "").match(/^([^?#]+)([?#].*)?$/);
   return {
@@ -9,8 +12,31 @@ function splitAssetUrl(value: string) {
   };
 }
 
-export function optimizedLocalImageUrl(value?: string | null) {
+function canonicalKnownLocalAsset(
+  value?: string | null,
+  format: "preferred" | "fallback" = "preferred",
+) {
   const source = String(value || "").trim();
+  if (!source) return source;
+
+  const { pathname, suffix } = splitAssetUrl(source);
+
+  // Windows local geliştirme dosya adlarında büyük/küçük harfi tolere eder.
+  // Vercel/Linux etmez. DB'de eski Durstlöscher adı veya farklı harf kullanılsa
+  // bile canlıda Git'te bulunan kesin küçük harfli dosyaya yönlendir.
+  if (DURSTLOESCHER_LOCAL_PATH.test(pathname)) {
+    return `${
+      format === "preferred"
+        ? "/images/drinks/durst.webp"
+        : "/images/drinks/durst.png"
+    }${suffix}`;
+  }
+
+  return source;
+}
+
+export function optimizedLocalImageUrl(value?: string | null) {
+  const source = canonicalKnownLocalAsset(value, "preferred");
   if (!source) return source;
 
   const { pathname, suffix } = splitAssetUrl(source);
@@ -20,11 +46,15 @@ export function optimizedLocalImageUrl(value?: string | null) {
   return `${pathname.replace(/\.png$/i, ".webp")}${suffix}`;
 }
 
+export function localImageFallbackUrl(value?: string | null) {
+  return canonicalKnownLocalAsset(value, "fallback");
+}
+
 export function restoreLocalImageFallback(
   element: HTMLImageElement,
   original?: string | null,
 ) {
-  const fallback = String(original || "").trim();
+  const fallback = localImageFallbackUrl(original);
   if (!fallback) return;
 
   const currentPath = (() => {
@@ -38,5 +68,9 @@ export function restoreLocalImageFallback(
   const fallbackPath = splitAssetUrl(fallback).pathname;
   if (currentPath === fallbackPath) return;
 
+  // Next/Image bir srcset bırakmış olabilir; ham PNG geri dönüşünün gerçekten
+  // seçilmesi için önce optimize edilmiş adayları kaldır.
+  element.removeAttribute("srcset");
+  element.removeAttribute("sizes");
   element.src = fallback;
 }
