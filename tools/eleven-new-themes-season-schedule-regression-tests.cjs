@@ -33,6 +33,17 @@ for (const effect of [
 }
 
 must(
+  themes.includes('womensday: "womensday"') &&
+  themes.includes('medicine: "medicine"'),
+  "Kadınlar Günü ve Tıp Bayramı kimlikleri normalize edilirken Classic temasına düşmüyor",
+);
+must(
+  themes.includes('weltfrauentag: "womensday"') &&
+  themes.includes('tagdermedizin: "medicine"'),
+  "Almanca tema adları doğru tema kimliklerine eşleniyor",
+);
+
+must(
   themes.includes('localDateTime(year, 3, 1)') &&
   themes.includes('localDateTime(year, 3, 8, 23, 59)') &&
   themes.includes('"womensday"'),
