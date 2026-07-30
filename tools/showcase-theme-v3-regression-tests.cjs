@@ -46,10 +46,11 @@ const requiredThemes = [
   "classic", "neon", "easter", "summer", "fathersday", "school",
   "veganweek", "fan", "oktoberfest", "lights", "germany", "halloween",
   "blackweek", "christmas", "weihnachten", "winter", "newyear", "valentines",
-  "womensday", "medicine", "mothersday", "ramadan", "autumn", "anniversary", "pride",
+  "womensday", "medicine", "mothersday", "ramadan", "autumn", "anniversary",
   "retrowave", "arcade", "popart",
 ];
 requiredThemes.forEach((id) => must(themes.includes(`"${id}"`), `tema mevcut: ${id}`));
+must(!themes.includes('id: "pride"') && !globals.includes('data-bb-theme="pride"'), "Berlin Pride teması tamamen kaldırıldı");
 const effects = [...themes.matchAll(/\n\s*effect: "([^"]+)"/g)].map((match) => match[1]);
 must(effects.length === requiredThemes.length, "her tema için profesyonel efekt profili tanımlı");
 must(new Set(effects).size === requiredThemes.length, "tüm temaların atmosfer dili birbirinden farklı");

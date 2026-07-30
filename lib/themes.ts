@@ -26,7 +26,6 @@ export const THEME_IDS = [
   "ramadan",
   "autumn",
   "anniversary",
-  "pride",
   "retrowave",
   "arcade",
   "popart",
@@ -58,7 +57,6 @@ export type ThemeEffect =
   | "lanterns"
   | "harvest"
   | "celebration"
-  | "spectrum"
   | "synthwave"
   | "pixel-grid"
   | "comic-burst";
@@ -458,20 +456,6 @@ export const THEME_PRESETS: ThemePreset[] = [
     density: 2,
   },
   {
-    id: "pride",
-    label: "Berlin Pride / Vielfalt",
-    icon: "🏳️‍🌈",
-    description: "Dunkler Berlin-Look mit feinen Spektralfarben – sichtbar, modern und nicht überladen.",
-    themeColor: "#090713",
-    cornerLeft: "🏳️‍🌈",
-    cornerRight: "🪩",
-    particles: ["✦", "●", "·"],
-    effect: "spectrum",
-    motifs: ["✦", "●", "·"],
-    burst: ["✦", "●", "★"],
-    density: 1,
-  },
-  {
     id: "retrowave",
     label: "Retro Wave / 80s",
     icon: "🌆",
@@ -559,11 +543,22 @@ function safeDate(value: any) {
   return Number.isFinite(date.valueOf()) ? date.toISOString() : "";
 }
 
-export function normalizeThemeId(value: any): ThemeId {
-  const text = String(value || "")
+function themeAliasKey(value: any) {
+  return String(value || "")
     .toLowerCase()
     .trim()
     .replace(/[\s_-]+/g, "");
+}
+
+const RETIRED_THEME_ALIASES = new Set([
+  "pride",
+  "berlinpride",
+  "vielfalt",
+  "csd",
+]);
+
+export function normalizeThemeId(value: any): ThemeId {
+  const text = themeAliasKey(value);
 
   const aliases: Record<string, ThemeId> = {
     default: "classic",
@@ -644,10 +639,6 @@ export function normalizeThemeId(value: any): ThemeId {
     jubilaeum: "anniversary",
     jubiläum: "anniversary",
     geburtstag: "anniversary",
-    pride: "pride",
-    berlinpride: "pride",
-    vielfalt: "pride",
-    csd: "pride",
     retrowave: "retrowave",
     retro80s: "retrowave",
     synthwave: "retrowave",
@@ -692,6 +683,12 @@ export function normalizeThemeSchedule(value: any): ThemeScheduleEntry[] {
   const list = Array.isArray(value) ? value : [];
 
   return list
+    .filter(
+      (raw: any) =>
+        !RETIRED_THEME_ALIASES.has(
+          themeAliasKey(raw?.theme ?? raw?.active ?? raw?.preset),
+        ),
+    )
     .map((raw: any, index: number) => {
       const theme = normalizeThemeId(raw?.theme ?? raw?.active ?? raw?.preset);
       const startAt = safeDate(raw?.startAt ?? raw?.startsAt);
@@ -824,10 +821,6 @@ const RAMADAN_RECOMMENDATIONS: Record<
   2027: { start: [2, 8], end: [3, 12] },
 };
 
-const BERLIN_PRIDE_RECOMMENDATIONS: Record<number, [number, number]> = {
-  // Berlin CSD 2026 ana yürüyüş tarihi: 25 Temmuz 2026.
-  2026: [7, 25],
-};
 
 export function createRecommendedThemeSchedule(
   year = new Date().getFullYear(),
@@ -857,7 +850,6 @@ export function createRecommendedThemeSchedule(
   const ascension = shiftedDate(easter, 39);
   const mothersDay = nthWeekdayOfMonth(year, 5, 0, 2);
   const ramadan = RAMADAN_RECOMMENDATIONS[year];
-  const berlinPride = BERLIN_PRIDE_RECOMMENDATIONS[year];
 
   const schedule: ThemeScheduleEntry[] = [
     make(
@@ -1025,19 +1017,6 @@ export function createRecommendedThemeSchedule(
     );
   }
 
-  if (berlinPride) {
-    const prideDay = new Date(year, berlinPride[0] - 1, berlinPride[1], 12);
-    schedule.push(
-      make(
-        "pride",
-        `Berlin Pride / Vielfalt ${year}`,
-        localDateTimeFromDate(shiftedDate(prideDay, -7)),
-        localDateTimeFromDate(shiftedDate(prideDay, 2), 23, 59),
-        76,
-        false,
-      ),
-    );
-  }
 
   return schedule.sort((left, right) => {
     const leftStart = left.startAt ? new Date(left.startAt).valueOf() : 0;

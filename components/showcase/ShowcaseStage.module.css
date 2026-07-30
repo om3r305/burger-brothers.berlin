@@ -418,7 +418,6 @@
 .theme_ramadan .gradientBase { background: radial-gradient(circle at 18% 20%, rgba(246,199,92,.28), transparent 34%), radial-gradient(circle at 82% 72%, rgba(52,211,153,.2), transparent 42%), linear-gradient(145deg,#082b2a,#020713); }
 .theme_autumn .gradientBase { background: radial-gradient(circle at 18% 20%, rgba(233,130,44,.3), transparent 34%), radial-gradient(circle at 80% 74%, rgba(139,30,45,.22), transparent 42%), linear-gradient(145deg,#351307,#080201); }
 .theme_anniversary .gradientBase { background: radial-gradient(circle at 18% 20%, rgba(255,189,66,.3), transparent 34%), radial-gradient(circle at 82% 72%, rgba(212,93,24,.2), transparent 42%), linear-gradient(145deg,#211303,#020201); }
-.theme_pride .gradientBase { background: radial-gradient(circle at 18% 20%, rgba(236,72,153,.28), transparent 34%), radial-gradient(circle at 80% 72%, rgba(34,211,238,.24), transparent 42%), linear-gradient(145deg,#17102d,#030207); }
 .theme_retrowave .gradientBase { background: linear-gradient(rgba(34,211,238,.055) 1px,transparent 1px),linear-gradient(90deg,rgba(244,63,202,.05) 1px,transparent 1px),radial-gradient(circle at 50% 105%,rgba(251,146,60,.3),transparent 34%),linear-gradient(145deg,#27104b,#030113); background-size:3.3cqw 3.3cqw,3.3cqw 3.3cqw,100% 100%,100% 100%; }
 .theme_arcade .gradientBase { background: linear-gradient(rgba(74,222,128,.055) 1px,transparent 1px),linear-gradient(90deg,rgba(34,211,238,.05) 1px,transparent 1px),linear-gradient(145deg,#111a42,#01020a); background-size:2.6cqw 2.6cqw,2.6cqw 2.6cqw,100% 100%; }
 .theme_popart .gradientBase { background: radial-gradient(circle,rgba(250,204,21,.085) 0 .1cqw,transparent .13cqw),radial-gradient(circle at 80% 72%,rgba(56,189,248,.2),transparent 40%),linear-gradient(145deg,#3b0712,#10020a); background-size:1.1cqw 1.1cqw,100% 100%,100% 100%; }
@@ -671,9 +670,6 @@
   background:radial-gradient(circle at .7cqw .3cqw,#f6c75c 0 .15cqw,transparent .18cqw) 0 0/2.8cqw .7cqw repeat-x,linear-gradient(90deg,transparent,#34d399,transparent);
 }
 
-.themeDecorations[data-effect="spectrum"] .themeGarland {
-  background:linear-gradient(90deg,#ef4444,#f97316,#facc15,#22c55e,#22d3ee,#6366f1,#d946ef);
-}
 
 .themeDecorations[data-effect="synthwave"] .themeAtmosphere {
   background:radial-gradient(ellipse at center,rgba(244,63,202,.38),rgba(34,211,238,.13) 42%,transparent 68%);

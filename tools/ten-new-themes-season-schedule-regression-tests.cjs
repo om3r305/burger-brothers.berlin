@@ -15,7 +15,7 @@ const showcase = read("components/showcase/ShowcaseStage.module.css");
 
 const added = [
   "womensday", "medicine", "mothersday", "ramadan", "autumn",
-  "anniversary", "pride", "retrowave", "arcade", "popart", "weihnachten",
+  "anniversary", "retrowave", "arcade", "popart", "weihnachten",
 ];
 
 for (const id of added) {
@@ -26,7 +26,7 @@ for (const id of added) {
 
 for (const effect of [
   "womens-ribbons", "medical-pulse", "blossoms", "lanterns",
-  "harvest", "celebration", "spectrum", "synthwave",
+  "harvest", "celebration", "synthwave",
   "pixel-grid", "comic-burst", "christmas-glow",
 ]) {
   must(themes.includes(`effect: "${effect}"`), `benzersiz efekt tanımlı: ${effect}`);
@@ -66,9 +66,17 @@ must(
   "Ramadan ay gözlemine karşı yıl bazlı ve düzenlenebilir",
 );
 must(
-  themes.includes("BERLIN_PRIDE_RECOMMENDATIONS") &&
-  themes.includes("Berlin Pride / Vielfalt"),
-  "Berlin Pride yıl bazlı öneriye bağlı",
+  !themes.includes('id: "pride"') &&
+  !themes.includes("BERLIN_PRIDE_RECOMMENDATIONS") &&
+  !globals.includes('data-bb-theme="pride"') &&
+  !showcase.includes(".theme_pride"),
+  "Berlin Pride tema kataloğu, CSS, Showcase ve önerilen takvimden kaldırıldı",
+);
+must(
+  themes.includes("RETIRED_THEME_ALIASES") &&
+  themes.includes('"berlinpride"') &&
+  themes.includes("RETIRED_THEME_ALIASES.has"),
+  "önceden kaydedilmiş Berlin Pride Saison kuralları temizleniyor",
 );
 must(
   themes.includes('"autumn"') &&
@@ -123,4 +131,4 @@ must(
   "hareket azaltma desteği korunuyor",
 );
 
-console.log("\n11 yeni tema ve Saison-Zeitplan regresyon kontrolleri başarılı.");
+console.log("\n10 yeni tema, Berlin Pride kaldırma ve Saison-Zeitplan regresyon kontrolleri başarılı.");
