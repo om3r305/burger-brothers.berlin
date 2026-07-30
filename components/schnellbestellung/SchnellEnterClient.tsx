@@ -737,8 +737,8 @@ export default function SchnellEnterClient({ token }: { token: string }) {
       : "";
 
     return (
-      <main className="grid min-h-dvh place-items-center bg-stone-950 p-5 text-white">
-        <section className="w-full max-w-md rounded-3xl border border-emerald-300/25 bg-white/5 p-6 shadow-2xl shadow-black/30">
+      <main className="bb-schnell-page grid min-h-dvh place-items-center p-5 text-white">
+        <section className="bb-schnell-sheet w-full max-w-md rounded-3xl border border-emerald-300/25 p-6 shadow-2xl shadow-black/30">
           <div className="text-center">
             <img
               src="/schnell-icon-180.png?v=1"
@@ -809,8 +809,8 @@ export default function SchnellEnterClient({ token }: { token: string }) {
 
   if (screen === "choice") {
     return (
-      <main className="grid min-h-dvh place-items-center bg-stone-950 p-5 text-white">
-        <section className="w-full max-w-md rounded-3xl border border-white/10 bg-white/5 p-6 shadow-2xl shadow-black/30">
+      <main className="bb-schnell-page grid min-h-dvh place-items-center p-5 text-white">
+        <section className="bb-schnell-sheet w-full max-w-md rounded-3xl border p-6 shadow-2xl shadow-black/30">
           <div className="text-center">
             <img
               src="/schnell-icon-180.png?v=1"
@@ -835,7 +835,7 @@ export default function SchnellEnterClient({ token }: { token: string }) {
           <button
             type="button"
             onClick={() => void start(token, { navigate: true })}
-            className="mt-6 w-full rounded-2xl bg-amber-400 px-5 py-4 text-left text-black shadow-lg shadow-amber-500/10"
+            className="bb-theme-primary bb-schnell-primary mt-6 w-full rounded-2xl px-5 py-4 text-left shadow-lg"
           >
             <span className="block text-xl font-black">Direkt bestellen</span>
             <span className="mt-1 block text-sm font-semibold text-black/70">
@@ -875,8 +875,8 @@ export default function SchnellEnterClient({ token }: { token: string }) {
     ];
 
     return (
-      <main className="grid min-h-dvh place-items-center bg-stone-950 p-5 text-white">
-        <section className="w-full max-w-md rounded-3xl border border-emerald-300/30 bg-white/5 p-6 shadow-2xl shadow-black/30">
+      <main className="bb-schnell-page grid min-h-dvh place-items-center p-5 text-white">
+        <section className="bb-schnell-sheet w-full max-w-md rounded-3xl border border-emerald-300/30 p-6 shadow-2xl shadow-black/30">
           <div className="text-center">
             <img
               src="/schnell-icon-180.png?v=1"
@@ -927,8 +927,8 @@ export default function SchnellEnterClient({ token }: { token: string }) {
   }
 
   return (
-    <main className="grid min-h-dvh place-items-center bg-stone-950 p-6 text-white">
-      <section className="w-full max-w-md rounded-3xl border border-white/10 bg-white/5 p-7 text-center shadow-2xl shadow-black/30">
+    <main className="bb-schnell-page grid min-h-dvh place-items-center p-6 text-white">
+      <section className="bb-schnell-sheet w-full max-w-md rounded-3xl border p-7 text-center shadow-2xl shadow-black/30">
         <img
           src={
             appleMobile
@@ -967,7 +967,7 @@ export default function SchnellEnterClient({ token }: { token: string }) {
           <button
             type="button"
             onClick={retry}
-            className="mt-7 w-full rounded-2xl bg-amber-400 px-5 py-4 text-lg font-black text-black"
+            className="bb-theme-primary bb-schnell-primary mt-7 w-full rounded-2xl px-5 py-4 text-lg font-black"
           >
             Erneut versuchen
           </button>

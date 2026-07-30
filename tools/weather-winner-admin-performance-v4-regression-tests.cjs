@@ -139,6 +139,7 @@ must(
 
 const checkout = read("app/checkout/page.tsx");
 const productCard = read("components/menu/ProductCard.tsx");
+const normalizedProductImage = read("components/menu/NormalizedProductImage.tsx");
 const footer = read("components/Footer.tsx");
 const localImages = read("lib/media/local-optimized-image.ts");
 const webAssets = read("tools/generate-web-assets.cjs");
@@ -155,9 +156,10 @@ must(
   "ağır checkout yardımcıları ayrı istemci parçaları olarak yükleniyor",
 );
 must(
-  productCard.includes("requestIdleCallback") &&
-    productCard.includes("sessionStorage") &&
-    productCard.includes("IMAGE_LAYOUT_CACHE_KEY"),
+  productCard.includes("NormalizedProductImage") &&
+    normalizedProductImage.includes("requestIdleCallback") &&
+    normalizedProductImage.includes("sessionStorage") &&
+    normalizedProductImage.includes("IMAGE_LAYOUT_CACHE_KEY"),
   "ürün görsel analizi boş zamanda çalışıyor ve oturumda önbellekleniyor",
 );
 must(

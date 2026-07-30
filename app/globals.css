@@ -337,6 +337,15 @@ input[type="checkbox"]:focus-visible{ box-shadow:0 0 0 3px rgba(245,158,11,.35);
   --bb-glow: rgba(255, 145, 31, 0.34);
   --bb-muted-glow: rgba(255, 145, 31, 0.12);
   --bb-pattern: none;
+  --bb-product-media-border: color-mix(in srgb, var(--bb-accent) 24%, transparent);
+  --bb-product-media-inset: color-mix(in srgb, var(--bb-accent) 9%, transparent);
+  --bb-product-media-bg:
+    radial-gradient(circle at 50% 44%, var(--bb-muted-glow), transparent 58%),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--bb-surface-strong) 90%, var(--bb-accent) 10%),
+      color-mix(in srgb, var(--bb-page-bg) 94%, black 6%)
+    );
 }
 
 html[data-bb-theme="classic"],
@@ -517,6 +526,12 @@ html[data-bb-theme="halloween"],
   --bb-accent-text: #160718;
   --bb-glow: rgba(255, 122, 0, 0.40);
   --bb-muted-glow: rgba(168, 85, 247, 0.17);
+  --bb-product-media-border: rgba(255, 139, 31, .27);
+  --bb-product-media-inset: rgba(168, 85, 247, .12);
+  --bb-product-media-bg:
+    radial-gradient(circle at 72% 18%, rgba(255, 177, 69, .18) 0 8%, transparent 29%),
+    radial-gradient(ellipse at 50% 112%, rgba(126, 34, 206, .23), transparent 58%),
+    linear-gradient(158deg, #190b1e 0%, #100812 55%, #080509 100%);
 }
 
 html[data-bb-theme="blackweek"],
@@ -547,6 +562,12 @@ html[data-bb-theme="christmas"],
   --bb-accent-text: #fff;
   --bb-glow: rgba(239, 68, 68, 0.38);
   --bb-muted-glow: rgba(34, 197, 94, 0.15);
+  --bb-product-media-border: rgba(250, 204, 21, .24);
+  --bb-product-media-inset: rgba(34, 197, 94, .11);
+  --bb-product-media-bg:
+    radial-gradient(circle at 22% 18%, rgba(239, 68, 68, .15), transparent 32%),
+    radial-gradient(circle at 82% 88%, rgba(34, 197, 94, .18), transparent 38%),
+    linear-gradient(155deg, #102219 0%, #07150e 58%, #040806 100%);
 }
 
 html[data-bb-theme="winter"],
@@ -562,6 +583,11 @@ html[data-bb-theme="winter"],
   --bb-accent-text: #082038;
   --bb-glow: rgba(186, 230, 253, 0.34);
   --bb-muted-glow: rgba(96, 165, 250, 0.15);
+  --bb-product-media-border: rgba(224, 242, 254, .3);
+  --bb-product-media-inset: rgba(125, 211, 252, .13);
+  --bb-product-media-bg:
+    radial-gradient(ellipse at 50% 0%, rgba(224, 242, 254, .17), transparent 46%),
+    linear-gradient(180deg, #10283b 0%, #081a29 58%, #04101a 100%);
 }
 
 html[data-bb-theme="newyear"],
@@ -615,6 +641,131 @@ html[data-bb-theme] .product-card {
   box-shadow:
     0 18px 45px rgba(0, 0, 0, 0.22),
     0 0 28px var(--bb-muted-glow);
+}
+
+html[data-bb-theme] :is(.bb-menu-product-cover, .bb-schnell-product-media) {
+  border-color: var(--bb-product-media-border) !important;
+  background-color: var(--bb-surface-strong) !important;
+  background-image: var(--bb-product-media-bg) !important;
+  box-shadow:
+    inset 0 0 36px var(--bb-product-media-inset),
+    0 12px 28px rgba(0, 0, 0, .22);
+}
+
+/* Schnellbestellung uses the same lightweight theme tokens as the menu. */
+.bb-schnell-page {
+  min-width: 0;
+  background:
+    radial-gradient(circle at 8% 0%, var(--bb-muted-glow), transparent 27rem),
+    radial-gradient(circle at 92% 100%, var(--bb-muted-glow), transparent 30rem),
+    linear-gradient(145deg, var(--bb-page-bg), var(--bb-page-bg-2));
+}
+
+.bb-schnell-header,
+.bb-schnell-footer {
+  border-color: var(--bb-border) !important;
+  background: color-mix(in srgb, var(--bb-surface-strong) 94%, transparent) !important;
+  box-shadow: 0 10px 32px rgba(0, 0, 0, .28);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+}
+
+.bb-schnell-card {
+  border-color: var(--bb-border) !important;
+  background:
+    linear-gradient(155deg, rgba(255,255,255,.025), transparent 45%),
+    var(--bb-surface) !important;
+  box-shadow:
+    0 16px 36px rgba(0, 0, 0, .24),
+    0 0 24px var(--bb-muted-glow);
+}
+
+.bb-schnell-product-media {
+  isolation: isolate;
+}
+
+.bb-schnell-product-media::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.035);
+  pointer-events: none;
+}
+
+.bb-schnell-product-fallback {
+  background:
+    radial-gradient(circle at 50% 40%, var(--bb-muted-glow), transparent 56%),
+    var(--bb-surface-strong);
+}
+
+.bb-schnell-sheet {
+  border-color: var(--bb-border) !important;
+  background:
+    radial-gradient(circle at 100% 0%, var(--bb-muted-glow), transparent 24rem),
+    var(--bb-surface-strong) !important;
+  box-shadow: 0 -20px 55px rgba(0,0,0,.48), 0 0 30px var(--bb-muted-glow);
+}
+
+.bb-schnell-primary {
+  color: var(--bb-accent-text) !important;
+}
+
+.bb-schnell-category {
+  border: 1px solid var(--bb-border);
+}
+
+.bb-schnell-accent-text {
+  color: var(--bb-accent);
+}
+
+.bb-schnell-allergen {
+  color: color-mix(in srgb, var(--bb-accent) 78%, white 22%);
+  border-color: color-mix(in srgb, var(--bb-accent) 34%, transparent);
+  background: color-mix(in srgb, var(--bb-accent) 11%, transparent);
+}
+
+.bb-schnell-card-title {
+  display: -webkit-box;
+  min-height: 2.4em;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.bb-schnell-card-description {
+  display: -webkit-box;
+  min-height: 3.85em;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+@media (max-width: 639px) {
+  .bb-schnell-grid {
+    gap: .65rem;
+    padding-inline: .65rem;
+  }
+
+  .bb-schnell-card {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .bb-schnell-product-media {
+    width: 100%;
+    min-height: 0;
+    aspect-ratio: 3 / 2;
+  }
+
+  .bb-schnell-card-body {
+    padding: .75rem;
+  }
+
+  .bb-schnell-card-title {
+    font-size: .93rem;
+  }
 }
 
 html[data-bb-theme] :is(.nav-pill, .pill, .qty, .btn-ghost) {
@@ -689,7 +840,7 @@ html[data-bb-theme="newyear"] .bb-landing img {
 
 /* Theme-specific button character */
 html[data-bb-effects="1"][data-bb-theme="halloween"] :is(.nav-pill--active,.card-cta,.bb-theme-primary)::before { content:"🎃"; }
-html[data-bb-effects="1"][data-bb-theme="christmas"] :is(.nav-pill--active,.card-cta,.bb-theme-primary)::before { content:"🎅"; }
+html[data-bb-effects="1"][data-bb-theme="christmas"] :is(.nav-pill--active,.card-cta,.bb-theme-primary)::before { content:"🎄"; }
 html[data-bb-effects="1"][data-bb-theme="winter"] :is(.nav-pill--active,.card-cta,.bb-theme-primary)::before { content:"❄️"; }
 html[data-bb-effects="1"][data-bb-theme="oktoberfest"] :is(.nav-pill--active,.card-cta,.bb-theme-primary)::before { content:"🥨"; }
 html[data-bb-effects="1"][data-bb-theme="easter"] :is(.nav-pill--active,.card-cta,.bb-theme-primary)::before { content:"🥚"; }
@@ -916,6 +1067,70 @@ html[data-bb-theme="blackweek"] .product-card {
     radial-gradient(circle at 8px 5px,var(--bb-accent) 0 3px,transparent 4px) 0 0/32px 11px repeat-x,
     linear-gradient(90deg,transparent,var(--bb-accent-2),transparent);
   filter:drop-shadow(0 0 7px var(--bb-glow));
+}
+
+/* Priority seasonal themes: distinct, restrained and GPU-light. */
+.bb-theme-decorations[data-theme="halloween"] .bb-theme-garland {
+  height:7px;
+  background:
+    repeating-linear-gradient(
+      115deg,
+      rgba(255,122,0,.95) 0 18px,
+      rgba(80,25,112,.92) 18px 36px,
+      rgba(8,5,11,.96) 36px 44px
+    );
+  box-shadow:0 0 22px rgba(255,122,0,.28);
+}
+
+.bb-theme-decorations[data-theme="halloween"] .bb-theme-orbit {
+  border-color:rgba(255,173,74,.18);
+  background:
+    radial-gradient(circle at 35% 34%, rgba(255,191,93,.16) 0 9%, transparent 10%),
+    radial-gradient(circle at 50% 50%, rgba(255,122,0,.08), transparent 60%);
+  box-shadow:inset 0 0 50px rgba(168,85,247,.06);
+}
+
+.bb-theme-decorations[data-theme="halloween"] .bb-theme-corner {
+  filter:
+    drop-shadow(0 8px 16px rgba(0,0,0,.56))
+    drop-shadow(0 0 12px rgba(255,122,0,.22));
+}
+
+.bb-theme-decorations[data-theme="christmas"] .bb-theme-garland {
+  border-bottom:1px solid rgba(250,204,21,.18);
+  background:
+    radial-gradient(circle at 8px 5px,#facc15 0 2px,transparent 3px) 0 0/36px 11px repeat-x,
+    radial-gradient(circle at 26px 5px,#ef4444 0 2px,transparent 3px) 0 0/36px 11px repeat-x,
+    linear-gradient(90deg,#052e16,#166534,#052e16);
+  box-shadow:0 0 18px rgba(250,204,21,.22);
+}
+
+.bb-theme-decorations[data-theme="christmas"] .bb-theme-atmosphere {
+  background:
+    radial-gradient(circle at center, rgba(250,204,21,.5), rgba(34,197,94,.18) 34%, transparent 67%);
+}
+
+.bb-theme-decorations[data-theme="winter"] .bb-theme-garland {
+  height:6px;
+  background:
+    linear-gradient(90deg,transparent,rgba(224,242,254,.92),rgba(96,165,250,.68),rgba(224,242,254,.92),transparent);
+  box-shadow:0 0 18px rgba(186,230,253,.32);
+}
+
+.bb-theme-decorations[data-theme="winter"] .bb-theme-orbit {
+  border-color:rgba(224,242,254,.18);
+  background:
+    repeating-conic-gradient(
+      from 0deg,
+      rgba(224,242,254,.055) 0 2deg,
+      transparent 2deg 30deg
+    );
+  box-shadow:inset 0 0 70px rgba(96,165,250,.055);
+}
+
+.bb-theme-decorations[data-theme="winter"] .bb-theme-motif {
+  color:#e0f2fe;
+  text-shadow:0 0 10px rgba(186,230,253,.44);
 }
 
 .bb-theme-decorations[data-effect="fireworks"] .bb-theme-motif {

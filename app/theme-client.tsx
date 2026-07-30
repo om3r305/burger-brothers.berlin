@@ -42,6 +42,10 @@ function isThemeIsolatedPath(pathname: string) {
   );
 }
 
+function hasRouteOwnedDecorations(pathname: string) {
+  return pathname === "/showcase" || pathname.startsWith("/showcase/");
+}
+
 function applyRootTheme(
   resolved: ResolvedTheme,
   pathname: string,
@@ -191,7 +195,8 @@ export default function ThemeClient() {
       !resolved.settings.decorationsEnabled ||
       !resolved.settings.motionEnabled ||
       isAdminPath(pathname) ||
-      isThemeIsolatedPath(pathname)
+      isThemeIsolatedPath(pathname) ||
+      hasRouteOwnedDecorations(pathname)
     ) {
       return;
     }
@@ -245,7 +250,8 @@ export default function ThemeClient() {
     if (
       !resolved ||
       isAdminPath(pathname) ||
-      isThemeIsolatedPath(pathname)
+      isThemeIsolatedPath(pathname) ||
+      hasRouteOwnedDecorations(pathname)
     ) {
       return null;
     }

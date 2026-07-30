@@ -379,8 +379,18 @@
 .background_dark .gradientBase { background: radial-gradient(circle at 18% 20%, rgba(255,157,46,.18), transparent 32%), linear-gradient(132deg, #111 0%, #070707 55%, #000 100%); }
 .background_theme .gradientBase { }
 
-.theme_winter .gradientBase,
-.theme_christmas .gradientBase { background: radial-gradient(circle at 18% 20%, rgba(160,215,255,.3), transparent 32%), linear-gradient(132deg, #061526, var(--showcase-theme), #010407); }
+.theme_winter .gradientBase {
+  background:
+    radial-gradient(circle at 18% 18%, rgba(224,242,254,.27), transparent 30%),
+    radial-gradient(circle at 82% 76%, rgba(96,165,250,.19), transparent 40%),
+    linear-gradient(132deg, #071827, var(--showcase-theme), #010407);
+}
+.theme_christmas .gradientBase {
+  background:
+    radial-gradient(circle at 16% 18%, rgba(250,204,21,.19), transparent 28%),
+    radial-gradient(circle at 82% 74%, rgba(239,68,68,.18), transparent 42%),
+    linear-gradient(132deg, #062016, var(--showcase-theme), #020806);
+}
 .theme_halloween .gradientBase { background: radial-gradient(circle at 18% 20%, rgba(255,117,35,.38), transparent 32%), linear-gradient(132deg, #16051d, var(--showcase-theme), #040105); }
 .theme_neon .gradientBase,
 .theme_lights .gradientBase { background: radial-gradient(circle at 18% 20%, rgba(57,255,164,.26), transparent 32%), radial-gradient(circle at 80% 70%, rgba(65,93,255,.32), transparent 40%), #020609; }
@@ -586,6 +596,54 @@
 .themeSnow .themeParticle {
   opacity: .75;
   filter: drop-shadow(0 0 7px rgba(255,255,255,.62));
+}
+
+.themeDecorations[data-effect="fog"] .themeGarland {
+  background:
+    repeating-linear-gradient(
+      115deg,
+      rgba(255,122,0,.94) 0 1.7cqw,
+      rgba(92,31,126,.9) 1.7cqw 3.4cqw,
+      rgba(8,5,11,.95) 3.4cqw 4.1cqw
+    );
+  box-shadow: 0 0 28px rgba(255,122,0,.25);
+}
+
+.themeDecorations[data-effect="fog"] .themeAtmosphere {
+  inset: auto -12% -8% -12%;
+  height: 34%;
+  background: linear-gradient(to top, rgba(203,213,225,.2), transparent);
+  filter: blur(28px);
+}
+
+.themeDecorations[data-effect="festive-lights"] .themeGarland {
+  height: max(8px, .65cqw);
+  border-bottom: 1px solid rgba(250,204,21,.2);
+  background:
+    radial-gradient(circle at .65cqw .32cqw,#facc15 0 .16cqw,transparent .18cqw)
+      0 0/2.8cqw .7cqw repeat-x,
+    radial-gradient(circle at 2cqw .32cqw,#ef4444 0 .16cqw,transparent .18cqw)
+      0 0/2.8cqw .7cqw repeat-x,
+    linear-gradient(90deg,#052e16,#166534,#052e16);
+  box-shadow: 0 0 24px rgba(250,204,21,.23);
+}
+
+.themeDecorations[data-effect="frost"] .themeGarland {
+  background:
+    linear-gradient(
+      90deg,
+      transparent,
+      rgba(224,242,254,.92),
+      rgba(96,165,250,.68),
+      rgba(224,242,254,.92),
+      transparent
+    );
+  box-shadow: 0 0 24px rgba(186,230,253,.3);
+}
+
+.themeDecorations[data-effect="frost"] .themeParticle {
+  color: #e0f2fe;
+  text-shadow: 0 0 12px rgba(186,230,253,.54);
 }
 
 .themeStill .themeParticle,

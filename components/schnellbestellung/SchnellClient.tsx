@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import NormalizedProductImage from "@/components/menu/NormalizedProductImage";
 import { saveSchnellActiveOrder } from "@/lib/client/schnell-active-order";
 import {
   prewarmRewardCelebration,
@@ -171,9 +172,22 @@ function CatalogProductImage({
 
   if (!product.imageUrl || failed) {
     return (
-      <div className="grid h-full w-full place-items-center bg-gradient-to-br from-stone-900 to-black px-3 text-center text-xs font-bold text-stone-500">
+      <div className="bb-schnell-product-fallback grid h-full w-full place-items-center px-3 text-center text-xs font-bold text-stone-500">
         Burger Brothers
       </div>
+    );
+  }
+
+  if (product.category === "burger" || product.category === "vegan") {
+    return (
+      <NormalizedProductImage
+        src={product.imageUrl}
+        alt={product.name}
+        profile="schnell"
+        eager={index < 4}
+        fetchPriority={index < 2 ? "high" : "auto"}
+        onError={() => setFailed(true)}
+      />
     );
   }
 
@@ -699,8 +713,8 @@ export default function SchnellClient() {
   }
 
   return (
-    <main className="min-h-dvh bg-stone-950 pb-28 text-white">
-      <header className="sticky top-0 z-20 border-b border-white/10 bg-stone-950/95 px-4 py-3 backdrop-blur">
+    <main className="bb-schnell-page min-h-dvh pb-28 text-white">
+      <header className="bb-schnell-header sticky top-0 z-20 border-b px-4 py-3 backdrop-blur">
         <div className="mx-auto flex max-w-3xl items-center gap-3">
           <img
             src="/logo-burger-brothers.webp"
@@ -730,8 +744,10 @@ export default function SchnellClient() {
               onPointerDown={() => preloadCatalogImages(products, item.key, 6)}
               onMouseEnter={() => preloadCatalogImages(products, item.key, 4)}
               onClick={() => setCategory(item.key)}
-              className={`whitespace-nowrap rounded-full px-4 py-2 text-sm font-bold ${
-                category === item.key ? "bg-amber-400 text-black" : "bg-white/10"
+              className={`bb-schnell-category whitespace-nowrap rounded-full px-4 py-2 text-sm font-bold ${
+                category === item.key
+                  ? "bb-theme-primary bb-schnell-primary"
+                  : "bg-white/10"
               }`}
             >
               {item.label}
@@ -740,15 +756,15 @@ export default function SchnellClient() {
         </div>
       </header>
 
-      <section className="mx-auto grid max-w-3xl grid-cols-2 gap-3 p-3">
+      <section className="bb-schnell-grid mx-auto grid max-w-3xl grid-cols-2 gap-3 p-3">
         {loading && products.length === 0
           ? Array.from({ length: 6 }, (_, index) => (
               <div
                 key={`catalog-skeleton-${index}`}
-                className="overflow-hidden rounded-2xl border border-white/10 bg-white/5"
+                className="bb-schnell-card overflow-hidden rounded-2xl border"
                 aria-hidden="true"
               >
-                <div className="aspect-[4/3] animate-pulse bg-white/5" />
+                <div className="bb-schnell-product-media aspect-[3/2] animate-pulse" />
                 <div className="space-y-2 p-3">
                   <div className="h-4 w-3/4 animate-pulse rounded bg-white/10" />
                   <div className="h-3 w-full animate-pulse rounded bg-white/10" />
@@ -759,7 +775,7 @@ export default function SchnellClient() {
           : null}
 
         {!loading && category && visibleProducts.length === 0 ? (
-          <div className="col-span-2 rounded-2xl border border-white/10 bg-white/5 p-6 text-center text-stone-300">
+          <div className="bb-schnell-card col-span-2 rounded-2xl border p-6 text-center text-stone-300">
             In dieser Kategorie sind momentan keine Artikel verfügbar.
           </div>
         ) : null}
@@ -769,7 +785,7 @@ export default function SchnellClient() {
             key={product.id}
             type="button"
             onClick={() => openProduct(product)}
-            className="relative overflow-hidden rounded-2xl border border-white/10 bg-white/5 text-left"
+            className="bb-schnell-card relative flex h-full min-w-0 flex-col overflow-hidden rounded-2xl border text-left"
           >
             {product.campaignBadge ? (
               <span className="absolute right-2 top-2 z-10 animate-pulse rounded-full border border-yellow-200/70 bg-gradient-to-r from-red-600 via-orange-500 to-amber-400 px-2.5 py-1 text-[11px] font-black text-white shadow-[0_0_22px_rgba(251,146,60,0.75)]">
@@ -777,17 +793,21 @@ export default function SchnellClient() {
               </span>
             ) : null}
 
-            <div className="aspect-[4/3] bg-stone-900">
+            <div className="bb-schnell-product-media relative aspect-[3/2] w-full overflow-hidden">
               <CatalogProductImage product={product} index={index} />
             </div>
 
-            <div className="p-3">
-              <h2 className="font-bold leading-tight">{product.name}</h2>
+            <div className="bb-schnell-card-body flex flex-1 flex-col p-3">
+              <h2 className="bb-schnell-card-title font-bold leading-tight">
+                {product.name}
+              </h2>
               {product.description ? (
-                <p className="mt-1 line-clamp-3 text-xs leading-snug text-stone-400">
+                <p className="bb-schnell-card-description mt-1 text-xs leading-snug text-stone-400">
                   {product.description}
                 </p>
-              ) : null}
+              ) : (
+                <span className="bb-schnell-card-description" aria-hidden="true" />
+              )}
 
               {product.allergens.length ? (
                 <div className="mt-2 flex flex-wrap gap-1" aria-label="Allergene">
@@ -795,7 +815,7 @@ export default function SchnellClient() {
                     <span
                       key={allergen}
                       title={ALLERGEN_LEGEND[allergen] || `Allergen ${allergen}`}
-                      className="rounded border border-amber-300/30 bg-amber-300/10 px-1.5 py-0.5 text-[10px] font-black text-amber-200"
+                      className="bb-schnell-allergen rounded border px-1.5 py-0.5 text-[10px] font-black"
                     >
                       {allergen}
                     </span>
@@ -803,8 +823,10 @@ export default function SchnellClient() {
                 </div>
               ) : null}
 
-              <div className="mt-2 flex flex-wrap items-baseline gap-2">
-                <span className="font-black text-amber-300">{euro(product.price)}</span>
+              <div className="mt-auto flex flex-wrap items-baseline gap-2 pt-2">
+                <span className="bb-schnell-accent-text font-black">
+                  {euro(product.price)}
+                </span>
                 {product.originalPrice ? (
                   <span className="text-xs text-stone-500 line-through">
                     {euro(product.originalPrice)}
@@ -822,12 +844,12 @@ export default function SchnellClient() {
         </div>
       ) : null}
 
-      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-white/10 bg-stone-950 p-3 pb-[max(.75rem,env(safe-area-inset-bottom))]">
+      <div className="bb-schnell-footer fixed inset-x-0 bottom-0 z-30 border-t p-3 pb-[max(.75rem,env(safe-area-inset-bottom))]">
         <button
           type="button"
           onClick={() => setCartOpen(true)}
           disabled={!cart.length}
-          className="mx-auto flex w-full max-w-3xl items-center justify-between rounded-2xl bg-amber-400 px-5 py-4 font-black text-black disabled:opacity-50"
+          className="bb-theme-primary bb-schnell-primary mx-auto flex w-full max-w-3xl items-center justify-between rounded-2xl px-5 py-4 font-black disabled:opacity-50"
         >
           <span>{itemCount} Artikel</span>
           <span>Warenkorb · {euro(total)}</span>
@@ -841,13 +863,13 @@ export default function SchnellClient() {
         >
           <div
             onClick={(event) => event.stopPropagation()}
-            className="max-h-[88dvh] w-full overflow-y-auto rounded-t-3xl bg-stone-900 p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]"
+            className="bb-schnell-sheet max-h-[88dvh] w-full overflow-y-auto rounded-t-3xl p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]"
           >
             <div className="mx-auto max-w-xl">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <h2 className="text-2xl font-black">{selectedProduct.name}</h2>
-                  <div className="mt-1 font-black text-amber-300">
+                  <div className="bb-schnell-accent-text mt-1 font-black">
                     {euro(selectedProduct.price)}
                   </div>
                 </div>
@@ -941,7 +963,7 @@ export default function SchnellClient() {
               <button
                 type="button"
                 onClick={addSelectedProduct}
-                className="mt-6 w-full rounded-2xl bg-amber-400 p-4 font-black text-black"
+                className="bb-theme-primary bb-schnell-primary mt-6 w-full rounded-2xl p-4 font-black"
               >
                 Zum Warenkorb hinzufügen
               </button>
@@ -952,7 +974,7 @@ export default function SchnellClient() {
 
       {cartOpen ? (
         <div className="fixed inset-0 z-50 flex items-end bg-black/75">
-          <div className="max-h-[90dvh] w-full overflow-y-auto rounded-t-3xl bg-stone-900 p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+          <div className="bb-schnell-sheet max-h-[90dvh] w-full overflow-y-auto rounded-t-3xl p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
             <div className="mx-auto max-w-xl">
               <div className="flex items-center justify-between">
                 <h2 className="text-2xl font-black">Warenkorb</h2>
@@ -988,7 +1010,7 @@ export default function SchnellClient() {
                           </div>
                         ) : null}
                       </div>
-                      <div className="font-black text-amber-300">
+                      <div className="bb-schnell-accent-text font-black">
                         {euro(lineTotal(line))}
                       </div>
                     </div>
@@ -1034,7 +1056,7 @@ export default function SchnellClient() {
                 type="button"
                 disabled={!cart.length || busy}
                 onClick={() => setConfirmOpen(true)}
-                className="mt-5 w-full rounded-2xl bg-amber-400 p-4 font-black text-black disabled:opacity-50"
+                className="bb-theme-primary bb-schnell-primary mt-5 w-full rounded-2xl p-4 font-black disabled:opacity-50"
               >
                 Bestellung abschließen
               </button>
@@ -1045,7 +1067,7 @@ export default function SchnellClient() {
 
       {historyOpen ? (
         <div className="fixed inset-0 z-[60] flex items-end bg-black/75">
-          <div className="max-h-[88dvh] w-full overflow-y-auto rounded-t-3xl bg-stone-900 p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+          <div className="bb-schnell-sheet max-h-[88dvh] w-full overflow-y-auto rounded-t-3xl p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
             <div className="mx-auto max-w-xl">
               <div className="flex items-center justify-between">
                 <h2 className="text-2xl font-black">Letzte Bestellungen</h2>
@@ -1077,14 +1099,14 @@ export default function SchnellClient() {
                           {entry.takeaway ? " · Zum Mitnehmen" : ""}
                         </div>
                       </div>
-                      <div className="font-black text-amber-300">
+                      <div className="bb-schnell-accent-text font-black">
                         {euro(entry.total)}
                       </div>
                     </div>
                     <button
                       type="button"
                       onClick={() => restoreHistory(entry)}
-                      className="mt-4 w-full rounded-xl bg-amber-400 px-4 py-3 font-black text-black"
+                      className="bb-theme-primary bb-schnell-primary mt-4 w-full rounded-xl px-4 py-3 font-black"
                     >
                       In den Warenkorb
                     </button>
@@ -1098,7 +1120,7 @@ export default function SchnellClient() {
 
       {confirmOpen ? (
         <div className="fixed inset-0 z-[70] grid place-items-center bg-black/80 p-5 backdrop-blur-sm">
-          <section className="w-full max-w-md rounded-3xl border border-white/15 bg-stone-900 p-6 text-center shadow-2xl">
+          <section className="bb-schnell-sheet w-full max-w-md rounded-3xl border p-6 text-center shadow-2xl">
             <h2 className="text-2xl font-black">Bestellung abschließen?</h2>
             <p className="mt-3 text-stone-300">
               {catalogSettings.takeawayEnabled && takeaway
