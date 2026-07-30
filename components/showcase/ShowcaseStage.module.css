@@ -391,6 +391,13 @@
     radial-gradient(circle at 82% 74%, rgba(239,68,68,.18), transparent 42%),
     linear-gradient(132deg, #062016, var(--showcase-theme), #020806);
 }
+.theme_weihnachten .gradientBase {
+  background:
+    radial-gradient(circle at 50% 12%, rgba(253,230,138,.34), transparent 25%),
+    radial-gradient(circle at 16% 74%, rgba(185,28,45,.28), transparent 38%),
+    radial-gradient(circle at 84% 76%, rgba(22,101,52,.22), transparent 40%),
+    linear-gradient(145deg,#35100e,#120407 72%);
+}
 .theme_halloween .gradientBase { background: radial-gradient(circle at 18% 20%, rgba(255,117,35,.38), transparent 32%), linear-gradient(132deg, #16051d, var(--showcase-theme), #040105); }
 .theme_neon .gradientBase,
 .theme_lights .gradientBase { background: radial-gradient(circle at 18% 20%, rgba(57,255,164,.26), transparent 32%), radial-gradient(circle at 80% 70%, rgba(65,93,255,.32), transparent 40%), #020609; }
@@ -405,6 +412,16 @@
 .theme_blackweek .gradientBase { background: radial-gradient(circle at 18% 20%, rgba(245,190,75,.2), transparent 34%), linear-gradient(145deg,#111,#010101 72%); }
 .theme_newyear .gradientBase { background: radial-gradient(circle at 18% 20%, rgba(250,204,21,.28), transparent 34%), radial-gradient(circle at 80% 72%, rgba(168,85,247,.24), transparent 42%), linear-gradient(145deg,#171020,#020203); }
 .theme_valentines .gradientBase { background: radial-gradient(circle at 18% 20%, rgba(251,113,133,.31), transparent 34%), radial-gradient(circle at 80% 72%, rgba(249,168,212,.2), transparent 42%), linear-gradient(145deg,#3b0718,#080204); }
+.theme_womensday .gradientBase { background: radial-gradient(circle at 18% 20%, rgba(192,132,252,.3), transparent 34%), radial-gradient(circle at 80% 74%, rgba(212,168,79,.18), transparent 42%), linear-gradient(145deg,#35103f,#07010c); }
+.theme_medicine .gradientBase { background: linear-gradient(90deg,transparent 0 47%,rgba(45,212,191,.05) 48%,transparent 49%) 0 0/4cqw 100%, radial-gradient(circle at 18% 20%, rgba(45,212,191,.28), transparent 34%), radial-gradient(circle at 82% 72%, rgba(239,68,68,.14), transparent 40%), linear-gradient(145deg,#063244,#01080e); }
+.theme_mothersday .gradientBase { background: radial-gradient(circle at 18% 20%, rgba(249,168,212,.31), transparent 34%), radial-gradient(circle at 80% 74%, rgba(253,231,199,.2), transparent 42%), linear-gradient(145deg,#401126,#090205); }
+.theme_ramadan .gradientBase { background: radial-gradient(circle at 18% 20%, rgba(246,199,92,.28), transparent 34%), radial-gradient(circle at 82% 72%, rgba(52,211,153,.2), transparent 42%), linear-gradient(145deg,#082b2a,#020713); }
+.theme_autumn .gradientBase { background: radial-gradient(circle at 18% 20%, rgba(233,130,44,.3), transparent 34%), radial-gradient(circle at 80% 74%, rgba(139,30,45,.22), transparent 42%), linear-gradient(145deg,#351307,#080201); }
+.theme_anniversary .gradientBase { background: radial-gradient(circle at 18% 20%, rgba(255,189,66,.3), transparent 34%), radial-gradient(circle at 82% 72%, rgba(212,93,24,.2), transparent 42%), linear-gradient(145deg,#211303,#020201); }
+.theme_pride .gradientBase { background: radial-gradient(circle at 18% 20%, rgba(236,72,153,.28), transparent 34%), radial-gradient(circle at 80% 72%, rgba(34,211,238,.24), transparent 42%), linear-gradient(145deg,#17102d,#030207); }
+.theme_retrowave .gradientBase { background: linear-gradient(rgba(34,211,238,.055) 1px,transparent 1px),linear-gradient(90deg,rgba(244,63,202,.05) 1px,transparent 1px),radial-gradient(circle at 50% 105%,rgba(251,146,60,.3),transparent 34%),linear-gradient(145deg,#27104b,#030113); background-size:3.3cqw 3.3cqw,3.3cqw 3.3cqw,100% 100%,100% 100%; }
+.theme_arcade .gradientBase { background: linear-gradient(rgba(74,222,128,.055) 1px,transparent 1px),linear-gradient(90deg,rgba(34,211,238,.05) 1px,transparent 1px),linear-gradient(145deg,#111a42,#01020a); background-size:2.6cqw 2.6cqw,2.6cqw 2.6cqw,100% 100%; }
+.theme_popart .gradientBase { background: radial-gradient(circle,rgba(250,204,21,.085) 0 .1cqw,transparent .13cqw),radial-gradient(circle at 80% 72%,rgba(56,189,248,.2),transparent 40%),linear-gradient(145deg,#3b0712,#10020a); background-size:1.1cqw 1.1cqw,100% 100%,100% 100%; }
 
 @media (max-aspect-ratio: 4/3) {
   .heroGrid,
@@ -644,6 +661,32 @@
 .themeDecorations[data-effect="frost"] .themeParticle {
   color: #e0f2fe;
   text-shadow: 0 0 12px rgba(186,230,253,.54);
+}
+
+.themeDecorations[data-effect="blossoms"] .themeParticle,
+.themeDecorations[data-effect="harvest"] .themeParticle,
+.themeDecorations[data-effect="celebration"] .themeParticle { opacity:.7; }
+
+.themeDecorations[data-effect="lanterns"] .themeGarland {
+  background:radial-gradient(circle at .7cqw .3cqw,#f6c75c 0 .15cqw,transparent .18cqw) 0 0/2.8cqw .7cqw repeat-x,linear-gradient(90deg,transparent,#34d399,transparent);
+}
+
+.themeDecorations[data-effect="spectrum"] .themeGarland {
+  background:linear-gradient(90deg,#ef4444,#f97316,#facc15,#22c55e,#22d3ee,#6366f1,#d946ef);
+}
+
+.themeDecorations[data-effect="synthwave"] .themeAtmosphere {
+  background:radial-gradient(ellipse at center,rgba(244,63,202,.38),rgba(34,211,238,.13) 42%,transparent 68%);
+}
+
+.themeDecorations[data-effect="pixel-grid"] .themeParticle {
+  animation-timing-function:steps(5,end);
+}
+
+.themeDecorations[data-effect="comic-burst"] .themeGarland {
+  height:max(7px,.55cqw);
+  background:repeating-linear-gradient(90deg,#facc15 0 2.3cqw,#ef4444 2.3cqw 4.6cqw,#38bdf8 4.6cqw 6.9cqw);
+  box-shadow:0 0 0 2px rgba(0,0,0,.7),0 0 22px rgba(250,204,21,.25);
 }
 
 .themeStill .themeParticle,

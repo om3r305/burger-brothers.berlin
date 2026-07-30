@@ -16,9 +16,20 @@ export const THEME_IDS = [
   "halloween",
   "blackweek",
   "christmas",
+  "weihnachten",
   "winter",
   "newyear",
   "valentines",
+  "womensday",
+  "medicine",
+  "mothersday",
+  "ramadan",
+  "autumn",
+  "anniversary",
+  "pride",
+  "retrowave",
+  "arcade",
+  "popart",
 ] as const;
 
 export type ThemeId = (typeof THEME_IDS)[number];
@@ -37,9 +48,20 @@ export type ThemeEffect =
   | "fog"
   | "facets"
   | "festive-lights"
+  | "christmas-glow"
   | "frost"
   | "fireworks"
-  | "hearts";
+  | "hearts"
+  | "womens-ribbons"
+  | "medical-pulse"
+  | "blossoms"
+  | "lanterns"
+  | "harvest"
+  | "celebration"
+  | "spectrum"
+  | "synthwave"
+  | "pixel-grid"
+  | "comic-burst";
 export type ThemeMode = "manual" | "automatic";
 export type ThemeScheduleStatus =
   | "active"
@@ -283,16 +305,30 @@ export const THEME_PRESETS: ThemePreset[] = [
   },
   {
     id: "christmas",
-    label: "Christmas / Advent",
-    icon: "🎄",
-    description: "Tiefes Tannengrün, warmes Gold, Adventslichter und ruhiger Schnee.",
+    label: "Advent",
+    icon: "🕯️",
+    description: "Ruhiges Tannengrün, warmes Kerzenlicht, Gold und dezenter Adventsschnee.",
     themeColor: "#07140d",
-    cornerLeft: "🎄",
-    cornerRight: "🎁",
-    particles: ["❄", "✦", "·"],
+    cornerLeft: "🕯️",
+    cornerRight: "🎄",
+    particles: ["✦", "❄", "·"],
     effect: "festive-lights",
     motifs: ["✦", "●", "❄"],
-    burst: ["🎄", "✦", "❄"],
+    burst: ["🕯️", "✦", "❄"],
+    density: 1,
+  },
+  {
+    id: "weihnachten",
+    label: "Weihnachten",
+    icon: "🎅",
+    description: "Festliches Bordeauxrot, Tannengrün und warmes Gold mit Sternenglanz, Geschenken und leuchtendem Schnee.",
+    themeColor: "#180507",
+    cornerLeft: "🎅",
+    cornerRight: "🎁",
+    particles: ["★", "✦", "❄"],
+    effect: "christmas-glow",
+    motifs: ["★", "🎁", "❄"],
+    burst: ["🎅", "🎁", "★"],
     density: 2,
   },
   {
@@ -335,6 +371,146 @@ export const THEME_PRESETS: ThemePreset[] = [
     effect: "hearts",
     motifs: ["♥", "♡", "·"],
     burst: ["♥", "♡", "✦"],
+    density: 1,
+  },
+  {
+    id: "womensday",
+    label: "Weltfrauentag / Kadınlar Günü",
+    icon: "💜",
+    description: "Souveränes Violett–Bordeaux mit Gold, Lichtbändern und einer starken, eleganten Botschaft.",
+    themeColor: "#17051f",
+    cornerLeft: "💜",
+    cornerRight: "♀️",
+    particles: ["✦", "♀", "·"],
+    effect: "womens-ribbons",
+    motifs: ["♀", "✦", "·"],
+    burst: ["💜", "✦", "♀"],
+    density: 1,
+  },
+  {
+    id: "medicine",
+    label: "Tag der Medizin / Tıp Bayramı",
+    icon: "🩺",
+    description: "Klares Türkis–Navy mit Pulslinie als Dank an Ärztinnen, Ärzte und Gesundheitsteams.",
+    themeColor: "#03131c",
+    cornerLeft: "🩺",
+    cornerRight: "❤️‍🩹",
+    particles: ["✚", "⌁", "·"],
+    effect: "medical-pulse",
+    motifs: ["✚", "⌁", "·"],
+    burst: ["🩺", "✚", "❤"],
+    density: 1,
+  },
+  {
+    id: "mothersday",
+    label: "Muttertag",
+    icon: "🌷",
+    description: "Elegantes Rosé–Creme mit Blüten, warmem Gold und ruhiger Wertschätzung.",
+    themeColor: "#210812",
+    cornerLeft: "🌷",
+    cornerRight: "💐",
+    particles: ["🌸", "✦", "·"],
+    effect: "blossoms",
+    motifs: ["🌸", "❀", "·"],
+    burst: ["🌷", "🌸", "✦"],
+    density: 1,
+  },
+  {
+    id: "ramadan",
+    label: "Ramadan / Zuckerfest",
+    icon: "🌙",
+    description: "Tiefes Nachtblau, Smaragd und Gold mit dezenten Laternen und Sternen.",
+    themeColor: "#051326",
+    cornerLeft: "🌙",
+    cornerRight: "🏮",
+    particles: ["✦", "☾", "·"],
+    effect: "lanterns",
+    motifs: ["✦", "☾", "·"],
+    burst: ["🌙", "✦", "◇"],
+    density: 1,
+  },
+  {
+    id: "autumn",
+    label: "Herbst / Cozy Season",
+    icon: "🍂",
+    description: "Warme Kupfer-, Bordeaux- und Karamelltöne für gemütliche Herbstwochen.",
+    themeColor: "#180b05",
+    cornerLeft: "🍂",
+    cornerRight: "☕",
+    particles: ["🍂", "·", "✦"],
+    effect: "harvest",
+    motifs: ["🍂", "◆", "·"],
+    burst: ["🍂", "✦", "◆"],
+    density: 1,
+  },
+  {
+    id: "anniversary",
+    label: "Burger Brothers Jubiläum",
+    icon: "🎂",
+    description: "Markeneigener Schwarz–Gold-Look für Geburtstag, Jubiläum und Dankeschön-Aktionen.",
+    themeColor: "#0b0804",
+    cornerLeft: "🎂",
+    cornerRight: "🥳",
+    particles: ["✦", "★", "·"],
+    effect: "celebration",
+    motifs: ["✦", "★", "·"],
+    burst: ["🎉", "✦", "★"],
+    density: 2,
+  },
+  {
+    id: "pride",
+    label: "Berlin Pride / Vielfalt",
+    icon: "🏳️‍🌈",
+    description: "Dunkler Berlin-Look mit feinen Spektralfarben – sichtbar, modern und nicht überladen.",
+    themeColor: "#090713",
+    cornerLeft: "🏳️‍🌈",
+    cornerRight: "🪩",
+    particles: ["✦", "●", "·"],
+    effect: "spectrum",
+    motifs: ["✦", "●", "·"],
+    burst: ["✦", "●", "★"],
+    density: 1,
+  },
+  {
+    id: "retrowave",
+    label: "Retro Wave / 80s",
+    icon: "🌆",
+    description: "Synthwave mit Neon-Sonnenuntergang, Magenta, Cyan und feinem Perspektiv-Grid.",
+    themeColor: "#09051d",
+    cornerLeft: "🌆",
+    cornerRight: "📼",
+    particles: ["✦", "△", "·"],
+    effect: "synthwave",
+    motifs: ["△", "✦", "·"],
+    burst: ["⚡", "✦", "△"],
+    density: 1,
+  },
+  {
+    id: "arcade",
+    label: "Burger Arcade",
+    icon: "👾",
+    description: "8-Bit-Spielwelt für Glücksgewinn, Rewards und spielerische Burger-Aktionen.",
+    themeColor: "#05071a",
+    cornerLeft: "👾",
+    cornerRight: "🕹️",
+    particles: ["◆", "■", "✦"],
+    effect: "pixel-grid",
+    motifs: ["◆", "■", "+"],
+    burst: ["★", "+1", "◆"],
+    density: 1,
+  },
+  {
+    id: "popart",
+    label: "Burger Pop / Comic",
+    icon: "💥",
+    description: "Comic-Book-Energie mit kräftigen Konturen, Halftone-Punkten und Angebots-Bursts.",
+    themeColor: "#10070a",
+    cornerLeft: "💥",
+    cornerRight: "🍔",
+    particles: ["!", "★", "·"],
+    effect: "comic-burst",
+    motifs: ["!", "★", "●"],
+    burst: ["WOW!", "★", "💥"],
     density: 1,
   },
 ];
@@ -431,15 +607,45 @@ export function normalizeThemeId(value: any): ThemeId {
     blackweek: "blackweek",
     blackfriday: "blackweek",
     christmas: "christmas",
-    xmas: "christmas",
-    weihnachten: "christmas",
     advent: "christmas",
+    adventszeit: "christmas",
+    xmas: "weihnachten",
+    weihnachten: "weihnachten",
+    weihnachtsfest: "weihnachten",
+    christmasday: "weihnachten",
     winter: "winter",
     newyear: "newyear",
     silvester: "newyear",
     neujahr: "newyear",
     valentines: "valentines",
     valentine: "valentines",
+    mothersday: "mothersday",
+    muttertag: "mothersday",
+    mama: "mothersday",
+    ramadan: "ramadan",
+    ramazan: "ramadan",
+    zuckerfest: "ramadan",
+    eid: "ramadan",
+    autumn: "autumn",
+    herbst: "autumn",
+    cozyseason: "autumn",
+    anniversary: "anniversary",
+    jubilaeum: "anniversary",
+    jubiläum: "anniversary",
+    geburtstag: "anniversary",
+    pride: "pride",
+    berlinpride: "pride",
+    vielfalt: "pride",
+    csd: "pride",
+    retrowave: "retrowave",
+    retro80s: "retrowave",
+    synthwave: "retrowave",
+    arcade: "arcade",
+    burgerarcade: "arcade",
+    retrogaming: "arcade",
+    popart: "popart",
+    burgerpop: "popart",
+    comic: "popart",
   };
 
   return aliases[text] || "classic";
@@ -519,6 +725,8 @@ export function normalizeThemeSettings(value: any): ThemeSettings {
   logos.classic ||= cleanAsset(raw?.logoClassic);
   logos.neon ||= cleanAsset(raw?.logoNeon);
   logos.christmas ||= cleanAsset(raw?.logoChristmas);
+  logos.weihnachten ||= cleanAsset(raw?.logoChristmas);
+  videos.weihnachten ||= videos.christmas;
   logos.halloween ||= cleanAsset(raw?.logoHalloween);
 
   return {
@@ -585,6 +793,31 @@ function localDateTimeFromDate(date: Date, hour = 0, minute = 0) {
   );
 }
 
+function nthWeekdayOfMonth(
+  year: number,
+  month: number,
+  weekday: number,
+  occurrence: number,
+) {
+  const first = new Date(year, month - 1, 1, 12);
+  const offset = (weekday - first.getDay() + 7) % 7;
+  return new Date(year, month - 1, 1 + offset + (occurrence - 1) * 7, 12);
+}
+
+const RAMADAN_RECOMMENDATIONS: Record<
+  number,
+  { start: [number, number]; end: [number, number] }
+> = {
+  // Ay gözlemine göre bir gün değişebilir; bu nedenle kayıtlar yıllık tekrarlanmaz.
+  2026: { start: [2, 18], end: [3, 22] },
+  2027: { start: [2, 8], end: [3, 12] },
+};
+
+const BERLIN_PRIDE_RECOMMENDATIONS: Record<number, [number, number]> = {
+  // Berlin CSD 2026 ana yürüyüş tarihi: 25 Temmuz 2026.
+  2026: [7, 25],
+};
+
 export function createRecommendedThemeSchedule(
   year = new Date().getFullYear(),
 ): ThemeScheduleEntry[] {
@@ -611,8 +844,11 @@ export function createRecommendedThemeSchedule(
 
   const easter = easterSunday(year);
   const ascension = shiftedDate(easter, 39);
+  const mothersDay = nthWeekdayOfMonth(year, 5, 0, 2);
+  const ramadan = RAMADAN_RECOMMENDATIONS[year];
+  const berlinPride = BERLIN_PRIDE_RECOMMENDATIONS[year];
 
-  return [
+  const schedule: ThemeScheduleEntry[] = [
     make(
       "winter",
       "Winter",
@@ -628,11 +864,33 @@ export function createRecommendedThemeSchedule(
       55,
     ),
     make(
+      "womensday",
+      "Weltfrauentag / Kadınlar Günü",
+      localDateTime(year, 3, 1),
+      localDateTime(year, 3, 8, 23, 59),
+      69,
+    ),
+    make(
+      "medicine",
+      "Tag der Medizin / Tıp Bayramı",
+      localDateTime(year, 3, 9),
+      localDateTime(year, 3, 14, 23, 59),
+      70,
+    ),
+    make(
       "easter",
       `Frühling / Ostern ${year}`,
       localDateTimeFromDate(shiftedDate(easter, -7)),
       localDateTimeFromDate(shiftedDate(easter, 1), 23, 59),
       50,
+      false,
+    ),
+    make(
+      "mothersday",
+      `Muttertag ${year}`,
+      localDateTimeFromDate(shiftedDate(mothersDay, -6)),
+      localDateTimeFromDate(mothersDay, 23, 59),
+      74,
       false,
     ),
     make(
@@ -670,6 +928,13 @@ export function createRecommendedThemeSchedule(
       localDateTime(year, 8, 20),
       localDateTime(year, 9, 10, 23, 59),
       48,
+    ),
+    make(
+      "autumn",
+      "Herbst / Cozy Season",
+      localDateTime(year, 9, 1),
+      localDateTime(year, 11, 15, 23, 59),
+      30,
     ),
     make(
       "oktoberfest",
@@ -715,10 +980,17 @@ export function createRecommendedThemeSchedule(
     ),
     make(
       "christmas",
-      "Christmas / Advent",
+      "Advent",
       localDateTime(year, 12, 1),
-      localDateTime(year, 12, 26, 23, 59),
+      localDateTime(year, 12, 23, 23, 59),
       100,
+    ),
+    make(
+      "weihnachten",
+      "Weihnachten",
+      localDateTime(year, 12, 24),
+      localDateTime(year, 12, 26, 23, 59),
+      108,
     ),
     make(
       "newyear",
@@ -728,6 +1000,39 @@ export function createRecommendedThemeSchedule(
       110,
     ),
   ];
+
+  if (ramadan) {
+    schedule.push(
+      make(
+        "ramadan",
+        `Ramadan / Zuckerfest ${year} · Termin prüfen`,
+        localDateTime(year, ramadan.start[0], ramadan.start[1]),
+        localDateTime(year, ramadan.end[0], ramadan.end[1], 23, 59),
+        68,
+        false,
+      ),
+    );
+  }
+
+  if (berlinPride) {
+    const prideDay = new Date(year, berlinPride[0] - 1, berlinPride[1], 12);
+    schedule.push(
+      make(
+        "pride",
+        `Berlin Pride / Vielfalt ${year}`,
+        localDateTimeFromDate(shiftedDate(prideDay, -7)),
+        localDateTimeFromDate(shiftedDate(prideDay, 2), 23, 59),
+        76,
+        false,
+      ),
+    );
+  }
+
+  return schedule.sort((left, right) => {
+    const leftStart = left.startAt ? new Date(left.startAt).valueOf() : 0;
+    const rightStart = right.startAt ? new Date(right.startAt).valueOf() : 0;
+    return leftStart - rightStart;
+  });
 }
 
 function partsFromDate(date: Date) {

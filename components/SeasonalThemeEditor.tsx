@@ -255,7 +255,7 @@ export default function SeasonalThemeEditor({
             />
             <ToggleRow
               label="Schnee"
-              description="Schneefall für Christmas und Winter."
+              description="Schneefall für Advent, Weihnachten und Winter."
               checked={settings.snow}
               onChange={(snow) => commit({ snow })}
             />
@@ -571,7 +571,7 @@ export default function SeasonalThemeEditor({
           </div>
         )}
         <div className="mt-3 rounded-xl border border-amber-500/25 bg-amber-500/5 px-3 py-2 text-xs leading-relaxed text-amber-100/85">
-          Ostern und Vatertag werden für das geladene Jahr exakt berechnet und deshalb nicht blind jährlich wiederholt. Berliner Zeugnis- und Schulstart-Termine sind als editierbare Zeitfenster markiert, weil sie sich je Schuljahr ändern.
+          Weltfrauentag/Kadınlar Günü (1.–8. März) und Tag der Medizin/Tıp Bayramı (9.–14. März) werden als feste jährliche Regeln geladen. Ostern, Muttertag und Vatertag werden für das geladene Jahr exakt berechnet und deshalb nicht blind jährlich wiederholt. Ramadan/Zuckerfest und Berlin Pride werden nur für hinterlegte Jahre als editierbare Termine ergänzt. Jubiläum, Retro Wave, Burger Arcade und Burger Pop bleiben bewusst manuelle Kampagnen-Designs.
         </div>
       </div>
     </div>

@@ -45,13 +45,15 @@ must(premium.includes("Sipariş QR adresinden tamamen ayrıdır"), "admin Google
 const requiredThemes = [
   "classic", "neon", "easter", "summer", "fathersday", "school",
   "veganweek", "fan", "oktoberfest", "lights", "germany", "halloween",
-  "blackweek", "christmas", "winter", "newyear", "valentines",
+  "blackweek", "christmas", "weihnachten", "winter", "newyear", "valentines",
+  "womensday", "medicine", "mothersday", "ramadan", "autumn", "anniversary", "pride",
+  "retrowave", "arcade", "popart",
 ];
 requiredThemes.forEach((id) => must(themes.includes(`"${id}"`), `tema mevcut: ${id}`));
 const effects = [...themes.matchAll(/\n\s*effect: "([^"]+)"/g)].map((match) => match[1]);
 must(effects.length === requiredThemes.length, "her tema için profesyonel efekt profili tanımlı");
 must(new Set(effects).size === requiredThemes.length, "tüm temaların atmosfer dili birbirinden farklı");
-must(themes.includes("easterSunday(year)") && themes.includes('"fathersday"'), "Vatertag ve Paskalya gerçek hareketli tarihle hesaplanıyor");
+must(themes.includes("easterSunday(year)") && themes.includes("nthWeekdayOfMonth") && themes.includes('"mothersday"'), "Paskalya, Vatertag ve Muttertag hareketli tarihle hesaplanıyor");
 must(themes.includes('"school"') && themes.includes('"veganweek"') && themes.includes('"germany"'), "Almanya ve restoran özel takvimleri hazır");
 must(presets.includes('"school-report"') && presets.includes('"school-start"') && presets.includes('"vegan-week"'), "karne, okul başlangıcı ve vegan vitrin şablonları var");
 
@@ -60,7 +62,7 @@ must(themeClient.includes("deviceMemory <= 4") && themeClient.includes('data-bb-
 must(themeClient.includes("prefers-reduced-motion: reduce") && themeClient.includes("burst.remove()"), "tıklama efekti hareket tercihini ve temizliği koruyor");
 must(globals.includes(".bb-theme-burst") && globals.includes("contain:strict"), "hafif tıklama efekti ve izole dekor katmanı var");
 must(!globals.includes("Christmas snow cap"), "eski beyaz Christmas çizgisi kaldırıldı");
-must(globals.includes('data-bb-theme="fathersday"') && globals.includes('data-bb-theme="school"') && globals.includes('data-bb-theme="veganweek"') && globals.includes('data-bb-theme="germany"'), "yeni temaların tam renk paletleri var");
+must(globals.includes('data-bb-theme="weihnachten"') && globals.includes('data-effect="christmas-glow"') && globals.includes('data-bb-theme="fathersday"') && globals.includes('data-bb-theme="womensday"') && globals.includes('data-bb-theme="medicine"') && globals.includes('data-bb-theme="mothersday"') && globals.includes('data-bb-theme="ramadan"') && globals.includes('data-bb-theme="retrowave"') && globals.includes('data-bb-theme="popart"'), "eski ve yeni temaların tam renk paletleri var");
 must(globals.includes("@media (prefers-reduced-motion:reduce)") && globals.includes("data-bb-performance=\"lite\""), "erişilebilirlik ve performans CSS korumaları var");
 
 console.log("\nShowcase + Theme Engine v3 regresyon kontrolleri başarılı.");
