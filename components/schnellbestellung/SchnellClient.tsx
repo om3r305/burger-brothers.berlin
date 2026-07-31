@@ -22,6 +22,26 @@ type Extra = {
   price: number;
 };
 
+type LunchSideOption = {
+  id: string;
+  name: string;
+  price: number;
+  upgradePrice: number;
+  included: boolean;
+};
+
+type LunchMenuInfo = {
+  menuId: string;
+  burgerProductId: string;
+  burgerName: string;
+  includedSideProductId: string;
+  includedSideName: string;
+  sideOptions: LunchSideOption[];
+  vegetarian: boolean;
+  badge: string;
+  allowNotes: boolean;
+};
+
 type Product = {
   id: string;
   name: string;
@@ -36,6 +56,8 @@ type Product = {
   extras: Extra[];
   allergens: string[];
   allergenHinweise?: string;
+  complimentaryTableSauce?: boolean;
+  lunchMenu?: LunchMenuInfo;
 };
 
 type Category = { key: string; label: string };
@@ -46,6 +68,7 @@ type CartLine = {
   qty: number;
   extraIds: string[];
   note: string;
+  selectedSideProductId?: string;
 };
 
 type CatalogSettings = {
@@ -56,6 +79,15 @@ type CatalogSettings = {
   orderHistoryEnabled: boolean;
   historyMaxOrders: number;
   historyDays: number;
+  lunchActive: boolean;
+  lunchAvailableUntil?: string;
+  lunchSchedule: {
+    enabled: boolean;
+    weekdays: number[];
+    startTime: string;
+    endTime: string;
+    timezone: "Europe/Berlin";
+  };
 };
 
 type CatalogResponse = {
@@ -78,6 +110,7 @@ type HistoryItem = {
   qty: number;
   extraIds: string[];
   note: string;
+  selectedSideProductId?: string;
 };
 
 type HistoryEntry = {
@@ -103,9 +136,18 @@ const DEFAULT_CATALOG_SETTINGS: CatalogSettings = {
   orderHistoryEnabled: true,
   historyMaxOrders: 5,
   historyDays: 90,
+  lunchActive: false,
+  lunchAvailableUntil: undefined,
+  lunchSchedule: {
+    enabled: false,
+    weekdays: [1, 2, 3, 4, 5],
+    startTime: "10:00",
+    endTime: "16:00",
+    timezone: "Europe/Berlin",
+  },
 };
 
-const CATALOG_CACHE_KEY = "bb_schnell_catalog_v5";
+const CATALOG_CACHE_KEY = "bb_schnell_catalog_v6";
 const CATALOG_CACHE_MAX_AGE_MS = 30 * 60_000;
 const HISTORY_KEY = "bb_schnell_order_history_v1";
 
@@ -178,7 +220,11 @@ function CatalogProductImage({
     );
   }
 
-  if (product.category === "burger" || product.category === "vegan") {
+  if (
+    product.category === "burger" ||
+    product.category === "vegan" ||
+    product.category === "lunch"
+  ) {
     return (
       <NormalizedProductImage
         src={product.imageUrl}
@@ -204,15 +250,123 @@ function CatalogProductImage({
   );
 }
 
-function lineTotal(line: CartLine) {
+function productUnitPrice(product: Product, takeaway: boolean) {
+  return product.complimentaryTableSauce && !takeaway ? 0 : product.price;
+}
+
+function selectedLunchSide(product: Product, selectedSideProductId?: string) {
+  if (!product.lunchMenu) return null;
+  return (
+    product.lunchMenu.sideOptions.find(
+      (side) => side.id === selectedSideProductId,
+    ) ||
+    product.lunchMenu.sideOptions.find((side) => side.included) ||
+    null
+  );
+}
+
+function lunchUpgradePrice(product: Product, selectedSideProductId?: string) {
+  return selectedLunchSide(product, selectedSideProductId)?.upgradePrice || 0;
+}
+
+function lineTotal(line: CartLine, takeaway: boolean) {
   const extras = line.product.extras
     .filter((extra) => line.extraIds.includes(extra.id))
     .reduce((sum, extra) => sum + extra.price, 0);
-  return (line.product.price + extras) * line.qty;
+  return (
+    productUnitPrice(line.product, takeaway) +
+    lunchUpgradePrice(line.product, line.selectedSideProductId) +
+    extras
+  ) * line.qty;
+}
+
+function productPriceLabel(product: Product, takeaway: boolean) {
+  return product.complimentaryTableSauce && !takeaway
+    ? "Kostenlos"
+    : euro(product.price);
+}
+
+function berlinLunchScheduleActive(
+  schedule: CatalogSettings["lunchSchedule"],
+  nowMs: number,
+) {
+  if (!schedule.enabled || schedule.weekdays.length === 0) return false;
+
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Berlin",
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date(nowMs));
+  const values = Object.fromEntries(
+    parts.map((part) => [part.type, part.value]),
+  );
+  const weekdayMap: Record<string, number> = {
+    Mon: 1,
+    Tue: 2,
+    Wed: 3,
+    Thu: 4,
+    Fri: 5,
+    Sat: 6,
+    Sun: 7,
+  };
+  const weekday = weekdayMap[values.weekday] || 1;
+  const minuteOfDay =
+    Number(values.hour || 0) * 60 + Number(values.minute || 0);
+  const clockMinutes = (value: string) => {
+    const match = value.match(/^(\d{1,2}):(\d{2})$/);
+    if (!match) return 0;
+    return Number(match[1]) * 60 + Number(match[2]);
+  };
+  const start = clockMinutes(schedule.startTime);
+  const end = clockMinutes(schedule.endTime);
+  const days = new Set(schedule.weekdays);
+
+  if (start === end) return false;
+  if (start < end) {
+    return days.has(weekday) && minuteOfDay >= start && minuteOfDay < end;
+  }
+  if (minuteOfDay >= start) return days.has(weekday);
+
+  const previousWeekday = weekday === 1 ? 7 : weekday - 1;
+  return days.has(previousWeekday) && minuteOfDay < end;
 }
 
 function makeLineKey(productId: string, extraIds: string[]) {
   return `${productId}:${[...extraIds].sort().join(",")}:${crypto.randomUUID()}`;
+}
+
+function reconcileCartWithCatalog(
+  cart: CartLine[],
+  products: Product[],
+): CartLine[] {
+  const productById = new Map(products.map((product) => [product.id, product]));
+
+  return cart.flatMap((line) => {
+    const product = productById.get(line.product.id);
+    if (!product) return [];
+
+    const extraIds = line.extraIds.filter((extraId) =>
+      product.extras.some((extra) => extra.id === extraId),
+    );
+    const selectedSideProductId = product.lunchMenu
+      ? product.lunchMenu.sideOptions.some(
+          (side) => side.id === line.selectedSideProductId,
+        )
+        ? line.selectedSideProductId
+        : product.lunchMenu.includedSideProductId
+      : undefined;
+
+    return [
+      {
+        ...line,
+        product,
+        extraIds,
+        selectedSideProductId,
+      },
+    ];
+  });
 }
 
 function orderFingerprint(cart: CartLine[], takeaway: boolean) {
@@ -222,6 +376,7 @@ function orderFingerprint(cart: CartLine[], takeaway: boolean) {
       productId: line.product.id,
       qty: line.qty,
       extraIds: [...line.extraIds].sort(),
+      selectedSideProductId: line.selectedSideProductId || "",
       note: line.note.trim(),
     })),
   });
@@ -253,7 +408,9 @@ function getStableIdempotencyKey(cart: CartLine[], takeaway: boolean) {
   return key;
 }
 
-function normalizeCatalogSettings(value: Partial<CatalogSettings> | undefined) {
+function normalizeCatalogSettings(
+  value: Partial<CatalogSettings> | undefined,
+): CatalogSettings {
   return {
     ...DEFAULT_CATALOG_SETTINGS,
     ...(value || {}),
@@ -262,6 +419,31 @@ function normalizeCatalogSettings(value: Partial<CatalogSettings> | undefined) {
       Math.min(20, Number(value?.historyMaxOrders) || 5),
     ),
     historyDays: Math.max(1, Math.min(365, Number(value?.historyDays) || 90)),
+    lunchActive: value?.lunchActive === true,
+    lunchAvailableUntil:
+      typeof value?.lunchAvailableUntil === "string"
+        ? value.lunchAvailableUntil
+        : undefined,
+    lunchSchedule: {
+      enabled: value?.lunchSchedule?.enabled === true,
+      weekdays: Array.isArray(value?.lunchSchedule?.weekdays)
+        ? value.lunchSchedule.weekdays
+            .map(Number)
+            .filter(
+              (day: number) =>
+                Number.isInteger(day) && day >= 1 && day <= 7,
+            )
+        : [1, 2, 3, 4, 5],
+      startTime:
+        typeof value?.lunchSchedule?.startTime === "string"
+          ? value.lunchSchedule.startTime
+          : "10:00",
+      endTime:
+        typeof value?.lunchSchedule?.endTime === "string"
+          ? value.lunchSchedule.endTime
+          : "16:00",
+      timezone: "Europe/Berlin",
+    },
   };
 }
 
@@ -347,6 +529,7 @@ function saveHistoryEntry(
       qty: line.qty,
       extraIds: [...line.extraIds],
       note: line.note,
+      selectedSideProductId: line.selectedSideProductId,
     })),
   };
 
@@ -424,6 +607,7 @@ export default function SchnellClient() {
   const [category, setCategory] = useState("");
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [selectedExtraIds, setSelectedExtraIds] = useState<string[]>([]);
+  const [selectedSideProductId, setSelectedSideProductId] = useState("");
   const [selectedNote, setSelectedNote] = useState("");
   const [cartOpen, setCartOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -432,10 +616,16 @@ export default function SchnellClient() {
   const [takeaway, setTakeaway] = useState(false);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [clockMs, setClockMs] = useState(() => Date.now());
   const [error, setError] = useState("");
 
   useEffect(() => {
     prewarmSchnellPush();
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setClockMs(Date.now()), 15_000);
+    return () => window.clearInterval(timer);
   }, []);
 
   useEffect(() => {
@@ -523,11 +713,106 @@ export default function SchnellClient() {
   }, [cart]);
 
   useEffect(() => {
+    if (!products.length) return;
+    setCart((current) => reconcileCartWithCatalog(current, products));
+  }, [products]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const refreshCatalog = async () => {
+      try {
+        const response = await fetch("/api/schnellbestellung/catalog", {
+          credentials: "same-origin",
+          cache: "no-store",
+          headers: { accept: "application/json" },
+        });
+        const data = (await response.json().catch(() => ({}))) as CatalogResponse;
+        if (cancelled || !response.ok || !Array.isArray(data.products)) return;
+
+        const nextProducts = data.products;
+        const nextCategories = Array.isArray(data.categories)
+          ? data.categories
+          : [];
+        const nextSettings = normalizeCatalogSettings(data.settings);
+
+        setProducts(nextProducts);
+        setCategories(nextCategories);
+        setCatalogSettings(nextSettings);
+        setSelectedProduct((current) =>
+          current
+            ? nextProducts.find((product) => product.id === current.id) || null
+            : null,
+        );
+        setCategory((current) =>
+          nextCategories.some((item) => item.key === current)
+            ? current
+            : nextCategories[0]?.key || nextProducts[0]?.category || "",
+        );
+        writeCachedCatalog(nextProducts, nextCategories, nextSettings);
+      } catch {
+        // A failed silent refresh must not interrupt an active order.
+      }
+    };
+
+    const timer = window.setInterval(() => {
+      void refreshCatalog();
+    }, 60_000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  const lunchActiveNow = useMemo(() => {
+    if (catalogSettings.lunchSchedule.enabled) {
+      return berlinLunchScheduleActive(
+        catalogSettings.lunchSchedule,
+        clockMs,
+      );
+    }
+
+    if (!catalogSettings.lunchActive) return false;
+    const until = catalogSettings.lunchAvailableUntil
+      ? new Date(catalogSettings.lunchAvailableUntil).getTime()
+      : Number.POSITIVE_INFINITY;
+    return Number.isFinite(until) ? clockMs < until : true;
+  }, [
+    catalogSettings.lunchActive,
+    catalogSettings.lunchAvailableUntil,
+    catalogSettings.lunchSchedule,
+    clockMs,
+  ]);
+
+  const availableCategories = useMemo(
+    () =>
+      categories.filter(
+        (item) => item.key !== "lunch" || lunchActiveNow,
+      ),
+    [categories, lunchActiveNow],
+  );
+
+  useEffect(() => {
+    if (category === "lunch" && !lunchActiveNow) {
+      setCategory(
+        availableCategories[0]?.key ||
+          products.find((product) => product.category !== "lunch")?.category ||
+          "",
+      );
+    }
+  }, [availableCategories, category, lunchActiveNow, products]);
+
+  useEffect(() => {
     preloadCatalogImages(products, category, 6);
 
-    const currentIndex = categories.findIndex((item) => item.key === category);
+    const currentIndex = availableCategories.findIndex(
+      (item) => item.key === category,
+    );
     const nextCategory =
-      currentIndex >= 0 ? categories[currentIndex + 1]?.key : categories[0]?.key;
+      currentIndex >= 0
+        ? availableCategories[currentIndex + 1]?.key
+        : availableCategories[0]?.key;
     const timer = nextCategory
       ? window.setTimeout(
           () => preloadCatalogImages(products, nextCategory, 2),
@@ -538,21 +823,47 @@ export default function SchnellClient() {
     return () => {
       if (timer !== null) window.clearTimeout(timer);
     };
-  }, [categories, category, products]);
+  }, [availableCategories, category, products]);
 
   const visibleProducts = useMemo(
-    () => products.filter((product) => product.category === category),
-    [category, products],
+    () =>
+      products.filter(
+        (product) =>
+          product.category === category &&
+          (product.category !== "lunch" || lunchActiveNow),
+      ),
+    [category, lunchActiveNow, products],
   );
 
   const itemCount = cart.reduce((sum, line) => sum + line.qty, 0);
-  const total = cart.reduce((sum, line) => sum + lineTotal(line), 0);
+  const total = cart.reduce(
+    (sum, line) => sum + lineTotal(line, takeaway),
+    0,
+  );
 
   function openProduct(product: Product) {
     setSelectedProduct(product);
     setSelectedExtraIds([]);
+    setSelectedSideProductId(
+      product.lunchMenu?.includedSideProductId || "",
+    );
     setSelectedNote("");
   }
+
+  useEffect(() => {
+    if (!selectedProduct?.lunchMenu) return;
+    if (
+      selectedProduct.lunchMenu.sideOptions.some(
+        (side) => side.id === selectedSideProductId,
+      )
+    ) {
+      return;
+    }
+
+    setSelectedSideProductId(
+      selectedProduct.lunchMenu.includedSideProductId,
+    );
+  }, [selectedProduct, selectedSideProductId]);
 
   function addSelectedProduct() {
     if (!selectedProduct) return;
@@ -564,11 +875,17 @@ export default function SchnellClient() {
         product: selectedProduct,
         qty: 1,
         extraIds: selectedExtraIds,
-        note: selectedNote.trim().slice(0, 300),
+        selectedSideProductId: selectedProduct.lunchMenu
+          ? selectedSideProductId || selectedProduct.lunchMenu.includedSideProductId
+          : undefined,
+        note: selectedProduct.lunchMenu?.allowNotes === false
+          ? ""
+          : selectedNote.trim().slice(0, 300),
       },
     ]);
     setSelectedProduct(null);
     setSelectedExtraIds([]);
+    setSelectedSideProductId("");
     setSelectedNote("");
   }
 
@@ -599,11 +916,19 @@ export default function SchnellClient() {
       const validExtraIds = item.extraIds.filter((extraId) =>
         product.extras.some((extra) => extra.id === extraId),
       );
+      const selectedSideId = product.lunchMenu
+        ? product.lunchMenu.sideOptions.some(
+            (side) => side.id === item.selectedSideProductId,
+          )
+          ? item.selectedSideProductId
+          : product.lunchMenu.includedSideProductId
+        : undefined;
       restored.push({
         key: makeLineKey(product.id, validExtraIds),
         product,
         qty: Math.max(1, Math.min(20, Number(item.qty) || 1)),
         extraIds: validExtraIds,
+        selectedSideProductId: selectedSideId,
         note: String(item.note || "").slice(0, 300),
       });
     }
@@ -646,6 +971,7 @@ export default function SchnellClient() {
             productId: line.product.id,
             qty: line.qty,
             extraIds: line.extraIds,
+            selectedSideProductId: line.selectedSideProductId,
             note: line.note,
           })),
         }),
@@ -663,9 +989,11 @@ export default function SchnellClient() {
                 )} Min. erneut bestellen. Bei Bedarf hilft unser Personal gern weiter.`
               : data.error === "PRODUCT_UNAVAILABLE"
                 ? "Ein Artikel ist nicht mehr verfügbar."
-                : data.error === "SCHNELL_UNAVAILABLE"
-                  ? "Schnellbestellung ist momentan pausiert."
-                  : "Die Bestellung konnte nicht gesendet werden.";
+                : data.error === "LUNCH_MENU_UNAVAILABLE"
+                  ? "Das Mittagsmenü ist leider nicht mehr verfügbar. Bitte aktualisieren Sie Ihre Bestellung."
+                  : data.error === "SCHNELL_UNAVAILABLE"
+                    ? "Schnellbestellung ist momentan pausiert."
+                    : "Die Bestellung konnte nicht gesendet werden.";
         throw new Error(message);
       }
 
@@ -737,7 +1065,7 @@ export default function SchnellClient() {
         </div>
 
         <div className="mx-auto mt-3 flex max-w-3xl gap-2 overflow-x-auto pb-1">
-          {categories.map((item) => (
+          {availableCategories.map((item) => (
             <button
               key={item.key}
               type="button"
@@ -787,7 +1115,14 @@ export default function SchnellClient() {
             onClick={() => openProduct(product)}
             className="bb-schnell-card relative flex h-full min-w-0 flex-col overflow-hidden rounded-2xl border text-left"
           >
-            {product.campaignBadge ? (
+            {product.lunchMenu ? (
+              <span className="absolute left-2 top-2 z-10 rounded-full border border-amber-200/70 bg-amber-300 px-2.5 py-1 text-[11px] font-black text-black shadow-lg">
+                {product.lunchMenu.vegetarian ? "🌱 Vegetarisch · " : ""}
+                {product.lunchMenu.badge || "Mittagsmenü"}
+              </span>
+            ) : null}
+            {product.campaignBadge &&
+            !(product.complimentaryTableSauce && !takeaway) ? (
               <span className="absolute right-2 top-2 z-10 animate-pulse rounded-full border border-yellow-200/70 bg-gradient-to-r from-red-600 via-orange-500 to-amber-400 px-2.5 py-1 text-[11px] font-black text-white shadow-[0_0_22px_rgba(251,146,60,0.75)]">
                 {formatCampaignBadge(product.campaignBadge)}
               </span>
@@ -825,9 +1160,10 @@ export default function SchnellClient() {
 
               <div className="mt-auto flex flex-wrap items-baseline gap-2 pt-2">
                 <span className="bb-schnell-accent-text font-black">
-                  {euro(product.price)}
+                  {productPriceLabel(product, takeaway)}
                 </span>
-                {product.originalPrice ? (
+                {product.originalPrice &&
+                !(product.complimentaryTableSauce && !takeaway) ? (
                   <span className="text-xs text-stone-500 line-through">
                     {euro(product.originalPrice)}
                   </span>
@@ -870,7 +1206,7 @@ export default function SchnellClient() {
                 <div>
                   <h2 className="text-2xl font-black">{selectedProduct.name}</h2>
                   <div className="bb-schnell-accent-text mt-1 font-black">
-                    {euro(selectedProduct.price)}
+                    {productPriceLabel(selectedProduct, takeaway)}
                   </div>
                 </div>
                 <button
@@ -919,6 +1255,43 @@ export default function SchnellClient() {
                 </div>
               ) : null}
 
+              {selectedProduct.lunchMenu ? (
+                <div className="mt-5">
+                  <div className="text-sm font-black">Beilage wählen</div>
+                  <div className="mt-2 space-y-2">
+                    {selectedProduct.lunchMenu.sideOptions.map((side) => (
+                      <label
+                        key={side.id}
+                        className={`flex items-center justify-between gap-3 rounded-xl border p-4 ${
+                          selectedSideProductId === side.id
+                            ? "border-amber-300/60 bg-amber-300/10"
+                            : "border-white/10 bg-white/5"
+                        }`}
+                      >
+                        <span className="font-bold">
+                          <input
+                            type="radio"
+                            name="lunch-side"
+                            checked={selectedSideProductId === side.id}
+                            onChange={() => setSelectedSideProductId(side.id)}
+                            className="mr-3"
+                          />
+                          {side.name}
+                        </span>
+                        <b>
+                          {side.included
+                            ? "inklusive"
+                            : `+ ${euro(side.upgradePrice)}`}
+                        </b>
+                      </label>
+                    ))}
+                  </div>
+                  <p className="mt-2 text-xs text-stone-400">
+                    Der Aufpreis wird automatisch aus den aktuellen Produktpreisen berechnet.
+                  </p>
+                </div>
+              ) : null}
+
               {selectedProduct.extras?.length ? (
                 <div className="mt-5 space-y-2">
                   <div className="text-sm font-black">Extras</div>
@@ -948,17 +1321,19 @@ export default function SchnellClient() {
                 </div>
               ) : null}
 
-              <label className="mt-5 block">
-                <span className="text-sm font-black">Hinweis (optional)</span>
-                <textarea
-                  value={selectedNote}
-                  onChange={(event) => setSelectedNote(event.target.value)}
-                  maxLength={300}
-                  rows={3}
-                  className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 p-3"
-                  placeholder="Zum Beispiel: ohne Zwiebeln"
-                />
-              </label>
+              {selectedProduct.lunchMenu?.allowNotes === false ? null : (
+                <label className="mt-5 block">
+                  <span className="text-sm font-black">Hinweis (optional)</span>
+                  <textarea
+                    value={selectedNote}
+                    onChange={(event) => setSelectedNote(event.target.value)}
+                    maxLength={300}
+                    rows={3}
+                    className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 p-3"
+                    placeholder="Zum Beispiel: ohne Zwiebeln"
+                  />
+                </label>
+              )}
 
               <button
                 type="button"
@@ -996,11 +1371,25 @@ export default function SchnellClient() {
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <div className="font-black">{line.product.name}</div>
+                        {line.product.lunchMenu ? (
+                          <div className="mt-1 text-xs font-bold text-amber-200">
+                            {(() => {
+                              const side = selectedLunchSide(
+                                line.product,
+                                line.selectedSideProductId,
+                              );
+                              if (!side) return "";
+                              return side.included
+                                ? `${side.name} inklusive`
+                                : `${side.name} statt ${line.product.lunchMenu?.includedSideName} · +${euro(side.upgradePrice)}`;
+                            })()}
+                          </div>
+                        ) : null}
                         {line.extraIds.length ? (
                           <div className="mt-1 text-xs text-stone-400">
                             Extras: {line.product.extras
                               .filter((extra) => line.extraIds.includes(extra.id))
-                              .map((extra) => extra.name)
+                              .map((extra) => `${extra.name} (+${euro(extra.price)})`)
                               .join(", ")}
                           </div>
                         ) : null}
@@ -1011,7 +1400,9 @@ export default function SchnellClient() {
                         ) : null}
                       </div>
                       <div className="bb-schnell-accent-text font-black">
-                        {euro(lineTotal(line))}
+                        {line.product.complimentaryTableSauce && !takeaway
+                          ? "Kostenlos"
+                          : euro(lineTotal(line, takeaway))}
                       </div>
                     </div>
                     <div className="mt-3 flex items-center justify-end gap-2">

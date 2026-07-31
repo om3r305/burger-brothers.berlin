@@ -3,6 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import RewardProgramPanel from "@/components/rewards/admin/RewardProgramPanel";
 import RewardModerationPanel from "@/components/rewards/admin/RewardModerationPanel";
+import SchnellLunchMenuPanel, {
+  type SchnellLunchSettingsAdmin,
+} from "@/components/schnellbestellung/admin/SchnellLunchMenuPanel";
 import { MENU_NAV_ITEMS, type MenuNavKey } from "@/lib/menu-navigation";
 
 type SchnellCategory = MenuNavKey;
@@ -64,6 +67,7 @@ type SchnellSettings = {
   visibleCategories: string[];
   hiddenProductIds: string[];
   campaigns: SchnellCampaign[];
+  lunchMenu: SchnellLunchSettingsAdmin;
 };
 
 type CatalogProduct = {
@@ -388,7 +392,7 @@ export default function SchnellbestellungAdminPage() {
       }
 
       setSettings(data.settings);
-      setMessage("Ayarlar ve Schnellbestellung kampanyaları kaydedildi.");
+      setMessage("Ayarlar, Mittagsmenüler ve Schnellbestellung kampanyaları kaydedildi.");
     } catch {
       setError("Ayarlar kaydedilemedi.");
     } finally {
@@ -505,6 +509,12 @@ export default function SchnellbestellungAdminPage() {
             })}
           </div>
         </section>
+
+        <SchnellLunchMenuPanel
+          value={settings.lunchMenu}
+          catalog={catalog}
+          onChange={(lunchMenu) => setSettings({ ...settings, lunchMenu })}
+        />
 
         <section className="mt-8 rounded-2xl border border-stone-700 p-5">
           <h2 className="text-xl font-black">QR modu</h2>
@@ -668,7 +678,7 @@ export default function SchnellbestellungAdminPage() {
 
         <div className="sticky bottom-3 z-20 mt-8 rounded-2xl border border-white/10 bg-stone-950/95 p-3 backdrop-blur">
           <button type="button" onClick={() => void saveSettings()} disabled={saving} className="w-full rounded-xl bg-emerald-500 px-5 py-3 font-black text-black disabled:opacity-60">
-            {saving ? "Kaydediliyor…" : "Bütün ayarları ve kampanyaları kaydet"}
+            {saving ? "Kaydediliyor…" : "Bütün ayarları, Mittagsmenüleri ve kampanyaları kaydet"}
           </button>
         </div>
 

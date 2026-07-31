@@ -29,6 +29,7 @@ const requiredFiles = [
   "public/sw.js",
   "app/admin/schnellbestellung/page.tsx",
   "components/schnellbestellung/SchnellClient.tsx",
+  "components/schnellbestellung/admin/SchnellLunchMenuPanel.tsx",
   "lib/server/schnellbestellung.ts",
   "lib/tv/domain.ts",
   "types/tv.ts",
@@ -79,6 +80,7 @@ const middleware = read("middleware.ts");
 const tvTypes = read("types/tv.ts");
 const printProxy = read("print-proxy/index.cjs");
 const catalogClient = read("lib/client/schnell-catalog.ts");
+const lunchAdmin = read("components/schnellbestellung/admin/SchnellLunchMenuPanel.tsx");
 const menuNavigation = read("lib/menu-navigation.ts");
 
 assert(core.includes("Serializable"));
@@ -86,11 +88,18 @@ assert(core.includes('mode: "dine_in"'));
 assert(core.includes('channel: "schnellbestellung"'));
 assert(core.includes("idempotencyKey"));
 assert(core.includes('path: ["idempotencyKey"]'));
-assert(core.includes("heinz\\s+"), "Only plain table ketchup/mayo should be hidden");
+assert(core.includes("isComplimentaryTableSauce"));
+assert(
+  core.includes("!takeaway && isComplimentaryTableSauce"),
+  "Ketchup and mayonnaise must be free only for dine-in Schnellbestellung",
+);
+assert(
+  !core.includes("if (isComplimentaryTableSauce(product.category, product.name)) return false"),
+  "Table ketchup/mayonnaise must remain visible in the catalog",
+);
 assert(core.includes('qrMode: "dynamic"'));
 assert(core.includes('typ: "schnell-static-access"'));
 assert(core.includes("getSchnellCampaignPrice"));
-assert(core.includes("isComplimentaryTableSauce"));
 assert(core.includes("cleanSchnellGroupVariantName"));
 assert(core.includes("stripSchnellGroupPrefix"));
 assert(core.includes("prefixPattern"));
@@ -128,7 +137,8 @@ assert(client.includes("Letzte Bestellungen"));
 assert(client.includes("primeReadyAudio"));
 assert(client.includes("__bbSchnellReadyMedia"));
 assert(client.includes('new Audio("/sounds/dine-in.wav")'));
-assert(client.includes("bb_schnell_catalog_v5"));
+assert(client.includes("bb_schnell_catalog_v6"));
+assert(!client.includes("bb_schnell_catalog_v5"));
 assert(!client.includes("bb_schnell_catalog_v4"));
 assert(!client.includes("bb_schnell_catalog_v3"));
 assert(!client.includes("bb_schnell_catalog_v2"));
@@ -168,6 +178,19 @@ assert(catalog.includes("campaignActive"));
 assert(catalog.includes("Number(right.campaignActive)"));
 assert(catalog.includes("takeawayEnabled"));
 assert(catalog.includes("orderHistoryEnabled"));
+assert(catalog.includes("buildSchnellLunchCatalogProducts"));
+assert(catalog.includes("requireActive: false"));
+assert(catalog.includes("lunchSchedule"));
+assert(client.includes("Mittagsmenü"));
+assert(client.includes("Beilage wählen"));
+assert(client.includes("Kostenlos"));
+assert(client.includes("selectedSideProductId"));
+assert(client.includes("berlinLunchScheduleActive"));
+assert(catalogClient.includes('const CATALOG_CACHE_KEY = "bb_schnell_catalog_v6"'));
+assert(lunchAdmin.includes("manuel yazılan tek fiyat"));
+assert(lunchAdmin.includes("Müşteriye +"));
+assert(!lunchAdmin.includes("manualUpgradePrice"));
+assert(!lunchAdmin.includes("Manuel Aufpreis"));
 assert(core.includes("SCHNELL_DRINK_GROUPS_KEY"));
 assert(core.includes("SCHNELL_EXTRA_GROUPS_KEY"));
 assert(core.includes("buildSchnellGroupVariantProducts"));
@@ -213,6 +236,8 @@ assert(admin.includes("Schnellbestellung kampanyaları"));
 assert(admin.includes("Hızlı menü kategorileri"));
 assert(admin.includes("toggleCategory"));
 assert(admin.includes("fixed_product"));
+assert(admin.includes("SchnellLunchMenuPanel"));
+assert(admin.includes("Mittagsmenüler"));
 assert(adminRoute.includes('requireMutationRole(req, ["admin"])'));
 assert(adminRoute.includes('action === "rotate_static_qr"'));
 assert(adminRoute.includes('action === "invalidate_sessions"'));
@@ -281,5 +306,8 @@ assert(serviceWorker.includes("vibrate:"));
 assert(printProxy.includes("const isTakeaway"));
 assert(printProxy.includes("ZUM MITNEHMEN"));
 assert(!printProxy.includes("HIER ESSEN"));
+assert(printProxy.includes("Mittagsmenü"));
+assert(printProxy.includes("complimentaryTableSauce"));
+assert(printProxy.includes("Kostenlos"));
 
 console.log("schnellbestellung regression tests: OK");

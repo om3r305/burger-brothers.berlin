@@ -437,6 +437,7 @@ function cleanName(name=''){
 function normGroupName(raw=''){
   const s=String(raw||'').toLowerCase();
   if (!s) return '';
+  if (/(mittag|lunch)/.test(s))            return 'Mittagsmenü';
   if (/(vegan|vegetar|vegetarisch)/.test(s)) return 'Vegan / Vegetarisch';
   if (/(getränk|drink|beverage)/.test(s))    return 'Getränke';
   if (/(soße|sauce|sossen|sos)/.test(s))     return 'Soßen';
@@ -450,6 +451,7 @@ function detectCategory(it){
   const raw = it?.group || it?.category || it?.type || '';
   const g = normGroupName(raw); if (g) return g;
   const name = String(it?.name||'').toLowerCase();
+  if (/(mittag|lunch)/.test(name)) return 'Mittagsmenü';
   if (/burger/.test(name)) return 'Burger';
   if (/(vegan|vegetar)/.test(name)) return 'Vegan / Vegetarisch';
   if (/(getränk|cola|ayran|fanta|sprite|wasser|water|pepsi)/.test(name)) return 'Getränke';
@@ -1080,7 +1082,7 @@ async function buildTicketFromOrder(o, opts={}){
     if (!map.has(g)) map.set(g, []);
     map.get(g).push(it);
   }
-  const ORDER = ['Burger','Vegan / Vegetarisch','Hotdogs','Extras','Getränke','Soßen'];
+  const ORDER = ['Burger','Vegan / Vegetarisch','Mittagsmenü','Hotdogs','Extras','Getränke','Soßen'];
   const orderedKeys = []; for (const k of ORDER) if (map.has(k)) orderedKeys.push(k);
   const others = [...map.keys()].filter(k=>!ORDER.includes(k)).sort();
   const keys = [...orderedKeys, ...others];
@@ -1236,7 +1238,10 @@ async function buildTicketFromOrder(o, opts={}){
       const qty=num(it.qty||1);
       const line=qty*receiptItemUnitPrice(it, receiptItemPricing);
       const itemName = cleanName(String(it.name||''));
-      out.push(bold(1), size(1,1), text(twoCol(`${qty}x ${itemName}`, money(line))), bold(0));
+      const itemPriceText = it?.complimentaryTableSauce === true
+        ? 'Kostenlos'
+        : money(line);
+      out.push(bold(1), size(1,1), text(twoCol(`${qty}x ${itemName}`, itemPriceText)), bold(0));
       if (Array.isArray(it.add) && it.add.length){
         for (const a of it.add){
           const extraName = cleanName(a?.label || a?.name || 'Extra');

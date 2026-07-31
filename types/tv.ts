@@ -27,6 +27,7 @@ export type StoredOrderItem = {
   add?: StoredOrderExtra[];
   rm?: string[];
   note?: string;
+  complimentaryTableSauce?: boolean;
 };
 
 export type CustomerAddressInfo = {

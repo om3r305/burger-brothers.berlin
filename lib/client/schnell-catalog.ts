@@ -16,7 +16,7 @@ type CatalogWindow = Window &
   };
 
 const CATALOG_URL = "/api/schnellbestellung/catalog";
-const CATALOG_CACHE_KEY = "bb_schnell_catalog_v5";
+const CATALOG_CACHE_KEY = "bb_schnell_catalog_v6";
 const IN_MEMORY_RESULT_MAX_AGE_MS = 15_000;
 const REQUEST_TIMEOUT_MS = 10_000;
 

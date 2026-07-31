@@ -1,11 +1,15 @@
 import { NextResponse } from "next/server";
 import {
+  buildSchnellLunchCatalogProducts,
   getSchnellCampaignPrice,
+  getSchnellLunchAvailability,
   getSchnellSettings,
+  isComplimentaryTableSauce,
   loadSchnellCatalogProducts,
   SCHNELL_CATEGORY_ORDER,
   SCHNELL_COOKIE,
   schnellCategoryLabel,
+  schnellProductIsAllowed,
   verifySessionToken,
 } from "@/lib/server/schnellbestellung";
 import { readRequestCookie } from "@/lib/server/request-security";
@@ -27,7 +31,17 @@ type CatalogPayload = {
     orderHistoryEnabled: boolean;
     historyMaxOrders: number;
     historyDays: number;
+    lunchActive: boolean;
+    lunchAvailableUntil?: string;
+    lunchSchedule: {
+      enabled: boolean;
+      weekdays: number[];
+      startTime: string;
+      endTime: string;
+      timezone: "Europe/Berlin";
+    };
   };
+  serverNow: string;
 };
 
 let memoryCache:
@@ -105,12 +119,17 @@ function normalizeAllergens(value: unknown) {
   return { allergens: [] as string[], allergenHinweise: "" };
 }
 
-function settingsCacheKey(settings: Awaited<ReturnType<typeof getSchnellSettings>>) {
+function settingsCacheKey(
+  settings: Awaited<ReturnType<typeof getSchnellSettings>>,
+  lunchAvailability: ReturnType<typeof getSchnellLunchAvailability>,
+) {
   return JSON.stringify({
     generation: settings.generation,
     visibleCategories: settings.visibleCategories,
     hiddenProductIds: settings.hiddenProductIds,
     campaigns: settings.campaigns,
+    lunchMenu: settings.lunchMenu,
+    lunchActive: lunchAvailability.active,
     payments: [
       settings.cashEnabled,
       settings.onlineEnabled,
@@ -162,7 +181,9 @@ export async function GET(req: Request) {
   }
 
   try {
-    const cacheKey = settingsCacheKey(settings);
+    const now = new Date();
+    const lunchAvailability = getSchnellLunchAvailability(settings, now);
+    const cacheKey = settingsCacheKey(settings, lunchAvailability);
     const cached = cachedPayload(cacheKey);
 
     if (cached) {
@@ -179,19 +200,38 @@ export async function GET(req: Request) {
       );
     }
 
-    const rows = await loadSchnellCatalogProducts(settings);
+    const allRows = await loadSchnellCatalogProducts(settings, {
+      applyVisibility: false,
+    });
+    const rows = allRows.filter((product) =>
+      schnellProductIsAllowed(product, settings),
+    );
+    const lunchRows = buildSchnellLunchCatalogProducts(
+      allRows,
+      settings,
+      now,
+      { requireActive: false },
+    );
 
-    const products = rows
+    const products = [...rows, ...lunchRows]
       .map((product) => {
         const allergenData = normalizeAllergens(product.allergens);
-        const campaignPrice = getSchnellCampaignPrice(
-          {
-            id: product.id,
-            category: product.category,
-            price: Number(product.price),
-          },
-          settings,
-        );
+        const campaignPrice =
+          product.sourceKind === "lunch_menu"
+            ? {
+                price: Number(product.price),
+                originalPrice: undefined,
+                badgeText: undefined,
+                campaign: null,
+              }
+            : getSchnellCampaignPrice(
+                {
+                  id: product.id,
+                  category: product.category,
+                  price: Number(product.price),
+                },
+                settings,
+              );
 
         return {
           id: product.id,
@@ -213,6 +253,11 @@ export async function GET(req: Request) {
           allergenHinweise: allergenData.allergenHinweise,
           sourceKind: product.sourceKind,
           depositAmount: product.depositAmount || 0,
+          complimentaryTableSauce: isComplimentaryTableSauce(
+            product.category,
+            product.name,
+          ),
+          lunchMenu: product.lunchMenu,
           active: true,
         };
       })
@@ -248,7 +293,19 @@ export async function GET(req: Request) {
         orderHistoryEnabled: settings.orderHistoryEnabled,
         historyMaxOrders: settings.historyMaxOrders,
         historyDays: settings.historyDays,
+        lunchActive: lunchAvailability.active,
+        ...(lunchAvailability.availableUntil
+          ? { lunchAvailableUntil: lunchAvailability.availableUntil }
+          : {}),
+        lunchSchedule: {
+          enabled: settings.lunchMenu.enabled,
+          weekdays: settings.lunchMenu.weekdays,
+          startTime: settings.lunchMenu.startTime,
+          endTime: settings.lunchMenu.endTime,
+          timezone: "Europe/Berlin",
+        },
       },
+      serverNow: now.toISOString(),
     };
 
     memoryCache = {

@@ -300,6 +300,7 @@ export function endOfTodayIso(tz: string) {
 export const TV_PRODUCT_CATEGORY_ORDER = [
   "burger",
   "vegan",
+  "lunch",
   "hotdogs",
   "extras",
   "sauces",
@@ -311,6 +312,7 @@ export const TV_PRODUCT_CATEGORY_ORDER = [
 export const TV_PRODUCT_CATEGORY_LABELS: Record<string, string> = {
   burger: "Burger",
   vegan: "Vegan",
+  lunch: "Mittagsmenü",
   hotdogs: "Hot Dogs",
   extras: "Extras",
   sauces: "Soßen",
@@ -897,6 +899,7 @@ export function normalizeItems(value: unknown): StoredOrderItem[] {
         add: extras.length ? extras : undefined,
         rm: cleanArr(item.rm ?? item.remove).map((entry) => String(entry)),
         note: item.note ? String(item.note) : undefined,
+        complimentaryTableSauce: item.complimentaryTableSauce === true,
       };
     })
     .filter((item): item is StoredOrderItem => Boolean(item));

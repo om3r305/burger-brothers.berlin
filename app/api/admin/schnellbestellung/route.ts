@@ -17,7 +17,7 @@ export async function GET(req: Request) {
   if (auth) return auth;
 
   const settings = await getSchnellSettings({ includeTvPause: false });
-  const products = await loadSchnellCatalogProducts(settings);
+  const products = await loadSchnellCatalogProducts(settings, { applyVisibility: false });
 
   return NextResponse.json(
     {

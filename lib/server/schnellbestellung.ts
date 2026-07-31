@@ -36,14 +36,44 @@ function invalidateSchnellSettingsCache() {
   schnellSettingsPromise = null;
 }
 
-export const SCHNELL_CATEGORY_ORDER: readonly MenuNavKey[] = MENU_NAV_KEYS;
+export const SCHNELL_CATEGORY_ORDER = [
+  "burger",
+  "vegan",
+  "lunch",
+  ...MENU_NAV_KEYS.filter((key) => key !== "burger" && key !== "vegan"),
+] as const;
 
-export type SchnellCategory = MenuNavKey;
+export type SchnellCategory = MenuNavKey | "lunch";
 export type SchnellQrMode = "static" | "dynamic";
 export type SchnellCampaignType =
   | "percent_category"
   | "percent_product"
   | "fixed_product";
+
+export type SchnellLunchMenu = {
+  id: string;
+  name: string;
+  description: string;
+  badge: string;
+  enabled: boolean;
+  vegetarian: boolean;
+  sortOrder: number;
+  menuPrice: number;
+  burgerProductId: string;
+  includedSideProductId: string;
+  allowedSideProductIds: string[];
+  allowExistingBurgerModifiers: boolean;
+  allowNotes: boolean;
+};
+
+export type SchnellLunchSettings = {
+  enabled: boolean;
+  weekdays: number[];
+  startTime: string;
+  endTime: string;
+  timezone: "Europe/Berlin";
+  menus: SchnellLunchMenu[];
+};
 
 export type SchnellCampaign = {
   id: string;
@@ -73,8 +103,26 @@ export type SchnellCatalogRecord = {
   allergens: unknown;
   activeFrom?: Date | null;
   activeTo?: Date | null;
-  sourceKind: "product" | "group_variant";
+  sourceKind: "product" | "group_variant" | "lunch_menu";
   depositAmount?: number;
+  complimentaryTableSauce?: boolean;
+  lunchMenu?: {
+    menuId: string;
+    burgerProductId: string;
+    burgerName: string;
+    includedSideProductId: string;
+    includedSideName: string;
+    sideOptions: Array<{
+      id: string;
+      name: string;
+      price: number;
+      upgradePrice: number;
+      included: boolean;
+    }>;
+    vegetarian: boolean;
+    badge: string;
+    allowNotes: boolean;
+  };
 };
 
 export type SchnellSettings = {
@@ -115,6 +163,7 @@ export type SchnellSettings = {
   visibleCategories: string[];
   hiddenProductIds: string[];
   campaigns: SchnellCampaign[];
+  lunchMenu: SchnellLunchSettings;
   rewardProgram: SchnellRewardProgram;
 };
 
@@ -156,6 +205,14 @@ export const DEFAULT_SCHNELL_SETTINGS: SchnellSettings = {
   visibleCategories: [],
   hiddenProductIds: [],
   campaigns: [],
+  lunchMenu: {
+    enabled: false,
+    weekdays: [1, 2, 3, 4, 5],
+    startTime: "10:00",
+    endTime: "16:00",
+    timezone: "Europe/Berlin",
+    menus: [],
+  },
   rewardProgram: DEFAULT_REWARD_PROGRAM,
 };
 
@@ -204,6 +261,7 @@ function normalizeDateText(value: unknown) {
 export function normalizeSchnellCategory(value: unknown): SchnellCategory {
   const raw = String(value ?? "").toLowerCase().trim();
 
+  if (raw.includes("mittag") || raw.includes("lunch")) return "lunch";
   if (raw.includes("vegan") || raw.includes("vegetar")) return "vegan";
   if (raw.includes("bubble") || raw.includes("boba")) return "bubbletea";
   if (raw.includes("donut") || raw.includes("doughnut")) return "donuts";
@@ -227,8 +285,14 @@ export function normalizeSchnellCategory(value: unknown): SchnellCategory {
   }
   if (
     raw.includes("extra") ||
+    raw.includes("beilage") ||
     raw.includes("pommes") ||
     raw.includes("fries") ||
+    raw.includes("kartoff") ||
+    raw.includes("curly") ||
+    raw.includes("sweet potato") ||
+    raw.includes("süßkartoff") ||
+    raw.includes("suesskartoff") ||
     raw.includes("snack")
   ) {
     return "extras";
@@ -241,6 +305,7 @@ export function schnellCategoryLabel(category: SchnellCategory) {
   const labels: Record<SchnellCategory, string> = {
     burger: "Burger",
     vegan: "Vegan / Vegetarisch",
+    lunch: "Mittagsmenü",
     extras: "Extras",
     sauces: "Soßen",
     hotdogs: "Hot Dogs",
@@ -265,7 +330,7 @@ export function isComplimentaryTableSauce(
     .replace(/\s+/g, " ")
     .trim();
 
-  return /^(?:heinz\s+)?(?:ketchup|mayo|mayonnaise)(?:\s+(?:portion|becher))?$/i.test(
+  return /^(?:heinz\s+)?(?:ketchup|mayo|mayonnaise)(?:\s+(?:(?:sauce|soße|sosse|portion|becher|dip|sachet|päckchen|paeckchen|packchen|packung|tüte|tuete|tute|\d+(?:[.,]\d+)?(?:ml|g)?|ml|g))){0,5}$/i.test(
     name,
   );
 }
@@ -312,6 +377,87 @@ function normalizeCampaign(value: unknown, index: number): SchnellCampaign | nul
     startsAt: normalizeDateText(raw.startsAt),
     endsAt: normalizeDateText(raw.endsAt),
     badgeText: cleanText(raw.badgeText, 60) || undefined,
+  };
+}
+
+
+function normalizeClock(value: unknown, fallback: string) {
+  const text = cleanText(value, 5);
+  const match = text.match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return fallback;
+
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return fallback;
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
+function normalizeProductId(value: unknown) {
+  return cleanText(value, 180).replace(/[^a-zA-Z0-9:_%-]/g, "");
+}
+
+function normalizeLunchMenu(value: unknown, index: number): SchnellLunchMenu | null {
+  const raw = obj(value);
+  const id = normalizeProductId(raw.id) || `lunch-${index + 1}`;
+  const name = cleanText(raw.name || raw.title, 160) || `Mittagsmenü ${index + 1}`;
+  const burgerProductId = normalizeProductId(raw.burgerProductId);
+  const includedSideProductId = normalizeProductId(raw.includedSideProductId);
+  const allowedSideProductIds = Array.from(
+    new Set(
+      [
+        includedSideProductId,
+        ...(Array.isArray(raw.allowedSideProductIds)
+          ? raw.allowedSideProductIds.map(normalizeProductId)
+          : []),
+      ].filter(Boolean),
+    ),
+  ).slice(0, 30);
+  const rawMenuPrice =
+    raw.menuPrice ??
+    raw.price ??
+    (Number.isFinite(Number(raw.menuPriceCents))
+      ? Number(raw.menuPriceCents) / 100
+      : 0);
+
+  return {
+    id,
+    name,
+    description: cleanText(raw.description, 500),
+    badge: cleanText(raw.badge, 60) || "Mittagsmenü",
+    enabled: raw.enabled !== false,
+    vegetarian: raw.vegetarian === true,
+    sortOrder: Math.round(clamp(raw.sortOrder, -9999, 9999, (index + 1) * 10)),
+    menuPrice: Math.round(clamp(rawMenuPrice, 0, 9999, 0) * 100) / 100,
+    burgerProductId,
+    includedSideProductId,
+    allowedSideProductIds,
+    allowExistingBurgerModifiers: raw.allowExistingBurgerModifiers !== false,
+    allowNotes: raw.allowNotes !== false,
+  };
+}
+
+export function normalizeSchnellLunchSettings(value: unknown): SchnellLunchSettings {
+  const raw = obj(value);
+  const weekdays = Array.from(
+    new Set(
+      (Array.isArray(raw.weekdays) ? raw.weekdays : [1, 2, 3, 4, 5])
+        .map(Number)
+        .filter((day) => Number.isInteger(day) && day >= 1 && day <= 7),
+    ),
+  ).sort((left, right) => left - right);
+
+  return {
+    enabled: raw.enabled === true,
+    weekdays: weekdays.length ? weekdays : [1, 2, 3, 4, 5],
+    startTime: normalizeClock(raw.startTime, "10:00"),
+    endTime: normalizeClock(raw.endTime, "16:00"),
+    timezone: "Europe/Berlin",
+    menus: Array.isArray(raw.menus)
+      ? raw.menus
+          .map(normalizeLunchMenu)
+          .filter((menu): menu is SchnellLunchMenu => Boolean(menu))
+          .slice(0, 100)
+      : [],
   };
 }
 
@@ -401,6 +547,7 @@ export function normalizeSchnellSettings(value: unknown): SchnellSettings {
           .filter((campaign): campaign is SchnellCampaign => Boolean(campaign))
           .slice(0, 100)
       : [],
+    lunchMenu: normalizeSchnellLunchSettings(raw.lunchMenu),
     rewardProgram: normalizeRewardProgram(raw.rewardProgram),
   };
 }
@@ -679,6 +826,82 @@ export function berlinBusinessDate(date = new Date()) {
     month: "2-digit",
     day: "2-digit",
   }).format(date);
+}
+
+
+function berlinScheduleParts(date = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Berlin",
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  const weekdays: Record<string, number> = {
+    Mon: 1,
+    Tue: 2,
+    Wed: 3,
+    Thu: 4,
+    Fri: 5,
+    Sat: 6,
+    Sun: 7,
+  };
+
+  return {
+    weekday: weekdays[values.weekday] || 1,
+    minuteOfDay: Number(values.hour || 0) * 60 + Number(values.minute || 0),
+  };
+}
+
+function clockMinutes(value: string) {
+  const [hour, minute] = value.split(":").map(Number);
+  return hour * 60 + minute;
+}
+
+export function getSchnellLunchAvailability(
+  settings: SchnellSettings | SchnellLunchSettings,
+  now = new Date(),
+) {
+  const lunch = "lunchMenu" in settings ? settings.lunchMenu : settings;
+  if (!lunch.enabled || !lunch.menus.some((menu) => menu.enabled)) {
+    return { active: false, availableUntil: null as string | null };
+  }
+
+  const { weekday, minuteOfDay } = berlinScheduleParts(now);
+  const start = clockMinutes(lunch.startTime);
+  const end = clockMinutes(lunch.endTime);
+  if (start === end) {
+    return { active: false, availableUntil: null as string | null };
+  }
+
+  const activeDays = new Set(lunch.weekdays);
+  let active = false;
+  let remainingMinutes = 0;
+
+  if (start < end) {
+    active = activeDays.has(weekday) && minuteOfDay >= start && minuteOfDay < end;
+    remainingMinutes = end - minuteOfDay;
+  } else if (minuteOfDay >= start) {
+    active = activeDays.has(weekday);
+    remainingMinutes = 24 * 60 - minuteOfDay + end;
+  } else {
+    const previousWeekday = weekday === 1 ? 7 : weekday - 1;
+    active = activeDays.has(previousWeekday) && minuteOfDay < end;
+    remainingMinutes = end - minuteOfDay;
+  }
+
+  return {
+    active,
+    availableUntil: active
+      ? new Date(
+          now.getTime() +
+            Math.max(1, remainingMinutes) * 60_000 -
+            now.getSeconds() * 1_000 -
+            now.getMilliseconds(),
+        ).toISOString()
+      : null,
+  };
 }
 
 function campaignIsActive(campaign: SchnellCampaign, now = new Date()) {
@@ -1045,6 +1268,7 @@ export function buildSchnellGroupVariantProducts(
 
 export async function loadSchnellCatalogProducts(
   settings: SchnellSettings,
+  options?: { applyVisibility?: boolean },
 ): Promise<SchnellCatalogRecord[]> {
   const tenantId = await getTenantId();
   const now = new Date();
@@ -1079,19 +1303,123 @@ export async function loadSchnellCatalogProducts(
         return false;
       }
 
-      return productIsAllowed(product, settings);
+      return options?.applyVisibility === false
+        ? true
+        : schnellProductIsAllowed(product, settings);
     });
 
   const groupProducts = buildSchnellGroupVariantProducts(
     drinkGroupsRow?.value,
     extraGroupsRow?.value,
     now,
-  ).filter((product) => productIsAllowed(product, settings));
+  ).filter((product) =>
+    options?.applyVisibility === false
+      ? true
+      : schnellProductIsAllowed(product, settings),
+  );
 
   return [...regularProducts, ...groupProducts];
 }
 
-function productIsAllowed(
+
+export const SCHNELL_LUNCH_PRODUCT_PREFIX = "slm:";
+
+export function schnellLunchProductId(menuId: string) {
+  return `${SCHNELL_LUNCH_PRODUCT_PREFIX}${menuId}`;
+}
+
+export function isSchnellLunchProductId(value: unknown) {
+  return String(value ?? "").startsWith(SCHNELL_LUNCH_PRODUCT_PREFIX);
+}
+
+function lunchMenuIdFromProductId(value: unknown) {
+  const text = String(value ?? "");
+  return isSchnellLunchProductId(text)
+    ? text.slice(SCHNELL_LUNCH_PRODUCT_PREFIX.length)
+    : "";
+}
+
+export function buildSchnellLunchCatalogProducts(
+  products: SchnellCatalogRecord[],
+  settings: SchnellSettings,
+  now = new Date(),
+  options?: { requireActive?: boolean },
+): SchnellCatalogRecord[] {
+  const availability = getSchnellLunchAvailability(settings, now);
+  if (options?.requireActive !== false && !availability.active) return [];
+
+  const productById = new Map(products.map((product) => [product.id, product]));
+
+  return settings.lunchMenu.menus
+    .filter((menu) => menu.enabled && menu.menuPrice > 0)
+    .sort((left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name, "de"))
+    .flatMap((menu) => {
+      const burger = productById.get(menu.burgerProductId);
+      const includedSide = productById.get(menu.includedSideProductId);
+      if (
+        !burger ||
+        !includedSide ||
+        (burger.category !== "burger" && burger.category !== "vegan") ||
+        includedSide.category !== "extras"
+      ) {
+        return [];
+      }
+
+      const sideOptions = menu.allowedSideProductIds
+        .map((id) => productById.get(id))
+        .filter(
+          (product): product is SchnellCatalogRecord =>
+            Boolean(product && product.category === "extras"),
+        )
+        .map((product) => ({
+          id: product.id,
+          name: product.name,
+          price: Math.round(Number(product.price) * 100) / 100,
+          upgradePrice:
+            Math.round(
+              Math.max(0, Number(product.price) - Number(includedSide.price)) * 100,
+            ) / 100,
+          included: product.id === includedSide.id,
+        }));
+
+      if (!sideOptions.some((side) => side.included)) return [];
+
+      return [
+        {
+          id: schnellLunchProductId(menu.id),
+          sku: `MITTAG-${menu.id}`,
+          name: menu.name,
+          description:
+            menu.description ||
+            `${burger.name} + ${includedSide.name} inklusive`,
+          imageUrl: burger.imageUrl,
+          category: "lunch" as const,
+          rawCategory: "lunch",
+          price: menu.menuPrice,
+          taxRate: burger.taxRate,
+          extrasJson: menu.allowExistingBurgerModifiers ? burger.extrasJson : [],
+          allergens: burger.allergens,
+          activeFrom: null,
+          activeTo: null,
+          sourceKind: "lunch_menu" as const,
+          depositAmount: 0,
+          lunchMenu: {
+            menuId: menu.id,
+            burgerProductId: burger.id,
+            burgerName: burger.name,
+            includedSideProductId: includedSide.id,
+            includedSideName: includedSide.name,
+            sideOptions,
+            vegetarian: menu.vegetarian,
+            badge: menu.badge,
+            allowNotes: menu.allowNotes,
+          },
+        },
+      ];
+    });
+}
+
+export function schnellProductIsAllowed(
   product: { id: string; category: string; name: string },
   settings: SchnellSettings,
 ) {
@@ -1107,7 +1435,6 @@ function productIsAllowed(
     return false;
   }
 
-  if (isComplimentaryTableSauce(product.category, product.name)) return false;
   return true;
 }
 
@@ -1218,8 +1545,26 @@ async function prepareCashSchnellOrder(params: {
     .filter(Boolean);
   if (!productIds.length) throw new Error("EMPTY_CART");
 
-  const regularProductIds = productIds.filter(
-    (productId) => !isSchnellGroupVariantId(productId),
+  const lunchMenuById = new Map(
+    settings.lunchMenu.menus.map((menu) => [menu.id, menu]),
+  );
+  const lunchLinkedProductIds = params.items.flatMap((item) => {
+    const menuId = lunchMenuIdFromProductId(item.productId || item.id);
+    const menu = lunchMenuById.get(menuId);
+    if (!menu) return [];
+    return [
+      menu.burgerProductId,
+      menu.includedSideProductId,
+      ...menu.allowedSideProductIds,
+      normalizeProductId(item.selectedSideProductId),
+    ].filter(Boolean);
+  });
+  const regularProductIds = Array.from(
+    new Set([...productIds, ...lunchLinkedProductIds]),
+  ).filter(
+    (productId) =>
+      !isSchnellGroupVariantId(productId) &&
+      !isSchnellLunchProductId(productId),
   );
   const products = regularProductIds.length
     ? await prisma.product.findMany({
@@ -1248,15 +1593,129 @@ async function prepareCashSchnellOrder(params: {
   const nowMs = Date.now();
 
   for (const rawItem of params.items.slice(0, 60)) {
-    const product = productById.get(
-      String(rawItem.productId || rawItem.id || ""),
-    );
+    const requestedProductId = String(rawItem.productId || rawItem.id || "");
+    const lunchMenuId = lunchMenuIdFromProductId(requestedProductId);
+
+    if (lunchMenuId) {
+      const availability = getSchnellLunchAvailability(settings);
+      const menu = lunchMenuById.get(lunchMenuId);
+      if (!availability.active || !menu?.enabled || menu.menuPrice <= 0) {
+        throw new Error("LUNCH_MENU_UNAVAILABLE");
+      }
+
+      const burger = productById.get(menu.burgerProductId);
+      const includedSide = productById.get(menu.includedSideProductId);
+      const selectedSideId =
+        normalizeProductId(rawItem.selectedSideProductId) ||
+        menu.includedSideProductId;
+      const selectedSide = productById.get(selectedSideId);
+      const allowedSides = new Set(menu.allowedSideProductIds);
+      const activeProduct = (product: SchnellCatalogRecord | undefined) =>
+        Boolean(
+          product &&
+            (!product.activeFrom || product.activeFrom.getTime() <= nowMs) &&
+            (!product.activeTo || product.activeTo.getTime() >= nowMs),
+        );
+
+      if (
+        !activeProduct(burger) ||
+        !activeProduct(includedSide) ||
+        !activeProduct(selectedSide) ||
+        (burger!.category !== "burger" && burger!.category !== "vegan") ||
+        includedSide!.category !== "extras" ||
+        selectedSide!.category !== "extras" ||
+        !allowedSides.has(selectedSideId)
+      ) {
+        throw new Error("PRODUCT_UNAVAILABLE");
+      }
+
+      const qty = Math.max(
+        1,
+        Math.min(20, Math.floor(Number(rawItem.qty) || 1)),
+      );
+      const availableExtras =
+        menu.allowExistingBurgerModifiers && Array.isArray(burger!.extrasJson)
+          ? burger!.extrasJson
+          : [];
+      const selectedExtraIds = new Set(
+        (Array.isArray(rawItem.extraIds) ? rawItem.extraIds : []).map(String),
+      );
+      const extras = availableExtras
+        .filter((extra: any) =>
+          selectedExtraIds.has(String(extra.id || extra.name)),
+        )
+        .map((extra: any) => ({
+          id: String(extra.id || extra.name),
+          name: String(extra.name || extra.label || "Extra"),
+          label: String(extra.label || extra.name || "Extra"),
+          price: Math.max(0, Number(extra.price) || 0),
+        }));
+      const extrasTotal = extras.reduce(
+        (sum: number, extra: any) => sum + extra.price,
+        0,
+      );
+      const upgradePrice =
+        Math.round(
+          Math.max(
+            0,
+            Number(selectedSide!.price) - Number(includedSide!.price),
+          ) * 100,
+        ) / 100;
+      const sideLabel =
+        selectedSideId === includedSide!.id
+          ? `${includedSide!.name} inklusive`
+          : `${selectedSide!.name} statt ${includedSide!.name} (+${upgradePrice.toLocaleString(
+              "de-DE",
+              { style: "currency", currency: "EUR" },
+            )})`;
+      const add = [
+        {
+          id: `lunch-side:${selectedSide!.id}`,
+          name: sideLabel,
+          label: sideLabel,
+          price: upgradePrice,
+          kind: "side_upgrade",
+        },
+        ...extras,
+      ];
+      const unitPrice = menu.menuPrice + upgradePrice + extrasTotal;
+
+      merchandise += unitPrice * qty;
+      payable += unitPrice * qty;
+      canonicalItems.push({
+        id: schnellLunchProductId(menu.id),
+        sku: `MITTAG-${menu.id}`,
+        name: menu.name,
+        category: "lunch",
+        price: menu.menuPrice,
+        taxRate: burger!.taxRate,
+        qty,
+        add,
+        note: menu.allowNotes ? cleanText(rawItem.note, 300) : "",
+        sourceKind: "lunch_menu",
+        lunchMenu: {
+          menuId: menu.id,
+          burgerProductId: burger!.id,
+          burgerName: burger!.name,
+          includedSideProductId: includedSide!.id,
+          includedSideName: includedSide!.name,
+          selectedSideProductId: selectedSide!.id,
+          selectedSideName: selectedSide!.name,
+          upgradePrice,
+          menuPrice: menu.menuPrice,
+          priceSource: "database_product_difference",
+        },
+      });
+      continue;
+    }
+
+    const product = productById.get(requestedProductId);
 
     if (
       !product ||
       (product.activeFrom && product.activeFrom.getTime() > nowMs) ||
       (product.activeTo && product.activeTo.getTime() < nowMs) ||
-      !productIsAllowed(product, settings)
+      !schnellProductIsAllowed(product, settings)
     ) {
       throw new Error("PRODUCT_UNAVAILABLE");
     }
@@ -1285,16 +1744,28 @@ async function prepareCashSchnellOrder(params: {
       (sum: number, extra: any) => sum + extra.price,
       0,
     );
-    const campaignPrice = getSchnellCampaignPrice(
-      {
-        id: product.id,
-        category: product.category,
-        price: Number(product.price),
-      },
-      settings,
-    );
-    const baseUnit = Number(product.price) + extrasTotal;
-    const finalUnit = campaignPrice.price + extrasTotal;
+    const complimentaryTableSauce =
+      !takeaway && isComplimentaryTableSauce(product.category, product.name);
+    const campaignPrice = complimentaryTableSauce
+      ? {
+          price: 0,
+          originalPrice: undefined as number | undefined,
+          badgeText: undefined as string | undefined,
+          campaign: null as SchnellCampaign | null,
+        }
+      : getSchnellCampaignPrice(
+          {
+            id: product.id,
+            category: product.category,
+            price: Number(product.price),
+          },
+          settings,
+        );
+    const baseUnit = complimentaryTableSauce
+      ? 0
+      : Number(product.price) + extrasTotal;
+    const finalUnit =
+      campaignPrice.price + (complimentaryTableSauce ? 0 : extrasTotal);
 
     merchandise += baseUnit * qty;
     payable += finalUnit * qty;
@@ -1331,6 +1802,8 @@ async function prepareCashSchnellOrder(params: {
         : undefined,
       sourceKind: product.sourceKind,
       depositAmount: product.depositAmount || 0,
+      complimentaryTableSauce,
+      freeReason: complimentaryTableSauce ? "dine_in_table_sauce" : undefined,
     });
   }
 
@@ -1420,22 +1893,26 @@ export async function createCashSchnellOrder(params: {
 
           let discount = prepared.discount;
           let payable = prepared.payable;
-          const rewardDecision = await decideSchnellReward({
-            transaction,
-            tenantId,
-            now: new Date(),
-            deviceId: params.deviceId,
-            decisionKey: params.idempotencyKey,
-            program: prepared.settings.rewardProgram,
-            items: prepared.canonicalItems.map((item) => ({
-              id: String(item.id || ""),
-              name: String(item.name || "Artikel"),
-              category: String(item.category || ""),
-              price: Number(item.price) || 0,
-              qty: Number(item.qty) || 1,
-            })),
-            payable,
-          });
+          const rewardDecision = prepared.canonicalItems.some(
+            (item) => item.category === "lunch",
+          )
+            ? null
+            : await decideSchnellReward({
+                transaction,
+                tenantId,
+                now: new Date(),
+                deviceId: params.deviceId,
+                decisionKey: params.idempotencyKey,
+                program: prepared.settings.rewardProgram,
+                items: prepared.canonicalItems.map((item) => ({
+                  id: String(item.id || ""),
+                  name: String(item.name || "Artikel"),
+                  category: String(item.category || ""),
+                  price: Number(item.price) || 0,
+                  qty: Number(item.qty) || 1,
+                })),
+                payable,
+              });
           const rewardWinId = rewardDecision ? randomUUID() : "";
 
           if (rewardDecision) {

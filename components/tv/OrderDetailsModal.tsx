@@ -153,7 +153,9 @@ export function OrderDetailsModal({
 
                       <td className="p-2 text-right">{item.qty}</td>
                       <td className="p-2 text-right">
-                        {lineTotal.toFixed(2)}€
+                        {item.complimentaryTableSauce
+                          ? "Kostenlos"
+                          : `${lineTotal.toFixed(2)}€`}
                       </td>
                     </tr>
                   );
