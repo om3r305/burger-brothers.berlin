@@ -147,7 +147,7 @@ const DEFAULT_CATALOG_SETTINGS: CatalogSettings = {
   },
 };
 
-const CATALOG_CACHE_KEY = "bb_schnell_catalog_v6";
+const CATALOG_CACHE_KEY = "bb_schnell_catalog_v7";
 const CATALOG_CACHE_MAX_AGE_MS = 30 * 60_000;
 const HISTORY_KEY = "bb_schnell_order_history_v1";
 
@@ -179,6 +179,48 @@ const euro = (value: number) =>
 function formatCampaignBadge(value: string) {
   const text = value.trim().replace(/^🔥\s*|\s*🔥$/g, "").trim() || "Angebot";
   return `🔥 ${text.toLocaleUpperCase("de-DE")} 🔥`;
+}
+
+function normalizedSauceName(value: string) {
+  return value
+    .toLocaleLowerCase("de-DE")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9äöüß\s-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isComplimentaryTableSauceProduct(product: Product) {
+  if (product.complimentaryTableSauce === true) return true;
+  if (product.category !== "sauces") return false;
+
+  const name = normalizedSauceName(product.name)
+    .replace(/\s+(?:to\s+go|take\s*away|takeaway|zum\s+mitnehmen)\s*$/i, "")
+    .trim();
+
+  return /^(?:heinz\s+)?(?:ketchup|mayo|mayonnaise)(?:\s+(?:(?:sauce|soße|sosse|portion|becher|dip|sachet|päckchen|paeckchen|packchen|packung|tüte|tuete|tute|\d+(?:[.,]\d+)?(?:ml|g)?|ml|g))){0,5}$/i.test(
+    name,
+  );
+}
+
+function productDisplayName(product: Product, takeaway: boolean) {
+  if (takeaway || !isComplimentaryTableSauceProduct(product)) {
+    return product.name;
+  }
+
+  return product.name
+    .replace(
+      /\s*(?:\((?:to\s*go|take\s*away|takeaway|zum\s+mitnehmen)\)|(?:to\s+go|take\s*away|takeaway|zum\s+mitnehmen))\s*$/i,
+      "",
+    )
+    .trim();
+}
+
+function lunchCategoryLabel(schedule: CatalogSettings["lunchSchedule"]) {
+  const start = schedule.startTime?.trim();
+  const end = schedule.endTime?.trim();
+  return start && end ? `Mittagsmenü (${start}–${end})` : "Mittagsmenü";
 }
 
 function preloadCatalogImages(
@@ -251,7 +293,9 @@ function CatalogProductImage({
 }
 
 function productUnitPrice(product: Product, takeaway: boolean) {
-  return product.complimentaryTableSauce && !takeaway ? 0 : product.price;
+  return isComplimentaryTableSauceProduct(product) && !takeaway
+    ? 0
+    : product.price;
 }
 
 function selectedLunchSide(product: Product, selectedSideProductId?: string) {
@@ -281,7 +325,7 @@ function lineTotal(line: CartLine, takeaway: boolean) {
 }
 
 function productPriceLabel(product: Product, takeaway: boolean) {
-  return product.complimentaryTableSauce && !takeaway
+  return isComplimentaryTableSauceProduct(product) && !takeaway
     ? "Kostenlos"
     : euro(product.price);
 }
@@ -840,6 +884,9 @@ export default function SchnellClient() {
     (sum, line) => sum + lineTotal(line, takeaway),
     0,
   );
+  const activeLunchCategoryLabel = lunchCategoryLabel(
+    catalogSettings.lunchSchedule,
+  );
 
   function openProduct(product: Product) {
     setSelectedProduct(product);
@@ -1078,7 +1125,7 @@ export default function SchnellClient() {
                   : "bg-white/10"
               }`}
             >
-              {item.label}
+              {item.key === "lunch" ? activeLunchCategoryLabel : item.label}
             </button>
           ))}
         </div>
@@ -1115,14 +1162,8 @@ export default function SchnellClient() {
             onClick={() => openProduct(product)}
             className="bb-schnell-card relative flex h-full min-w-0 flex-col overflow-hidden rounded-2xl border text-left"
           >
-            {product.lunchMenu ? (
-              <span className="absolute left-2 top-2 z-10 rounded-full border border-amber-200/70 bg-amber-300 px-2.5 py-1 text-[11px] font-black text-black shadow-lg">
-                {product.lunchMenu.vegetarian ? "🌱 Vegetarisch · " : ""}
-                {product.lunchMenu.badge || "Mittagsmenü"}
-              </span>
-            ) : null}
             {product.campaignBadge &&
-            !(product.complimentaryTableSauce && !takeaway) ? (
+            !(isComplimentaryTableSauceProduct(product) && !takeaway) ? (
               <span className="absolute right-2 top-2 z-10 animate-pulse rounded-full border border-yellow-200/70 bg-gradient-to-r from-red-600 via-orange-500 to-amber-400 px-2.5 py-1 text-[11px] font-black text-white shadow-[0_0_22px_rgba(251,146,60,0.75)]">
                 {formatCampaignBadge(product.campaignBadge)}
               </span>
@@ -1133,8 +1174,24 @@ export default function SchnellClient() {
             </div>
 
             <div className="bb-schnell-card-body flex flex-1 flex-col p-3">
+              {product.lunchMenu &&
+              (product.lunchMenu.vegetarian ||
+                product.lunchMenu.badge.trim()) ? (
+                <div className="mb-2 flex flex-wrap gap-1.5">
+                  {product.lunchMenu.badge.trim() ? (
+                    <span className="rounded-full border border-amber-200/60 bg-amber-300/15 px-2 py-1 text-[10px] font-black text-amber-100">
+                      {product.lunchMenu.badge.trim()}
+                    </span>
+                  ) : null}
+                  {product.lunchMenu.vegetarian ? (
+                    <span className="rounded-full border border-emerald-300/50 bg-emerald-300/10 px-2 py-1 text-[10px] font-black text-emerald-100">
+                      🌱 Vegetarisch
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
               <h2 className="bb-schnell-card-title font-bold leading-tight">
-                {product.name}
+                {productDisplayName(product, takeaway)}
               </h2>
               {product.description ? (
                 <p className="bb-schnell-card-description mt-1 text-xs leading-snug text-stone-400">
@@ -1163,7 +1220,7 @@ export default function SchnellClient() {
                   {productPriceLabel(product, takeaway)}
                 </span>
                 {product.originalPrice &&
-                !(product.complimentaryTableSauce && !takeaway) ? (
+                !(isComplimentaryTableSauceProduct(product) && !takeaway) ? (
                   <span className="text-xs text-stone-500 line-through">
                     {euro(product.originalPrice)}
                   </span>
@@ -1204,7 +1261,7 @@ export default function SchnellClient() {
             <div className="mx-auto max-w-xl">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <h2 className="text-2xl font-black">{selectedProduct.name}</h2>
+                  <h2 className="text-2xl font-black">{productDisplayName(selectedProduct, takeaway)}</h2>
                   <div className="bb-schnell-accent-text mt-1 font-black">
                     {productPriceLabel(selectedProduct, takeaway)}
                   </div>
@@ -1370,7 +1427,7 @@ export default function SchnellClient() {
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <div className="font-black">{line.product.name}</div>
+                        <div className="font-black">{productDisplayName(line.product, takeaway)}</div>
                         {line.product.lunchMenu ? (
                           <div className="mt-1 text-xs font-bold text-amber-200">
                             {(() => {
@@ -1400,7 +1457,7 @@ export default function SchnellClient() {
                         ) : null}
                       </div>
                       <div className="bb-schnell-accent-text font-black">
-                        {line.product.complimentaryTableSauce && !takeaway
+                        {isComplimentaryTableSauceProduct(line.product) && !takeaway
                           ? "Kostenlos"
                           : euro(lineTotal(line, takeaway))}
                       </div>

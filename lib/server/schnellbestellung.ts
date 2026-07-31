@@ -326,8 +326,11 @@ export function isComplimentaryTableSauce(
   const name = String(productName ?? "")
     .toLowerCase()
     .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-z0-9äöüß\s-]/g, " ")
     .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\s+(?:to\s+go|take\s*away|takeaway|zum\s+mitnehmen)\s*$/i, "")
     .trim();
 
   return /^(?:heinz\s+)?(?:ketchup|mayo|mayonnaise)(?:\s+(?:(?:sauce|soße|sosse|portion|becher|dip|sachet|päckchen|paeckchen|packchen|packung|tüte|tuete|tute|\d+(?:[.,]\d+)?(?:ml|g)?|ml|g))){0,5}$/i.test(
@@ -423,7 +426,7 @@ function normalizeLunchMenu(value: unknown, index: number): SchnellLunchMenu | n
     id,
     name,
     description: cleanText(raw.description, 500),
-    badge: cleanText(raw.badge, 60) || "Mittagsmenü",
+    badge: cleanText(raw.badge, 60),
     enabled: raw.enabled !== false,
     vegetarian: raw.vegetarian === true,
     sortOrder: Math.round(clamp(raw.sortOrder, -9999, 9999, (index + 1) * 10)),

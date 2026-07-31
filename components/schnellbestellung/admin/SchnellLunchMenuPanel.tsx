@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+
 export type SchnellLunchMenuAdmin = {
   id: string;
   name: string;
@@ -60,7 +62,7 @@ function newLunchMenu(index: number): SchnellLunchMenuAdmin {
     id: crypto.randomUUID(),
     name: `Mittagsmenü ${index + 1}`,
     description: "Burger + Beilage inklusive",
-    badge: "Mittagsmenü",
+    badge: "",
     enabled: true,
     vegetarian: false,
     sortOrder: (index + 1) * 10,
@@ -74,6 +76,8 @@ function newLunchMenu(index: number): SchnellLunchMenuAdmin {
 }
 
 export default function SchnellLunchMenuPanel({ value, catalog, onChange }: Props) {
+  const [expandedMenuId, setExpandedMenuId] = useState<string | null>(null);
+
   const burgers = catalog.filter(
     (product) => product.category === "burger" || product.category === "vegan",
   );
@@ -154,24 +158,19 @@ export default function SchnellLunchMenuPanel({ value, catalog, onChange }: Prop
             {DAYS.map((day) => {
               const checked = value.weekdays.includes(day.value);
               return (
-                <label
+                <button
                   key={day.value}
-                  className={`rounded-xl border px-3 py-2 text-sm font-black ${
+                  type="button"
+                  aria-pressed={checked}
+                  onClick={() => toggleWeekday(day.value, !checked)}
+                  className={`min-w-11 rounded-xl border px-3 py-2 text-sm font-black transition ${
                     checked
-                      ? "border-emerald-400/50 bg-emerald-400/10"
+                      ? "border-emerald-400/50 bg-emerald-400/10 text-emerald-100"
                       : "border-stone-700 bg-black/20 text-stone-500"
                   }`}
                 >
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    onChange={(event) =>
-                      toggleWeekday(day.value, event.target.checked)
-                    }
-                    className="sr-only"
-                  />
                   {day.label}
-                </label>
+                </button>
               );
             })}
           </div>
@@ -213,12 +212,14 @@ export default function SchnellLunchMenuPanel({ value, catalog, onChange }: Prop
         </div>
         <button
           type="button"
-          onClick={() =>
+          onClick={() => {
+            const menu = newLunchMenu(value.menus.length);
             onChange({
               ...value,
-              menus: [...value.menus, newLunchMenu(value.menus.length)],
-            })
-          }
+              menus: [...value.menus, menu],
+            });
+            setExpandedMenuId(menu.id);
+          }}
           className="rounded-xl bg-amber-400 px-4 py-2 font-black text-black"
         >
           + Mittagsmenü ekle
@@ -235,43 +236,79 @@ export default function SchnellLunchMenuPanel({ value, catalog, onChange }: Prop
         {value.menus.map((menu, index) => {
           const includedSide = productById.get(menu.includedSideProductId);
           const burger = productById.get(menu.burgerProductId);
+          const expanded = expandedMenuId === menu.id;
+          const contentId = `schnell-lunch-menu-${menu.id}`;
 
           return (
             <article
               key={menu.id}
-              className="rounded-2xl border border-stone-700 bg-black/25 p-4"
+              className="overflow-hidden rounded-2xl border border-stone-700 bg-black/25"
             >
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="font-black">
-                  #{index + 1} · {menu.name || "Adsız Mittagsmenü"}
-                </div>
-                <div className="flex items-center gap-3">
-                  <label className="flex items-center gap-2 text-sm font-bold">
-                    <input
-                      type="checkbox"
-                      checked={menu.enabled}
-                      onChange={(event) =>
-                        updateMenu(menu.id, { enabled: event.target.checked })
-                      }
-                    />
-                    Aktif
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      onChange({
-                        ...value,
-                        menus: value.menus.filter((item) => item.id !== menu.id),
-                      })
-                    }
-                    className="rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm font-bold text-red-200"
+              <div className="flex items-center gap-3 p-3 sm:p-4">
+                <button
+                  type="button"
+                  aria-expanded={expanded}
+                  aria-controls={contentId}
+                  onClick={() =>
+                    setExpandedMenuId((current) =>
+                      current === menu.id ? null : menu.id,
+                    )
+                  }
+                  className="flex min-w-0 flex-1 items-center justify-between gap-3 rounded-xl px-1 py-1 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-300/70"
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate font-black">
+                      #{index + 1} · {menu.name || "Adsız Mittagsmenü"}
+                    </span>
+                    <span className="mt-0.5 block text-xs text-stone-400">
+                      {euro(menu.menuPrice)}
+                    </span>
+                  </span>
+                  <span
+                    aria-hidden="true"
+                    className={`grid h-8 w-8 shrink-0 place-items-center rounded-full border border-stone-700 bg-stone-900 text-lg transition-transform ${
+                      expanded ? "rotate-180" : ""
+                    }`}
                   >
-                    Sil
-                  </button>
-                </div>
+                    ▾
+                  </span>
+                </button>
+
+                <label className="flex shrink-0 items-center gap-2 text-xs font-bold sm:text-sm">
+                  <input
+                    type="checkbox"
+                    checked={menu.enabled}
+                    onChange={(event) =>
+                      updateMenu(menu.id, { enabled: event.target.checked })
+                    }
+                    className="switch--sm"
+                  />
+                  <span className="hidden sm:inline">Aktif</span>
+                </label>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    onChange({
+                      ...value,
+                      menus: value.menus.filter((item) => item.id !== menu.id),
+                    });
+                    setExpandedMenuId((current) =>
+                      current === menu.id ? null : current,
+                    );
+                  }}
+                  className="shrink-0 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm font-bold text-red-200"
+                >
+                  Sil
+                </button>
               </div>
 
-              <div className="mt-4 grid gap-3 md:grid-cols-2">
+              {expanded ? (
+                <div
+                  id={contentId}
+                  className="border-t border-white/10 p-4"
+                >
+              <div className="grid gap-3 md:grid-cols-2">
                 <label>
                   <span className="text-sm text-stone-400">Menü adı</span>
                   <input
@@ -312,15 +349,20 @@ export default function SchnellLunchMenuPanel({ value, catalog, onChange }: Prop
                   />
                 </label>
                 <label>
-                  <span className="text-sm text-stone-400">Rozet</span>
+                  <span className="text-sm text-stone-400">
+                    Rozet <span className="text-stone-600">(opsiyonel)</span>
+                  </span>
                   <input
                     value={menu.badge}
                     onChange={(event) =>
                       updateMenu(menu.id, { badge: event.target.value })
                     }
                     className="mt-1 w-full rounded-xl bg-stone-900 p-3"
-                    placeholder="Mittagsmenü"
+                    placeholder="Boş bırakırsan rozet gösterilmez"
                   />
+                  <span className="mt-1 block text-xs text-stone-500">
+                    Boş değer otomatik olarak “Mittagsmenü” metnine çevrilmez.
+                  </span>
                 </label>
                 <label>
                   <span className="text-sm text-stone-400">Sıralama</span>
@@ -419,7 +461,7 @@ export default function SchnellLunchMenuPanel({ value, catalog, onChange }: Prop
                             onChange={(event) =>
                               toggleAllowedSide(menu, side.id, event.target.checked)
                             }
-                            className="h-5 w-5 shrink-0"
+                            className="switch--sm shrink-0"
                           />
                         </label>
                       );
@@ -436,6 +478,7 @@ export default function SchnellLunchMenuPanel({ value, catalog, onChange }: Prop
                     onChange={(event) =>
                       updateMenu(menu.id, { vegetarian: event.target.checked })
                     }
+                    className="switch--sm shrink-0"
                   />
                   Vegetarisch rozeti
                 </label>
@@ -448,6 +491,7 @@ export default function SchnellLunchMenuPanel({ value, catalog, onChange }: Prop
                         allowExistingBurgerModifiers: event.target.checked,
                       })
                     }
+                    className="switch--sm shrink-0"
                   />
                   Burger ekstraları
                 </label>
@@ -458,6 +502,7 @@ export default function SchnellLunchMenuPanel({ value, catalog, onChange }: Prop
                     onChange={(event) =>
                       updateMenu(menu.id, { allowNotes: event.target.checked })
                     }
+                    className="switch--sm shrink-0"
                   />
                   Not alanı
                 </label>
@@ -469,6 +514,8 @@ export default function SchnellLunchMenuPanel({ value, catalog, onChange }: Prop
                 {includedSide ? `${includedSide.name} inklusive` : "Beilage seçilmedi"} ·
                 Menü fiyatı {euro(menu.menuPrice)}
               </div>
+                </div>
+              ) : null}
             </article>
           );
         })}

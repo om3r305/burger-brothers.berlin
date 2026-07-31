@@ -472,7 +472,7 @@ export default function SchnellbestellungAdminPage() {
                   checked={Boolean(settings[item.key])}
                   disabled={item.disabled}
                   onChange={(event) => setBoolean(item.key, event.target.checked)}
-                  className="h-5 w-5 shrink-0"
+                  className="switch--sm shrink-0"
                 />
               </label>
             ))}
@@ -502,7 +502,7 @@ export default function SchnellbestellungAdminPage() {
                     type="checkbox"
                     checked={checked}
                     onChange={(event) => toggleCategory(item.key, event.target.checked)}
-                    className="h-5 w-5"
+                    className="switch--sm shrink-0"
                   />
                 </label>
               );
@@ -664,7 +664,7 @@ export default function SchnellbestellungAdminPage() {
 
                 <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
                   <label className="flex items-center gap-2 font-bold">
-                    <input type="checkbox" checked={campaign.active} onChange={(event) => updateCampaign(campaign.id, { active: event.target.checked })} />
+                    <input type="checkbox" checked={campaign.active} onChange={(event) => updateCampaign(campaign.id, { active: event.target.checked })} className="switch--sm shrink-0" />
                     Aktif
                   </label>
                   <button type="button" onClick={() => removeCampaign(campaign.id)} className="rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm font-bold text-red-200">

@@ -107,13 +107,29 @@ assert(
   "Ketchup and mayonnaise must remain in the Schnell catalog",
 );
 assert(core.includes('freeReason: complimentaryTableSauce ? "dine_in_table_sauce"'));
-assert(client.includes('return product.complimentaryTableSauce && !takeaway ? 0 : product.price'));
+assert(client.includes("isComplimentaryTableSauceProduct"));
+assert(client.includes("to\\s+go"));
 assert(client.includes('"Kostenlos"'));
 assert(client.includes("productPriceLabel(product, takeaway)"));
+assert(client.includes("productDisplayName(line.product, takeaway)"));
 assert(
   /product\.category === "burger"[\s\S]*product\.category === "vegan"[\s\S]*product\.category === "lunch"/.test(client),
   "Mittagsmenü burger images must use the same normalized Schnell profile",
 );
+
+// Lunch badges stay below the image, the schedule is visible, and admin cards collapse.
+assert(!client.includes('className="absolute left-2 top-2 z-10 rounded-full'));
+assert(client.includes("product.lunchMenu.badge.trim()"));
+assert(client.includes("activeLunchCategoryLabel"));
+assert(client.includes("Mittagsmenü (${start}–${end})"));
+assert(adminPanel.includes("aria-expanded={expanded}"));
+assert(adminPanel.includes("setExpandedMenuId"));
+assert(adminPanel.includes("Boş bırakırsan rozet gösterilmez"));
+assert(adminPanel.includes('className="switch--sm'));
+assert(adminPage.includes('className="switch--sm'));
+assert(core.includes("take\\s*away|takeaway|zum\\s+mitnehmen"));
+assert(core.includes("badge: cleanText(raw.badge, 60),"));
+assert(!core.includes('badge: cleanText(raw.badge, 60) || "Mittagsmenü"'));
 
 // Customer payload carries only product/choice identifiers; server canonicalizes prices.
 assert(client.includes("selectedSideProductId: line.selectedSideProductId"));
@@ -136,9 +152,9 @@ assert(tvTypes.includes("complimentaryTableSauce?: boolean"));
 assert(tvDetails.includes('? "Kostenlos"'));
 
 // Cache versions must remain aligned so prefetched catalogs include lunch data.
-assert(client.includes('const CATALOG_CACHE_KEY = "bb_schnell_catalog_v6"'));
-assert(catalogClient.includes('const CATALOG_CACHE_KEY = "bb_schnell_catalog_v6"'));
-assert(!client.includes("bb_schnell_catalog_v5"));
-assert(!catalogClient.includes("bb_schnell_catalog_v5"));
+assert(client.includes('const CATALOG_CACHE_KEY = "bb_schnell_catalog_v7"'));
+assert(catalogClient.includes('const CATALOG_CACHE_KEY = "bb_schnell_catalog_v7"'));
+assert(!client.includes("bb_schnell_catalog_v6"));
+assert(!catalogClient.includes("bb_schnell_catalog_v6"));
 
 console.log("schnell mittagsmenue regression tests: OK");
