@@ -948,6 +948,17 @@ export default function SchnellClient() {
     );
   }
 
+  function clearCart() {
+    setCart([]);
+    setConfirmOpen(false);
+    setCartOpen(false);
+    try {
+      window.localStorage.removeItem("bb_schnell_cart");
+    } catch {
+      // React state remains the source of truth when storage is unavailable.
+    }
+  }
+
   function restoreHistory(entry: HistoryEntry) {
     const productById = new Map(products.map((product) => [product.id, product]));
     const restored: CartLine[] = [];
@@ -1408,15 +1419,27 @@ export default function SchnellClient() {
         <div className="fixed inset-0 z-50 flex items-end bg-black/75">
           <div className="bb-schnell-sheet max-h-[90dvh] w-full overflow-y-auto rounded-t-3xl p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
             <div className="mx-auto max-w-xl">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-3">
                 <h2 className="text-2xl font-black">Warenkorb</h2>
-                <button
-                  type="button"
-                  onClick={() => setCartOpen(false)}
-                  className="rounded-full bg-white/10 px-3 py-2 font-bold"
-                >
-                  ✕
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={clearCart}
+                    disabled={!cart.length}
+                    className="rounded-xl border border-red-300/25 bg-red-400/10 px-3 py-2 text-xs font-black text-red-100 transition hover:bg-red-400/20 disabled:cursor-not-allowed disabled:opacity-40"
+                    aria-label="Alle Artikel aus dem Warenkorb entfernen"
+                  >
+                    🗑 Alles entfernen
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCartOpen(false)}
+                    className="rounded-full bg-white/10 px-3 py-2 font-bold"
+                    aria-label="Warenkorb schließen"
+                  >
+                    ✕
+                  </button>
+                </div>
               </div>
 
               <div className="mt-5 space-y-3">

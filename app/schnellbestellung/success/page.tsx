@@ -13,6 +13,7 @@ import {
   bindSchnellPushToOrder,
   prewarmSchnellPush,
 } from "@/lib/client/schnell-push";
+import { isStandaloneDisplayMode } from "@/lib/client/pwa-compat";
 
 type OrderStatus = "new" | "preparing" | "ready" | "done" | "cancelled";
 
@@ -25,6 +26,7 @@ type StatusResponse = {
   readyEventAt?: number;
   readyEventSequence?: number;
   reward?: SchnellRewardPublic | null;
+  paymentOpen?: boolean;
 };
 
 type WakeLockSentinelLike = {
@@ -182,6 +184,8 @@ export default function SuccessPage() {
   const [status, setStatus] = useState<OrderStatus>("new");
   const [ended, setEnded] = useState(false);
   const [statusError, setStatusError] = useState(false);
+  const [paymentOpen, setPaymentOpen] = useState(false);
+  const [appReadyNotifications, setAppReadyNotifications] = useState(false);
   const [reward, setReward] = useState<SchnellRewardPublic | null>(null);
   const [rewardVisible, setRewardVisible] = useState(false);
   const rewardShownRef = useRef(false);
@@ -231,6 +235,26 @@ export default function SuccessPage() {
     prewarmSchnellPush();
     if (orderId) void bindSchnellPushToOrder(orderId);
   }, [orderId]);
+
+  useEffect(() => {
+    const updateNotificationMode = () => {
+      const permissionGranted =
+        typeof Notification !== "undefined" &&
+        Notification.permission === "granted";
+      setAppReadyNotifications(
+        isStandaloneDisplayMode() && permissionGranted,
+      );
+    };
+
+    updateNotificationMode();
+    const retryTimer = window.setTimeout(updateNotificationMode, 1_000);
+    document.addEventListener("visibilitychange", updateNotificationMode);
+
+    return () => {
+      window.clearTimeout(retryTimer);
+      document.removeEventListener("visibilitychange", updateNotificationMode);
+    };
+  }, []);
 
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return;
@@ -321,6 +345,7 @@ export default function SuccessPage() {
         if (response.ok && data.ok && data.status) {
           setStatus(data.status);
           setStatusError(false);
+          setPaymentOpen(data.paymentOpen === true);
           if (Number(data.customerNumber) > 0) {
             setCustomerNumber(String(data.customerNumber));
           }
@@ -481,7 +506,9 @@ export default function SuccessPage() {
               ? "Ihre Bestellung wurde ausgegeben. Vielen Dank!"
               : cancelled
                 ? "Bitte wenden Sie sich an unser Personal."
-                : "Bitte lassen Sie diese Seite geöffnet. Wir melden uns, sobald Ihre Bestellung fertig ist."}
+                : appReadyNotifications
+                  ? "Sie erhalten eine Benachrichtigung, sobald Ihre Bestellung fertig ist. Sie können die App inzwischen normal weiterverwenden."
+                  : "Bitte lassen Sie diese Seite geöffnet. Wir melden uns, sobald Ihre Bestellung fertig ist."}
         </p>
 
         {!terminal ? (
@@ -491,9 +518,24 @@ export default function SuccessPage() {
           </div>
         ) : null}
 
-        <p className="mt-8 text-sm text-stone-500">
-          Barzahlung an der Ausgabe · BAR OFFEN
-        </p>
+        {!terminal && paymentOpen ? (
+          <p className="mt-8 text-sm text-stone-400">
+            Barzahlung an der Ausgabe
+          </p>
+        ) : null}
+
+        {ready && paymentOpen ? (
+          <div
+            className="mx-auto mt-8 max-w-md rounded-2xl border border-amber-300/40 bg-amber-300/10 px-5 py-4 text-left shadow-lg shadow-amber-950/20"
+            role="status"
+          >
+            <p className="font-black text-amber-200">Zahlung noch offen</p>
+            <p className="mt-2 leading-6 text-amber-50">
+              Bitte denken Sie daran, Ihre Bestellung vor der Abholung an der
+              Ausgabe zu bezahlen. Vielen Dank!
+            </p>
+          </div>
+        ) : null}
 
         {statusError ? (
           <p className="mt-3 text-xs text-amber-300">

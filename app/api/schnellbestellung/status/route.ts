@@ -74,6 +74,20 @@ export async function GET(req: Request) {
   }
 
   const meta = objectValue(order.meta);
+  const payment = objectValue(meta.payment);
+  const paymentMethod = String(
+    meta.paymentMethod ?? payment.method ?? "cash",
+  )
+    .toLowerCase()
+    .trim();
+  const paymentStatus = String(
+    meta.paymentStatus ?? payment.status ?? "pay_at_counter",
+  )
+    .toLowerCase()
+    .trim();
+  const paymentOpen =
+    paymentMethod === "cash" &&
+    !["paid", "bezahlt", "completed", "succeeded"].includes(paymentStatus);
 
   if (String(meta.deviceId || "") !== String(session.deviceId || "")) {
     return NextResponse.json(
@@ -93,6 +107,7 @@ export async function GET(req: Request) {
       readyEventAt: Number(meta.readyEventAt || 0),
       readyEventSequence: Number(meta.readyEventSequence || 0),
       reward: rewardFromOrderMeta(meta),
+      paymentOpen,
       updatedAt: Date.now(),
     },
     { headers: { "Cache-Control": "private, no-store" } },
