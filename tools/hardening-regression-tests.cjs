@@ -237,6 +237,17 @@ async function main() {
   assert.match(proxy, /timingSafeEqual/);
   assert.match(proxy, /url_resolution_disabled/);
   assert.doesNotMatch(proxy, /function\s+resolveOrderFromUrl/);
+  assert.match(proxy, /function sanitizePrinterText/);
+  assert.ok(proxy.includes("\\u0000-\\u001F"));
+
+  const agent = read("print-agent/agent.mjs");
+  assert.doesNotMatch(agent, /fileCfg\.printProxyToken \|\|\s*fileCfg\.token/);
+  assert.match(agent, /PRINT_AGENT_TOKEN ve PRINT_PROXY_TOKEN farklı olmalı/);
+
+  assert.match(read("lib/server/payment-signature.ts"), /PAYMENT_FINALIZE_SECRET/);
+  assert.match(read("lib/server/payment-share-token.ts"), /PAYMENT_SHARE_SECRET/);
+  assert.doesNotMatch(read("lib/server/payment-signature.ts"), /STRIPE_SECRET_KEY/);
+  assert.doesNotMatch(read("lib/server/payment-share-token.ts"), /STRIPE_SECRET_KEY/);
 
   const schema = read("prisma/schema.prisma");
   assert.match(schema, /idempotencyKey\s+String\?/);
@@ -255,6 +266,8 @@ async function main() {
   assert.match(orderCreate, /idempotency-key/);
   assert.match(orderCreate, /CUSTOMER_BLOCKED/);
   assert.match(orderCreate, /requestHash/);
+  assert.match(orderCreate, /Customer upsert failed after order creation/);
+  assert.match(orderCreate, /try \{[\s\S]*upsertCustomerFromOrder/);
 
   const allTimezoneSources = [
     "lib/availability.ts",

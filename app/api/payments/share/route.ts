@@ -670,7 +670,9 @@ export async function POST(req: Request) {
                   code === "PAYMENT_MUTATION_IN_PROGRESS"
                 ? 409
                 : code === "STRIPE_SECRET_KEY_MISSING" ||
-                    code === "STRIPE_PUBLISHABLE_KEY_MISSING"
+                    code === "STRIPE_PUBLISHABLE_KEY_MISSING" ||
+                    code === "PAYMENT_SHARE_SECRET_MISSING" ||
+                    code === "PAYMENT_FINALIZE_SECRET_MISSING"
                   ? 503
                   : 500;
     return json(

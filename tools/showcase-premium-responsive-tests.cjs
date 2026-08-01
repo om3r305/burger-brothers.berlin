@@ -5,8 +5,8 @@ const css = fs.readFileSync('components/showcase/ShowcaseStage.module.css','utf8
 const admin = fs.readFileSync('app/admin/showcase/page.tsx','utf8');
 const presets = fs.readFileSync('lib/showcase/presets.ts','utf8');
 const premiumSettings = fs.readFileSync('components/showcase/admin/PremiumSceneSettings.tsx','utf8');
-assert(stage.includes('sceneIndex: number'), 'PremiumScene sceneIndex prop eksik');
-assert(stage.includes('sceneIndex={sceneIndex}'), 'PremiumScene sceneIndex aktarimi eksik');
+assert(stage.includes('contentIndex: number'), 'PremiumScene contentIndex prop eksik');
+assert(stage.includes('contentIndex={contentIndex}'), 'PremiumScene contentIndex aktarimi eksik');
 assert(stage.includes('resolveWeatherMessage'), 'Sahne hava metin motoruna bağlı değil');
 assert(presets.includes('export function resolveWeatherMessage'), 'Saat/hava bazli metin motoru eksik');
 assert(css.includes('@container (max-aspect-ratio: 4/5)'), 'Dikey ekran container uyumu eksik');

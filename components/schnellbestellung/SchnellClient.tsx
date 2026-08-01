@@ -766,13 +766,12 @@ export default function SchnellClient() {
 
     const refreshCatalog = async () => {
       try {
-        const response = await fetch("/api/schnellbestellung/catalog", {
-          credentials: "same-origin",
-          cache: "no-store",
-          headers: { accept: "application/json" },
+        const envelope = await loadSchnellCatalog<CatalogResponse>({
+          forceRefresh: true,
+          cacheMode: "no-store",
         });
-        const data = (await response.json().catch(() => ({}))) as CatalogResponse;
-        if (cancelled || !response.ok || !Array.isArray(data.products)) return;
+        const data = envelope.data;
+        if (cancelled || !envelope.ok || !Array.isArray(data.products)) return;
 
         const nextProducts = data.products;
         const nextCategories = Array.isArray(data.categories)

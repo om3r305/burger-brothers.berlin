@@ -23,25 +23,50 @@ export function getStripeClient() {
   return stripeClient;
 }
 
+function normalizeConfiguredBaseUrl(raw: string) {
+  const configured = String(raw || "").trim().replace(/\/+$/, "");
+  if (!configured) return "";
+
+  const candidate = configured.startsWith("http")
+    ? configured
+    : `https://${configured}`;
+  const parsed = new URL(candidate);
+
+  if (parsed.username || parsed.password || parsed.search || parsed.hash) {
+    throw new Error("BASE_URL_INVALID");
+  }
+  if (parsed.protocol !== "https:" && parsed.hostname !== "localhost") {
+    throw new Error("BASE_URL_HTTPS_REQUIRED");
+  }
+
+  return parsed.origin;
+}
+
 export function resolveBaseUrl(requestUrl?: string) {
-  const configured = String(
+  const configured = normalizeConfiguredBaseUrl(
     process.env.NEXT_PUBLIC_BASE_URL ||
       process.env.BASE_URL ||
       process.env.SITE_URL ||
       process.env.APP_URL ||
       "",
-  )
-    .trim()
-    .replace(/\/+$/, "");
+  );
 
-  if (configured) {
-    return configured.startsWith("http") ? configured : `https://${configured}`;
+  if (configured) return configured;
+
+  const production =
+    process.env.NODE_ENV === "production" ||
+    process.env.VERCEL_ENV === "production";
+
+  if (production) {
+    throw new Error("CANONICAL_BASE_URL_MISSING");
   }
 
   if (requestUrl) {
     try {
       return new URL(requestUrl).origin;
-    } catch {}
+    } catch {
+      // Development-only fallback continues below.
+    }
   }
 
   const vercelUrl = String(process.env.VERCEL_URL || "")

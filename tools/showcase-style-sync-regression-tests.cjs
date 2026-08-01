@@ -4,6 +4,7 @@ const path = require("node:path");
 const root = process.cwd();
 const cssPath = path.join(root, "components", "showcase", "ShowcaseStage.module.css");
 const stagePath = path.join(root, "components", "showcase", "ShowcaseStage.tsx");
+const weatherCssPath = path.join(root, "components", "showcase", "WeatherExperience.module.css");
 
 function fail(message) {
   console.error(`FAIL: ${message}`);
@@ -12,14 +13,16 @@ function fail(message) {
 
 if (!fs.existsSync(cssPath)) fail(`CSS bulunamadi: ${cssPath}`);
 if (!fs.existsSync(stagePath)) fail(`ShowcaseStage bulunamadi: ${stagePath}`);
+if (!fs.existsSync(weatherCssPath)) fail(`WeatherExperience CSS bulunamadi: ${weatherCssPath}`);
 
 const css = fs.readFileSync(cssPath, "utf8");
 const stage = fs.readFileSync(stagePath, "utf8");
+const weatherCss = fs.readFileSync(weatherCssPath, "utf8");
 
 const requiredCss = [
   ".premiumScene",
   ".premiumEyebrow",
-  ".weatherScene h1",
+  ".weatherScene",
   ".weatherEmoji",
   ".reviewScene",
   ".reviewQrScene",
@@ -47,6 +50,10 @@ const requiredStage = [
 
 for (const token of requiredStage) {
   if (!stage.includes(token)) fail(`ShowcaseStage baglantisi eksik: ${token}`);
+}
+
+if (!weatherCss.includes(".heroRow h1")) {
+  fail("WeatherExperience baslik responsive stili eksik: .heroRow h1");
 }
 
 if (css.length < 45000) {

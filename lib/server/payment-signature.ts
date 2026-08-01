@@ -1,10 +1,10 @@
 import { createHmac, timingSafeEqual } from "crypto";
 
 function paymentSigningSecret() {
-  const secret = String(process.env.STRIPE_SECRET_KEY || "").trim();
+  const secret = String(process.env.PAYMENT_FINALIZE_SECRET || "").trim();
 
-  if (!secret) {
-    throw new Error("STRIPE_SECRET_KEY_MISSING");
+  if (secret.length < 32) {
+    throw new Error("PAYMENT_FINALIZE_SECRET_MISSING");
   }
 
   return secret;

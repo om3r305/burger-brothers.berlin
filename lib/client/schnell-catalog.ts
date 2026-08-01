@@ -52,14 +52,16 @@ function saveBrowserCache(data: unknown) {
   }
 }
 
-async function requestCatalog<T>(): Promise<CatalogEnvelope<T>> {
+async function requestCatalog<T>(
+  cacheMode: RequestCache = "default",
+): Promise<CatalogEnvelope<T>> {
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
   try {
     const response = await fetch(CATALOG_URL, {
       credentials: "same-origin",
-      cache: "default",
+      cache: cacheMode,
       signal: controller.signal,
       headers: { accept: "application/json" },
     });
@@ -77,11 +79,15 @@ async function requestCatalog<T>(): Promise<CatalogEnvelope<T>> {
   }
 }
 
-export function loadSchnellCatalog<T>() {
+export function loadSchnellCatalog<T>(options: {
+  forceRefresh?: boolean;
+  cacheMode?: RequestCache;
+} = {}) {
   const state = catalogWindow();
   const recent = state.__bbSchnellCatalogResult;
 
   if (
+    !options.forceRefresh &&
     recent &&
     Date.now() - recent.savedAt <= IN_MEMORY_RESULT_MAX_AGE_MS
   ) {
@@ -92,7 +98,7 @@ export function loadSchnellCatalog<T>() {
     return state.__bbSchnellCatalogPromise as Promise<CatalogEnvelope<T>>;
   }
 
-  const promise = requestCatalog<T>()
+  const promise = requestCatalog<T>(options.cacheMode || "default")
     .then((envelope) => {
       state.__bbSchnellCatalogResult = {
         savedAt: Date.now(),

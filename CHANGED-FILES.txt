@@ -1,2 +1,0 @@
-app/schnellbestellung/enter/page.tsx
-middleware.ts

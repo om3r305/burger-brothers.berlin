@@ -91,7 +91,28 @@ completeGroup("Stripe", [
   "STRIPE_SECRET_KEY",
   "STRIPE_WEBHOOK_SECRET",
   "NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY",
+  "PAYMENT_FINALIZE_SECRET",
+  "PAYMENT_SHARE_SECRET",
 ]);
+
+for (const name of ["PAYMENT_FINALIZE_SECRET", "PAYMENT_SHARE_SECRET"]) {
+  if (value(name) && value(name).length < 32) {
+    errors.push(`${name}: en az 32 karakter olmalı`);
+  }
+}
+if (
+  value("PAYMENT_FINALIZE_SECRET") &&
+  value("PAYMENT_FINALIZE_SECRET") === value("PAYMENT_SHARE_SECRET")
+) {
+  errors.push("PAYMENT_FINALIZE_SECRET ve PAYMENT_SHARE_SECRET farklı olmalı");
+}
+if (
+  value("PRINT_AGENT_TOKEN") &&
+  value("PRINT_PROXY_TOKEN") &&
+  value("PRINT_AGENT_TOKEN") === value("PRINT_PROXY_TOKEN")
+) {
+  errors.push("PRINT_AGENT_TOKEN ve PRINT_PROXY_TOKEN farklı olmalı");
+}
 completeGroup("Şifreli backup", [
   "SUPABASE_URL",
   "SUPABASE_SERVICE_ROLE_KEY",
@@ -111,10 +132,32 @@ completeGroup("R2", [
 ]);
 completeGroup("Telegram", ["TELEGRAM_BOT_TOKEN", "TELEGRAM_ORDER_CHAT_ID"]);
 
-for (const name of ["NEXT_PUBLIC_BASE_URL", "NEXT_PUBLIC_SITE_URL", "SITE_URL"]) {
+if (production) {
+  required("NEXT_PUBLIC_BASE_URL", { pattern: /^https:\/\/[^\s/$.?#].[^\s]*$/i });
+}
+
+for (const name of [
+  "NEXT_PUBLIC_BASE_URL",
+  "NEXT_PUBLIC_SITE_URL",
+  "SITE_URL",
+  "APP_URL",
+  "BASE_URL",
+]) {
   const current = value(name);
-  if (production && current && !current.startsWith("https://")) {
-    errors.push(`${name}: production'da https olmalı`);
+  if (!current) continue;
+  try {
+    const parsed = new URL(current);
+    if (production && parsed.protocol !== "https:") {
+      errors.push(`${name}: production'da https olmalı`);
+    }
+    if (parsed.username || parsed.password || parsed.search || parsed.hash) {
+      errors.push(`${name}: kullanıcı bilgisi, query veya fragment içeremez`);
+    }
+    if (production && ["localhost", "127.0.0.1"].includes(parsed.hostname)) {
+      errors.push(`${name}: production'da localhost olamaz`);
+    }
+  } catch {
+    errors.push(`${name}: geçerli bir URL olmalı`);
   }
 }
 

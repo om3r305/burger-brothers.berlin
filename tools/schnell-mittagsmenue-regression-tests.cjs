@@ -134,7 +134,8 @@ assert(!core.includes('badge: cleanText(raw.badge, 60) || "Mittagsmenü"'));
 // Customer payload carries only product/choice identifiers; server canonicalizes prices.
 assert(client.includes("selectedSideProductId: line.selectedSideProductId"));
 assert(client.includes("reconcileCartWithCatalog"));
-assert(client.includes('cache: "no-store"'));
+assert(client.includes('cacheMode: "no-store"'));
+assert(catalogClient.includes('cache: cacheMode'));
 assert(client.includes("}, 60_000)"));
 assert(core.includes("prisma.product.findMany"));
 assert(core.includes("menu.menuPrice + upgradePrice + extrasTotal"));

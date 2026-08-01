@@ -8,13 +8,13 @@ export type PaymentShareTokenPayload = {
 };
 
 function paymentTokenSecret() {
-  const secret = String(process.env.STRIPE_SECRET_KEY || "").trim();
+  const secret = String(process.env.PAYMENT_SHARE_SECRET || "").trim();
 
-  if (!secret) {
-    throw new Error("STRIPE_SECRET_KEY_MISSING");
+  if (secret.length < 32) {
+    throw new Error("PAYMENT_SHARE_SECRET_MISSING");
   }
 
-  return `burger-brothers:payment-share:${secret}`;
+  return secret;
 }
 
 function safeEqual(left: string, right: string) {

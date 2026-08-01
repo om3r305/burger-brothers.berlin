@@ -1,3 +1,0 @@
-components/schnellbestellung/SchnellEnterClient.tsx
-lib/client/schnell-push.ts
-tools/schnellbestellung-regression-tests.cjs
