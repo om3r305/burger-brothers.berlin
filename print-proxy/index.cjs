@@ -97,13 +97,13 @@ const ROUND_TOTAL_STEP_CENTS = Math.max(
   Math.min(100, Number(process.env.ROUND_TOTAL_STEP_CENTS || 1) || 1),
 );
 
-/* ====== SABİT MAĞAZA BİLGİLERİ ====== */
+/* ====== MAĞAZA BİLGİLERİ (başlangıçta bir kez okunur) ====== */
 const STORE_HEADER_LINES = [
-  'Berliner Str. 9',
-  '13507 Berlin',
-  'Tel: 030 - 405 73 030',
-  'St.Nr: 17/602/03138',
-];
+  process.env.PRINT_STORE_ADDRESS_LINE_1 || 'Berliner Str. 9',
+  process.env.PRINT_STORE_ADDRESS_LINE_2 || '13507 Berlin',
+  process.env.PRINT_STORE_PHONE || 'Tel: 030 - 405 73 030',
+  process.env.PRINT_STORE_TAX_ID || 'St.Nr: 17/602/03138',
+].map((value) => String(value || '').trim()).filter(Boolean);
 
 /* ====== CORS, kimlik doğrulama & yardımcılar ====== */
 function cors(res, reqOrigin='') {
@@ -303,9 +303,13 @@ const cp857Special = new Map([
   ['ß',0xE1],['õ',0xE4],['Õ',0xE5],['Ú',0xE9],['Û',0xEA],['Ù',0xEB],['°',0xF8],['²',0xFD],['³',0xFC],['¼',0xAC],['½',0xAB],['¾',0xF3],
 ]);
 
+function sanitizePrinterText(value=''){
+  return String(value).replace(/[\u0000-\u001F\u007F-\u009F]/g, ' ');
+}
+
 function enc1252Str(s=''){
   const out=[];
-  for(const ch of String(s)){
+  for(const ch of sanitizePrinterText(s)){
     const cp=ch.codePointAt(0);
     if (cp<=0xFF) out.push(cp);
     else if (cp1252Special.has(cp)) out.push(cp1252Special.get(cp));
@@ -315,7 +319,7 @@ function enc1252Str(s=''){
 }
 function enc857Str(s=''){
   const out=[];
-  for(const ch of String(s)){
+  for(const ch of sanitizePrinterText(s)){
     const cp=ch.codePointAt(0);
     if (cp>=0x20 && cp<=0x7E) { out.push(cp); continue; }
     if (cp857Special.has(ch)) { out.push(cp857Special.get(ch)); continue; }

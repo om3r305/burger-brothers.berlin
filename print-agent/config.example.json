@@ -1,9 +1,9 @@
 {
-  "baseUrl": "https://burger-brothers-berlin-final.vercel.app",
-  "token": "BURAYA_PRINT_AGENT_TOKEN",
+  "baseUrl": "https://www.burger-brothers.berlin",
+  "token": "BURAYA_FARKLI_PRINT_AGENT_TOKEN_EN_AZ_32_KARAKTER",
   "agentName": "shop-tv-1",
   "printProxyUrl": "http://127.0.0.1:7777",
-  "printProxyToken": "BURAYA_PRINT_PROXY_TOKEN_EN_AZ_32_KARAKTER",
+  "printProxyToken": "BURAYA_FARKLI_PRINT_PROXY_TOKEN_EN_AZ_32_KARAKTER",
   "printerName": "metapace-print-proxy",
   "autoPrint": false,
   "pollSeconds": 5,

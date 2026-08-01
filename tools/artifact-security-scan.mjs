@@ -6,13 +6,18 @@ const failures = [];
 const ignoredDirs = new Set(["node_modules", ".next", ".git"]);
 const forbiddenNames = [
   /(^|\/)\.env$/i,
-  /\.(db|sqlite|sqlite3|rar|7z|zip)$/i,
+  /\.(db|sqlite|sqlite3|rar|7z|zip|zipchunk|log)$/i,
   /\.(bak|backup|old|orig)(-|$|\.)/i,
   /(^|\/)bootstrap\.json$/i,
   /(^|\/)print-(agent|proxy)\/config\.json$/i,
   /(^|\/)\.burger-brothers-fallback-snapshots(\/|$)/i,
   /(^|\/)\.showcase-empty-text-backups(\/|$)/i,
   /(^|\/)public\/middleware\.ts$/i,
+  /(^|\/)public\/(app|components|lib|tools)(\/|$)/i,
+  /(^|\/)public\/public(\/|$)/i,
+  /^data(\/|$)/i,
+  /\.(pem|key|crt|cer|p12|pfx)$/i,
+  /(^|\/)_exports(\/|$)/i,
 ];
 const secretPatterns = [
   /\bsk_(?:live|test)_[A-Za-z0-9]{16,}\b/,

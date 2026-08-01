@@ -1,0 +1,31 @@
+BURGER BROTHERS — GO SOURCE RELEASE VALIDATION
+Date: 2026-08-01
+
+STATUS
+- Secure source handoff: GO
+- Direct production deployment: run the included secure release pipeline first.
+
+VALIDATED IN THIS PACKAGE
+- 61/61 security and regression test files passed.
+- Artifact secret/path scan passed.
+- Hardening policy tests passed.
+- TypeScript/TSX source syntax parse passed.
+- No real .env, print runtime config, database, private key, certificate,
+  old source ZIP, node_modules or .next output is included.
+- No application/API source tree exists under public/.
+- Existing order, payment, TV, driver, admin, showcase and print request
+  frequencies were preserved; no recurring runtime load was added.
+
+PRODUCTION GATE
+This isolated repair environment could not contact registry.npmjs.org, so a fresh
+npm ci / npm audit / Next.js production build was not fabricated or claimed here.
+The included tools/create-secure-release.ps1 and GitHub CI perform those checks
+on the clean staged artifact and refuse to create/deploy a release if any check
+fails.
+
+REQUIRED BEFORE GO-LIVE
+1. Rotate every token/PIN/private key that appeared in an older package.
+2. Configure distinct PAYMENT_FINALIZE_SECRET and PAYMENT_SHARE_SECRET values.
+3. Configure distinct PRINT_AGENT_TOKEN and PRINT_PROXY_TOKEN values.
+4. Keep real .env.local, print config, DB and private keys outside ZIP/Git.
+5. Run: npm run secure:release (Windows PowerShell) or the CI verification job.

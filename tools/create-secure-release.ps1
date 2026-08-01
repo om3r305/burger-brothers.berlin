@@ -68,6 +68,8 @@ function Test-ForbiddenRelativePath {
   if ($segments -contains ".next") { return $true }
   if ($segments -contains "node_modules") { return $true }
   if ($segments -contains ".burger-brothers-fallback-snapshots") { return $true }
+  if ($segments -contains ".showcase-empty-text-backups") { return $true }
+  if ($segments -contains "_exports") { return $true }
 
   # Only the project-root runtime data folder is private. public/data is required.
   if ($lower -eq "data" -or $lower.StartsWith("data/")) { return $true }
@@ -98,6 +100,7 @@ function Assert-RequiredFiles {
   $required = @(
     "package.json",
     "package-lock.json",
+    "prisma.config.ts",
     "TESLIMAT-README.txt",
     "prisma\schema.prisma",
     "prisma\seed.ts",
@@ -134,14 +137,16 @@ Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item -LiteralPath $zip -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Path $stage -Force | Out-Null
 
-Write-Host "1/9 Building allowlisted release stage..." -ForegroundColor Cyan
+Write-Host "1/12 Building allowlisted release stage..." -ForegroundColor Cyan
 
 $topFiles = @(
   ".env.example", ".gitignore", "middleware.ts", "next.config.mjs",
   "next.config.js", "next.config.ts", "package.json", "package-lock.json",
   "postcss.config.cjs", "postcss.config.js", "tailwind.config.ts",
-  "tailwind.config.js", "tsconfig.json", "next-env.d.ts", "server.js",
-  "global.d.ts", "vercel.json", "TESLIMAT-README.txt"
+  "tailwind.config.cjs", "tailwind.config.js", "tsconfig.json", "next-env.d.ts",
+  "prisma.config.ts", "server.js", "global.d.ts", "vercel.json",
+  "README.md", "SECURITY.md", "SECURE-RELEASE-NOTES-2026-08-01.md",
+  "RELEASE-VALIDATION-2026-08-01.txt", "TESLIMAT-README.txt"
 )
 
 foreach ($relative in $topFiles) {
@@ -150,8 +155,9 @@ foreach ($relative in $topFiles) {
 }
 
 $includeDirectories = @(
-  "app", "components", "config", "i18n", "lib", "public", "tools",
-  "print-agent", "print-proxy", "prisma", "styles", "types", "utils"
+  ".github", "app", "components", "config", "hooks", "i18n", "lib",
+  "public", "tools", "print-agent", "print-proxy", "prisma", "styles",
+  "types", "utils"
 )
 
 foreach ($relativeDirectory in $includeDirectories) {
@@ -169,41 +175,60 @@ Assert-RequiredFiles $stage
 
 Set-Location $stage
 
-Write-Host "2/9 Installing exact dependencies in staged release..." -ForegroundColor Cyan
+Write-Host "2/12 Installing exact dependencies in staged release..." -ForegroundColor Cyan
 npm.cmd ci --registry=$registry --no-audit --no-fund
 Stop-OnExitCode "staged npm ci"
 
-Write-Host "3/9 Generating Prisma Client in staged release..." -ForegroundColor Cyan
+Write-Host "3/12 Generating Prisma Client in staged release..." -ForegroundColor Cyan
 npm.cmd run prisma:generate
 Stop-OnExitCode "staged prisma generate"
 
-Write-Host "4/9 Running staged TypeScript checks..." -ForegroundColor Cyan
+Write-Host "4/12 Running staged artifact and TypeScript checks..." -ForegroundColor Cyan
+npm.cmd run artifact:check
+Stop-OnExitCode "staged artifact check"
 npm.cmd run typecheck
 Stop-OnExitCode "staged typecheck"
 
-Write-Host "5/9 Running staged security tests..." -ForegroundColor Cyan
+Write-Host "5/12 Running staged hardening tests..." -ForegroundColor Cyan
+npm.cmd run hardening:test
+Stop-OnExitCode "staged hardening tests"
+
+Write-Host "6/12 Running staged security tests..." -ForegroundColor Cyan
 npm.cmd run security:test
 Stop-OnExitCode "staged security tests"
 
-Write-Host "6/9 Running staged high/critical audit..." -ForegroundColor Cyan
+Write-Host "7/12 Running staged feature regression tests..." -ForegroundColor Cyan
+npm.cmd run showcase:test
+Stop-OnExitCode "staged showcase tests"
+npm.cmd run schnell:test
+Stop-OnExitCode "staged schnell tests"
+npm.cmd run notifications:test
+Stop-OnExitCode "staged notification tests"
+npm.cmd run brian:test
+Stop-OnExitCode "staged Brian tests"
+npm.cmd run regression:test:all
+Stop-OnExitCode "staged complete regression suite"
+
+Write-Host "8/12 Running staged high/critical audit..." -ForegroundColor Cyan
 npm.cmd audit --audit-level=high
 Stop-OnExitCode "staged npm audit"
 
-Write-Host "7/9 Running staged production build..." -ForegroundColor Cyan
+Write-Host "9/12 Running staged production build..." -ForegroundColor Cyan
 npm.cmd run build
 Stop-OnExitCode "staged production build"
 
-Write-Host "8/9 Removing generated dependencies/build output and scanning artifact..." -ForegroundColor Cyan
+Write-Host "10/12 Removing generated dependencies/build output..." -ForegroundColor Cyan
 Remove-Item -LiteralPath (Join-Path $stage "node_modules") -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item -LiteralPath (Join-Path $stage ".next") -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item -LiteralPath (Join-Path $stage "tsconfig.tsbuildinfo") -Force -ErrorAction SilentlyContinue
 
+Write-Host "11/12 Scanning final staged artifact..." -ForegroundColor Cyan
 Set-Location $project
 node.exe (Join-Path $project "tools\release-security-tests.mjs") $stage
 Stop-OnExitCode "release security scan"
 Assert-RequiredFiles $stage
 
-Write-Host "9/9 Creating verified checksums and ZIP..." -ForegroundColor Cyan
+Write-Host "12/12 Creating verified checksums and ZIP..." -ForegroundColor Cyan
 $manifest = @()
 Get-ChildItem -LiteralPath $stage -Recurse -File | ForEach-Object {
   $relative = $_.FullName.Substring($stage.Length).TrimStart("\") -replace "\\", "/"

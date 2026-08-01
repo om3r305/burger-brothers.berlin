@@ -2204,7 +2204,17 @@ export async function POST(req: Request) {
       throw createError;
     }
 
-    await upsertCustomerFromOrder(tenantId, order, total);
+    // Sipariş transaction'ı bu noktada başarıyla tamamlandı. Müşteri istatistiği
+    // yardımcı bir kayıt olduğundan burada oluşabilecek hata başarılı siparişi 500'e
+    // çevirmemeli ve Telegram/push zincirini durdurmamalıdır.
+    try {
+      await upsertCustomerFromOrder(tenantId, order, total);
+    } catch (error) {
+      console.error(
+        "Customer upsert failed after order creation (order remains valid):",
+        error,
+      );
+    }
 
     let routeDealActivated: any = null;
 

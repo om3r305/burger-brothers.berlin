@@ -28,8 +28,11 @@ jobs:
       - run: npm run typecheck
       - run: npm run hardening:test
       - run: npm run security:test
+      - run: npm run showcase:test
       - run: npm run schnell:test
       - run: npm run notifications:test
       - run: npm run brian:test
+      - run: npm run release:test
+      - run: npm run regression:test:all
       - run: npm run build
       - run: npm audit --audit-level=high

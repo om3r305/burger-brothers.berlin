@@ -1007,13 +1007,21 @@ export async function POST(req: Request) {
             ? "Jede Person muss mindestens einen Artikel übernehmen."
             : error?.message === "PAYMENT_AMOUNT_TOO_LOW"
               ? "Jeder Zahlbetrag muss mindestens 0,50 € betragen."
-              : error?.message === "STRIPE_SECRET_KEY_MISSING"
-                ? "Stripe ist auf dem Server noch nicht eingerichtet."
+              : [
+                    "STRIPE_SECRET_KEY_MISSING",
+                    "PAYMENT_SHARE_SECRET_MISSING",
+                    "PAYMENT_FINALIZE_SECRET_MISSING",
+                  ].includes(String(error?.message || ""))
+                ? "Stripe ist auf dem Server noch nicht vollständig eingerichtet."
                 : error?.message ||
                   "Online-Zahlung konnte nicht gestartet werden.";
 
     const status =
-      error?.message === "STRIPE_SECRET_KEY_MISSING"
+      [
+        "STRIPE_SECRET_KEY_MISSING",
+        "PAYMENT_SHARE_SECRET_MISSING",
+        "PAYMENT_FINALIZE_SECRET_MISSING",
+      ].includes(String(error?.message || ""))
         ? 503
         : [
               "SPLIT_PERSON_COUNT_INVALID",

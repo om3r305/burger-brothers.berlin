@@ -1,5 +1,0 @@
-app/checkout/page.tsx
-lib/server/schnellbestellung.ts
-tools/schnellbestellung-regression-tests.cjs
-PUSH-SCHNELLBESTELLUNG-COMPLETE-V2.1-TO-GITHUB.ps1
-RUN-SCHNELLBESTELLUNG-COMPLETE-V2.1-GITHUB-PUSH.bat

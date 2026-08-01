@@ -81,7 +81,6 @@ function loadConfig() {
     printProxyToken:
       process.env.PRINT_PROXY_TOKEN ||
       fileCfg.printProxyToken ||
-      fileCfg.token ||
       "",
 
     // /api/print/jobs tarafına bilgi amaçlı gönderilir
@@ -108,8 +107,14 @@ function loadConfig() {
 
   if (!cfg.baseUrl) throw new Error("baseUrl eksik.");
   if (!cfg.printProxyUrl) throw new Error("printProxyUrl eksik.");
+  if (String(cfg.token).trim().length < 32) {
+    throw new Error("PRINT_AGENT_TOKEN/token eksik veya 32 karakterden kısa.");
+  }
   if (String(cfg.printProxyToken).trim().length < 32) {
     throw new Error("PRINT_PROXY_TOKEN/printProxyToken eksik veya 32 karakterden kısa.");
+  }
+  if (String(cfg.token).trim() === String(cfg.printProxyToken).trim()) {
+    throw new Error("PRINT_AGENT_TOKEN ve PRINT_PROXY_TOKEN farklı olmalı.");
   }
 
   return cfg;

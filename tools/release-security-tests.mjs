@@ -25,12 +25,16 @@ const forbiddenSegments = new Set([
   ".next",
   "node_modules",
   ".burger-brothers-fallback-snapshots",
+  ".showcase-empty-text-backups",
+  "_exports",
 ]);
 
 const requiredReleaseFiles = [
   "package.json",
   "package-lock.json",
+  "prisma.config.ts",
   "TESLIMAT-README.txt",
+  "RELEASE-VALIDATION-2026-08-01.txt",
   "prisma/schema.prisma",
   "prisma/seed.ts",
   "public/data/streets.json",
@@ -41,6 +45,8 @@ const requiredReleaseFiles = [
   "types/react-three-jsx.d.ts",
   "global.d.ts",
   "vercel.json",
+  "hooks/tv/use-tv-orders.ts",
+  ".github/workflows/ci.yml",
 ];
 
 function normalizedRelative(base, full) {
@@ -57,6 +63,7 @@ function isForbidden(relative) {
   if (name === ".env.example") return false;
   if (forbiddenNames.has(name) || name.startsWith(".env.")) return true;
   if (forbiddenExtensions.has(extension)) return true;
+  if (/\.(?:bak|backup|old|orig)(?:-|$|\.)/i.test(name)) return true;
   if (segments.some((segment) => forbiddenSegments.has(segment))) return true;
   if (lower === "data" || lower.startsWith("data/")) return true;
   if (lower === "print-agent/config.json") return true;
@@ -89,15 +96,25 @@ if (!targetArg) {
     const script = fs.readFileSync(releaseScript, "utf8");
     for (const marker of [
       '"types"',
+      '"hooks"',
+      '".github"',
       '"global.d.ts"',
+      '"prisma.config.ts"',
       '"vercel.json"',
       '"prisma\\seed.ts"',
       '"public\\data\\streets.json"',
       '"public\\data\\route_clusters.json"',
       "staged npm ci",
       "staged prisma generate",
+      "staged artifact check",
       "staged typecheck",
+      "staged hardening tests",
       "staged security tests",
+      "staged showcase tests",
+      "staged schnell tests",
+      "staged notification tests",
+      "staged Brian tests",
+      "staged complete regression suite",
       "staged production build",
       "release security scan",
     ]) {
@@ -138,6 +155,12 @@ if (!targetArg) {
     for (const full of files) {
       const relative = normalizedRelative(target, full);
       if (isForbidden(relative)) failures.push(`forbidden release file: ${relative}`);
+      if (/^public\/(app|components|lib|tools|public)(\/|$)/i.test(relative)) {
+        failures.push(`source tree exposed under public: ${relative}`);
+      }
+      if (/^public\/middleware\.ts$/i.test(relative)) {
+        failures.push(`middleware exposed under public: ${relative}`);
+      }
 
       const extension = path.extname(relative).toLowerCase();
       if (

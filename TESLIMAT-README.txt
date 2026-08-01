@@ -19,11 +19,16 @@ Production icin en az su degerler tanimli olmalidir:
 - TV_PIN
 - CRON_SECRET
 - STRIPE_SECRET_KEY ve STRIPE_WEBHOOK_SECRET (online odeme kullaniliyorsa)
-- PRINT_AGENT_TOKEN / PRINT_PROXY_TOKEN (yazdirma kullaniliyorsa)
+- PAYMENT_FINALIZE_SECRET ve PAYMENT_SHARE_SECRET (birbirinden farkli)
+- PRINT_AGENT_TOKEN / PRINT_PROXY_TOKEN (birbirinden farkli; yazdirma kullaniliyorsa)
 - UPSTASH_REDIS_REST_URL ve UPSTASH_REDIS_REST_TOKEN (Vercel rate limit ve fallback)
 
 2) TEMIZ KURULUM VE DOGRULAMA
 -----------------------------
+Yeni rastgele secret uretmek icin (ciktiyi yalniz Vercel/yerel secret store'a girin):
+
+  npm run secrets:generate
+
 PowerShell'i bu klasorde acin ve calistirin:
 
   npm ci
@@ -74,5 +79,9 @@ node_modules ve .next dosyalarini disarida tutar. GitHub'a gondermeden once
 - Odeme taslaklari operasyon siparisi olarak gorunmuyor.
 - Baskidaki harita QR'i yerel uretiliyor; adres ucuncu tarafa gonderilmiyor.
 - Production cron, CRON_SECRET yoksa kapali kaliyor.
-- Guvenlik testleri, TypeScript, Prisma, npm audit ve production build kontrolu
-  teslimat olusturulmadan once calistirildi.
+- Release scripti; artifact, hardening, guvenlik, feature regresyonlari,
+  TypeScript, Prisma, npm audit ve production build kontrolleri gecmeden ZIP uretmez.
+- Siparis DB'ye yazildiktan sonraki musteri istatistik hatasi basarili siparisi
+  artik 500 cevabina ceviremez.
+- Odeme imzalari Stripe anahtarindan bagimsiz secretlarla uretilir.
+- Print agent ve proxy tokenlari ayridir; yazici metin kontrol karakterleri temizlenir.

@@ -89,7 +89,8 @@ assert(!rewardEngine.includes('canonicalItems.push({ name: "Hummus"'), 'Sepete r
 
 // Reward is decided and persisted inside the existing Serializable order transaction.
 assert(schnellServer.includes('Prisma.TransactionIsolationLevel.Serializable'));
-assert(schnellServer.includes('const rewardDecision = await decideSchnellReward'));
+assert(/const rewardDecision = [\s\S]*await decideSchnellReward/.test(schnellServer));
+assert(schnellServer.includes('item.category === "lunch"'));
 assert(schnellServer.includes('discount + rewardDecision.discountAmount'));
 assert(schnellServer.includes('payable - rewardDecision.discountAmount'));
 assert(schnellServer.includes('transaction.schnellRewardWin.create'));
