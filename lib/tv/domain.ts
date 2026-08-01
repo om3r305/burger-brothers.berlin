@@ -866,6 +866,28 @@ export function normalizeItems(value: unknown): StoredOrderItem[] {
     .map((entry, index): StoredOrderItem | null => {
       const item = cleanObj(entry);
       const name = String(item.name || item.title || "Artikel");
+      const rawTaxRate = Number(
+        item.taxRate ?? item.tax_rate ?? item.vatRate ?? item.vat_rate,
+      );
+      const taxRate: StoredOrderItem["taxRate"] =
+        rawTaxRate === 7 || rawTaxRate === 19 ? rawTaxRate : undefined;
+
+      const rawDoneness = item.doneness;
+      const donenessRecord = cleanObj(rawDoneness);
+      const donenessCode = String(
+        donenessRecord.code ??
+          (typeof rawDoneness === "string" ? rawDoneness : ""),
+      ).trim();
+      const donenessLabel = String(donenessRecord.label ?? "").trim();
+      const doneness: StoredOrderItem["doneness"] =
+        typeof rawDoneness === "string"
+          ? donenessCode || undefined
+          : donenessCode || donenessLabel
+            ? {
+                ...(donenessCode ? { code: donenessCode } : {}),
+                ...(donenessLabel ? { label: donenessLabel } : {}),
+              }
+            : undefined;
 
       const extras: StoredOrderExtra[] = [];
 
@@ -896,6 +918,8 @@ export function normalizeItems(value: unknown): StoredOrderItem[] {
         category: item.category ? String(item.category) : undefined,
         price: num(item.price ?? item.unitPrice),
         qty: Math.max(1, num(item.qty ?? item.quantity ?? 1)),
+        taxRate,
+        doneness,
         add: extras.length ? extras : undefined,
         rm: cleanArr(item.rm ?? item.remove).map((entry) => String(entry)),
         note: item.note ? String(item.note) : undefined,
