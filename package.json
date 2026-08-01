@@ -35,7 +35,7 @@
     "showcase:test": "node tools/showcase-schedule-video-loop-tests.cjs && node tools/showcase-regression-tests.cjs && node tools/showcase-empty-text-regression-tests.cjs && node tools/showcase-final-hardening-regression-tests.cjs && node tools/showcase-final-v2-regression-tests.cjs && node tools/showcase-theme-v3-regression-tests.cjs && node tools/weather-winner-admin-performance-v4-regression-tests.cjs",
     "checkout:safety:test": "node tools/checkout-safety-regression-tests.cjs",
     "canonical:pricing:test": "node tools/canonical-pricing-regression-tests.cjs",
-    "schnell:test": "node tools/schnellbestellung-regression-tests.cjs",
+    "schnell:test": "node tools/schnellbestellung-regression-tests.cjs && node tools/schnell-black-angus-doneness-regression-tests.cjs",
     "schnell:vapid": "node tools/generate-schnell-vapid.mjs",
     "reward:audio": "node tools/generate-reward-stinger.cjs",
     "assets:webp": "node tools/generate-web-assets.cjs",

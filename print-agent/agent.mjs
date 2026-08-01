@@ -245,6 +245,21 @@ function clean(value) {
   return String(value ?? "").trim();
 }
 
+function normalizeDoneness(value) {
+  const code = clean(
+    value && typeof value === "object" && !Array.isArray(value)
+      ? value.code
+      : value,
+  ).toLowerCase();
+  const labels = {
+    light: "Leicht gebraten",
+    normal: "Normal gebraten",
+    well_done: "Durchgebraten",
+  };
+
+  return labels[code] ? { code, label: labels[code] } : undefined;
+}
+
 function normalizeCustomerForProxy(customer = {}) {
   const addressLine = clean(
     customer.addressLine ||
@@ -294,6 +309,7 @@ function normalizeItemsForProxy(items = []) {
       ? (item.rm || item.remove).map((entry) => String(entry))
       : [],
     note: clean(item.note),
+    doneness: normalizeDoneness(item.doneness),
     taxRate: item.taxRate,
   }));
 }

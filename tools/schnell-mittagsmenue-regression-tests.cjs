@@ -153,9 +153,11 @@ assert(tvTypes.includes("complimentaryTableSauce?: boolean"));
 assert(tvDetails.includes('? "Kostenlos"'));
 
 // Cache versions must remain aligned so prefetched catalogs include lunch data.
-assert(client.includes('const CATALOG_CACHE_KEY = "bb_schnell_catalog_v7"'));
-assert(catalogClient.includes('const CATALOG_CACHE_KEY = "bb_schnell_catalog_v7"'));
+assert(client.includes('const CATALOG_CACHE_KEY = "bb_schnell_catalog_v8"'));
+assert(catalogClient.includes('const CATALOG_CACHE_KEY = "bb_schnell_catalog_v8"'));
+assert(!client.includes("bb_schnell_catalog_v7"));
 assert(!client.includes("bb_schnell_catalog_v6"));
+assert(!catalogClient.includes("bb_schnell_catalog_v7"));
 assert(!catalogClient.includes("bb_schnell_catalog_v6"));
 
 console.log("schnell mittagsmenue regression tests: OK");

@@ -125,6 +125,14 @@ export type SchnellCatalogRecord = {
   };
 };
 
+export type SchnellDoneness = "light" | "normal" | "well_done";
+
+export const SCHNELL_DONENESS_LABELS: Record<SchnellDoneness, string> = {
+  light: "Leicht gebraten",
+  normal: "Normal gebraten",
+  well_done: "Durchgebraten",
+};
+
 export type SchnellSettings = {
   enabled: boolean;
   paused: boolean;
@@ -231,6 +239,53 @@ function clamp(value: unknown, min: number, max: number, fallback: number) {
 
 function cleanText(value: unknown, max = 160) {
   return String(value ?? "").trim().slice(0, max);
+}
+
+export function normalizeSchnellDoneness(
+  value: unknown,
+): SchnellDoneness | null {
+  const raw =
+    value && typeof value === "object" && !Array.isArray(value)
+      ? obj(value).code
+      : value;
+  const code = cleanText(raw, 30).toLowerCase();
+
+  return code === "light" || code === "normal" || code === "well_done"
+    ? code
+    : null;
+}
+
+export function schnellDonenessLabel(value: unknown) {
+  const code = normalizeSchnellDoneness(value);
+  return code ? SCHNELL_DONENESS_LABELS[code] : "";
+}
+
+function normalizeSchnellProductIdentity(value: unknown) {
+  return String(value ?? "")
+    .toLocaleLowerCase("de-DE")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function schnellProductRequiresDoneness(product: {
+  sku?: unknown;
+  name?: unknown;
+  lunchMenu?: { burgerName?: unknown } | null;
+}) {
+  const sku = cleanText(product?.sku, 180).toLocaleLowerCase("de-DE");
+  if (
+    sku === "burger-black-angus-burger" ||
+    sku.startsWith("burger-black-angus-burger-")
+  ) {
+    return true;
+  }
+
+  return [product?.name, product?.lunchMenu?.burgerName].some((name) =>
+    /^black angus(?: burger)?$/.test(normalizeSchnellProductIdentity(name)),
+  );
 }
 
 function normalizeSchnellOrderStatus(value: unknown) {
@@ -1632,6 +1687,14 @@ async function prepareCashSchnellOrder(params: {
         throw new Error("PRODUCT_UNAVAILABLE");
       }
 
+      const requiresDoneness = schnellProductRequiresDoneness(burger!);
+      const doneness = requiresDoneness
+        ? normalizeSchnellDoneness(rawItem.doneness)
+        : null;
+      if (requiresDoneness && !doneness) {
+        throw new Error("DONENESS_REQUIRED");
+      }
+
       const qty = Math.max(
         1,
         Math.min(20, Math.floor(Number(rawItem.qty) || 1)),
@@ -1695,6 +1758,12 @@ async function prepareCashSchnellOrder(params: {
         qty,
         add,
         note: menu.allowNotes ? cleanText(rawItem.note, 300) : "",
+        doneness: doneness
+          ? {
+              code: doneness,
+              label: SCHNELL_DONENESS_LABELS[doneness],
+            }
+          : undefined,
         sourceKind: "lunch_menu",
         lunchMenu: {
           menuId: menu.id,
@@ -1721,6 +1790,14 @@ async function prepareCashSchnellOrder(params: {
       !schnellProductIsAllowed(product, settings)
     ) {
       throw new Error("PRODUCT_UNAVAILABLE");
+    }
+
+    const requiresDoneness = schnellProductRequiresDoneness(product);
+    const doneness = requiresDoneness
+      ? normalizeSchnellDoneness(rawItem.doneness)
+      : null;
+    if (requiresDoneness && !doneness) {
+      throw new Error("DONENESS_REQUIRED");
     }
 
     const qty = Math.max(
@@ -1796,6 +1873,12 @@ async function prepareCashSchnellOrder(params: {
       qty,
       add: extras,
       note: cleanText(rawItem.note, 300),
+      doneness: doneness
+        ? {
+            code: doneness,
+            label: SCHNELL_DONENESS_LABELS[doneness],
+          }
+        : undefined,
       campaign: campaignPrice.campaign
         ? {
             id: campaignPrice.campaign.id,
