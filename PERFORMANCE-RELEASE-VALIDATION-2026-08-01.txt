@@ -1,0 +1,42 @@
+BURGER BROTHERS BERLIN — PERFORMANCE RELEASE VALIDATION
+Date: 2026-08-01
+
+STATUS
+- Source package security: PASS
+- Operational polling regression: PASS
+- Performance / DB pool regression: PASS
+- TV refactor regression: PASS
+- Driver refactor regression: PASS
+- Admin PWA / push regression: PASS
+- Showcase V5 regression: PASS
+- Showcase general regression: PASS
+- Showcase final hardening regression: PASS
+- Secure release policy: PASS
+- Modified TypeScript/TSX syntax transpile: PASS (12 files)
+
+RUNTIME BEHAVIOR GUARANTEES
+- TV active-order refresh remains 5 seconds.
+- Print Agent default polling remains 5 seconds.
+- Driver active-order refresh keeps configured fast interval.
+- Hidden tabs do not send regular polling requests.
+- Push/focus/visibility/manual refresh signals remain immediate.
+- No database schema or migration changes.
+- No new npm dependency or runtime service.
+
+EXPECTED BACKGROUND REQUEST REDUCTION
+- TV idle orders: about 37.5% fewer checks.
+- Driver logged out: 100% fewer order checks.
+- Driver idle after login: about 56% fewer checks vs 6.5 seconds.
+- Brian background model: 90% fewer scheduled checks.
+- Admin attention fallback: 75% fewer scheduled checks.
+- Showcase live event checks: 60% fewer checks.
+- Showcase stable snapshot checks: about 50% fewer checks when configured at 15 seconds.
+- Duplicate global settings/catalog sync removed from dedicated operational screens.
+
+ENVIRONMENT LIMITATION
+The local execution environment's private npm mirror returned HTTP 404 for
+zustand@4.5.2, so npm ci, full Next.js typecheck/build, npm audit and the tests
+that import next/server could not be re-run here. The GitHub CI workflow now
+runs the performance regression explicitly and still requires npm ci, Prisma
+generate, typecheck, all security/regression suites, production build and
+npm audit before merge.

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   fetchAndApplyRemoteSettings,
   readSettings,
@@ -15,14 +15,33 @@ import {
   storeOriginFromSettings,
 } from "@/lib/driver/domain";
 
+const DRIVER_SETTINGS_MIN_REFRESH_GAP_MS = 30_000;
+
 export function useDriverSettings() {
   const [settings, setSettings] = useState<SettingsV6>(() => readSettings());
+  const refreshRunningRef = useRef(false);
+  const lastRefreshAtRef = useRef(0);
 
-  const refreshSettings = useCallback(async () => {
+  const refreshSettings = useCallback(async (force = false) => {
+    const now = Date.now();
+    if (refreshRunningRef.current) return;
+    if (
+      !force &&
+      now - lastRefreshAtRef.current < DRIVER_SETTINGS_MIN_REFRESH_GAP_MS
+    ) {
+      setSettings(readSettings());
+      return;
+    }
+
+    refreshRunningRef.current = true;
+    lastRefreshAtRef.current = now;
+
     try {
       await fetchAndApplyRemoteSettings();
     } catch {
       // Son bilinen sağlam local ayarlar kullanılmaya devam eder.
+    } finally {
+      refreshRunningRef.current = false;
     }
 
     setSettings(readSettings());
@@ -36,7 +55,7 @@ export function useDriverSettings() {
       await refreshSettings();
     };
 
-    void refreshIfActive();
+    void refreshSettings(true);
 
     const onFocus = () => void refreshIfActive();
     const onVisibility = () => {

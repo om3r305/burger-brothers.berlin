@@ -27,6 +27,7 @@ jobs:
       - run: npm run artifact:check
       - run: npm run typecheck
       - run: npm run hardening:test
+      - run: npm run performance:test
       - run: npm run security:test
       - run: npm run showcase:test
       - run: npm run schnell:test
