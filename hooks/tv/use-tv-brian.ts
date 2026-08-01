@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { BrianData } from "@/lib/brian";
 import {
   brianIsActive,
@@ -18,6 +18,9 @@ import {
   getDriverName,
 } from "@/lib/tv/domain";
 
+const BRIAN_BACKGROUND_REFRESH_MS = 5 * 60_000;
+const BRIAN_MIN_REFRESH_GAP_MS = 30_000;
+
 const EMPTY_BRIAN_DATA: BrianData = {
   clusters: [],
   pairs: [],
@@ -32,24 +35,63 @@ export function useTvBrian() {
     setHost(window.location.host);
   }, []);
 
+  const brianLoadRunningRef = useRef(false);
+  const brianLastLoadAtRef = useRef(0);
+
   useEffect(() => {
     let active = true;
+    let timerId = 0;
 
-    const load = async () => {
+    const load = async (force = false) => {
+      const now = Date.now();
+
+      if (brianLoadRunningRef.current) return;
+      if (
+        !force &&
+        now - brianLastLoadAtRef.current < BRIAN_MIN_REFRESH_GAP_MS
+      ) {
+        return;
+      }
+
+      brianLoadRunningRef.current = true;
+      brianLastLoadAtRef.current = now;
+
       try {
-        const next = await loadBrian();
+        const next = force ? await refreshBrian() : await loadBrian();
         if (active) setData(next);
       } catch {
         if (active) setData(EMPTY_BRIAN_DATA);
+      } finally {
+        brianLoadRunningRef.current = false;
       }
     };
 
-    void load();
-    const timerId = window.setInterval(() => void load(), 30_000);
+    const schedule = () => {
+      if (!active) return;
+
+      timerId = window.setTimeout(async () => {
+        if (document.visibilityState === "visible") {
+          await load(true);
+        }
+        schedule();
+      }, BRIAN_BACKGROUND_REFRESH_MS);
+    };
+
+    void load().finally(schedule);
+
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") void load();
+    };
+    const onFocus = () => void load();
+
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("focus", onFocus);
 
     return () => {
       active = false;
-      window.clearInterval(timerId);
+      window.clearTimeout(timerId);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("focus", onFocus);
     };
   }, []);
 

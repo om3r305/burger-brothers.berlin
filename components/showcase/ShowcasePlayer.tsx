@@ -23,6 +23,10 @@ const CACHE_KEY = "bb_showcase_snapshot_v1";
 const LIVE_CHANNEL = "bb_showcase_live_v1";
 const LIVE_STORAGE_KEY = "bb_showcase_publish_ping";
 const MEDIA_CACHE_NAME = "bb-showcase-cloudinary-media-v1";
+const SHOWCASE_EVENT_POLL_MS = 10_000;
+const SHOWCASE_HIDDEN_POLL_MS = 60_000;
+const SHOWCASE_STEADY_REFRESH_MS = 30_000;
+const SHOWCASE_FAST_REFRESH_WINDOW_MS = 2 * 60_000;
 
 function isCloudinaryMediaUrl(value?: string) {
   if (!value) return false;
@@ -173,6 +177,7 @@ export default function ShowcasePlayer({ screenSlug = "main" }: { screenSlug?: s
   const loadingRef = useRef(false);
   const snapshotRef = useRef<ShowcaseSnapshot | null>(null);
   const lastFullLoadRef = useRef(0);
+  const lastSnapshotChangeAtRef = useRef(0);
   const persistVisibleMediaRef = useRef<() => void>(() => {});
   const liveEventRef = useRef<ShowcaseWinnerEvent | null>(null);
   const seenLiveEventIdsRef = useRef(new Set<string>());
@@ -328,6 +333,9 @@ export default function ShowcasePlayer({ screenSlug = "main" }: { screenSlug?: s
       if ("unchanged" in result && result.unchanged) return;
       const fresh = result as ShowcaseSnapshot;
       lastFullLoadRef.current = Date.now();
+      if (current?.document?.version !== fresh.document.version) {
+        lastSnapshotChangeAtRef.current = Date.now();
+      }
       writeCachedSnapshot(fresh, cacheKey);
       setSnapshot((previous) => {
         if (previous?.document?.version === fresh.document.version) {
@@ -422,16 +430,22 @@ export default function ShowcasePlayer({ screenSlug = "main" }: { screenSlug?: s
     const scheduleNext = () => {
       if (stopped) return;
       const failureDelay = liveEventPollFailuresRef.current * 2_000;
-      // 4 saniye, iki ekranda eski 2 saniyelik polling yükünü yarıya indirir.
+      // Ödül etkinlikleri nadirdir. 10 saniyelik görünür ekran kontrolü,
+      // kutlama akışını korurken sürekli açık TV'lerde gereksiz çağrıları azaltır.
       // Küçük sabit screen jitter aynı milisaniyede bağlantı kuyruğu oluşmasını önler.
       const screenJitter = [...screenSlug].reduce(
         (sum, char) => sum + char.charCodeAt(0),
         0,
       ) % 700;
+      const baseDelay =
+        document.visibilityState === "visible"
+          ? SHOWCASE_EVENT_POLL_MS
+          : SHOWCASE_HIDDEN_POLL_MS;
+
       timer = window.setTimeout(async () => {
         await loadLiveEvent();
         scheduleNext();
-      }, 4_000 + screenJitter + failureDelay);
+      }, baseDelay + screenJitter + failureDelay);
     };
 
     void loadLiveEvent().finally(scheduleNext);
@@ -488,12 +502,49 @@ export default function ShowcasePlayer({ screenSlug = "main" }: { screenSlug?: s
 
   useEffect(() => {
     if (!snapshot) return;
-    const seconds = Math.max(
-      10,
-      Math.min(60, Number(snapshot.document.settings.refreshSeconds || 15)),
-    );
-    const timer = window.setInterval(() => void load(true), seconds * 1_000);
-    return () => window.clearInterval(timer);
+
+    let stopped = false;
+    let timerId = 0;
+    const configuredRefreshMs =
+      Math.max(
+        10,
+        Math.min(
+          60,
+          Number(snapshot.document.settings.refreshSeconds || 15),
+        ),
+      ) * 1_000;
+
+    const nextDelay = () => {
+      if (document.visibilityState !== "visible") {
+        return SHOWCASE_HIDDEN_POLL_MS;
+      }
+
+      const recentlyChanged =
+        Date.now() - lastSnapshotChangeAtRef.current <
+        SHOWCASE_FAST_REFRESH_WINDOW_MS;
+
+      return recentlyChanged
+        ? configuredRefreshMs
+        : Math.max(configuredRefreshMs, SHOWCASE_STEADY_REFRESH_MS);
+    };
+
+    const schedule = () => {
+      if (stopped) return;
+
+      timerId = window.setTimeout(async () => {
+        if (document.visibilityState === "visible") {
+          await load(true);
+        }
+        schedule();
+      }, nextDelay());
+    };
+
+    schedule();
+
+    return () => {
+      stopped = true;
+      window.clearTimeout(timerId);
+    };
   }, [load, snapshot?.document?.settings?.refreshSeconds]);
 
   useEffect(() => {

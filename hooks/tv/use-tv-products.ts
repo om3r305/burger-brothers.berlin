@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchAndApplyRemoteSettings, readSettings } from "@/lib/settings";
 import type {
   ProductAvailabilityAction,
@@ -12,6 +12,8 @@ import {
   normalizeTvProducts,
   productAvailabilityKey,
 } from "@/lib/tv/domain";
+
+const TV_PRODUCTS_MIN_REFRESH_GAP_MS = 30_000;
 
 export function useTvProducts({
   productAvailability,
@@ -25,8 +27,22 @@ export function useTvProducts({
   const [products, setProducts] = useState<TvProduct[]>([]);
   const [busyKey, setBusyKey] = useState("");
   const [error, setError] = useState("");
+  const refreshRunningRef = useRef(false);
+  const lastRefreshAtRef = useRef(0);
 
-  const refreshProducts = useCallback(async () => {
+  const refreshProducts = useCallback(async (force = false) => {
+    const now = Date.now();
+    if (refreshRunningRef.current) return;
+    if (
+      !force &&
+      now - lastRefreshAtRef.current < TV_PRODUCTS_MIN_REFRESH_GAP_MS
+    ) {
+      return;
+    }
+
+    refreshRunningRef.current = true;
+    lastRefreshAtRef.current = now;
+
     try {
       const response = await fetch("/api/products", {
         method: "GET",
@@ -42,6 +58,8 @@ export function useTvProducts({
     } catch (caught) {
       console.error("TV products load failed", caught);
       setError("Artikel konnten nicht geladen werden.");
+    } finally {
+      refreshRunningRef.current = false;
     }
   }, []);
 
@@ -52,7 +70,7 @@ export function useTvProducts({
       if (active) await refreshProducts();
     };
 
-    void load();
+    void refreshProducts(true);
 
     const onFocus = () => void load();
     const onVisibility = () => {

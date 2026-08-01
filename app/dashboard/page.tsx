@@ -1,7 +1,7 @@
 // app/dashboard/page.tsx
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { StoredOrder, OrderStatus } from "@/lib/orders";
 import { readSettings } from "@/lib/settings";
 import { useSearchParams } from "next/navigation";
@@ -239,6 +239,7 @@ export default function DashboardPage() {
   const [sel, setSel] = useState<StoredOrder | null>(null);
   const [view, setView] = useState<"active" | "done">("active");
   const [autoRefresh, setAutoRefresh] = useState(true);
+  const refreshRunningRef = useRef(false);
 
   const settings = readSettings() as any;
   const avgPickup = Number(settings?.hours?.avgPickupMinutes ?? 15);
@@ -246,6 +247,9 @@ export default function DashboardPage() {
   const newGraceMin = Math.max(0, Number(settings?.hours?.newGraceMinutes ?? 5));
 
   const refresh = useCallback(async () => {
+    if (refreshRunningRef.current) return;
+    refreshRunningRef.current = true;
+
     try {
       const next = await fetchDashboardOrders();
       setOrders(next);
@@ -255,6 +259,8 @@ export default function DashboardPage() {
       });
     } catch (error) {
       console.error("[dashboard] orders refresh failed:", error);
+    } finally {
+      refreshRunningRef.current = false;
     }
   }, []);
 
@@ -278,12 +284,50 @@ export default function DashboardPage() {
     refresh();
   }, [refresh]);
 
-  // background refresh
+  const hasActiveOrders = useMemo(
+    () =>
+      orders.some(
+        (order) =>
+          order.status !== "done" && order.status !== "cancelled",
+      ),
+    [orders],
+  );
+
+  // Görünür ve aktif ekranda hızlı; boş ekranda daha seyrek yenileme.
   useEffect(() => {
     if (!autoRefresh) return;
-    const id = setInterval(refresh, 5000);
-    return () => clearInterval(id);
-  }, [autoRefresh, refresh]);
+
+    let stopped = false;
+    let timerId = 0;
+    const refreshDelayMs = hasActiveOrders ? 5_000 : 10_000;
+
+    const schedule = () => {
+      if (stopped) return;
+
+      timerId = window.setTimeout(async () => {
+        if (document.visibilityState === "visible") {
+          await refresh();
+        }
+        schedule();
+      }, document.visibilityState === "visible" ? refreshDelayMs : 60_000);
+    };
+
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") void refresh();
+    };
+    const onFocus = () => void refresh();
+
+    schedule();
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("focus", onFocus);
+
+    return () => {
+      stopped = true;
+      window.clearTimeout(timerId);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [autoRefresh, hasActiveOrders, refresh]);
 
   // auto-advance every tick
   useEffect(() => {

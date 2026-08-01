@@ -31,6 +31,10 @@ import {
   saveTvFirstSeenCache,
 } from "@/lib/tv/domain";
 
+const TV_ACTIVE_REFRESH_MS = 5_000;
+const TV_IDLE_REFRESH_MS = 8_000;
+const TV_HIDDEN_REFRESH_MS = 60_000;
+
 type Notify = (
   message: string,
   tone?: TvToastTone,
@@ -67,6 +71,7 @@ export function useTvOrders({
   const orderClockRef = useRef<Record<string, TvOrderClockEntry>>({});
   const refreshSequenceRef = useRef(0);
   const refreshInFlightRef = useRef(false);
+  const latestOrdersRef = useRef<StoredOrder[]>([]);
 
   const setEtaOverrides = useCallback(
     (
@@ -283,6 +288,7 @@ export function useTvOrders({
       saveTvClockCache(nextClock);
       saveTvFirstSeenCache(nextFirstSeen);
 
+      latestOrdersRef.current = today;
       setOrders(today);
       onNewOrders(today);
 
@@ -328,24 +334,45 @@ export function useTvOrders({
     let stopped = false;
     let timerId = 0;
 
+    const nextDelay = () => {
+      if (document.visibilityState !== "visible") {
+        return TV_HIDDEN_REFRESH_MS;
+      }
+
+      const hasOperationalOrders = latestOrdersRef.current.some(
+        (order) =>
+          order.status !== "done" && order.status !== "cancelled",
+      );
+
+      return hasOperationalOrders
+        ? TV_ACTIVE_REFRESH_MS
+        : TV_IDLE_REFRESH_MS;
+    };
+
     const schedule = () => {
       if (stopped) return;
+
       timerId = window.setTimeout(async () => {
-        if (document.visibilityState === "visible") await refresh();
+        if (document.visibilityState === "visible") {
+          await refresh();
+        }
         schedule();
-      }, 5_000);
+      }, nextDelay());
     };
 
     void refresh().finally(schedule);
+
     const onRefreshOrders = () => void refresh();
     const onVisibility = () => {
       if (document.visibilityState === "visible") void refresh();
     };
+    const onOnline = () => void refresh();
 
     window.addEventListener(
       "bb:refresh-orders",
       onRefreshOrders as EventListener,
     );
+    window.addEventListener("online", onOnline);
     document.addEventListener("visibilitychange", onVisibility);
 
     return () => {
@@ -355,6 +382,7 @@ export function useTvOrders({
         "bb:refresh-orders",
         onRefreshOrders as EventListener,
       );
+      window.removeEventListener("online", onOnline);
       document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [refresh]);

@@ -35,7 +35,8 @@ assert.match(showcaseRoute, /scheduledAt: event\.scheduledAt/);
 assert.match(showcaseQueue, /createMany\(\{ data: rows \}\)/);
 assert.match(showcaseQueue, /scheduledAt = new Date\(queuedAt\.getTime\(\) \+ 6_000\)/);
 assert.doesNotMatch(showcaseQueue, /for \(const screenSlug of slugs\)[\s\S]*findFirst/);
-assert.match(showcasePlayer, /4_000 \+ screenJitter/);
+assert.match(showcasePlayer, /SHOWCASE_EVENT_POLL_MS = 10_000/);
+assert.match(showcasePlayer, /SHOWCASE_STEADY_REFRESH_MS = 30_000/);
 assert.match(showcasePlayer, /nextEvent\.scheduledAt/);
 assert.doesNotMatch(showcasePlayer, /setInterval\(\(\) => void loadLiveEvent\(\), 2_000\)/);
 
@@ -61,7 +62,7 @@ assert.match(adminRewards, /CLEANUP_INTERVAL_MS = 5 \* 60_000/);
 assert.doesNotMatch(adminRewards, /take: 1_000/);
 assert.match(adminRewards, /prisma\.order\.count/);
 assert.match(moderation, /30_000/);
-assert.match(attention, /30_000/);
+assert.match(attention, /ATTENTION_FALLBACK_REFRESH_MS = 2 \* 60_000/);
 assert.doesNotMatch(
   submission,
   /runAfterResponse/,

@@ -37,6 +37,9 @@ import type {
   DriverToastTone,
 } from "@/types/driver";
 
+const DRIVER_IDLE_REFRESH_MS = 15_000;
+const DRIVER_HIDDEN_REFRESH_MS = 60_000;
+
 type Notify = (
   message: string,
   tone?: DriverToastTone,
@@ -174,6 +177,13 @@ export function useDriverOrders({
   );
 
   useEffect(() => {
+    if (!current?.id) {
+      refreshAbortRef.current?.abort();
+      latestOrdersRef.current = [];
+      setOrders([]);
+      return;
+    }
+
     const previousRefresh = Number(
       localStorage.getItem(DRIVER_LAST_REFRESH_KEY) || 0,
     );
@@ -182,13 +192,38 @@ export function useDriverOrders({
       setLastRefreshAt(previousRefresh);
     }
 
-    void refresh(true);
+    let stopped = false;
+    let timerId = 0;
 
-    const intervalId = window.setInterval(() => {
-      if (document.visibilityState === "visible") {
-        void refresh(false);
+    const activeRefreshMs = Math.max(5_000, Number(refreshMs) || 0);
+
+    const nextDelay = () => {
+      if (document.visibilityState !== "visible") {
+        return DRIVER_HIDDEN_REFRESH_MS;
       }
-    }, refreshMs);
+
+      const hasOperationalOrders = latestOrdersRef.current.some((order) => {
+        const status = normalizeStatus(order.status);
+        return status !== "done" && status !== "cancelled";
+      });
+
+      return hasOperationalOrders
+        ? activeRefreshMs
+        : Math.max(DRIVER_IDLE_REFRESH_MS, activeRefreshMs);
+    };
+
+    const schedule = () => {
+      if (stopped) return;
+
+      timerId = window.setTimeout(async () => {
+        if (document.visibilityState === "visible") {
+          await refresh(false);
+        }
+        schedule();
+      }, nextDelay());
+    };
+
+    void refresh(true).finally(schedule);
 
     const onFocus = () => void refresh(true);
     const onVisibility = () => {
@@ -197,8 +232,10 @@ export function useDriverOrders({
       }
     };
     const onOrders = () => void refresh(true);
+    const onOnline = () => void refresh(true);
 
     window.addEventListener("focus", onFocus);
+    window.addEventListener("online", onOnline);
     window.addEventListener(
       "bb:refresh-orders",
       onOrders as EventListener,
@@ -210,9 +247,11 @@ export function useDriverOrders({
     document.addEventListener("visibilitychange", onVisibility);
 
     return () => {
-      window.clearInterval(intervalId);
+      stopped = true;
+      window.clearTimeout(timerId);
       refreshAbortRef.current?.abort();
       window.removeEventListener("focus", onFocus);
+      window.removeEventListener("online", onOnline);
       window.removeEventListener(
         "bb:refresh-orders",
         onOrders as EventListener,
@@ -223,7 +262,7 @@ export function useDriverOrders({
       );
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [refresh, refreshMs]);
+  }, [current?.id, refresh, refreshMs]);
 
   const pending = useMemo(
     () =>

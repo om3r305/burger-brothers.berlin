@@ -15,6 +15,12 @@ function isAdminRoute(path: string) {
   return path === "/admin" || path.startsWith("/admin/");
 }
 
+function isDedicatedOperationalRoute(path: string) {
+  return ["/tv", "/driver", "/showcase"].some(
+    (route) => path === route || path.startsWith(`${route}/`),
+  );
+}
+
 function isCustomerCatalogRoute(path: string) {
   return [
     "/",
@@ -46,7 +52,11 @@ export default function SettingsSync() {
   const lastRefreshRef = useRef(0);
 
   useEffect(() => {
-    if (isAdminRoute(pathname) || isCustomerCatalogRoute(pathname)) {
+    if (
+      isAdminRoute(pathname) ||
+      isCustomerCatalogRoute(pathname) ||
+      isDedicatedOperationalRoute(pathname)
+    ) {
       return;
     }
 

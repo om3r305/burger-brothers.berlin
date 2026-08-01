@@ -33,7 +33,7 @@ export async function GET(req: Request) {
   const lookahead = new Date(now.getTime() + LOOKAHEAD_MS);
 
   // Polling yolu salt okunur tutulur. Süresi dolan event temizliği cron/admin
-  // cleanup tarafından yapılır; her fiziksel ekranın 4 saniyede bir DB write
+  // cleanup tarafından yapılır; her fiziksel ekranın sık aralıklarla DB write
   // çalıştırması connection pool'u kilitlememelidir.
   const event = await prisma.showcaseLiveEvent.findFirst({
     where: {

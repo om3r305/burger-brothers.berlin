@@ -108,8 +108,8 @@ assert(!stage.includes("setDetails("), "eski iki aşamalı sağa kaydırma akı�
 assert(stage.includes("menuItemThumb"), "dijital menüde küçük ürün görselleri desteklenmeli");
 assert(stage.includes("scene.menuShowImages !== false"), "küçük görseller admin ayarına bağlı olmalı");
 assert(player.includes("BroadcastChannel"), "aynı cihazdaki açık Showcase sekmeleri anlık güncellenmeli");
-assert(player.includes("Math.max(\n      10"), "uzak TV güncelleme kontrolü en az 10 saniye olmalı");
-assert(player.includes("Math.min(60"), "uzak TV güncelleme kontrolü en fazla 60 saniye olmalı");
+assert(/Math\.max\(\s*10/.test(player), "uzak TV güncelleme kontrolü en az 10 saniye olmalı");
+assert(/Math\.min\(\s*60/.test(player), "uzak TV güncelleme kontrolü en fazla 60 saniye olmalı");
 assert(player.includes("bb_showcase_publish_ping"), "storage tabanlı canlı güncelleme sinyali bulunmalı");
 assert(css.includes(".productSpotlight"), "tek parça ürün kartı CSS'i bulunmalı");
 assert(css.includes(".menuItemThumb"), "küçük menü görseli CSS'i bulunmalı");
