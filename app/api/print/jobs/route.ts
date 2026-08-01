@@ -100,6 +100,11 @@ function text(value: any, fallback = "") {
   return s || fallback;
 }
 
+function normalizeTaxRate(value: any): 7 | 19 | undefined {
+  const rate = Number(value);
+  return rate === 7 || rate === 19 ? rate : undefined;
+}
+
 function normalizeDoneness(value: any) {
   const code = text(
     value && typeof value === "object" && !Array.isArray(value)
@@ -172,6 +177,9 @@ function normalizeItems(value: any) {
       category: item?.category != null ? String(item.category) : undefined,
       price: num(item?.price ?? item?.unitPrice, 0),
       qty: Math.max(1, num(item?.qty ?? item?.quantity ?? 1, 1)),
+      taxRate: normalizeTaxRate(
+        item?.taxRate ?? item?.tax_rate ?? item?.vatRate ?? item?.vat_rate,
+      ),
       add: arr(item?.add ?? item?.extras).map((extra: any) => ({
         id: extra?.id != null ? String(extra.id) : undefined,
         label: text(extra?.label ?? extra?.name, "Extra"),
