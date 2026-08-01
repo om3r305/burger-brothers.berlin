@@ -370,6 +370,31 @@ function normalizeHistory(value: any): any[] {
   }));
 }
 
+function normalizeItemTaxRate(value: any): 7 | 19 | undefined {
+  const rate = Number(value);
+  return rate === 7 || rate === 19 ? rate : undefined;
+}
+
+function normalizeItemDoneness(value: any) {
+  const source =
+    value && typeof value === "object" && !Array.isArray(value)
+      ? value
+      : { code: value };
+  const code = String(source?.code ?? "").trim().toLowerCase();
+  const labels: Record<string, string> = {
+    light: "Leicht gebraten",
+    normal: "Normal gebraten",
+    well_done: "Durchgebraten",
+  };
+
+  if (!labels[code]) return undefined;
+
+  return {
+    code,
+    label: String(source?.label || labels[code]).trim() || labels[code],
+  };
+}
+
 function normalizeItems(value: any): any[] {
   return ensureArr(value).map((item, index) => ({
     id: item?.id ? String(item.id) : undefined,
@@ -378,6 +403,10 @@ function normalizeItems(value: any): any[] {
     category: item?.category ? String(item.category) : undefined,
     price: toNumber(item?.price ?? item?.unitPrice, 0),
     qty: Math.max(1, toNumber(item?.qty ?? item?.quantity ?? 1, 1)),
+    taxRate: normalizeItemTaxRate(
+      item?.taxRate ?? item?.tax_rate ?? item?.vatRate ?? item?.vat_rate,
+    ),
+    doneness: normalizeItemDoneness(item?.doneness),
     add: ensureArr(item?.add ?? item?.extras).map((extra: any) => ({
       id: extra?.id ? String(extra.id) : undefined,
       label: String(extra?.label ?? extra?.name ?? "Extra"),
