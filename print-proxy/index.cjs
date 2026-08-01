@@ -437,6 +437,23 @@ function cleanName(name=''){
   return s;
 }
 
+const DONENESS_LABELS = {
+  light: 'Leicht gebraten',
+  normal: 'Normal gebraten',
+  well_done: 'Durchgebraten',
+};
+
+function receiptDonenessLabel(item){
+  const value = item?.doneness;
+  const code = String(
+    value && typeof value === 'object' && !Array.isArray(value)
+      ? value.code
+      : value || '',
+  ).trim().toLowerCase();
+
+  return DONENESS_LABELS[code] || '';
+}
+
 /* ====== KATEGORİ ====== */
 function normGroupName(raw=''){
   const s=String(raw||'').toLowerCase();
@@ -1246,6 +1263,21 @@ async function buildTicketFromOrder(o, opts={}){
         ? 'Kostenlos'
         : money(line);
       out.push(bold(1), size(1,1), text(twoCol(`${qty}x ${itemName}`, itemPriceText)), bold(0));
+
+      const doneness = receiptDonenessLabel(it);
+      if (doneness){
+        out.push(
+          align(1),
+          bold(1),
+          size(2,2),
+          text('GARSTUFE'),
+          text(doneness.toUpperCase()),
+          size(1,1),
+          bold(0),
+          align(0),
+        );
+      }
+
       if (Array.isArray(it.add) && it.add.length){
         for (const a of it.add){
           const extraName = cleanName(a?.label || a?.name || 'Extra');

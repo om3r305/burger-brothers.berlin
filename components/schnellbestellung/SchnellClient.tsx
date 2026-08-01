@@ -42,8 +42,17 @@ type LunchMenuInfo = {
   allowNotes: boolean;
 };
 
+type Doneness = "light" | "normal" | "well_done";
+
+const DONENESS_OPTIONS: Array<{ value: Doneness; label: string }> = [
+  { value: "light", label: "Leicht gebraten" },
+  { value: "normal", label: "Normal gebraten" },
+  { value: "well_done", label: "Durchgebraten" },
+];
+
 type Product = {
   id: string;
+  sku?: string;
   name: string;
   description: string;
   imageUrl: string;
@@ -57,6 +66,7 @@ type Product = {
   allergens: string[];
   allergenHinweise?: string;
   complimentaryTableSauce?: boolean;
+  requiresDoneness?: boolean;
   lunchMenu?: LunchMenuInfo;
 };
 
@@ -68,6 +78,7 @@ type CartLine = {
   qty: number;
   extraIds: string[];
   note: string;
+  doneness?: Doneness;
   selectedSideProductId?: string;
 };
 
@@ -110,6 +121,7 @@ type HistoryItem = {
   qty: number;
   extraIds: string[];
   note: string;
+  doneness?: Doneness;
   selectedSideProductId?: string;
 };
 
@@ -147,7 +159,7 @@ const DEFAULT_CATALOG_SETTINGS: CatalogSettings = {
   },
 };
 
-const CATALOG_CACHE_KEY = "bb_schnell_catalog_v7";
+const CATALOG_CACHE_KEY = "bb_schnell_catalog_v8";
 const CATALOG_CACHE_MAX_AGE_MS = 30 * 60_000;
 const HISTORY_KEY = "bb_schnell_order_history_v1";
 
@@ -175,6 +187,50 @@ const ALLERGEN_LEGEND: Record<string, string> = {
 
 const euro = (value: number) =>
   value.toLocaleString("de-DE", { style: "currency", currency: "EUR" });
+
+function normalizeDoneness(value: unknown): Doneness | undefined {
+  const code =
+    typeof value === "object" && value !== null
+      ? String((value as { code?: unknown }).code || "")
+      : String(value || "");
+
+  return code === "light" || code === "normal" || code === "well_done"
+    ? code
+    : undefined;
+}
+
+function donenessLabel(value: unknown) {
+  const normalized = normalizeDoneness(value);
+  return (
+    DONENESS_OPTIONS.find((option) => option.value === normalized)?.label || ""
+  );
+}
+
+function normalizedProductIdentity(value: unknown) {
+  return String(value || "")
+    .toLocaleLowerCase("de-DE")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function productRequiresDoneness(product: Product) {
+  if (product.requiresDoneness === true) return true;
+
+  const sku = String(product.sku || "").toLocaleLowerCase("de-DE");
+  if (
+    sku === "burger-black-angus-burger" ||
+    sku.startsWith("burger-black-angus-burger-")
+  ) {
+    return true;
+  }
+
+  return [product.name, product.lunchMenu?.burgerName].some((name) =>
+    /^black angus(?: burger)?$/.test(normalizedProductIdentity(name)),
+  );
+}
 
 function formatCampaignBadge(value: string) {
   const text = value.trim().replace(/^🔥\s*|\s*🔥$/g, "").trim() || "Angebot";
@@ -401,12 +457,16 @@ function reconcileCartWithCatalog(
         ? line.selectedSideProductId
         : product.lunchMenu.includedSideProductId
       : undefined;
+    const doneness = productRequiresDoneness(product)
+      ? normalizeDoneness(line.doneness)
+      : undefined;
 
     return [
       {
         ...line,
         product,
         extraIds,
+        doneness,
         selectedSideProductId,
       },
     ];
@@ -421,6 +481,7 @@ function orderFingerprint(cart: CartLine[], takeaway: boolean) {
       qty: line.qty,
       extraIds: [...line.extraIds].sort(),
       selectedSideProductId: line.selectedSideProductId || "",
+      doneness: line.doneness || "",
       note: line.note.trim(),
     })),
   });
@@ -573,6 +634,7 @@ function saveHistoryEntry(
       qty: line.qty,
       extraIds: [...line.extraIds],
       note: line.note,
+      doneness: line.doneness,
       selectedSideProductId: line.selectedSideProductId,
     })),
   };
@@ -652,6 +714,7 @@ export default function SchnellClient() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [selectedExtraIds, setSelectedExtraIds] = useState<string[]>([]);
   const [selectedSideProductId, setSelectedSideProductId] = useState("");
+  const [selectedDoneness, setSelectedDoneness] = useState<Doneness | "">("");
   const [selectedNote, setSelectedNote] = useState("");
   const [cartOpen, setCartOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -893,7 +956,9 @@ export default function SchnellClient() {
     setSelectedSideProductId(
       product.lunchMenu?.includedSideProductId || "",
     );
+    setSelectedDoneness("");
     setSelectedNote("");
+    setError("");
   }
 
   useEffect(() => {
@@ -914,6 +979,13 @@ export default function SchnellClient() {
   function addSelectedProduct() {
     if (!selectedProduct) return;
 
+    const requiresDoneness = productRequiresDoneness(selectedProduct);
+    const doneness = normalizeDoneness(selectedDoneness);
+    if (requiresDoneness && !doneness) {
+      setError("Bitte wählen Sie die Garstufe für den Black Angus Burger.");
+      return;
+    }
+
     setCart((current) => [
       ...current,
       {
@@ -921,6 +993,7 @@ export default function SchnellClient() {
         product: selectedProduct,
         qty: 1,
         extraIds: selectedExtraIds,
+        doneness: requiresDoneness ? doneness : undefined,
         selectedSideProductId: selectedProduct.lunchMenu
           ? selectedSideProductId || selectedProduct.lunchMenu.includedSideProductId
           : undefined,
@@ -932,7 +1005,9 @@ export default function SchnellClient() {
     setSelectedProduct(null);
     setSelectedExtraIds([]);
     setSelectedSideProductId("");
+    setSelectedDoneness("");
     setSelectedNote("");
+    setError("");
   }
 
   function changeQty(key: string, delta: number) {
@@ -962,6 +1037,7 @@ export default function SchnellClient() {
     const productById = new Map(products.map((product) => [product.id, product]));
     const restored: CartLine[] = [];
     let skipped = 0;
+    let missingDoneness = 0;
 
     for (const item of entry.items) {
       const product = productById.get(item.productId);
@@ -980,11 +1056,19 @@ export default function SchnellClient() {
           ? item.selectedSideProductId
           : product.lunchMenu.includedSideProductId
         : undefined;
+      const doneness = normalizeDoneness(item.doneness);
+      if (productRequiresDoneness(product) && !doneness) {
+        skipped += 1;
+        missingDoneness += 1;
+        continue;
+      }
+
       restored.push({
         key: makeLineKey(product.id, validExtraIds),
         product,
         qty: Math.max(1, Math.min(20, Number(item.qty) || 1)),
         extraIds: validExtraIds,
+        doneness: productRequiresDoneness(product) ? doneness : undefined,
         selectedSideProductId: selectedSideId,
         note: String(item.note || "").slice(0, 300),
       });
@@ -1000,13 +1084,31 @@ export default function SchnellClient() {
     setHistoryOpen(false);
     setCartOpen(true);
 
-    if (skipped > 0) {
+    if (missingDoneness > 0) {
+      setError(
+        "Black Angus muss wegen der Garstufe neu ausgewählt werden.",
+      );
+    } else if (skipped > 0) {
       setError("Nicht verfügbare Artikel wurden nicht übernommen.");
     }
   }
 
   async function placeOrder() {
     if (!cart.length || busy) return;
+
+    const missingDoneness = cart.find(
+      (line) =>
+        productRequiresDoneness(line.product) &&
+        !normalizeDoneness(line.doneness),
+    );
+    if (missingDoneness) {
+      setConfirmOpen(false);
+      setCartOpen(true);
+      setError(
+        "Bitte wählen Sie die Garstufe für jeden Black Angus Burger neu aus.",
+      );
+      return;
+    }
 
     setBusy(true);
     setError("");
@@ -1029,6 +1131,7 @@ export default function SchnellClient() {
             qty: line.qty,
             extraIds: line.extraIds,
             selectedSideProductId: line.selectedSideProductId,
+            doneness: line.doneness,
             note: line.note,
           })),
         }),
@@ -1046,11 +1149,13 @@ export default function SchnellClient() {
                 )} Min. erneut bestellen. Bei Bedarf hilft unser Personal gern weiter.`
               : data.error === "PRODUCT_UNAVAILABLE"
                 ? "Ein Artikel ist nicht mehr verfügbar."
-                : data.error === "LUNCH_MENU_UNAVAILABLE"
-                  ? "Das Mittagsmenü ist leider nicht mehr verfügbar. Bitte aktualisieren Sie Ihre Bestellung."
-                  : data.error === "SCHNELL_UNAVAILABLE"
-                    ? "Schnellbestellung ist momentan pausiert."
-                    : "Die Bestellung konnte nicht gesendet werden.";
+                : data.error === "DONENESS_REQUIRED"
+                  ? "Bitte wählen Sie die Garstufe für den Black Angus Burger."
+                  : data.error === "LUNCH_MENU_UNAVAILABLE"
+                    ? "Das Mittagsmenü ist leider nicht mehr verfügbar. Bitte aktualisieren Sie Ihre Bestellung."
+                    : data.error === "SCHNELL_UNAVAILABLE"
+                      ? "Schnellbestellung ist momentan pausiert."
+                      : "Die Bestellung konnte nicht gesendet werden.";
         throw new Error(message);
       }
 
@@ -1359,6 +1464,41 @@ export default function SchnellClient() {
                 </div>
               ) : null}
 
+              {productRequiresDoneness(selectedProduct) ? (
+                <fieldset className="mt-5 rounded-2xl border border-amber-300/35 bg-amber-300/10 p-4">
+                  <legend className="px-2 text-sm font-black text-amber-100">
+                    Wie soll das Fleisch gebraten werden?
+                  </legend>
+                  <p className="mb-3 text-xs font-bold text-amber-200">
+                    Pflichtauswahl für Black Angus
+                  </p>
+                  <div className="space-y-2">
+                    {DONENESS_OPTIONS.map((option) => (
+                      <label
+                        key={option.value}
+                        className={`flex cursor-pointer items-center rounded-xl border p-4 font-bold ${
+                          selectedDoneness === option.value
+                            ? "border-amber-300/70 bg-amber-300/15"
+                            : "border-white/10 bg-black/20"
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name={`black-angus-doneness-${selectedProduct.id}`}
+                          checked={selectedDoneness === option.value}
+                          onChange={() => {
+                            setSelectedDoneness(option.value);
+                            setError("");
+                          }}
+                          className="mr-3 h-5 w-5"
+                        />
+                        {option.label}
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+              ) : null}
+
               {selectedProduct.extras?.length ? (
                 <div className="mt-5 space-y-2">
                   <div className="text-sm font-black">Extras</div>
@@ -1462,6 +1602,15 @@ export default function SchnellClient() {
                                 ? `${side.name} inklusive`
                                 : `${side.name} statt ${line.product.lunchMenu?.includedSideName} · +${euro(side.upgradePrice)}`;
                             })()}
+                          </div>
+                        ) : null}
+                        {line.doneness ? (
+                          <div className="mt-1 text-sm font-black text-amber-200">
+                            Garstufe: {donenessLabel(line.doneness)}
+                          </div>
+                        ) : productRequiresDoneness(line.product) ? (
+                          <div className="mt-1 text-xs font-black text-red-300">
+                            Garstufe fehlt – Artikel bitte neu auswählen
                           </div>
                         ) : null}
                         {line.extraIds.length ? (

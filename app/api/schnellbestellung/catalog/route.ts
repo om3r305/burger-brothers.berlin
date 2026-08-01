@@ -10,6 +10,7 @@ import {
   SCHNELL_COOKIE,
   schnellCategoryLabel,
   schnellProductIsAllowed,
+  schnellProductRequiresDoneness,
   verifySessionToken,
 } from "@/lib/server/schnellbestellung";
 import { readRequestCookie } from "@/lib/server/request-security";
@@ -257,6 +258,7 @@ export async function GET(req: Request) {
             product.category,
             product.name,
           ),
+          requiresDoneness: schnellProductRequiresDoneness(product),
           lunchMenu: product.lunchMenu,
           active: true,
         };
