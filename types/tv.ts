@@ -17,6 +17,11 @@ export type StoredOrderExtra = {
   price?: number;
 };
 
+export type StoredOrderDoneness = {
+  code?: string;
+  label?: string;
+};
+
 export type StoredOrderItem = {
   id?: string;
   sku?: string;
@@ -24,6 +29,8 @@ export type StoredOrderItem = {
   category?: string;
   price: number;
   qty: number;
+  taxRate?: 7 | 19;
+  doneness?: StoredOrderDoneness | string;
   add?: StoredOrderExtra[];
   rm?: string[];
   note?: string;
