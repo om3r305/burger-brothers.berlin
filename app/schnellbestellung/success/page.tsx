@@ -134,7 +134,9 @@ function stopReadyAlert(timeoutIds: Set<number>) {
       media.pause();
       media.currentTime = 0;
     }
-    void audioWindow.__bbSchnellReadyAudioContext?.suspend().catch(() => undefined);
+    // Previously unlocked Web Audio contexts stay running while this success
+    // page is active. Suspending here can re-lock audio on some mobile PWAs,
+    // so only the media element and pending timers are stopped.
   } catch {
     // Audio cleanup is best-effort.
   }
@@ -373,11 +375,17 @@ export default function SuccessPage() {
 
       const readyEventId = String(message.event?.id || "").trim();
       if (readyEventId && lastReadyEventRef.current === readyEventId) return;
-      if (readyEventId) lastReadyEventRef.current = readyEventId;
       if (Number(message.event?.customerNumber) > 0) {
         setCustomerNumber(String(message.event?.customerNumber));
       }
       setStatus("ready");
+
+      // A hidden/background PWA cannot reliably play custom audio. Do not
+      // consume the event while hidden; when the user returns, status polling
+      // sees the same readyEventId and plays the sound in the visible app.
+      if (document.visibilityState !== "visible") return;
+
+      if (readyEventId) lastReadyEventRef.current = readyEventId;
       playReadyAlert(readyTimeoutIdsRef.current);
     };
 

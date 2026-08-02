@@ -25,13 +25,13 @@ assert.match(kitchenBlock, /fontSel\(0\)/, 'real ESC/POS text Font A must be sel
 assert.match(proxy, /const doubleStrike = on=> Buffer\.from\(\[ESC,0x47,on\?1:0\]\)/, 'double-strike helper missing');
 assert.match(
   kitchenHelpers,
-  /lineSpace\(52\), size\(1,2\), bold\(1\), doubleStrike\(1\)/,
-  'main product rows must use readable one-step larger bold text',
+  /lineSpace\(64\), size\(2,2\), bold\(1\), doubleStrike\(1\)/,
+  'main product rows must use wall-readable 2x bold text',
 );
 assert.match(
   kitchenBlock,
-  /lineSpace\(52\)[\s\S]*size\(1,2\)[\s\S]*underline\(1\)[\s\S]*upperReceipt\(group\)/,
-  'category headings must be larger, bold and underlined',
+  /lineSpace\(64\)[\s\S]*size\(2,2\)[\s\S]*underline\(1\)[\s\S]*upperReceipt\(group\)/,
+  'category headings must be wall-readable, bold and underlined',
 );
 assert.match(
   kitchenHelpers,

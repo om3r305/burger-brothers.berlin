@@ -1384,20 +1384,32 @@ function pushSchnellKitchenWrapped(out, prefix, value, options={}){
 }
 
 function pushSchnellKitchenPricedLine(out, label, amount, options={}){
-  const emphasize = options.emphasize === true;
-  if (emphasize) {
-    out.push(lineSpace(52), size(1,2), bold(1), doubleStrike(1));
-  } else if (options.boldText) {
-    out.push(bold(1), doubleStrike(1));
-  }
-
+  if (options.boldText) out.push(bold(1), doubleStrike(1));
   pushSchnellPricedLine(out, label, amount);
+  if (options.boldText) out.push(doubleStrike(0), bold(0));
+}
 
-  if (emphasize) {
-    out.push(doubleStrike(0), bold(0), size(1,1), lineSpace(36));
-  } else if (options.boldText) {
-    out.push(doubleStrike(0), bold(0));
+function pushSchnellKitchenHeroPricedLine(out, label, amount){
+  // 80-mm Font A at 2x width has roughly half the normal character count.
+  // Product names are printed large for wall readability; the price stays on
+  // the same large line only when it fits, otherwise it moves cleanly below.
+  const bigWidth = Math.max(16, Math.floor(LINE / 2));
+  const left = String(label || '').trim();
+  const right = String(amount || '').trim();
+  const maxLeftWithPrice = Math.max(6, bigWidth - right.length - 1);
+  const wrapped = wrapLines('', left, left.length <= maxLeftWithPrice ? maxLeftWithPrice : bigWidth);
+
+  out.push(lineSpace(64), size(2,2), bold(1), doubleStrike(1));
+
+  if (wrapped.length === 1 && left.length <= maxLeftWithPrice) {
+    const spaces = Math.max(1, bigWidth - wrapped[0].length - right.length);
+    out.push(text(wrapped[0] + ' '.repeat(spaces) + right));
+  } else {
+    for (const line of wrapped) out.push(text(line));
+    if (right) out.push(text(right.padStart(bigWidth)));
   }
+
+  out.push(doubleStrike(0), bold(0), size(1,1), lineSpace(36));
 }
 
 function pushSchnellKitchenItem(out, item, ctx){
@@ -1405,11 +1417,10 @@ function pushSchnellKitchenItem(out, item, ctx){
   const lineTotal = receiptItemUnitPrice(item, ctx.receiptItemPricing) * qty;
   const itemName = upperReceipt(cleanName(String(item?.name || 'Artikel')));
   const priceText = item?.complimentaryTableSauce === true ? 'KOSTENLOS' : moneyDe(lineTotal);
-  pushSchnellKitchenPricedLine(
+  pushSchnellKitchenHeroPricedLine(
     out,
     `${qty}x ${itemName}`,
     priceText,
-    { boldText:true, emphasize:true },
   );
 
   const doneness = receiptDonenessLabel(item);
@@ -1460,8 +1471,8 @@ function buildSchnellKitchenTicket(o){
     size(1,1),
     lineSpace(36),
   ];
-  out.push(text(twoCol(ctx.when.date, ctx.when.time)));
-  out.push(bold(1), text('SCHNELLBESTELLUNG'), bold(0), text(''));
+  out.push(align(1), bold(1), text('SCHNELLBESTELLUNG'), bold(0), align(0));
+  out.push(text(twoCol(ctx.when.date, ctx.when.time)), text(''));
 
   const grouped = new Map();
   for (const item of ctx.items){
@@ -1472,8 +1483,8 @@ function buildSchnellKitchenTicket(o){
 
   for (const group of kitchenGroupOrder([...grouped.keys()])){
     out.push(
-      lineSpace(52),
-      size(1,2),
+      lineSpace(64),
+      size(2,2),
       bold(1),
       doubleStrike(1),
       underline(1),
@@ -1489,7 +1500,7 @@ function buildSchnellKitchenTicket(o){
   }
 
   if (ctx.customerNumber > 0){
-    out.push(align(1), bold(1), size(3,3), text(String(ctx.customerNumber)), size(1,1));
+    out.push(align(1), bold(1), size(2,2), text(String(ctx.customerNumber)), size(1,1));
     if (ctx.isTakeaway) out.push(size(2,2), text('ZUM MITNEHMEN'), size(1,1));
     out.push(bold(0), align(0));
   }

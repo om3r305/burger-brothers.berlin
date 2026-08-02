@@ -267,8 +267,8 @@ async function postOrder(port, order) {
     const kitchen = printableText(kitchenBuffer);
     const textFontA = Buffer.from([0x1b, 0x4d, 0x00]);
     const normalLineSpacing = Buffer.from([0x1b, 0x33, 0x24]);
-    const emphasizedLineSpacing = Buffer.from([0x1b, 0x33, 0x34]);
-    const oneStepLargerText = Buffer.from([0x1d, 0x21, 0x01]);
+    const emphasizedLineSpacing = Buffer.from([0x1b, 0x33, 0x40]);
+    const wallReadableText = Buffer.from([0x1d, 0x21, 0x11]);
     const doubleStrikeOn = Buffer.from([0x1b, 0x47, 0x01]);
     assert.ok(
       countSequence(kitchenBuffer, textFontA) >= 1,
@@ -280,11 +280,11 @@ async function postOrder(port, order) {
     );
     assert.ok(
       countSequence(kitchenBuffer, emphasizedLineSpacing) >= 2,
-      'Schnell kitchen category and product rows must reserve 52-dot spacing',
+      'Schnell kitchen category and product rows must reserve 64-dot spacing',
     );
     assert.ok(
-      countSequence(kitchenBuffer, oneStepLargerText) >= 2,
-      'Schnell kitchen category and product rows must be one step larger',
+      countSequence(kitchenBuffer, wallReadableText) >= 2,
+      'Schnell kitchen category and product rows must use wall-readable 2x text',
     );
     assert.ok(
       countSequence(kitchenBuffer, doubleStrikeOn) >= 2,
@@ -314,8 +314,8 @@ async function postOrder(port, order) {
     assert.match(kitchen, /02\.08\.2026\s+19:42/);
     assert.match(kitchen, /SCHNELLBESTELLUNG/);
     assert.match(kitchen, /MITTAGSMEN/);
-    assert.match(kitchen, /1x ALL AMERICAN \+ FRIES\s+9,90 €/);
-    assert.match(kitchen, /1x CHEESY CHEESE \+ FRIES\s+9,90 €/);
+    assert.match(kitchen, /1x ALL AMERICAN \+\s+FRIES\s+9,90 €/);
+    assert.match(kitchen, /1x CHEESY CHEESE \+\s+FRIES\s+9,90 €/);
     assert.match(kitchen, /CURLY FRIES STATT POMMES\s+\+1,00 €/);
     assert.match(kitchen, /1x BLACK ANGUS BURGER\s+12,50 €/);
     assert.match(kitchen, /LEICHT GEBRATEN/);

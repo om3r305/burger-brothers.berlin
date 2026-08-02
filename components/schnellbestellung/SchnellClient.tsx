@@ -658,45 +658,46 @@ function primeReadyAudio() {
       const context =
         audioWindow.__bbSchnellReadyAudioContext || new AudioContextClass();
       audioWindow.__bbSchnellReadyAudioContext = context;
-      void context.resume();
 
-      const oscillator = context.createOscillator();
-      const gain = context.createGain();
-      gain.gain.value = 0.00001;
-      oscillator.connect(gain);
-      gain.connect(context.destination);
-      oscillator.start();
-      oscillator.stop(context.currentTime + 0.03);
+      // Called directly from the final order button's user gesture. Keeping
+      // this context resumed lets the later success page play its alert even
+      // after client-side navigation.
+      void context.resume().then(() => {
+        const oscillator = context.createOscillator();
+        const gain = context.createGain();
+        gain.gain.value = 0.00001;
+        oscillator.connect(gain);
+        gain.connect(context.destination);
+        oscillator.start();
+        oscillator.stop(context.currentTime + 0.03);
+      }).catch(() => undefined);
     }
 
-    // Aynı kullanıcı dokunuşunda HTML media kanalını da hazırla. Next.js
-    // client navigation sırasında window nesnesi korunduğu için başarı ekranı
-    // daha sonra aynı audio elementini tekrar kullanabilir.
+    // Prime the exact HTMLAudioElement reused by the success page. The play()
+    // call happens inside the trusted button gesture, before the first await.
     const media =
       audioWindow.__bbSchnellReadyMedia ||
       new Audio("/sounds/dine-in.wav");
     media.preload = "auto";
-    media.volume = 1;
+    media.volume = 0.001;
     media.muted = false;
     media.setAttribute("playsinline", "true");
     audioWindow.__bbSchnellReadyMedia = media;
 
-    const originalVolume = media.volume;
-    media.volume = 0.001;
     const prime = media.play();
     if (prime && typeof prime.then === "function") {
       void prime
         .then(() => {
           media.pause();
           media.currentTime = 0;
-          media.volume = originalVolume;
+          media.volume = 1;
+          sessionStorage.setItem("bb_schnell_ready_audio_primed", "1");
         })
         .catch(() => {
-          media.volume = originalVolume;
+          media.volume = 1;
+          sessionStorage.removeItem("bb_schnell_ready_audio_primed");
         });
     }
-
-    sessionStorage.setItem("bb_schnell_ready_audio_primed", "1");
   } catch {
     // Sound remains best-effort on mobile browsers.
   }
