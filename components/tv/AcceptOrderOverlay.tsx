@@ -20,6 +20,26 @@ import {
   plannedAcceptLabel,
 } from "@/lib/tv/domain";
 
+function donenessLabel(value: StoredOrder["items"][number]["doneness"]) {
+  if (!value) return "";
+  if (typeof value === "string") {
+    const labels: Record<string, string> = {
+      light: "Leicht gebraten",
+      normal: "Normal gebraten",
+      well_done: "Durchgebraten",
+    };
+    return labels[value.toLowerCase()] || value;
+  }
+
+  const code = String(value.code || "").toLowerCase();
+  const labels: Record<string, string> = {
+    light: "Leicht gebraten",
+    normal: "Normal gebraten",
+    well_done: "Durchgebraten",
+  };
+  return String(value.label || labels[code] || "").trim();
+}
+
 function orderTime(order: StoredOrder) {
   const value = Number(order.ts || 0);
   if (!value) return "–";
@@ -123,6 +143,11 @@ export function AcceptOrderOverlay({
                     <div className="min-w-8 text-xl font-black text-orange-100">{item.qty}×</div>
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-base font-bold text-white">{item.name}</div>
+                      {order.mode === "dine_in" && donenessLabel(item.doneness) ? (
+                        <div className="text-sm font-black uppercase text-amber-200">
+                          Garstufe: {donenessLabel(item.doneness)}
+                        </div>
+                      ) : null}
                       {item.note ? <div className="text-xs text-amber-100">{item.note}</div> : null}
                       {Array.isArray(item.add) && item.add.length > 0 ? (
                         <div className="text-xs text-stone-300">Extras: {item.add.map((extra) => extra?.label || extra?.name).filter(Boolean).join(", ")}</div>

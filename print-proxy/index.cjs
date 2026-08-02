@@ -1070,10 +1070,21 @@ function upperReceipt(value=''){
 function receiptDateParts(value){
   const date = new Date(value || Date.now());
   const safe = Number.isFinite(date.valueOf()) ? date : new Date();
+  const format = (options) => new Intl.DateTimeFormat('de-DE', {
+    timeZone: 'Europe/Berlin',
+    ...options,
+  }).format(safe);
+
   return {
-    date: `${String(safe.getDate()).padStart(2,'0')}.${String(safe.getMonth()+1).padStart(2,'0')}.${safe.getFullYear()}`,
-    time: `${String(safe.getHours()).padStart(2,'0')}:${String(safe.getMinutes()).padStart(2,'0')}`,
+    weekday: format({ weekday: 'long' }),
+    date: format({ day: '2-digit', month: '2-digit', year: 'numeric' }),
+    time: format({ hour: '2-digit', minute: '2-digit', hour12: false }),
   };
+}
+
+function formatSchnellNumber(value){
+  const number = Math.max(0, Math.floor(num(value)));
+  return String(number).padStart(4, '0');
 }
 
 function isLunchSideExtra(extra={}){
@@ -1099,6 +1110,12 @@ function isBlackAngusItem(item={}){
   return /\bblack\s*angus\b|\bangus\b/.test(value);
 }
 
+const SCHNELL_DONENESS_LABELS = {
+  light: 'Leicht gebraten',
+  normal: 'Normal gebraten',
+  well_done: 'Durchgebraten',
+};
+
 function noteLines(value=''){
   return String(value || '')
     .split(/[\r\n;]+/)
@@ -1107,7 +1124,58 @@ function noteLines(value=''){
 }
 
 function isDonenessLine(value=''){
-  return /\bleicht\s+gebraten\b/i.test(String(value || ''));
+  return /\b(?:leicht|normal)\s+gebraten\b|\bdurchgebraten\b/i.test(String(value || ''));
+}
+
+function receiptDonenessLabel(item={}){
+  if (!isBlackAngusItem(item)) return '';
+
+  const value = item?.doneness;
+  const objectValue = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const code = String(
+    objectValue?.code ?? (typeof value === 'string' ? value : ''),
+  ).trim().toLowerCase();
+  const label = String(objectValue?.label || SCHNELL_DONENESS_LABELS[code] || '').trim();
+  if (label) return label;
+
+  return noteLines(item?.note).find(isDonenessLine) || '';
+}
+
+function schnellPaymentLabel(method=''){
+  const value = String(method || '').trim().toLowerCase();
+  if (/paypal/.test(value)) return 'PAYPAL';
+  if (/stripe|card|karte|online|apple|google/.test(value)) return 'ONLINE';
+  return 'BAR';
+}
+
+function vatTableRow(rate, net, tax, gross){
+  return String(rate).padEnd(6) +
+    moneyDe(net).padStart(12) +
+    moneyDe(tax).padStart(12) +
+    moneyDe(gross).padStart(12);
+}
+
+function vatTableHeader(){
+  return 'MwSt.'.padEnd(6) +
+    'Netto'.padStart(12) +
+    'Steuer'.padStart(12) +
+    'Brutto'.padStart(12);
+}
+
+function pushSchnellPricedLine(out, label, amount, options={}){
+  const left = String(label || '');
+  const right = String(amount || '');
+  const maxLeft = Math.max(8, LINE - right.length - 1);
+  const lines = wrapLines('', left, maxLeft);
+
+  if (!lines.length){
+    out.push(text(twoCol('', right)));
+    return;
+  }
+
+  lines.forEach((line, index) => {
+    out.push(text(index === lines.length - 1 ? twoCol(line, right) : line));
+  });
 }
 
 function resolveSchnellReceiptContext(o={}){
@@ -1193,7 +1261,7 @@ function resolveSchnellReceiptContext(o={}){
     vat,
     customerNumber: Number(o?.customerNumber ?? M?.customerNumber ?? 0),
     isTakeaway: M?.takeaway === true || String(M?.fulfillment || '').toLowerCase() === 'takeaway',
-    orderId: String(o?.id || o?.orderId || ''),
+    paymentMethod: o?.paymentMethod ?? PAY?.method ?? M?.paymentMethod ?? 'cash',
     when: receiptDateParts(o?.ts || o?.createdAt || Date.now()),
   };
 }
@@ -1209,7 +1277,12 @@ function pushSchnellCashItem(out, item){
   const baseLine = schnellCashBaseUnitPrice(item) * qty;
   const itemName = cleanName(String(item?.name || 'Artikel'));
   const itemPrice = item?.complimentaryTableSauce === true ? 'Kostenlos' : moneyDe(baseLine);
-  out.push(bold(1), text(twoCol(`${qty}x ${itemName}`, itemPrice)), bold(0));
+  out.push(bold(1));
+  pushSchnellPricedLine(out, `${qty}x ${itemName}`, itemPrice);
+  out.push(bold(0));
+
+  const doneness = receiptDonenessLabel(item);
+  if (doneness) pushWrapped(out, '   ', doneness, { max: LINE });
 
   for (const extra of Array.isArray(item?.add) ? item.add : []){
     if (isIncludedLunchSide(extra)) continue;
@@ -1219,7 +1292,7 @@ function pushSchnellCashItem(out, item){
     if (!rawName) continue;
     const amount = Math.max(0, num(extra?.price)) * qty;
     const amountText = amount > 0.009 ? moneyDe(amount) : 'Kostenlos';
-    out.push(text(twoCol(`   + ${rawName}`, amountText)));
+    pushSchnellPricedLine(out, `   + ${rawName}`, amountText);
   }
 
   for (const removed of Array.isArray(item?.rm) ? item.rm : []){
@@ -1228,6 +1301,7 @@ function pushSchnellCashItem(out, item){
   }
 
   for (const line of noteLines(item?.note)){
+    if (isDonenessLine(line)) continue;
     pushWrapped(out, '   ', line, { max: LINE });
   }
   out.push(text(''));
@@ -1242,11 +1316,15 @@ async function buildSchnellCashReceipt(o, opts={}){
 
   out.push(align(1));
   for (const rawLine of STORE_HEADER_LINES){
-    const line = String(rawLine || '').replace(/^St\.Nr\s*:/i, 'St. Nr:');
+    const line = String(rawLine || '').replace(/^St\.?\s*-?\s*Nr\.?\s*:/i, 'St.-Nr.:');
     out.push(text(line));
   }
-  out.push(align(0), text(''));
-  out.push(text(twoCol(ctx.when.date, ctx.when.time)), text(''));
+  out.push(align(0), text('-'.repeat(LINE)));
+
+  const dateLeft = `${ctx.when.weekday}, ${ctx.when.date} ${ctx.when.time}`;
+  const numberRight = ctx.customerNumber > 0 ? `Nr. ${formatSchnellNumber(ctx.customerNumber)}` : '';
+  out.push(text(twoCol(dateLeft, numberRight)));
+  out.push(text('-'.repeat(LINE)), text(''));
 
   for (const item of ctx.items) pushSchnellCashItem(out, item);
 
@@ -1263,17 +1341,15 @@ async function buildSchnellCashReceipt(o, opts={}){
   if (ctx.rewardDiscount > 0) out.push(text(twoCol('Geschenk', '-' + moneyDe(ctx.rewardDiscount))));
   out.push(text('-'.repeat(LINE)));
   out.push(bold(1), size(1,2), text(twoCol('GESAMT', moneyDe(ctx.explicitTotal))), size(1,1), bold(0));
-  out.push(text('='.repeat(LINE)), text(''));
+  out.push(text('='.repeat(LINE)));
+  out.push(text(twoCol(`Zahlungsart: ${schnellPaymentLabel(ctx.paymentMethod)}`, moneyDe(ctx.explicitTotal))));
+  out.push(text('-'.repeat(LINE)));
 
-  out.push(text('Enthaltene MwSt.:'));
-  out.push(text(twoCol('7 %', moneyDe(ctx.vat.vat7))));
-  out.push(text(twoCol('19 %', moneyDe(ctx.vat.vat19))));
-  out.push(text(''), text('-'.repeat(LINE)), text(''));
+  out.push(text(vatTableHeader()));
+  out.push(text(vatTableRow('7 %', ctx.vat.net7, ctx.vat.vat7, ctx.vat.net7 + ctx.vat.vat7)));
+  out.push(text(vatTableRow('19 %', ctx.vat.net19, ctx.vat.vat19, ctx.vat.net19 + ctx.vat.vat19)));
+  out.push(text('-'.repeat(LINE)), text(''));
 
-  if (ctx.customerNumber > 0){
-    out.push(align(1), bold(1), size(2,2), text(String(ctx.customerNumber)), size(1,1), bold(0), text(''));
-  }
-  if (ctx.orderId) out.push(code128(ctx.orderId, { showText:false }), text(''));
   out.push(align(1), text('Vielen Dank für Ihre Bestellung!'), align(0));
   out.push(lineSpaceDefault(), feedLines(CUT_FEED_LINES), cut());
   return Buffer.concat(out);
@@ -1295,37 +1371,56 @@ function kitchenGroupOrder(keys){
   ];
 }
 
+function pushSchnellKitchenWrapped(out, prefix, value, options={}){
+  const lines = wrapLines(prefix, value, options.max || LINE);
+  for (const line of lines){
+    out.push(
+      options.boldText ? bold(1) : bold(0),
+      size(1, options.height || 2),
+      text(line),
+      size(1,1),
+      bold(0),
+    );
+  }
+}
+
 function pushSchnellKitchenItem(out, item, ctx){
   const qty = Math.max(1, num(item?.qty || 1));
   const lineTotal = receiptItemUnitPrice(item, ctx.receiptItemPricing) * qty;
   const itemName = upperReceipt(cleanName(String(item?.name || 'Artikel')));
   const priceText = item?.complimentaryTableSauce === true ? 'KOSTENLOS' : moneyDe(lineTotal);
-  out.push(bold(1), text(twoCol(`${qty}x ${itemName}`, priceText)), bold(0));
+  out.push(bold(1), size(1,2), text(twoCol(`${qty}x ${itemName}`, priceText)), size(1,1), bold(0));
+
+  const doneness = receiptDonenessLabel(item);
+  if (doneness){
+    pushSchnellKitchenWrapped(out, '   ', upperReceipt(doneness), { boldText:true });
+  }
 
   for (const extra of Array.isArray(item?.add) ? item.add : []){
     if (isIncludedLunchSide(extra)) continue;
     if (isLunchSideExtra(extra)){
       const label = upperReceipt(cleanLunchSideLabel(extra));
-      if (label) pushWrapped(out, '   ', label, { max: LINE });
       const amount = Math.max(0, num(extra?.price)) * qty;
-      if (amount > 0.009) out.push(text(`   ${signedMoneyDe(amount)}`));
+      const value = amount > 0.009
+        ? `${label} (${signedMoneyDe(amount)})`
+        : label;
+      if (value) pushSchnellKitchenWrapped(out, '   + ', value);
       continue;
     }
 
     const extraName = upperReceipt(cleanName(extra?.label || extra?.name || 'Extra'));
-    if (extraName) pushWrapped(out, '   + ', extraName, { max: LINE });
+    if (extraName) pushSchnellKitchenWrapped(out, '   + ', extraName);
   }
 
   for (const removed of Array.isArray(item?.rm) ? item.rm : []){
     const value = upperReceipt(String(removed || '').trim());
-    if (value) pushWrapped(out, '   OHNE ', value, { max: LINE });
+    if (value) pushSchnellKitchenWrapped(out, '   OHNE ', value, { boldText:true });
   }
 
-  const angus = isBlackAngusItem(item);
   for (const rawLine of noteLines(item?.note)){
-    if (isDonenessLine(rawLine) && !angus) continue;
+    if (isDonenessLine(rawLine)) continue;
     const line = upperReceipt(rawLine);
-    if (line) pushWrapped(out, '   ', line, { max: LINE });
+    if (line) pushSchnellKitchenWrapped(out, '   ', line, { boldText:/^OHNE\b/.test(line) });
   }
   out.push(text(''));
 }
@@ -1344,7 +1439,16 @@ function buildSchnellKitchenTicket(o){
   }
 
   for (const group of kitchenGroupOrder([...grouped.keys()])){
-    out.push(bold(1), underline(1), text(upperReceipt(group)), underline(0), bold(0), text(''));
+    out.push(
+      bold(1),
+      underline(1),
+      size(1,2),
+      text(upperReceipt(group)),
+      size(1,1),
+      underline(0),
+      bold(0),
+      text(''),
+    );
     for (const item of grouped.get(group)) pushSchnellKitchenItem(out, item, ctx);
   }
 
@@ -1357,7 +1461,6 @@ function buildSchnellKitchenTicket(o){
   out.push(lineSpaceDefault(), feedLines(CUT_FEED_LINES), cut());
   return Buffer.concat(out);
 }
-
 async function buildPrintPayload(o, opts={}){
   if (!isSchnellOrder(o)) return buildTicketFromOrder(o, opts);
   const cashReceipt = await buildSchnellCashReceipt(o, opts);

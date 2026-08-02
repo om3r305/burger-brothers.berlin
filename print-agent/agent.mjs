@@ -245,6 +245,27 @@ function clean(value) {
   return String(value ?? "").trim();
 }
 
+function normalizeDoneness(value) {
+  const source =
+    value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const code = clean(
+    source.code ?? (typeof value === "string" ? value : ""),
+  ).toLowerCase();
+  const labels = {
+    light: "Leicht gebraten",
+    normal: "Normal gebraten",
+    well_done: "Durchgebraten",
+  };
+  const label = clean(source.label || labels[code]);
+
+  if (!code && !label) return undefined;
+
+  return {
+    ...(code ? { code } : {}),
+    ...(label ? { label } : {}),
+  };
+}
+
 function normalizeCustomerForProxy(customer = {}) {
   const addressLine = clean(
     customer.addressLine ||
@@ -295,6 +316,7 @@ function normalizeItemsForProxy(items = []) {
       ? (item.rm || item.remove).map((entry) => String(entry))
       : [],
     note: clean(item.note),
+    doneness: normalizeDoneness(item.doneness),
     taxRate: item.taxRate,
     originalPrice: item.originalPrice,
     sourceKind: item.sourceKind,

@@ -100,6 +100,26 @@ function text(value: any, fallback = "") {
   return s || fallback;
 }
 
+function normalizeDoneness(value: any) {
+  const source = obj(value);
+  const rawCode = text(
+    source.code ?? (typeof value === "string" ? value : ""),
+  ).toLowerCase();
+  const labels: Record<string, string> = {
+    light: "Leicht gebraten",
+    normal: "Normal gebraten",
+    well_done: "Durchgebraten",
+  };
+  const label = text(source.label, labels[rawCode] || "");
+
+  if (!rawCode && !label) return undefined;
+
+  return {
+    ...(rawCode ? { code: rawCode } : {}),
+    ...(label ? { label } : {}),
+  };
+}
+
 function date(value: any): Date | null {
   if (!value && value !== 0) return null;
   if (value instanceof Date) return Number.isFinite(value.valueOf()) ? value : null;
@@ -166,6 +186,7 @@ function normalizeItems(value: any) {
       })),
       rm: arr(item?.rm ?? item?.remove).map((entry: any) => String(entry)),
       note: text(item?.note) || undefined,
+      doneness: normalizeDoneness(item?.doneness),
       taxRate: item?.taxRate != null ? num(item.taxRate, 0) : undefined,
       originalPrice: item?.originalPrice != null ? num(item.originalPrice, 0) : undefined,
       sourceKind: item?.sourceKind != null ? String(item.sourceKind) : undefined,

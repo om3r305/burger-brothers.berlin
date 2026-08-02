@@ -99,9 +99,35 @@ async function postOrder(port, order) {
   assert.equal(fs.existsSync(logoPath), true, 'thermal logo missing');
 
   const source = fs.readFileSync(proxyPath, 'utf8');
+  const clientSource = fs.readFileSync(path.join(root, 'components', 'schnellbestellung', 'SchnellClient.tsx'), 'utf8');
+  const schnellCoreSource = fs.readFileSync(path.join(root, 'lib', 'server', 'schnellbestellung.ts'), 'utf8');
+  const printApiSource = fs.readFileSync(path.join(root, 'app', 'api', 'print', 'jobs', 'route.ts'), 'utf8');
+  const agentSource = fs.readFileSync(path.join(root, 'print-agent', 'agent.mjs'), 'utf8');
+  const tvOverlaySource = fs.readFileSync(path.join(root, 'components', 'tv', 'AcceptOrderOverlay.tsx'), 'utf8');
+  const tvDetailsSource = fs.readFileSync(path.join(root, 'components', 'tv', 'OrderDetailsModal.tsx'), 'utf8');
+
+  assert.match(clientSource, /selectionError/);
+  assert.match(clientSource, /schnell-black-angus-doneness/);
+  assert.match(clientSource, /Bitte wählen Sie die Garstufe/);
+  assert.match(clientSource, /role="alert"/);
+  assert.match(schnellCoreSource, /DONENESS_REQUIRED/);
+  assert.match(schnellCoreSource, /schnellProductRequiresDoneness/);
+  assert.match(printApiSource, /doneness: normalizeDoneness\(item\?\.doneness\)/);
+  assert.match(agentSource, /doneness: normalizeDoneness\(item\.doneness\)/);
+  assert.match(tvOverlaySource, /order\.mode === "dine_in" && donenessLabel/);
+  assert.match(tvOverlaySource, /Garstufe: \{donenessLabel\(item\.doneness\)\}/);
+  assert.match(tvDetailsSource, /order\.mode === "dine_in" && donenessLabel/);
+  assert.match(tvDetailsSource, /Garstufe: \{donenessLabel\(item\.doneness\)\}/);
+
   assert.match(source, /buildSchnellCashReceipt/);
   assert.match(source, /buildSchnellKitchenTicket/);
   assert.match(source, /if \(!isSchnellOrder\(o\)\) return buildTicketFromOrder/);
+  const cashSource = source.slice(
+    source.indexOf('async function buildSchnellCashReceipt'),
+    source.indexOf('function kitchenGroupOrder'),
+  );
+  assert.doesNotMatch(cashSource, /code128\(/, 'Schnell cash receipt must not print a barcode');
+  assert.match(cashSource, /Nr\. \${formatSchnellNumber/);
 
   const proxyPort = await freePort();
   const printerPort = await freePort();
@@ -198,7 +224,8 @@ async function postOrder(port, order) {
             { name: 'Käse', label: 'Käse', price: 1 },
             { name: 'Bacon', label: 'Bacon', price: 1.5 },
           ],
-          note: 'LEICHT GEBRATEN; OHNE TOMATEN',
+          doneness: { code: 'light', label: 'Leicht gebraten' },
+          note: 'OHNE TOMATEN',
         },
         {
           id: 'fit',
@@ -207,7 +234,7 @@ async function postOrder(port, order) {
           price: 10,
           qty: 1,
           taxRate: 7,
-          note: 'LEICHT GEBRATEN; OHNE ZWIEBELN',
+          note: 'OHNE ZWIEBELN',
         },
         { id: 'cheese-fries', name: 'Cheese Fries', category: 'extras', price: 5.3, qty: 1, taxRate: 7 },
         { id: 'almdudler', name: 'Almdudler 0,37 l', category: 'drinks', price: 3, qty: 1, taxRate: 19 },
@@ -238,27 +265,38 @@ async function postOrder(port, order) {
     assert.ok(kitchenBuffer.lastIndexOf(cutCommand) > kitchenBuffer.length - 16, 'kitchen receipt must end with a cut command');
     const cash = printableText(cashBuffer);
     const kitchen = printableText(kitchenBuffer);
+    const doubleHeight = Buffer.from([0x1d, 0x21, 0x01]);
+    assert.ok(
+      countSequence(kitchenBuffer, doubleHeight) >= 8,
+      'kitchen categories and critical item lines must use double-height text',
+    );
 
     assert.match(cash, /Berliner Str\. 9/);
-    assert.match(cash, /02\.08\.2026\s+19:42/);
+    assert.match(cash, /St\.-Nr\.: 17\/602\/03138/);
+    assert.match(cash, /Sonntag, 02\.08\.2026 19:42\s+Nr\. 0016/);
     assert.match(cash, /1x All American \+ Fries\s+8,90 €/);
     assert.match(cash, /\+ Kse\s+1,00 €/);
+    assert.match(cash, /Leicht gebraten/);
     assert.match(cash, /Zwischensumme/);
     assert.match(cash, /GESAMT/);
-    assert.match(cash, /Enthaltene MwSt\.:/);
+    assert.match(cash, /Zahlungsart: BAR\s+51,80 €/);
+    assert.match(cash, /MwSt\.\s+Netto\s+Steuer\s+Brutto/);
+    assert.match(cash, /7 %/);
+    assert.match(cash, /19 %/);
     assert.match(cash, /Vielen Dank fr Ihre Bestellung!/);
+    assert.doesNotMatch(cash, /Enthaltene MwSt\.:/);
     assert.doesNotMatch(cash, /SCHNELLBESTELLUNG/);
     assert.doesNotMatch(cash, /ZUM MITNEHMEN/);
     assert.doesNotMatch(cash, /BAR OFFEN|BARZAHLUNG|SALONBESTELLUNG/);
     assert.doesNotMatch(cash, /Pommes inklusive/i);
+    assert.doesNotMatch(cash, /schnell-dual-16/);
 
     assert.match(kitchen, /02\.08\.2026\s+19:42/);
     assert.match(kitchen, /SCHNELLBESTELLUNG/);
     assert.match(kitchen, /MITTAGSMEN/);
     assert.match(kitchen, /1x ALL AMERICAN \+ FRIES\s+9,90 €/);
     assert.match(kitchen, /1x CHEESY CHEESE \+ FRIES\s+9,90 €/);
-    assert.match(kitchen, /CURLY FRIES STATT POMMES/);
-    assert.match(kitchen, /\+1,00 €/);
+    assert.match(kitchen, /CURLY FRIES STATT POMMES \(\+1,00 €\)/);
     assert.match(kitchen, /1x BLACK ANGUS BURGER\s+12,50 €/);
     assert.match(kitchen, /LEICHT GEBRATEN/);
     assert.equal(

@@ -15,6 +15,26 @@ import {
   money,
 } from "@/lib/tv/domain";
 
+function donenessLabel(value: StoredOrder["items"][number]["doneness"]) {
+  if (!value) return "";
+  if (typeof value === "string") {
+    const labels: Record<string, string> = {
+      light: "Leicht gebraten",
+      normal: "Normal gebraten",
+      well_done: "Durchgebraten",
+    };
+    return labels[value.toLowerCase()] || value;
+  }
+
+  const code = String(value.code || "").toLowerCase();
+  const labels: Record<string, string> = {
+    light: "Leicht gebraten",
+    normal: "Normal gebraten",
+    well_done: "Durchgebraten",
+  };
+  return String(value.label || labels[code] || "").trim();
+}
+
 export function OrderDetailsModal({
   order,
   startMs,
@@ -127,6 +147,12 @@ export function OrderDetailsModal({
                     >
                       <td className="p-2">
                         <div>{item.name}</div>
+
+                        {order.mode === "dine_in" && donenessLabel(item.doneness) ? (
+                          <div className="mt-0.5 text-xs font-black uppercase text-amber-200">
+                            Garstufe: {donenessLabel(item.doneness)}
+                          </div>
+                        ) : null}
 
                         {item.note ? (
                           <div className="mt-0.5 text-xs text-stone-300">

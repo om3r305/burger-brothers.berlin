@@ -228,7 +228,7 @@ function productRequiresDoneness(product: Product) {
   }
 
   return [product.name, product.lunchMenu?.burgerName].some((name) =>
-    /^black angus(?: burger)?$/.test(normalizedProductIdentity(name)),
+    /\bblack angus\b/.test(normalizedProductIdentity(name)),
   );
 }
 
@@ -715,6 +715,7 @@ export default function SchnellClient() {
   const [selectedExtraIds, setSelectedExtraIds] = useState<string[]>([]);
   const [selectedSideProductId, setSelectedSideProductId] = useState("");
   const [selectedDoneness, setSelectedDoneness] = useState<Doneness | "">("");
+  const [selectionError, setSelectionError] = useState("");
   const [selectedNote, setSelectedNote] = useState("");
   const [cartOpen, setCartOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -957,6 +958,7 @@ export default function SchnellClient() {
       product.lunchMenu?.includedSideProductId || "",
     );
     setSelectedDoneness("");
+    setSelectionError("");
     setSelectedNote("");
     setError("");
   }
@@ -982,7 +984,14 @@ export default function SchnellClient() {
     const requiresDoneness = productRequiresDoneness(selectedProduct);
     const doneness = normalizeDoneness(selectedDoneness);
     if (requiresDoneness && !doneness) {
-      setError("Bitte wählen Sie die Garstufe für den Black Angus Burger.");
+      const message = "Bitte wählen Sie die Garstufe für den Black Angus Burger.";
+      setSelectionError(message);
+      setError(message);
+      window.requestAnimationFrame(() => {
+        document
+          .getElementById("schnell-black-angus-doneness")
+          ?.scrollIntoView({ behavior: "smooth", block: "center" });
+      });
       return;
     }
 
@@ -1006,6 +1015,7 @@ export default function SchnellClient() {
     setSelectedExtraIds([]);
     setSelectedSideProductId("");
     setSelectedDoneness("");
+    setSelectionError("");
     setSelectedNote("");
     setError("");
   }
@@ -1465,7 +1475,14 @@ export default function SchnellClient() {
               ) : null}
 
               {productRequiresDoneness(selectedProduct) ? (
-                <fieldset className="mt-5 rounded-2xl border border-amber-300/35 bg-amber-300/10 p-4">
+                <fieldset
+                  id="schnell-black-angus-doneness"
+                  className={`mt-5 rounded-2xl border p-4 ${
+                    selectionError
+                      ? "border-red-400/80 bg-red-500/10"
+                      : "border-amber-300/35 bg-amber-300/10"
+                  }`}
+                >
                   <legend className="px-2 text-sm font-black text-amber-100">
                     Wie soll das Fleisch gebraten werden?
                   </legend>
@@ -1488,6 +1505,7 @@ export default function SchnellClient() {
                           checked={selectedDoneness === option.value}
                           onChange={() => {
                             setSelectedDoneness(option.value);
+                            setSelectionError("");
                             setError("");
                           }}
                           className="mr-3 h-5 w-5"
@@ -1496,6 +1514,14 @@ export default function SchnellClient() {
                       </label>
                     ))}
                   </div>
+                  {selectionError ? (
+                    <p
+                      className="mt-3 rounded-xl border border-red-300/40 bg-red-500/15 p-3 text-sm font-black text-red-100"
+                      role="alert"
+                    >
+                      {selectionError}
+                    </p>
+                  ) : null}
                 </fieldset>
               ) : null}
 
