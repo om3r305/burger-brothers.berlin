@@ -56,6 +56,23 @@ type BeforeInstallPromptEvent = Event & {
   }>;
 };
 
+type AndroidInstallWindow = Window &
+  typeof globalThis & {
+    __bbAndroidInstallPrompt?: BeforeInstallPromptEvent | null;
+  };
+
+const ANDROID_INSTALL_READY_EVENT = "bb:android-install-ready";
+
+function readCapturedAndroidInstallPrompt() {
+  return (window as AndroidInstallWindow).__bbAndroidInstallPrompt || null;
+}
+
+function storeCapturedAndroidInstallPrompt(
+  prompt: BeforeInstallPromptEvent | null,
+) {
+  (window as AndroidInstallWindow).__bbAndroidInstallPrompt = prompt;
+}
+
 type GeoFailure = { code: number; message?: string };
 
 type VerifyResponse = {
@@ -348,25 +365,48 @@ export default function SchnellEnterClient({ token }: { token: string }) {
   }, []);
 
   useEffect(() => {
-    const onBeforeInstallPrompt = (event: Event) => {
-      if (!isAndroidMobileDevice() || isStandaloneDisplayMode()) return;
-      event.preventDefault();
-      androidInstallPromptRef.current = event as BeforeInstallPromptEvent;
+    const adoptPrompt = (prompt: BeforeInstallPromptEvent | null) => {
+      if (!prompt || !isAndroidMobileDevice() || isStandaloneDisplayMode()) {
+        return;
+      }
+
+      androidInstallPromptRef.current = prompt;
+      storeCapturedAndroidInstallPrompt(prompt);
       setAndroidInstallReady(true);
       setAndroidInstallState("waiting");
     };
 
+    const onBeforeInstallPrompt = (event: Event) => {
+      event.preventDefault();
+      adoptPrompt(event as BeforeInstallPromptEvent);
+    };
+
+    const onCapturedPromptReady = () => {
+      adoptPrompt(readCapturedAndroidInstallPrompt());
+    };
+
     const onAppInstalled = () => {
       androidInstallPromptRef.current = null;
+      storeCapturedAndroidInstallPrompt(null);
       setAndroidInstallReady(false);
       setAndroidInstallState("installed");
     };
 
+    adoptPrompt(readCapturedAndroidInstallPrompt());
+
     window.addEventListener("beforeinstallprompt", onBeforeInstallPrompt);
+    window.addEventListener(
+      ANDROID_INSTALL_READY_EVENT,
+      onCapturedPromptReady,
+    );
     window.addEventListener("appinstalled", onAppInstalled);
 
     return () => {
       window.removeEventListener("beforeinstallprompt", onBeforeInstallPrompt);
+      window.removeEventListener(
+        ANDROID_INSTALL_READY_EVENT,
+        onCapturedPromptReady,
+      );
       window.removeEventListener("appinstalled", onAppInstalled);
     };
   }, []);
@@ -776,29 +816,55 @@ export default function SchnellEnterClient({ token }: { token: string }) {
   }, [pushBusy, router]);
 
   const installAndroidApp = useCallback(async () => {
-    const prompt = androidInstallPromptRef.current;
+    if (androidInstallState === "prompting") return;
+
+    setAndroidInstallState("prompting");
+
+    let prompt =
+      androidInstallPromptRef.current || readCapturedAndroidInstallPrompt();
+
+    // Chrome may publish beforeinstallprompt a fraction after the QR page has
+    // rendered. Keep this same user action alive briefly instead of showing a
+    // dead instructions button.
+    if (!prompt) {
+      const deadline = Date.now() + 3_500;
+      while (!prompt && Date.now() < deadline) {
+        await new Promise((resolve) => window.setTimeout(resolve, 120));
+        prompt =
+          androidInstallPromptRef.current || readCapturedAndroidInstallPrompt();
+      }
+    }
 
     if (!prompt) {
+      setAndroidInstallReady(false);
       setAndroidInstallState("manual");
       return;
     }
 
-    setAndroidInstallState("prompting");
+    androidInstallPromptRef.current = prompt;
+    storeCapturedAndroidInstallPrompt(prompt);
+    setAndroidInstallReady(true);
 
     try {
       await prompt.prompt();
       const choice = await prompt.userChoice;
+
       androidInstallPromptRef.current = null;
+      storeCapturedAndroidInstallPrompt(null);
       setAndroidInstallReady(false);
-      setAndroidInstallState(
-        choice.outcome === "accepted" ? "installed" : "dismissed",
-      );
+
+      if (choice.outcome === "accepted") {
+        setAndroidInstallState("installed");
+      } else {
+        setAndroidInstallState("dismissed");
+      }
     } catch {
       androidInstallPromptRef.current = null;
+      storeCapturedAndroidInstallPrompt(null);
       setAndroidInstallReady(false);
       setAndroidInstallState("manual");
     }
-  }, []);
+  }, [androidInstallState]);
 
   const retry = useCallback(() => {
     const retryToken = retryTokenRef.current;
@@ -825,8 +891,7 @@ export default function SchnellEnterClient({ token }: { token: string }) {
   if (screen === "android_install") {
     const installFinished = androidInstallState === "installed";
     const installDismissed = androidInstallState === "dismissed";
-    const manualInstall =
-      androidInstallState === "manual" || !androidInstallReady;
+    const manualInstall = androidInstallState === "manual";
 
     return (
       <main className="bb-schnell-page grid min-h-dvh place-items-center p-5 text-white">
@@ -857,11 +922,18 @@ export default function SchnellEnterClient({ token }: { token: string }) {
               className="mt-7 w-full rounded-2xl bg-amber-400 px-5 py-4 text-lg font-black text-black disabled:opacity-60"
             >
               {androidInstallState === "prompting"
-                ? "Installation wird geöffnet …"
-                : androidInstallReady
-                  ? "Burger Brothers installieren"
-                  : "Installationsanleitung anzeigen"}
+                ? "Android-Installation wird geöffnet …"
+                : "Burger Brothers installieren"}
             </button>
+          ) : null}
+
+          {!androidInstallReady &&
+          androidInstallState === "waiting" &&
+          !installFinished ? (
+            <p className="mt-3 text-center text-xs leading-5 text-stone-400">
+              Der Android-Installationsdienst wird vorbereitet. Tippen Sie auf
+              den gelben Button.
+            </p>
           ) : null}
 
           {installDismissed ? (

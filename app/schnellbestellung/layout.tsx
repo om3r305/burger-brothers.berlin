@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Script from "next/script";
 
 export const metadata: Metadata = {
   title: "Schnellbestellung | Burger Brothers Berlin",
@@ -27,10 +28,36 @@ export const metadata: Metadata = {
   },
 };
 
+const androidInstallCapture = `
+(() => {
+  if (window.__bbAndroidInstallCaptureReady) return;
+  window.__bbAndroidInstallCaptureReady = true;
+
+  window.addEventListener("beforeinstallprompt", (event) => {
+    event.preventDefault();
+    window.__bbAndroidInstallPrompt = event;
+    window.dispatchEvent(new Event("bb:android-install-ready"));
+  });
+
+  window.addEventListener("appinstalled", () => {
+    window.__bbAndroidInstallPrompt = null;
+  });
+})();
+`;
+
 export default function SchnellbestellungLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  return children;
+  return (
+    <>
+      <Script
+        id="bb-android-install-capture"
+        strategy="beforeInteractive"
+        dangerouslySetInnerHTML={{ __html: androidInstallCapture }}
+      />
+      {children}
+    </>
+  );
 }
