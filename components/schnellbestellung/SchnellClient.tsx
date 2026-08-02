@@ -134,13 +134,6 @@ type HistoryEntry = {
   items: HistoryItem[];
 };
 
-type AudioWindow = Window &
-  typeof globalThis & {
-    __bbSchnellReadyAudioContext?: AudioContext;
-    __bbSchnellReadyMedia?: HTMLAudioElement;
-    __bbSchnellReadyKeepAlive?: boolean;
-  };
-
 const DEFAULT_CATALOG_SETTINGS: CatalogSettings = {
   cashEnabled: true,
   onlineEnabled: false,
@@ -647,80 +640,18 @@ function saveHistoryEntry(
   localStorage.setItem(HISTORY_KEY, JSON.stringify(next));
 }
 
-function stopReadyAudioKeepAlive() {
+function playOrderConfirmationSoundOnce() {
   try {
-    const audioWindow = window as AudioWindow;
-    const media = audioWindow.__bbSchnellReadyMedia;
-    if (media) {
-      media.pause();
-      media.loop = false;
-      media.currentTime = 0;
-      media.volume = 1;
-    }
-    audioWindow.__bbSchnellReadyKeepAlive = false;
-    window.sessionStorage.removeItem("bb_schnell_ready_audio_armed");
-  } catch {
-    // Cleanup is best-effort.
-  }
-}
-
-function primeReadyAudio() {
-  try {
-    const audioWindow = window as AudioWindow;
-    const AudioContextClass =
-      window.AudioContext ||
-      (window as typeof window & { webkitAudioContext?: typeof AudioContext })
-        .webkitAudioContext;
-
-    if (AudioContextClass) {
-      const context =
-        audioWindow.__bbSchnellReadyAudioContext || new AudioContextClass();
-      audioWindow.__bbSchnellReadyAudioContext = context;
-      void context.resume();
-
-      const oscillator = context.createOscillator();
-      const gain = context.createGain();
-      gain.gain.value = 0.000001;
-      oscillator.connect(gain);
-      gain.connect(context.destination);
-      oscillator.start();
-      oscillator.stop(context.currentTime + 0.03);
-    }
-
-    // iPhone için kritik fark: medya yalnız hazırlanıp durdurulmaz. Sipariş
-    // dokunuşuyla gerçekten başlatılır ve duyulmayacak kadar düşük seviyede
-    // döngüde tutulur. Fertig bildirimi açıldığında yeni play() gerekmeden aynı
-    // elementin seviyesi yükseltilir.
-    const media =
-      audioWindow.__bbSchnellReadyMedia ||
-      new Audio("/sounds/dine-in.wav");
+    const media = new Audio("/sounds/dine-in.wav");
     media.preload = "auto";
-    media.loop = true;
-    media.volume = 0.0001;
+    media.loop = false;
+    media.volume = 1;
     media.muted = false;
     media.setAttribute("playsinline", "true");
-    audioWindow.__bbSchnellReadyMedia = media;
-
-    try {
-      media.currentTime = 0;
-    } catch {
-      // Seeking is optional during initial load.
-    }
-
-    const armed = media.play();
-    if (armed && typeof armed.then === "function") {
-      void armed
-        .then(() => {
-          audioWindow.__bbSchnellReadyKeepAlive = true;
-          window.sessionStorage.setItem("bb_schnell_ready_audio_armed", "1");
-        })
-        .catch(() => {
-          audioWindow.__bbSchnellReadyKeepAlive = false;
-          window.sessionStorage.removeItem("bb_schnell_ready_audio_armed");
-        });
-    }
+    media.currentTime = 0;
+    void media.play().catch(() => undefined);
   } catch {
-    // Push bildirimi ses kanalı açılamasa da çalışmaya devam eder.
+    // Bestellung wird auch ohne lokalen Bestätigungston gesendet.
   }
 }
 
@@ -1223,7 +1154,6 @@ export default function SchnellClient() {
       );
     } catch (caught) {
       stopRewardCelebrationSound();
-      stopReadyAudioKeepAlive();
       setError(
         caught instanceof Error
           ? caught.message
@@ -1808,7 +1738,7 @@ export default function SchnellClient() {
                 type="button"
                 disabled={busy}
                 onClick={() => {
-                  primeReadyAudio();
+                  playOrderConfirmationSoundOnce();
                   requestSchnellPushPermissionFromGesture();
                   void placeOrder();
                 }}

@@ -40,153 +40,6 @@ type NavigatorWithWakeLock = Navigator & {
   };
 };
 
-type AudioWindow = Window &
-  typeof globalThis & {
-    __bbSchnellReadyAudioContext?: AudioContext;
-    __bbSchnellReadyMedia?: HTMLAudioElement;
-    __bbSchnellReadyKeepAlive?: boolean;
-  };
-
-function getReadyMediaElement() {
-  const audioWindow = window as AudioWindow;
-  const media =
-    audioWindow.__bbSchnellReadyMedia || new Audio("/sounds/dine-in.wav");
-  media.preload = "auto";
-  media.loop = true;
-  media.muted = false;
-  media.setAttribute("playsinline", "true");
-  audioWindow.__bbSchnellReadyMedia = media;
-  return media;
-}
-
-function activateReadyMedia(media: HTMLAudioElement) {
-  const audioWindow = window as AudioWindow;
-  try {
-    media.loop = true;
-    media.muted = false;
-    media.volume = 1;
-    media.currentTime = 0;
-
-    if (!media.paused) {
-      audioWindow.__bbSchnellReadyKeepAlive = true;
-      return true;
-    }
-
-    const playback = media.play();
-    if (playback && typeof playback.then === "function") {
-      void playback
-        .then(() => {
-          audioWindow.__bbSchnellReadyKeepAlive = true;
-        })
-        .catch(() => undefined);
-    }
-    return false;
-  } catch {
-    return false;
-  }
-}
-function stopReadyAlert(timeoutIds: Set<number>) {
-  timeoutIds.forEach((timeoutId) => window.clearTimeout(timeoutId));
-  timeoutIds.clear();
-
-  try {
-    const audioWindow = window as AudioWindow;
-    const media = audioWindow.__bbSchnellReadyMedia;
-    if (media) {
-      media.pause();
-      media.loop = false;
-      media.currentTime = 0;
-      media.volume = 1;
-    }
-    audioWindow.__bbSchnellReadyKeepAlive = false;
-    window.sessionStorage.removeItem("bb_schnell_ready_audio_armed");
-    void audioWindow.__bbSchnellReadyAudioContext
-      ?.suspend()
-      .catch(() => undefined);
-  } catch {
-    // Audio cleanup is best-effort.
-  }
-
-  try {
-    navigator.vibrate?.(0);
-  } catch {
-    // Vibration is not available on every browser.
-  }
-}
-
-function playReadyAlert(timeoutIds: Set<number>) {
-  timeoutIds.forEach((timeoutId) => window.clearTimeout(timeoutId));
-  timeoutIds.clear();
-
-  const audioWindow = window as AudioWindow;
-  let mediaAlreadyRunning = false;
-
-  try {
-    const media = getReadyMediaElement();
-    mediaAlreadyRunning = activateReadyMedia(media);
-  } catch {
-    mediaAlreadyRunning = false;
-  }
-
-  if (!mediaAlreadyRunning) {
-    try {
-      const AudioContextClass =
-        window.AudioContext ||
-        (window as typeof window & { webkitAudioContext?: typeof AudioContext })
-          .webkitAudioContext;
-      if (AudioContextClass) {
-        const context =
-          audioWindow.__bbSchnellReadyAudioContext || new AudioContextClass();
-        audioWindow.__bbSchnellReadyAudioContext = context;
-
-        const schedule = () => {
-          const compressor = context.createDynamicsCompressor();
-          compressor.threshold.value = -24;
-          compressor.knee.value = 8;
-          compressor.ratio.value = 12;
-          compressor.attack.value = 0.002;
-          compressor.release.value = 0.18;
-
-          const master = context.createGain();
-          master.gain.value = 1;
-          compressor.connect(master);
-          master.connect(context.destination);
-
-          const notes = [988, 1318, 1568, 1318, 1760, 2093];
-          notes.forEach((frequency, index) => {
-            const start = context.currentTime + index * 0.16;
-            const oscillator = context.createOscillator();
-            const gain = context.createGain();
-            oscillator.type = index % 2 === 0 ? "square" : "sawtooth";
-            oscillator.frequency.setValueAtTime(frequency, start);
-            gain.gain.setValueAtTime(0.0001, start);
-            gain.gain.exponentialRampToValueAtTime(0.96, start + 0.012);
-            gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.13);
-            oscillator.connect(gain);
-            gain.connect(compressor);
-            oscillator.start(start);
-            oscillator.stop(start + 0.15);
-          });
-        };
-
-        if (context.state === "suspended") {
-          void context.resume().then(schedule).catch(() => undefined);
-        } else {
-          schedule();
-        }
-      }
-    } catch {
-      // Visual ready state still works when audio is unavailable.
-    }
-  }
-
-  try {
-    navigator.vibrate?.([650, 120, 650, 140, 950]);
-  } catch {
-    // Vibration is not available on every browser.
-  }
-}
-
 export default function SuccessPage() {
   const searchParams = useSearchParams();
   const orderId = searchParams.get("order")?.trim() || "";
@@ -203,11 +56,7 @@ export default function SuccessPage() {
   const rewardShownRef = useRef(false);
 
   const endedRef = useRef(false);
-  const lastReadyEventRef = useRef("");
-  const pendingReadyEventRef = useRef("");
-  const legacyReadyActiveRef = useRef(false);
   const wakeLockRef = useRef<WakeLockSentinelLike | null>(null);
-  const readyTimeoutIdsRef = useRef(new Set<number>());
 
 
   useEffect(() => {
@@ -278,10 +127,10 @@ export default function SuccessPage() {
       const message = messageEvent.data as
         | {
             type?: string;
-            event?: { id?: string; customerNumber?: number };
-            readyEventId?: string;
+            event?: { customerNumber?: number };
           }
         | undefined;
+
       if (
         message?.type !== "BB_SCHNELL_READY_PUSH" &&
         message?.type !== "BB_SCHNELL_NOTIFICATION_OPEN"
@@ -289,61 +138,15 @@ export default function SuccessPage() {
         return;
       }
 
-      const readyEventId = String(
-        message.event?.id || message.readyEventId || "",
-      ).trim();
       if (Number(message.event?.customerNumber) > 0) {
         setCustomerNumber(String(message.event?.customerNumber));
       }
       setStatus("ready");
-
-      const eventId = readyEventId || `ready:${orderId}`;
-      pendingReadyEventRef.current = eventId;
-
-      if (message.type === "BB_SCHNELL_NOTIFICATION_OPEN") {
-        lastReadyEventRef.current = eventId;
-        playReadyAlert(readyTimeoutIdsRef.current);
-        pendingReadyEventRef.current = "";
-        return;
-      }
-
-      if (document.visibilityState === "visible") {
-        if (lastReadyEventRef.current !== eventId) {
-          lastReadyEventRef.current = eventId;
-          playReadyAlert(readyTimeoutIdsRef.current);
-          pendingReadyEventRef.current = "";
-        }
-      }
     };
 
     navigator.serviceWorker.addEventListener("message", onMessage);
-    return () => navigator.serviceWorker.removeEventListener("message", onMessage);
-  }, [orderId]);
-
-  useEffect(() => {
-    const activatePending = () => {
-      if (
-        endedRef.current ||
-        document.visibilityState !== "visible" ||
-        !pendingReadyEventRef.current
-      ) {
-        return;
-      }
-
-      const eventId = pendingReadyEventRef.current;
-      lastReadyEventRef.current = eventId;
-      playReadyAlert(readyTimeoutIdsRef.current);
-      pendingReadyEventRef.current = "";
-    };
-
-    window.addEventListener("focus", activatePending);
-    window.addEventListener("pageshow", activatePending);
-    document.addEventListener("visibilitychange", activatePending);
-    return () => {
-      window.removeEventListener("focus", activatePending);
-      window.removeEventListener("pageshow", activatePending);
-      document.removeEventListener("visibilitychange", activatePending);
-    };
+    return () =>
+      navigator.serviceWorker.removeEventListener("message", onMessage);
   }, []);
 
   const requestWakeLock = useCallback(async () => {
@@ -384,7 +187,6 @@ export default function SuccessPage() {
 
     return () => {
       document.removeEventListener("visibilitychange", onVisibility);
-      stopReadyAlert(readyTimeoutIdsRef.current);
       void releaseWakeLock();
     };
   }, [releaseWakeLock, requestWakeLock]);
@@ -421,25 +223,6 @@ export default function SuccessPage() {
           ) {
             setReward(data.reward);
           }
-
-          if (data.status === "ready") {
-            const readyEventId = String(data.readyEventId || "").trim();
-            const eventId = readyEventId || `legacy:${orderId}`;
-
-            if (data.liveReadyAlertEnabled !== false) {
-              if (document.visibilityState === "visible") {
-                if (lastReadyEventRef.current !== eventId) {
-                  lastReadyEventRef.current = eventId;
-                  playReadyAlert(readyTimeoutIdsRef.current);
-                }
-              } else {
-                pendingReadyEventRef.current = eventId;
-              }
-            }
-            legacyReadyActiveRef.current = true;
-          } else {
-            legacyReadyActiveRef.current = false;
-          }
         } else if (response.status !== 401) {
           setStatusError(true);
         }
@@ -472,9 +255,6 @@ export default function SuccessPage() {
     } catch {
       // The order marker was already cleared when storage is unavailable.
     }
-
-    pendingReadyEventRef.current = "";
-    stopReadyAlert(readyTimeoutIdsRef.current);
     void releaseWakeLock();
   }, [orderId, releaseWakeLock]);
 
