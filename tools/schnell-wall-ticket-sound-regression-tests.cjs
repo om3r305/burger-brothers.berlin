@@ -81,6 +81,21 @@ assert.match(
 );
 assert.match(
   successPage,
+  /readyStartRetryIdsRef[\s\S]*scheduleReadyStartBurst[\s\S]*retryDelays = \[0, 50, 120, 220, 360, 550, 800, 1_100\]/,
+  'notification-open sound must retry during the first second instead of waiting for polling',
+);
+assert.match(
+  successPage,
+  /getReadyMediaElement[\s\S]*media\.readyState < 2[\s\S]*media\.load\(\)/,
+  'ready sound must be eagerly loaded before the notification opens the page',
+);
+assert.match(
+  serviceWorker,
+  /Promise\.all\([\s\S]*\[0, 50, 120, 250, 450, 700\][\s\S]*client\.postMessage\(openMessage\)/,
+  'service worker must repeat the notification-open event during the first 700ms',
+);
+assert.match(
+  successPage,
   /data-schnell-finish="true"[\s\S]*onClick=\{finish\}/,
   'Bestellung beenden must stop the active alert',
 );

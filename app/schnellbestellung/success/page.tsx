@@ -55,6 +55,13 @@ function getReadyMediaElement() {
   media.volume = 1;
   media.muted = false;
   media.setAttribute("playsinline", "true");
+  if (media.readyState < 2) {
+    try {
+      media.load();
+    } catch {
+      // Safari may ignore an eager load request; play() remains the fallback.
+    }
+  }
   audioWindow.__bbSchnellReadyMedia = media;
   return media;
 }
@@ -220,6 +227,7 @@ export default function SuccessPage() {
   const legacyReadyActiveRef = useRef(false);
   const wakeLockRef = useRef<WakeLockSentinelLike | null>(null);
   const readyTimeoutIdsRef = useRef(new Set<number>());
+  const readyStartRetryIdsRef = useRef(new Set<number>());
 
   const tryStartReadyAlert = useCallback(async (eventId = "") => {
     if (endedRef.current) return false;
@@ -258,6 +266,45 @@ export default function SuccessPage() {
       }
     }
   }, []);
+
+  const clearReadyStartRetries = useCallback(() => {
+    readyStartRetryIdsRef.current.forEach((timeoutId) =>
+      window.clearTimeout(timeoutId),
+    );
+    readyStartRetryIdsRef.current.clear();
+  }, []);
+
+  const scheduleReadyStartBurst = useCallback(
+    (eventId = "") => {
+      const normalizedEventId = String(eventId || "legacy-ready").trim();
+      pendingReadyEventRef.current = normalizedEventId;
+      clearReadyStartRetries();
+
+      // iOS may focus the PWA before visibilityState becomes visible. Retry in
+      // the first second so notification taps never wait for the 2.5s poll.
+      const retryDelays = [0, 50, 120, 220, 360, 550, 800, 1_100];
+      retryDelays.forEach((delay) => {
+        const timeoutId = window.setTimeout(() => {
+          readyStartRetryIdsRef.current.delete(timeoutId);
+          if (endedRef.current) return;
+          if (
+            readyAlertRunningRef.current &&
+            lastReadyEventRef.current === normalizedEventId
+          ) {
+            clearReadyStartRetries();
+            return;
+          }
+          if (document.visibilityState !== "visible") return;
+
+          void tryStartReadyAlert(normalizedEventId).then((started) => {
+            if (started) clearReadyStartRetries();
+          });
+        }, delay);
+        readyStartRetryIdsRef.current.add(timeoutId);
+      });
+    },
+    [clearReadyStartRetries, tryStartReadyAlert],
+  );
 
   useEffect(() => {
     let disposed = false;
@@ -298,19 +345,18 @@ export default function SuccessPage() {
     if (!openedFromReadyPush || endedRef.current) return;
 
     const eventId = readyEventFromPush || `push:${orderId || initialNumber}`;
-    pendingReadyEventRef.current = eventId;
     setStatus("ready");
+    scheduleReadyStartBurst(eventId);
 
-    const timers = [0, 120, 450, 1_100].map((delay) =>
-      window.setTimeout(() => {
-        if (document.visibilityState === "visible" && !endedRef.current) {
-          void tryStartReadyAlert(eventId);
-        }
-      }, delay),
-    );
-
-    return () => timers.forEach((timer) => window.clearTimeout(timer));
-  }, [initialNumber, openedFromReadyPush, orderId, readyEventFromPush, tryStartReadyAlert]);
+    return clearReadyStartRetries;
+  }, [
+    clearReadyStartRetries,
+    initialNumber,
+    openedFromReadyPush,
+    orderId,
+    readyEventFromPush,
+    scheduleReadyStartBurst,
+  ]);
 
   useEffect(() => {
     if (!orderId) return;
@@ -419,33 +465,20 @@ export default function SuccessPage() {
         setCustomerNumber(String(message.event?.customerNumber));
       }
       setStatus("ready");
-      pendingReadyEventRef.current =
+      const eventId =
         readyEventId || pendingReadyEventRef.current || `push:${orderId}`;
-
-      if (document.visibilityState === "visible") {
-        void tryStartReadyAlert(pendingReadyEventRef.current);
-      }
+      scheduleReadyStartBurst(eventId);
     };
 
     navigator.serviceWorker.addEventListener("message", onMessage);
     return () => navigator.serviceWorker.removeEventListener("message", onMessage);
-  }, [orderId, tryStartReadyAlert]);
+  }, [orderId, scheduleReadyStartBurst]);
 
   useEffect(() => {
     const retryPendingAlert = () => {
       const pendingEventId = pendingReadyEventRef.current;
-      if (
-        pendingEventId &&
-        document.visibilityState === "visible" &&
-        !endedRef.current
-      ) {
-        [0, 180, 650].forEach((delay) => {
-          window.setTimeout(() => {
-            if (!endedRef.current && pendingReadyEventRef.current) {
-              void tryStartReadyAlert(pendingReadyEventRef.current);
-            }
-          }, delay);
-        });
+      if (pendingEventId && !endedRef.current) {
+        scheduleReadyStartBurst(pendingEventId);
       }
     };
 
@@ -457,7 +490,7 @@ export default function SuccessPage() {
       window.removeEventListener("pageshow", retryPendingAlert);
       document.removeEventListener("visibilitychange", retryPendingAlert);
     };
-  }, [tryStartReadyAlert]);
+  }, [scheduleReadyStartBurst]);
 
   const requestWakeLock = useCallback(async () => {
     try {
@@ -497,10 +530,11 @@ export default function SuccessPage() {
 
     return () => {
       document.removeEventListener("visibilitychange", onVisibility);
+      clearReadyStartRetries();
       stopReadyAlert(readyTimeoutIdsRef.current);
       void releaseWakeLock();
     };
-  }, [releaseWakeLock, requestWakeLock]);
+  }, [clearReadyStartRetries, releaseWakeLock, requestWakeLock]);
 
   useEffect(() => {
     if (!orderId || ended) return;
@@ -548,7 +582,7 @@ export default function SuccessPage() {
               data.liveReadyAlertEnabled !== false &&
               document.visibilityState === "visible"
             ) {
-              void tryStartReadyAlert(readyEventId);
+              scheduleReadyStartBurst(readyEventId);
             }
           }
 
@@ -562,7 +596,7 @@ export default function SuccessPage() {
               legacyReadyActiveRef.current = true;
               pendingReadyEventRef.current = `legacy:${orderId}`;
               if (document.visibilityState === "visible") {
-                void tryStartReadyAlert(pendingReadyEventRef.current);
+                scheduleReadyStartBurst(pendingReadyEventRef.current);
               }
             }
           } else {
@@ -586,7 +620,7 @@ export default function SuccessPage() {
       cancelled = true;
       if (timer !== null) window.clearTimeout(timer);
     };
-  }, [ended, orderId, tryStartReadyAlert]);
+  }, [ended, orderId, scheduleReadyStartBurst]);
 
   const finish = useCallback(() => {
     endedRef.current = true;
@@ -602,11 +636,12 @@ export default function SuccessPage() {
     }
 
     pendingReadyEventRef.current = "";
+    clearReadyStartRetries();
     readyAlertRunningRef.current = false;
     readyAlertAttemptRef.current = null;
     stopReadyAlert(readyTimeoutIdsRef.current);
     void releaseWakeLock();
-  }, [orderId, releaseWakeLock]);
+  }, [clearReadyStartRetries, orderId, releaseWakeLock]);
 
   if (ended) {
     return (

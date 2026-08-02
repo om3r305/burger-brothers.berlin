@@ -91,6 +91,10 @@ function isOrderType(type) {
   return String(type || "").startsWith("order_") || type === "schnell_ready";
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function showGeneralEvent(event) {
   const eventId = String(event && event.id ? event.id : "");
   const expiresAt = event && event.expiresAt ? Date.parse(String(event.expiresAt)) : NaN;
@@ -265,7 +269,16 @@ self.addEventListener("notificationclick", (event) => {
           // sound channel the moment it becomes visible.
           client.postMessage(openMessage);
           await client.focus();
-          client.postMessage(openMessage);
+
+          // iOS can report focus before the page becomes visible. Repeat the
+          // open message during the first 700ms so the page can start sound
+          // immediately instead of waiting for its 2.5s status poll.
+          await Promise.all(
+            [0, 50, 120, 250, 450, 700].map(async (delay) => {
+              if (delay > 0) await sleep(delay);
+              client.postMessage(openMessage);
+            }),
+          );
           return;
         }
       }
