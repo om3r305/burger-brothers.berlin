@@ -18,7 +18,7 @@ self.addEventListener("activate", (event) => {
 // Service Worker bilinçli olarak fetch cevabı cache'lemez.
 self.addEventListener("fetch", () => {});
 
-const PUSH_STATE_CACHE = "bb-push-state-v3";
+const PUSH_STATE_CACHE = "bb-push-state-v4";
 
 function stateKey(eventId) {
   return `/__bb_push_seen__/${encodeURIComponent(String(eventId || ""))}`;
@@ -210,11 +210,30 @@ self.addEventListener("push", (pushEvent) => {
 });
 
 self.addEventListener("notificationclick", (event) => {
+  const notificationData = event.notification.data || {};
   event.notification.close();
-  const targetUrl = new URL(
-    (event.notification.data && event.notification.data.url) || "/menu",
-    self.location.origin,
-  ).href;
+
+  const target = new URL(notificationData.url || "/menu", self.location.origin);
+  const readyEventId = String(notificationData.readyEventId || "").trim();
+  const isSchnellReady = notificationData.type === "schnell_ready";
+
+  if (isSchnellReady) {
+    target.searchParams.set("readyOpen", "1");
+    if (readyEventId) target.searchParams.set("readyEventId", readyEventId);
+    if (notificationData.orderId && !target.searchParams.get("order")) {
+      target.searchParams.set("order", String(notificationData.orderId));
+    }
+  }
+
+  const targetUrl = target.href;
+  const openMessage = {
+    type: "BB_SCHNELL_NOTIFICATION_OPEN",
+    readyEventId,
+    event: {
+      id: readyEventId,
+      orderId: notificationData.orderId,
+    },
+  };
 
   event.waitUntil(
     (async () => {
@@ -224,15 +243,19 @@ self.addEventListener("notificationclick", (event) => {
       });
 
       for (const client of windows) {
-        if ("focus" in client) {
-          if ("navigate" in client) await client.navigate(targetUrl);
-          await client.focus();
-          return;
+        if (!("focus" in client)) continue;
+        let targetClient = client;
+        if ("navigate" in client) {
+          targetClient = (await client.navigate(targetUrl)) || client;
         }
+        await targetClient.focus();
+        if (isSchnellReady) targetClient.postMessage(openMessage);
+        return;
       }
 
       if (self.clients.openWindow) {
-        await self.clients.openWindow(targetUrl);
+        const targetClient = await self.clients.openWindow(targetUrl);
+        if (isSchnellReady) targetClient?.postMessage(openMessage);
       }
     })(),
   );

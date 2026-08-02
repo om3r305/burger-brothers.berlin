@@ -1390,16 +1390,16 @@ function pushSchnellKitchenPricedLine(out, label, amount, options={}){
 }
 
 function pushSchnellKitchenHeroPricedLine(out, label, amount){
-  // 80-mm Font A at 2x width has roughly half the normal character count.
-  // Product names are printed large for wall readability; the price stays on
-  // the same large line only when it fits, otherwise it moves cleanly below.
-  const bigWidth = Math.max(16, Math.floor(LINE / 2));
+  // Font B at 2x2 creates an intermediate wall-readable size: clearly larger
+  // than normal Font A, but noticeably smaller than the oversized Font A 2x2.
+  // At 80 mm it provides about 28 usable double-width columns.
+  const bigWidth = 28;
   const left = String(label || '').trim();
   const right = String(amount || '').trim();
   const maxLeftWithPrice = Math.max(6, bigWidth - right.length - 1);
   const wrapped = wrapLines('', left, left.length <= maxLeftWithPrice ? maxLeftWithPrice : bigWidth);
 
-  out.push(lineSpace(64), size(2,2), bold(1), doubleStrike(1));
+  out.push(fontSel(1), lineSpace(50), size(2,2), bold(1), doubleStrike(1));
 
   if (wrapped.length === 1 && left.length <= maxLeftWithPrice) {
     const spaces = Math.max(1, bigWidth - wrapped[0].length - right.length);
@@ -1409,7 +1409,7 @@ function pushSchnellKitchenHeroPricedLine(out, label, amount){
     if (right) out.push(text(right.padStart(bigWidth)));
   }
 
-  out.push(doubleStrike(0), bold(0), size(1,1), lineSpace(36));
+  out.push(doubleStrike(0), bold(0), size(1,1), fontSel(0), lineSpace(36));
 }
 
 function pushSchnellKitchenItem(out, item, ctx){
@@ -1483,7 +1483,8 @@ function buildSchnellKitchenTicket(o){
 
   for (const group of kitchenGroupOrder([...grouped.keys()])){
     out.push(
-      lineSpace(64),
+      fontSel(1),
+      lineSpace(50),
       size(2,2),
       bold(1),
       doubleStrike(1),
@@ -1493,6 +1494,7 @@ function buildSchnellKitchenTicket(o){
       doubleStrike(0),
       bold(0),
       size(1,1),
+      fontSel(0),
       lineSpace(36),
       text(''),
     );

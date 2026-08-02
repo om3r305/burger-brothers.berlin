@@ -44,6 +44,7 @@ type AudioWindow = Window &
   typeof globalThis & {
     __bbSchnellReadyAudioContext?: AudioContext;
     __bbSchnellReadyMedia?: HTMLAudioElement;
+    __bbSchnellReadyStopWebAudio?: () => void;
   };
 
 function getReadyMediaElement() {
@@ -111,15 +112,16 @@ async function primeReadyAudioChannel() {
   return primed;
 }
 
-function playReadyMediaRound(media: HTMLAudioElement) {
+async function playReadyMediaRound(media: HTMLAudioElement) {
   try {
     media.pause();
     media.currentTime = 0;
     media.volume = 1;
     media.muted = false;
-    void media.play().catch(() => undefined);
+    await media.play();
+    return true;
   } catch {
-    // HTML media is best-effort on mobile browsers.
+    return false;
   }
 }
 
@@ -134,9 +136,10 @@ function stopReadyAlert(timeoutIds: Set<number>) {
       media.pause();
       media.currentTime = 0;
     }
+    audioWindow.__bbSchnellReadyStopWebAudio?.();
+    audioWindow.__bbSchnellReadyStopWebAudio = undefined;
     // Previously unlocked Web Audio contexts stay running while this success
-    // page is active. Suspending here can re-lock audio on some mobile PWAs,
-    // so only the media element and pending timers are stopped.
+    // page is active. Suspending here can re-lock audio on mobile PWAs.
   } catch {
     // Audio cleanup is best-effort.
   }
@@ -148,20 +151,29 @@ function stopReadyAlert(timeoutIds: Set<number>) {
   }
 }
 
-function playReadyAlert(timeoutIds: Set<number>) {
+async function playReadyAlert(timeoutIds: Set<number>) {
   stopReadyAlert(timeoutIds);
+  let started = false;
 
   try {
     const media = getReadyMediaElement();
-    [0, 1600, 3200, 4800, 6400, 8000].forEach((delay) => {
-      const timeoutId = window.setTimeout(() => {
-        timeoutIds.delete(timeoutId);
-        playReadyMediaRound(media);
-      }, delay);
-      timeoutIds.add(timeoutId);
-    });
+    const mediaStarted = await playReadyMediaRound(media);
+    started = mediaStarted || started;
+
+    // Repeated rounds are only scheduled after the first audible play() was
+    // accepted. A blocked iOS autoplay must not create hidden pending timers
+    // that suddenly start when the customer presses "Bestellung beenden".
+    if (mediaStarted) {
+      [1600, 3200, 4800, 6400, 8000].forEach((delay) => {
+        const timeoutId = window.setTimeout(() => {
+          timeoutIds.delete(timeoutId);
+          void playReadyMediaRound(media);
+        }, delay);
+        timeoutIds.add(timeoutId);
+      });
+    }
   } catch {
-    // Web Audio fallback below still runs.
+    // Web Audio fallback below may still run.
   }
 
   try {
@@ -170,70 +182,96 @@ function playReadyAlert(timeoutIds: Set<number>) {
       window.AudioContext ||
       (window as typeof window & { webkitAudioContext?: typeof AudioContext })
         .webkitAudioContext;
-    if (!AudioContextClass) return;
+    if (AudioContextClass) {
+      const context =
+        audioWindow.__bbSchnellReadyAudioContext || new AudioContextClass();
+      audioWindow.__bbSchnellReadyAudioContext = context;
 
-    const context =
-      audioWindow.__bbSchnellReadyAudioContext || new AudioContextClass();
-    audioWindow.__bbSchnellReadyAudioContext = context;
+      if (context.state === "suspended") {
+        // Do not leave a resume().then(schedule) callback pending. On iOS that
+        // callback can otherwise fire on the later finish-button gesture.
+        await Promise.race([
+          context.resume().catch(() => undefined),
+          new Promise<void>((resolve) => window.setTimeout(resolve, 280)),
+        ]);
+      }
 
-    const schedule = () => {
-      const compressor = context.createDynamicsCompressor();
-      compressor.threshold.value = -24;
-      compressor.knee.value = 8;
-      compressor.ratio.value = 12;
-      compressor.attack.value = 0.002;
-      compressor.release.value = 0.18;
+      if (context.state === "running") {
+        const sources: OscillatorNode[] = [];
+        const nodes: AudioNode[] = [];
+        const compressor = context.createDynamicsCompressor();
+        compressor.threshold.value = -24;
+        compressor.knee.value = 8;
+        compressor.ratio.value = 12;
+        compressor.attack.value = 0.002;
+        compressor.release.value = 0.18;
 
-      const master = context.createGain();
-      master.gain.value = 1;
-      compressor.connect(master);
-      master.connect(context.destination);
+        const master = context.createGain();
+        master.gain.value = 1;
+        compressor.connect(master);
+        master.connect(context.destination);
+        nodes.push(compressor, master);
 
-      const roundOffsets = [0, 1.45, 2.9, 4.35, 5.8, 7.25];
-      const notes = [988, 1318, 1568, 1318, 1760, 2093];
+        const roundOffsets = [0, 1.45, 2.9, 4.35, 5.8, 7.25];
+        const notes = [988, 1318, 1568, 1318, 1760, 2093];
 
-      roundOffsets.forEach((roundOffset) => {
-        notes.forEach((frequency, index) => {
-          const start = context.currentTime + roundOffset + index * 0.16;
-          const oscillator = context.createOscillator();
-          const gain = context.createGain();
-          oscillator.type = index % 2 === 0 ? "square" : "sawtooth";
-          oscillator.frequency.setValueAtTime(frequency, start);
-          gain.gain.setValueAtTime(0.0001, start);
-          gain.gain.exponentialRampToValueAtTime(0.96, start + 0.012);
-          gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.13);
-          oscillator.connect(gain);
-          gain.connect(compressor);
-          oscillator.start(start);
-          oscillator.stop(start + 0.15);
+        roundOffsets.forEach((roundOffset) => {
+          notes.forEach((frequency, index) => {
+            const start = context.currentTime + roundOffset + index * 0.16;
+            const oscillator = context.createOscillator();
+            const gain = context.createGain();
+            oscillator.type = index % 2 === 0 ? "square" : "sawtooth";
+            oscillator.frequency.setValueAtTime(frequency, start);
+            gain.gain.setValueAtTime(0.0001, start);
+            gain.gain.exponentialRampToValueAtTime(0.96, start + 0.012);
+            gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.13);
+            oscillator.connect(gain);
+            gain.connect(compressor);
+            oscillator.start(start);
+            oscillator.stop(start + 0.15);
+            sources.push(oscillator);
+            nodes.push(gain);
+          });
         });
-      });
-    };
 
-    if (context.state === "suspended") {
-      void context.resume().then(schedule).catch(() => undefined);
-    } else {
-      schedule();
+        audioWindow.__bbSchnellReadyStopWebAudio = () => {
+          for (const source of sources) {
+            try { source.stop(); } catch {}
+            try { source.disconnect(); } catch {}
+          }
+          for (const node of nodes) {
+            try { node.disconnect(); } catch {}
+          }
+        };
+        started = true;
+      }
     }
   } catch {
     // Audio is best-effort. Visual ready state still works.
   }
 
-  try {
-    navigator.vibrate?.([
-      650, 120, 650, 140, 950, 240,
-      650, 120, 650, 140, 950, 240,
-      800, 140, 800, 140, 1200,
-    ]);
-  } catch {
-    // Vibration is not available on every browser (including iOS Safari).
+  if (started) {
+    try {
+      navigator.vibrate?.([
+        650, 120, 650, 140, 950, 240,
+        650, 120, 650, 140, 950, 240,
+        800, 140, 800, 140, 1200,
+      ]);
+    } catch {
+      // Vibration is not available on every browser (including iOS Safari).
+    }
   }
+
+  return started;
 }
 
 export default function SuccessPage() {
   const searchParams = useSearchParams();
   const orderId = searchParams.get("order")?.trim() || "";
   const initialNumber = searchParams.get("number") || "–";
+  const openedFromReadyPush = searchParams.get("readyOpen") === "1";
+  const readyEventFromPush =
+    searchParams.get("readyEventId")?.trim() || "";
 
   const [customerNumber, setCustomerNumber] = useState(initialNumber);
   const [status, setStatus] = useState<OrderStatus>("new");
@@ -241,15 +279,59 @@ export default function SuccessPage() {
   const [statusError, setStatusError] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [appReadyNotifications, setAppReadyNotifications] = useState(false);
+  const [readySoundBlocked, setReadySoundBlocked] = useState(false);
   const [reward, setReward] = useState<SchnellRewardPublic | null>(null);
   const [rewardVisible, setRewardVisible] = useState(false);
   const rewardShownRef = useRef(false);
 
   const endedRef = useRef(false);
   const lastReadyEventRef = useRef("");
+  const pendingReadyEventRef = useRef("");
+  const readyAlertRunningRef = useRef(false);
+  const readyAlertAttemptRef = useRef<Promise<boolean> | null>(null);
   const legacyReadyActiveRef = useRef(false);
   const wakeLockRef = useRef<WakeLockSentinelLike | null>(null);
   const readyTimeoutIdsRef = useRef(new Set<number>());
+
+  const tryStartReadyAlert = useCallback(async (eventId = "") => {
+    if (endedRef.current) return false;
+
+    const normalizedEventId = String(eventId || "legacy-ready").trim();
+    if (
+      readyAlertRunningRef.current &&
+      lastReadyEventRef.current === normalizedEventId
+    ) {
+      return true;
+    }
+
+    pendingReadyEventRef.current = normalizedEventId;
+    if (readyAlertAttemptRef.current) return readyAlertAttemptRef.current;
+
+    const attempt = (async () => {
+      const started = await playReadyAlert(readyTimeoutIdsRef.current);
+
+      if (started && !endedRef.current) {
+        lastReadyEventRef.current = normalizedEventId;
+        pendingReadyEventRef.current = "";
+        readyAlertRunningRef.current = true;
+        setReadySoundBlocked(false);
+        return true;
+      }
+
+      readyAlertRunningRef.current = false;
+      if (!endedRef.current) setReadySoundBlocked(true);
+      return false;
+    })();
+
+    readyAlertAttemptRef.current = attempt;
+    try {
+      return await attempt;
+    } finally {
+      if (readyAlertAttemptRef.current === attempt) {
+        readyAlertAttemptRef.current = null;
+      }
+    }
+  }, []);
 
   useEffect(() => {
     let disposed = false;
@@ -260,9 +342,15 @@ export default function SuccessPage() {
       window.removeEventListener("keydown", unlockAudio);
     }
 
-    function unlockAudio() {
+    function unlockAudio(event: Event) {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest?.("[data-schnell-finish='true']")) return;
+
       void primeReadyAudioChannel().then((ok) => {
-        if (ok && !disposed) removeUnlockListeners();
+        if (!ok || disposed) return;
+        const pendingEventId = pendingReadyEventRef.current;
+        if (pendingEventId) void tryStartReadyAlert(pendingEventId);
+        removeUnlockListeners();
       });
     }
 
@@ -278,7 +366,25 @@ export default function SuccessPage() {
       disposed = true;
       removeUnlockListeners();
     };
-  }, []);
+  }, [tryStartReadyAlert]);
+
+  useEffect(() => {
+    if (!openedFromReadyPush || endedRef.current) return;
+
+    const eventId = readyEventFromPush || `push:${orderId || initialNumber}`;
+    pendingReadyEventRef.current = eventId;
+    setStatus("ready");
+
+    const timers = [0, 120, 450, 1_100].map((delay) =>
+      window.setTimeout(() => {
+        if (document.visibilityState === "visible" && !endedRef.current) {
+          void tryStartReadyAlert(eventId);
+        }
+      }, delay),
+    );
+
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
+  }, [initialNumber, openedFromReadyPush, orderId, readyEventFromPush, tryStartReadyAlert]);
 
   useEffect(() => {
     if (!orderId) return;
@@ -369,29 +475,63 @@ export default function SuccessPage() {
       if (endedRef.current) return;
 
       const message = messageEvent.data as
-        | { type?: string; event?: { id?: string; customerNumber?: number } }
+        | {
+            type?: string;
+            event?: { id?: string; customerNumber?: number };
+            readyEventId?: string;
+          }
         | undefined;
-      if (message?.type !== "BB_SCHNELL_READY_PUSH") return;
+      if (
+        message?.type !== "BB_SCHNELL_READY_PUSH" &&
+        message?.type !== "BB_SCHNELL_NOTIFICATION_OPEN"
+      ) return;
 
-      const readyEventId = String(message.event?.id || "").trim();
-      if (readyEventId && lastReadyEventRef.current === readyEventId) return;
+      const readyEventId = String(
+        message.event?.id || message.readyEventId || "",
+      ).trim();
       if (Number(message.event?.customerNumber) > 0) {
         setCustomerNumber(String(message.event?.customerNumber));
       }
       setStatus("ready");
+      pendingReadyEventRef.current =
+        readyEventId || pendingReadyEventRef.current || `push:${orderId}`;
 
-      // A hidden/background PWA cannot reliably play custom audio. Do not
-      // consume the event while hidden; when the user returns, status polling
-      // sees the same readyEventId and plays the sound in the visible app.
-      if (document.visibilityState !== "visible") return;
-
-      if (readyEventId) lastReadyEventRef.current = readyEventId;
-      playReadyAlert(readyTimeoutIdsRef.current);
+      if (document.visibilityState === "visible") {
+        void tryStartReadyAlert(pendingReadyEventRef.current);
+      }
     };
 
     navigator.serviceWorker.addEventListener("message", onMessage);
     return () => navigator.serviceWorker.removeEventListener("message", onMessage);
-  }, []);
+  }, [orderId, tryStartReadyAlert]);
+
+  useEffect(() => {
+    const retryPendingAlert = () => {
+      const pendingEventId = pendingReadyEventRef.current;
+      if (
+        pendingEventId &&
+        document.visibilityState === "visible" &&
+        !endedRef.current
+      ) {
+        [0, 180, 650].forEach((delay) => {
+          window.setTimeout(() => {
+            if (!endedRef.current && pendingReadyEventRef.current) {
+              void tryStartReadyAlert(pendingReadyEventRef.current);
+            }
+          }, delay);
+        });
+      }
+    };
+
+    window.addEventListener("focus", retryPendingAlert);
+    window.addEventListener("pageshow", retryPendingAlert);
+    document.addEventListener("visibilitychange", retryPendingAlert);
+    return () => {
+      window.removeEventListener("focus", retryPendingAlert);
+      window.removeEventListener("pageshow", retryPendingAlert);
+      document.removeEventListener("visibilitychange", retryPendingAlert);
+    };
+  }, [tryStartReadyAlert]);
 
   const requestWakeLock = useCallback(async () => {
     try {
@@ -477,9 +617,12 @@ export default function SuccessPage() {
           // fakat readyEventId yine üretilir. Ses yalnız status=ready şartına bağlı
           // kalmaz; yeni olay görüldüğü anda bir kez çalar.
           if (isNewReadyEvent) {
-            lastReadyEventRef.current = readyEventId;
-            if (data.liveReadyAlertEnabled !== false) {
-              playReadyAlert(readyTimeoutIdsRef.current);
+            pendingReadyEventRef.current = readyEventId;
+            if (
+              data.liveReadyAlertEnabled !== false &&
+              document.visibilityState === "visible"
+            ) {
+              void tryStartReadyAlert(readyEventId);
             }
           }
 
@@ -491,7 +634,10 @@ export default function SuccessPage() {
             ) {
               // Eski siparişlerde readyEventId yoksa status geçişini kullan.
               legacyReadyActiveRef.current = true;
-              playReadyAlert(readyTimeoutIdsRef.current);
+              pendingReadyEventRef.current = `legacy:${orderId}`;
+              if (document.visibilityState === "visible") {
+                void tryStartReadyAlert(pendingReadyEventRef.current);
+              }
             }
           } else {
             legacyReadyActiveRef.current = false;
@@ -514,7 +660,7 @@ export default function SuccessPage() {
       cancelled = true;
       if (timer !== null) window.clearTimeout(timer);
     };
-  }, [ended, orderId]);
+  }, [ended, orderId, tryStartReadyAlert]);
 
   const finish = useCallback(() => {
     endedRef.current = true;
@@ -529,6 +675,10 @@ export default function SuccessPage() {
       // The order marker was already cleared when storage is unavailable.
     }
 
+    pendingReadyEventRef.current = "";
+    readyAlertRunningRef.current = false;
+    readyAlertAttemptRef.current = null;
+    setReadySoundBlocked(false);
     stopReadyAlert(readyTimeoutIdsRef.current);
     void releaseWakeLock();
   }, [orderId, releaseWakeLock]);
@@ -658,6 +808,22 @@ export default function SuccessPage() {
           </div>
         ) : null}
 
+        {readySoundBlocked && terminal ? (
+          <button
+            type="button"
+            onClick={() => {
+              void primeReadyAudioChannel().then(() =>
+                tryStartReadyAlert(
+                  pendingReadyEventRef.current || `ready:${orderId}`,
+                ),
+              );
+            }}
+            className="mx-auto mt-6 rounded-full border border-amber-300/50 bg-amber-300/15 px-5 py-3 font-black text-amber-100"
+          >
+            Ton einschalten
+          </button>
+        ) : null}
+
         {statusError ? (
           <p className="mt-3 text-xs text-amber-300">
             Status wird automatisch erneut geprüft.
@@ -667,6 +833,7 @@ export default function SuccessPage() {
         {terminal ? (
           <button
             type="button"
+            data-schnell-finish="true"
             onClick={finish}
             className="mt-10 w-full rounded-2xl bg-amber-400 px-5 py-4 text-lg font-black text-black"
           >

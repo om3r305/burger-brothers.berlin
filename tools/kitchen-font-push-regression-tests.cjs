@@ -25,17 +25,17 @@ assert.match(kitchenBlock, /fontSel\(0\)/, 'real ESC/POS text Font A must be sel
 assert.match(proxy, /const doubleStrike = on=> Buffer\.from\(\[ESC,0x47,on\?1:0\]\)/, 'double-strike helper missing');
 assert.match(
   kitchenHelpers,
-  /lineSpace\(64\), size\(2,2\), bold\(1\), doubleStrike\(1\)/,
+  /fontSel\(1\), lineSpace\(50\), size\(2,2\), bold\(1\), doubleStrike\(1\)/,
   'main product rows must use wall-readable 2x bold text',
 );
 assert.match(
   kitchenBlock,
-  /lineSpace\(64\)[\s\S]*size\(2,2\)[\s\S]*underline\(1\)[\s\S]*upperReceipt\(group\)/,
+  /fontSel\(1\)[\s\S]*lineSpace\(50\)[\s\S]*size\(2,2\)[\s\S]*underline\(1\)[\s\S]*upperReceipt\(group\)/,
   'category headings must be wall-readable, bold and underlined',
 );
 assert.match(
   kitchenHelpers,
-  /size\(1,1\), lineSpace\(36\)/,
+  /size\(1,1\), fontSel\(0\), lineSpace\(36\)/,
   'font and line spacing must reset after emphasized rows',
 );
 assert.match(proxy, /pushSchnellKitchenPricedLine/, 'controlled price wrapping helper missing');
@@ -68,14 +68,14 @@ assert.match(
 );
 assert.match(
   successPage,
-  /if \(isNewReadyEvent\)[\s\S]*playReadyAlert/,
+  /if \(isNewReadyEvent\)[\s\S]*tryStartReadyAlert/,
   'Fertig or direct Ausgegeben must trigger foreground sound once',
 );
 
 assert.match(pushClient, /subscriptionUsesPublicKey/, 'VAPID subscription key validation missing');
 assert.match(pushClient, /existing\.unsubscribe\(\)/, 'stale VAPID subscription must be replaced');
 
-assert.match(serviceWorker, /bb-push-state-v3/, 'service worker push state version was not refreshed');
+assert.match(serviceWorker, /bb-push-state-v4/, 'service worker push state version was not refreshed');
 assert.match(serviceWorker, /fetchJsonWithTimeout/, 'service worker pending fetch timeout missing');
 assert.match(serviceWorker, /const schnellTask =[\s\S]*showSchnellReadyEvent/, 'Schnell notification task missing');
 assert.match(serviceWorker, /const generalTask =/, 'general notification task missing');
