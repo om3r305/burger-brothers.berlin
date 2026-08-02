@@ -12,6 +12,7 @@ import { loadSchnellCatalog } from "@/lib/client/schnell-catalog";
 import {
   bindSchnellPushToOrder,
   prewarmSchnellPush,
+  requestSchnellPushPermissionFromGesture,
 } from "@/lib/client/schnell-push";
 
 type Extra = {
@@ -669,9 +670,9 @@ function primeReadyAudio() {
       oscillator.stop(context.currentTime + 0.03);
     }
 
-    // İlk çalışan sürümdeki davranış:
-    // Aynı "Ja, bestellen" dokunuşunda gerçek ses elementi açılır.
-    // Push izni bu dokunuşa karışmaz; izin giriş ekranında yönetilir.
+    // Aynı kullanıcı dokunuşunda HTML media kanalını da hazırla. Next.js
+    // client navigation sırasında window nesnesi korunduğu için başarı ekranı
+    // daha sonra aynı audio elementini tekrar kullanabilir.
     const media =
       audioWindow.__bbSchnellReadyMedia ||
       new Audio("/sounds/dine-in.wav");
@@ -698,7 +699,7 @@ function primeReadyAudio() {
 
     sessionStorage.setItem("bb_schnell_ready_audio_primed", "1");
   } catch {
-    // Bildirim yine çalışır; ses mobil tarayıcıda best-effort kalır.
+    // Sound remains best-effort on mobile browsers.
   }
 }
 
@@ -1786,6 +1787,7 @@ export default function SchnellClient() {
                 disabled={busy}
                 onClick={() => {
                   primeReadyAudio();
+                  requestSchnellPushPermissionFromGesture();
                   void placeOrder();
                 }}
                 className="rounded-xl bg-emerald-500 p-3 font-black text-black disabled:opacity-50"

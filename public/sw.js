@@ -214,32 +214,11 @@ self.addEventListener("push", (pushEvent) => {
 });
 
 self.addEventListener("notificationclick", (event) => {
-  const notificationData = event.notification.data || {};
   event.notification.close();
-
-  const target = new URL(notificationData.url || "/menu", self.location.origin);
-  const readyEventId = String(notificationData.readyEventId || "").trim();
-  const isSchnellReady = notificationData.type === "schnell_ready";
-  const orderId = String(notificationData.orderId || target.searchParams.get("order") || "").trim();
-
-  if (isSchnellReady) {
-    target.searchParams.set("readyOpen", "1");
-    if (readyEventId) target.searchParams.set("readyEventId", readyEventId);
-    if (orderId && !target.searchParams.get("order")) {
-      target.searchParams.set("order", orderId);
-    }
-  }
-
-  const targetUrl = target.href;
-  const openMessage = {
-    type: "BB_SCHNELL_NOTIFICATION_OPEN",
-    readyEventId,
-    event: {
-      id: readyEventId,
-      orderId,
-      customerNumber: notificationData.customerNumber,
-    },
-  };
+  const targetUrl = new URL(
+    (event.notification.data && event.notification.data.url) || "/menu",
+    self.location.origin,
+  ).href;
 
   event.waitUntil(
     (async () => {
@@ -248,57 +227,16 @@ self.addEventListener("notificationclick", (event) => {
         includeUncontrolled: true,
       });
 
-      // Critical iOS/PWA rule: do not navigate an already-open Schnell success
-      // page. Navigation reloads the document and destroys the audio channel
-      // that was unlocked by the customer's "Ja, bestellen" tap.
-      if (isSchnellReady) {
-        for (const client of windows) {
-          if (!("focus" in client)) continue;
-          let clientUrl;
-          try {
-            clientUrl = new URL(client.url);
-          } catch {
-            continue;
-          }
-          if (clientUrl.pathname !== "/schnellbestellung/success") continue;
-          const clientOrderId = String(clientUrl.searchParams.get("order") || "").trim();
-          if (orderId && clientOrderId && clientOrderId !== orderId) continue;
-
-          // Queue the event before focus, then repeat after focus. The page
-          // stores the pending event while hidden and starts the already-unlocked
-          // sound channel the moment it becomes visible.
-          client.postMessage(openMessage);
+      for (const client of windows) {
+        if ("focus" in client) {
+          if ("navigate" in client) await client.navigate(targetUrl);
           await client.focus();
-
-          // iOS can report focus before the page becomes visible. Repeat the
-          // open message during the first 700ms so the page can start sound
-          // immediately instead of waiting for its 2.5s status poll.
-          await Promise.all(
-            [0, 50, 120, 250, 450, 700].map(async (delay) => {
-              if (delay > 0) await sleep(delay);
-              client.postMessage(openMessage);
-            }),
-          );
           return;
         }
       }
 
-      // No waiting success page exists (for example the app was force-closed).
-      // Fall back to navigation/openWindow so the order screen still opens.
-      for (const client of windows) {
-        if (!("focus" in client)) continue;
-        let targetClient = client;
-        if ("navigate" in client) {
-          targetClient = (await client.navigate(targetUrl)) || client;
-        }
-        await targetClient.focus();
-        if (isSchnellReady) targetClient.postMessage(openMessage);
-        return;
-      }
-
       if (self.clients.openWindow) {
-        const targetClient = await self.clients.openWindow(targetUrl);
-        if (isSchnellReady) targetClient?.postMessage(openMessage);
+        await self.clients.openWindow(targetUrl);
       }
     })(),
   );

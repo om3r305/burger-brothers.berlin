@@ -81,9 +81,7 @@ function stopReadyAlert(timeoutIds: Set<number>) {
       media.pause();
       media.currentTime = 0;
     }
-    void audioWindow.__bbSchnellReadyAudioContext
-      ?.suspend()
-      .catch(() => undefined);
+    void audioWindow.__bbSchnellReadyAudioContext?.suspend().catch(() => undefined);
   } catch {
     // Audio cleanup is best-effort.
   }
@@ -157,9 +155,6 @@ function playReadyAlert(timeoutIds: Set<number>) {
       });
     };
 
-    // Eski çalışan sürümün kritik farkı:
-    // Context askıdaysa "başladı" sayılmaz. Önce resume başarıyla tamamlanır,
-    // sonra ses kaynakları oluşturulur.
     if (context.state === "suspended") {
       void context.resume().then(schedule).catch(() => undefined);
     } else {
@@ -200,6 +195,8 @@ export default function SuccessPage() {
   const legacyReadyActiveRef = useRef(false);
   const wakeLockRef = useRef<WakeLockSentinelLike | null>(null);
   const readyTimeoutIdsRef = useRef(new Set<number>());
+
+
   useEffect(() => {
     if (!orderId) return;
     try {
@@ -236,30 +233,7 @@ export default function SuccessPage() {
 
   useEffect(() => {
     prewarmSchnellPush();
-    if (!orderId) return;
-
-    let cancelled = false;
-    const timers: number[] = [];
-    const retryDelays = [0, 1_500, 5_000];
-
-    const bindWithRetry = async (attempt: number) => {
-      if (cancelled) return;
-      const ok = await bindSchnellPushToOrder(orderId);
-      if (ok || cancelled || attempt >= retryDelays.length - 1) return;
-
-      const timer = window.setTimeout(
-        () => void bindWithRetry(attempt + 1),
-        retryDelays[attempt + 1],
-      );
-      timers.push(timer);
-    };
-
-    void bindWithRetry(0);
-
-    return () => {
-      cancelled = true;
-      timers.forEach((timer) => window.clearTimeout(timer));
-    };
+    if (orderId) void bindSchnellPushToOrder(orderId);
   }, [orderId]);
 
   useEffect(() => {
@@ -289,41 +263,24 @@ export default function SuccessPage() {
       if (endedRef.current) return;
 
       const message = messageEvent.data as
-        | {
-            type?: string;
-            event?: { id?: string; customerNumber?: number };
-            readyEventId?: string;
-          }
+        | { type?: string; event?: { id?: string; customerNumber?: number } }
         | undefined;
-      if (
-        message?.type !== "BB_SCHNELL_READY_PUSH" &&
-        message?.type !== "BB_SCHNELL_NOTIFICATION_OPEN"
-      ) {
-        return;
-      }
+      if (message?.type !== "BB_SCHNELL_READY_PUSH") return;
 
-      const readyEventId = String(
-        message.event?.id || message.readyEventId || "",
-      ).trim();
-
-      // Push geldiğinde arka plandaki açık sayfa bu mesajı alır. Eski çalışan
-      // sürümde ses tam burada başlıyordu; notification click yalnız sayfayı
-      // öne getiriyordu.
+      const readyEventId = String(message.event?.id || "").trim();
       if (readyEventId && lastReadyEventRef.current === readyEventId) return;
       if (readyEventId) lastReadyEventRef.current = readyEventId;
-
       if (Number(message.event?.customerNumber) > 0) {
         setCustomerNumber(String(message.event?.customerNumber));
       }
-
       setStatus("ready");
       playReadyAlert(readyTimeoutIdsRef.current);
     };
 
     navigator.serviceWorker.addEventListener("message", onMessage);
-    return () =>
-      navigator.serviceWorker.removeEventListener("message", onMessage);
+    return () => navigator.serviceWorker.removeEventListener("message", onMessage);
   }, []);
+
   const requestWakeLock = useCallback(async () => {
     try {
       const navigatorWithWakeLock = navigator as NavigatorWithWakeLock;
@@ -400,31 +357,25 @@ export default function SuccessPage() {
             setReward(data.reward);
           }
 
-          const readyEventId = String(data.readyEventId || "").trim();
-
-          // readyEventId, Fertig atlanıp doğrudan Ausgegeben seçildiğinde de
-          // üretilebilir. Olay yeniyse status değerinden bağımsız bir kez çal.
-          if (
-            readyEventId &&
-            lastReadyEventRef.current !== readyEventId &&
-            data.liveReadyAlertEnabled !== false
-          ) {
-            lastReadyEventRef.current = readyEventId;
-            playReadyAlert(readyTimeoutIdsRef.current);
-          }
-
           if (data.status === "ready") {
-            if (
-              !readyEventId &&
-              data.liveReadyAlertEnabled !== false &&
-              !legacyReadyActiveRef.current
-            ) {
-              legacyReadyActiveRef.current = true;
-              playReadyAlert(readyTimeoutIdsRef.current);
+            const readyEventId = String(data.readyEventId || "").trim();
+
+            if (data.liveReadyAlertEnabled !== false) {
+              if (readyEventId) {
+                if (lastReadyEventRef.current !== readyEventId) {
+                  lastReadyEventRef.current = readyEventId;
+                  playReadyAlert(readyTimeoutIdsRef.current);
+                }
+              } else if (!legacyReadyActiveRef.current) {
+                // Eski siparişlerde readyEventId yoksa status geçişini kullan.
+                legacyReadyActiveRef.current = true;
+                playReadyAlert(readyTimeoutIdsRef.current);
+              }
             }
           } else {
             legacyReadyActiveRef.current = false;
-          }        } else if (response.status !== 401) {
+          }
+        } else if (response.status !== 401) {
           setStatusError(true);
         }
       } catch {
@@ -460,6 +411,7 @@ export default function SuccessPage() {
     stopReadyAlert(readyTimeoutIdsRef.current);
     void releaseWakeLock();
   }, [orderId, releaseWakeLock]);
+
   if (ended) {
     return (
       <main className="grid min-h-dvh place-items-center bg-stone-950 p-6 text-white">
@@ -594,7 +546,6 @@ export default function SuccessPage() {
         {terminal ? (
           <button
             type="button"
-            data-schnell-finish="true"
             onClick={finish}
             className="mt-10 w-full rounded-2xl bg-amber-400 px-5 py-4 text-lg font-black text-black"
           >
