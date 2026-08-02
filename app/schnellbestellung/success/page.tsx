@@ -43,11 +43,7 @@ type NavigatorWithWakeLock = Navigator & {
 type AudioWindow = Window &
   typeof globalThis & {
     __bbSchnellReadyAudioContext?: AudioContext;
-    __bbSchnellReadyAudioBuffer?: AudioBuffer;
-    __bbSchnellReadyBufferSource?: AudioBufferSourceNode;
-    __bbSchnellReadyOscillators?: Set<OscillatorNode>;
     __bbSchnellReadyMedia?: HTMLAudioElement;
-    __bbSchnellReadyAlertGeneration?: number;
   };
 
 function getReadyMediaElement() {
@@ -58,141 +54,38 @@ function getReadyMediaElement() {
   media.volume = 1;
   media.muted = false;
   media.setAttribute("playsinline", "true");
-  if (media.readyState < 2) {
-    try {
-      media.load();
-    } catch {
-      // Safari may ignore an eager load request; play() remains the fallback.
-    }
-  }
   audioWindow.__bbSchnellReadyMedia = media;
   return media;
 }
 
-async function primeReadyAudioChannel() {
-  let primed = false;
-
-  try {
-    const audioWindow = window as AudioWindow;
-    const AudioContextClass =
-      window.AudioContext ||
-      (window as typeof window & { webkitAudioContext?: typeof AudioContext })
-        .webkitAudioContext;
-
-    if (AudioContextClass) {
-      const context =
-        audioWindow.__bbSchnellReadyAudioContext || new AudioContextClass();
-      audioWindow.__bbSchnellReadyAudioContext = context;
-      await context.resume();
-
-      const oscillator = context.createOscillator();
-      const gain = context.createGain();
-      gain.gain.value = 0.00001;
-      oscillator.connect(gain);
-      gain.connect(context.destination);
-      oscillator.start();
-      oscillator.stop(context.currentTime + 0.025);
-      primed = true;
-    }
-  } catch {
-    // HTML media priming below may still succeed.
-  }
-
-  try {
-    const media = getReadyMediaElement();
-    const originalVolume = media.volume;
-    media.volume = 0.001;
-    await media.play();
-    media.pause();
-    media.currentTime = 0;
-    media.volume = originalVolume;
-    primed = true;
-  } catch {
-    // A later real user gesture can retry the unlock.
-  }
-
-  if (primed) {
-    try {
-      window.sessionStorage.setItem("bb_schnell_ready_audio_primed", "1");
-    } catch {
-      // Session storage is optional.
-    }
-  }
-
-  return primed;
-}
-
-async function playReadyMediaRound(media: HTMLAudioElement) {
+function playReadyMediaRound(media: HTMLAudioElement) {
   try {
     media.pause();
     media.currentTime = 0;
     media.volume = 1;
     media.muted = false;
-    await media.play();
-    return true;
+    void media.play().catch(() => undefined);
   } catch {
-    return false;
+    // HTML media is best-effort on mobile browsers.
   }
 }
 
-function stopReadyAlert(
-  timeoutIds: Set<number>,
-  suspendContext = false,
-) {
-  const audioWindow = window as AudioWindow;
-  audioWindow.__bbSchnellReadyAlertGeneration =
-    (audioWindow.__bbSchnellReadyAlertGeneration || 0) + 1;
-
+function stopReadyAlert(timeoutIds: Set<number>) {
   timeoutIds.forEach((timeoutId) => window.clearTimeout(timeoutId));
   timeoutIds.clear();
 
   try {
-    audioWindow.__bbSchnellReadyBufferSource?.stop();
-  } catch {
-    // The source may already have ended.
-  }
-  try {
-    audioWindow.__bbSchnellReadyBufferSource?.disconnect();
-  } catch {
-    // Best-effort audio cleanup.
-  }
-  audioWindow.__bbSchnellReadyBufferSource = undefined;
-
-  const oscillators = audioWindow.__bbSchnellReadyOscillators;
-  if (oscillators) {
-    oscillators.forEach((oscillator) => {
-      try {
-        oscillator.stop();
-      } catch {
-        // The oscillator may already have ended.
-      }
-      try {
-        oscillator.disconnect();
-      } catch {
-        // Best-effort audio cleanup.
-      }
-    });
-    oscillators.clear();
-  }
-
-  try {
+    const audioWindow = window as AudioWindow;
     const media = audioWindow.__bbSchnellReadyMedia;
     if (media) {
       media.pause();
       media.currentTime = 0;
     }
+    void audioWindow.__bbSchnellReadyAudioContext
+      ?.suspend()
+      .catch(() => undefined);
   } catch {
     // Audio cleanup is best-effort.
-  }
-
-  if (suspendContext) {
-    try {
-      void audioWindow.__bbSchnellReadyAudioContext
-        ?.suspend()
-        .catch(() => undefined);
-    } catch {
-      // Context cleanup is best-effort.
-    }
   }
 
   try {
@@ -202,45 +95,35 @@ function stopReadyAlert(
   }
 }
 
-function startPrimedWebAudioAlert(
-  audioWindow: AudioWindow,
-  timeoutIds: Set<number>,
-  generation: number,
-) {
-  const context = audioWindow.__bbSchnellReadyAudioContext;
-  if (!context) return false;
+function playReadyAlert(timeoutIds: Set<number>) {
+  stopReadyAlert(timeoutIds);
 
-  // Preferred path: play the real pre-decoded alert sound through the Web
-  // Audio context unlocked by the final order-button tap.
-  const audioBuffer = audioWindow.__bbSchnellReadyAudioBuffer;
-  if (audioBuffer) {
-    try {
-      const source = context.createBufferSource();
-      const gain = context.createGain();
-      source.buffer = audioBuffer;
-      source.loop = true;
-      gain.gain.value = 1;
-      source.connect(gain);
-      gain.connect(context.destination);
-      audioWindow.__bbSchnellReadyBufferSource = source;
-      source.start(0);
-      void context.resume().catch(() => undefined);
-      return true;
-    } catch {
-      // Fall through to the proven oscillator alert from the original build.
-    }
+  try {
+    const media = getReadyMediaElement();
+    [0, 1600, 3200, 4800, 6400, 8000].forEach((delay) => {
+      const timeoutId = window.setTimeout(() => {
+        timeoutIds.delete(timeoutId);
+        playReadyMediaRound(media);
+      }, delay);
+      timeoutIds.add(timeoutId);
+    });
+  } catch {
+    // Web Audio fallback below still runs.
   }
 
   try {
-    const oscillators =
-      audioWindow.__bbSchnellReadyOscillators || new Set<OscillatorNode>();
-    audioWindow.__bbSchnellReadyOscillators = oscillators;
+    const audioWindow = window as AudioWindow;
+    const AudioContextClass =
+      window.AudioContext ||
+      (window as typeof window & { webkitAudioContext?: typeof AudioContext })
+        .webkitAudioContext;
+    if (!AudioContextClass) return;
 
-    const scheduleRound = () => {
-      if (
-        audioWindow.__bbSchnellReadyAlertGeneration !== generation
-      ) return;
+    const context =
+      audioWindow.__bbSchnellReadyAudioContext || new AudioContextClass();
+    audioWindow.__bbSchnellReadyAudioContext = context;
 
+    const schedule = () => {
       const compressor = context.createDynamicsCompressor();
       compressor.threshold.value = -24;
       compressor.knee.value = 8;
@@ -249,107 +132,58 @@ function startPrimedWebAudioAlert(
       compressor.release.value = 0.18;
 
       const master = context.createGain();
-      master.gain.value = 0.9;
+      master.gain.value = 1;
       compressor.connect(master);
       master.connect(context.destination);
 
+      const roundOffsets = [0, 1.45, 2.9, 4.35, 5.8, 7.25];
       const notes = [988, 1318, 1568, 1318, 1760, 2093];
-      notes.forEach((frequency, index) => {
-        const start = context.currentTime + 0.03 + index * 0.16;
-        const oscillator = context.createOscillator();
-        const gain = context.createGain();
-        oscillator.type = index % 2 === 0 ? "square" : "sawtooth";
-        oscillator.frequency.setValueAtTime(frequency, start);
-        gain.gain.setValueAtTime(0.0001, start);
-        gain.gain.exponentialRampToValueAtTime(0.75, start + 0.012);
-        gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.13);
-        oscillator.connect(gain);
-        gain.connect(compressor);
-        oscillators.add(oscillator);
-        oscillator.onended = () => oscillators.delete(oscillator);
-        oscillator.start(start);
-        oscillator.stop(start + 0.15);
-      });
 
-      const timeoutId = window.setTimeout(() => {
-        timeoutIds.delete(timeoutId);
-        scheduleRound();
-      }, 1_800);
-      timeoutIds.add(timeoutId);
+      roundOffsets.forEach((roundOffset) => {
+        notes.forEach((frequency, index) => {
+          const start = context.currentTime + roundOffset + index * 0.16;
+          const oscillator = context.createOscillator();
+          const gain = context.createGain();
+          oscillator.type = index % 2 === 0 ? "square" : "sawtooth";
+          oscillator.frequency.setValueAtTime(frequency, start);
+          gain.gain.setValueAtTime(0.0001, start);
+          gain.gain.exponentialRampToValueAtTime(0.96, start + 0.012);
+          gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.13);
+          oscillator.connect(gain);
+          gain.connect(compressor);
+          oscillator.start(start);
+          oscillator.stop(start + 0.15);
+        });
+      });
     };
 
-    // Sources can be scheduled while iOS temporarily suspends the context.
-    // When the notification tap foregrounds the already-open PWA, the primed
-    // context resumes and the alert begins without requiring a page tap.
-    scheduleRound();
-    void context.resume().catch(() => undefined);
-    return true;
+    // Eski çalışan sürümün kritik farkı:
+    // Context askıdaysa "başladı" sayılmaz. Önce resume başarıyla tamamlanır,
+    // sonra ses kaynakları oluşturulur.
+    if (context.state === "suspended") {
+      void context.resume().then(schedule).catch(() => undefined);
+    } else {
+      schedule();
+    }
   } catch {
-    return false;
-  }
-}
-
-async function playReadyAlert(timeoutIds: Set<number>) {
-  stopReadyAlert(timeoutIds, false);
-  const audioWindow = window as AudioWindow;
-  const generation = audioWindow.__bbSchnellReadyAlertGeneration || 0;
-
-  const webAudioStarted = startPrimedWebAudioAlert(
-    audioWindow,
-    timeoutIds,
-    generation,
-  );
-
-  let mediaStarted = false;
-  if (!webAudioStarted) {
-    try {
-      const media = getReadyMediaElement();
-      mediaStarted = await playReadyMediaRound(media);
-      if (mediaStarted) {
-        const scheduleNextRound = () => {
-          if (
-            audioWindow.__bbSchnellReadyAlertGeneration !== generation
-          ) return;
-          const timeoutId = window.setTimeout(() => {
-            timeoutIds.delete(timeoutId);
-            if (
-              audioWindow.__bbSchnellReadyAlertGeneration !== generation
-            ) return;
-            void playReadyMediaRound(media).then((played) => {
-              if (
-                played &&
-                audioWindow.__bbSchnellReadyAlertGeneration === generation
-              ) scheduleNextRound();
-            });
-          }, 1_800);
-          timeoutIds.add(timeoutId);
-        };
-        scheduleNextRound();
-      }
-    } catch {
-      mediaStarted = false;
-    }
+    // Audio is best-effort. Visual ready state still works.
   }
 
-  if (webAudioStarted || mediaStarted) {
-    try {
-      navigator.vibrate?.([650, 120, 650, 140, 950]);
-    } catch {
-      // Vibration is not available on every browser (including iOS Safari).
-    }
-    return true;
+  try {
+    navigator.vibrate?.([
+      650, 120, 650, 140, 950, 240,
+      650, 120, 650, 140, 950, 240,
+      800, 140, 800, 140, 1200,
+    ]);
+  } catch {
+    // Vibration is not available on every browser (including iOS Safari).
   }
-
-  return false;
 }
 
 export default function SuccessPage() {
   const searchParams = useSearchParams();
   const orderId = searchParams.get("order")?.trim() || "";
   const initialNumber = searchParams.get("number") || "–";
-  const openedFromReadyPush = searchParams.get("readyOpen") === "1";
-  const readyEventFromPush =
-    searchParams.get("readyEventId")?.trim() || "";
 
   const [customerNumber, setCustomerNumber] = useState(initialNumber);
   const [status, setStatus] = useState<OrderStatus>("new");
@@ -363,143 +197,9 @@ export default function SuccessPage() {
 
   const endedRef = useRef(false);
   const lastReadyEventRef = useRef("");
-  const pendingReadyEventRef = useRef("");
-  const readyAlertRunningRef = useRef(false);
-  const readyAlertAttemptRef = useRef<Promise<boolean> | null>(null);
   const legacyReadyActiveRef = useRef(false);
   const wakeLockRef = useRef<WakeLockSentinelLike | null>(null);
   const readyTimeoutIdsRef = useRef(new Set<number>());
-  const readyStartRetryIdsRef = useRef(new Set<number>());
-
-  const tryStartReadyAlert = useCallback(async (eventId = "") => {
-    if (endedRef.current) return false;
-
-    const normalizedEventId = String(eventId || "legacy-ready").trim();
-    if (
-      readyAlertRunningRef.current &&
-      lastReadyEventRef.current === normalizedEventId
-    ) {
-      return true;
-    }
-
-    pendingReadyEventRef.current = normalizedEventId;
-    if (readyAlertAttemptRef.current) return readyAlertAttemptRef.current;
-
-    const attempt = (async () => {
-      const started = await playReadyAlert(readyTimeoutIdsRef.current);
-
-      if (started && !endedRef.current) {
-        lastReadyEventRef.current = normalizedEventId;
-        pendingReadyEventRef.current = "";
-        readyAlertRunningRef.current = true;
-        return true;
-      }
-
-      readyAlertRunningRef.current = false;
-      return false;
-    })();
-
-    readyAlertAttemptRef.current = attempt;
-    try {
-      return await attempt;
-    } finally {
-      if (readyAlertAttemptRef.current === attempt) {
-        readyAlertAttemptRef.current = null;
-      }
-    }
-  }, []);
-
-  const clearReadyStartRetries = useCallback(() => {
-    readyStartRetryIdsRef.current.forEach((timeoutId) =>
-      window.clearTimeout(timeoutId),
-    );
-    readyStartRetryIdsRef.current.clear();
-  }, []);
-
-  const scheduleReadyStartBurst = useCallback(
-    (eventId = "") => {
-      const normalizedEventId = String(eventId || "legacy-ready").trim();
-      pendingReadyEventRef.current = normalizedEventId;
-      clearReadyStartRetries();
-
-      // iOS may focus the PWA before visibilityState becomes visible. Retry in
-      // the first second so notification taps never wait for the 2.5s poll.
-      const retryDelays = [0, 50, 120, 220, 360, 550, 800, 1_100];
-      retryDelays.forEach((delay) => {
-        const timeoutId = window.setTimeout(() => {
-          readyStartRetryIdsRef.current.delete(timeoutId);
-          if (endedRef.current) return;
-          if (
-            readyAlertRunningRef.current &&
-            lastReadyEventRef.current === normalizedEventId
-          ) {
-            clearReadyStartRetries();
-            return;
-          }
-          if (document.visibilityState !== "visible") return;
-
-          void tryStartReadyAlert(normalizedEventId).then((started) => {
-            if (started) clearReadyStartRetries();
-          });
-        }, delay);
-        readyStartRetryIdsRef.current.add(timeoutId);
-      });
-    },
-    [clearReadyStartRetries, tryStartReadyAlert],
-  );
-
-  useEffect(() => {
-    let disposed = false;
-
-    function removeUnlockListeners() {
-      window.removeEventListener("pointerdown", unlockAudio);
-      window.removeEventListener("touchend", unlockAudio);
-      window.removeEventListener("keydown", unlockAudio);
-    }
-
-    function unlockAudio(event: Event) {
-      const target = event.target as HTMLElement | null;
-      if (target?.closest?.("[data-schnell-finish='true']")) return;
-
-      void primeReadyAudioChannel().then((ok) => {
-        if (!ok || disposed) return;
-        const pendingEventId = pendingReadyEventRef.current;
-        if (pendingEventId) void tryStartReadyAlert(pendingEventId);
-        removeUnlockListeners();
-      });
-    }
-
-    window.addEventListener("pointerdown", unlockAudio, { passive: true });
-    window.addEventListener("touchend", unlockAudio, { passive: true });
-    window.addEventListener("keydown", unlockAudio);
-
-    // Same-window navigation is usually already primed. Re-opened PWAs try once
-    // immediately and then retry on the first real touch/key gesture.
-    void primeReadyAudioChannel();
-
-    return () => {
-      disposed = true;
-      removeUnlockListeners();
-    };
-  }, [tryStartReadyAlert]);
-
-  useEffect(() => {
-    if (!openedFromReadyPush || endedRef.current) return;
-
-    const eventId = readyEventFromPush || `push:${orderId || initialNumber}`;
-    setStatus("ready");
-    scheduleReadyStartBurst(eventId);
-
-    return clearReadyStartRetries;
-  }, [
-    clearReadyStartRetries,
-    initialNumber,
-    openedFromReadyPush,
-    orderId,
-    readyEventFromPush,
-    scheduleReadyStartBurst,
-  ]);
-
   useEffect(() => {
     if (!orderId) return;
     try {
@@ -598,51 +298,32 @@ export default function SuccessPage() {
       if (
         message?.type !== "BB_SCHNELL_READY_PUSH" &&
         message?.type !== "BB_SCHNELL_NOTIFICATION_OPEN"
-      ) return;
+      ) {
+        return;
+      }
 
       const readyEventId = String(
         message.event?.id || message.readyEventId || "",
       ).trim();
+
+      // Push geldiğinde arka plandaki açık sayfa bu mesajı alır. Eski çalışan
+      // sürümde ses tam burada başlıyordu; notification click yalnız sayfayı
+      // öne getiriyordu.
+      if (readyEventId && lastReadyEventRef.current === readyEventId) return;
+      if (readyEventId) lastReadyEventRef.current = readyEventId;
+
       if (Number(message.event?.customerNumber) > 0) {
         setCustomerNumber(String(message.event?.customerNumber));
       }
-      setStatus("ready");
-      const eventId =
-        readyEventId || pendingReadyEventRef.current || `push:${orderId}`;
-      pendingReadyEventRef.current = eventId;
 
-      if (message.type === "BB_SCHNELL_READY_PUSH") {
-        // This is the original working behavior: start the audio channel as
-        // soon as the push reaches the waiting PWA, even while it is hidden.
-        // The later notification tap only foregrounds an alert already armed.
-        void tryStartReadyAlert(eventId);
-      } else {
-        scheduleReadyStartBurst(eventId);
-      }
+      setStatus("ready");
+      playReadyAlert(readyTimeoutIdsRef.current);
     };
 
     navigator.serviceWorker.addEventListener("message", onMessage);
-    return () => navigator.serviceWorker.removeEventListener("message", onMessage);
-  }, [orderId, scheduleReadyStartBurst, tryStartReadyAlert]);
-
-  useEffect(() => {
-    const retryPendingAlert = () => {
-      const pendingEventId = pendingReadyEventRef.current;
-      if (pendingEventId && !endedRef.current) {
-        scheduleReadyStartBurst(pendingEventId);
-      }
-    };
-
-    window.addEventListener("focus", retryPendingAlert);
-    window.addEventListener("pageshow", retryPendingAlert);
-    document.addEventListener("visibilitychange", retryPendingAlert);
-    return () => {
-      window.removeEventListener("focus", retryPendingAlert);
-      window.removeEventListener("pageshow", retryPendingAlert);
-      document.removeEventListener("visibilitychange", retryPendingAlert);
-    };
-  }, [scheduleReadyStartBurst]);
-
+    return () =>
+      navigator.serviceWorker.removeEventListener("message", onMessage);
+  }, []);
   const requestWakeLock = useCallback(async () => {
     try {
       const navigatorWithWakeLock = navigator as NavigatorWithWakeLock;
@@ -681,11 +362,10 @@ export default function SuccessPage() {
 
     return () => {
       document.removeEventListener("visibilitychange", onVisibility);
-      clearReadyStartRetries();
-      stopReadyAlert(readyTimeoutIdsRef.current, true);
+      stopReadyAlert(readyTimeoutIdsRef.current);
       void releaseWakeLock();
     };
-  }, [clearReadyStartRetries, releaseWakeLock, requestWakeLock]);
+  }, [releaseWakeLock, requestWakeLock]);
 
   useEffect(() => {
     if (!orderId || ended) return;
@@ -721,20 +401,16 @@ export default function SuccessPage() {
           }
 
           const readyEventId = String(data.readyEventId || "").trim();
-          const isNewReadyEvent =
-            Boolean(readyEventId) && lastReadyEventRef.current !== readyEventId;
 
-          // Fertig atlanıp doğrudan Ausgegeben seçildiğinde status "done" olur,
-          // fakat readyEventId yine üretilir. Ses yalnız status=ready şartına bağlı
-          // kalmaz; yeni olay görüldüğü anda bir kez çalar.
-          if (isNewReadyEvent) {
-            pendingReadyEventRef.current = readyEventId;
-            if (
-              data.liveReadyAlertEnabled !== false &&
-              document.visibilityState === "visible"
-            ) {
-              scheduleReadyStartBurst(readyEventId);
-            }
+          // readyEventId, Fertig atlanıp doğrudan Ausgegeben seçildiğinde de
+          // üretilebilir. Olay yeniyse status değerinden bağımsız bir kez çal.
+          if (
+            readyEventId &&
+            lastReadyEventRef.current !== readyEventId &&
+            data.liveReadyAlertEnabled !== false
+          ) {
+            lastReadyEventRef.current = readyEventId;
+            playReadyAlert(readyTimeoutIdsRef.current);
           }
 
           if (data.status === "ready") {
@@ -743,17 +419,12 @@ export default function SuccessPage() {
               data.liveReadyAlertEnabled !== false &&
               !legacyReadyActiveRef.current
             ) {
-              // Eski siparişlerde readyEventId yoksa status geçişini kullan.
               legacyReadyActiveRef.current = true;
-              pendingReadyEventRef.current = `legacy:${orderId}`;
-              if (document.visibilityState === "visible") {
-                scheduleReadyStartBurst(pendingReadyEventRef.current);
-              }
+              playReadyAlert(readyTimeoutIdsRef.current);
             }
           } else {
             legacyReadyActiveRef.current = false;
-          }
-        } else if (response.status !== 401) {
+          }        } else if (response.status !== 401) {
           setStatusError(true);
         }
       } catch {
@@ -771,7 +442,7 @@ export default function SuccessPage() {
       cancelled = true;
       if (timer !== null) window.clearTimeout(timer);
     };
-  }, [ended, orderId, scheduleReadyStartBurst]);
+  }, [ended, orderId]);
 
   const finish = useCallback(() => {
     endedRef.current = true;
@@ -786,14 +457,9 @@ export default function SuccessPage() {
       // The order marker was already cleared when storage is unavailable.
     }
 
-    pendingReadyEventRef.current = "";
-    clearReadyStartRetries();
-    readyAlertRunningRef.current = false;
-    readyAlertAttemptRef.current = null;
-    stopReadyAlert(readyTimeoutIdsRef.current, true);
+    stopReadyAlert(readyTimeoutIdsRef.current);
     void releaseWakeLock();
-  }, [clearReadyStartRetries, orderId, releaseWakeLock]);
-
+  }, [orderId, releaseWakeLock]);
   if (ended) {
     return (
       <main className="grid min-h-dvh place-items-center bg-stone-950 p-6 text-white">
