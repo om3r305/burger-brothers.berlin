@@ -44,7 +44,7 @@ type AudioWindow = Window &
   typeof globalThis & {
     __bbSchnellReadyAudioContext?: AudioContext;
     __bbSchnellReadyMedia?: HTMLAudioElement;
-    __bbSchnellReadyStopWebAudio?: () => void;
+    __bbSchnellReadyAlertGeneration?: number;
   };
 
 function getReadyMediaElement() {
@@ -126,20 +126,19 @@ async function playReadyMediaRound(media: HTMLAudioElement) {
 }
 
 function stopReadyAlert(timeoutIds: Set<number>) {
+  const audioWindow = window as AudioWindow;
+  audioWindow.__bbSchnellReadyAlertGeneration =
+    (audioWindow.__bbSchnellReadyAlertGeneration || 0) + 1;
+
   timeoutIds.forEach((timeoutId) => window.clearTimeout(timeoutId));
   timeoutIds.clear();
 
   try {
-    const audioWindow = window as AudioWindow;
     const media = audioWindow.__bbSchnellReadyMedia;
     if (media) {
       media.pause();
       media.currentTime = 0;
     }
-    audioWindow.__bbSchnellReadyStopWebAudio?.();
-    audioWindow.__bbSchnellReadyStopWebAudio = undefined;
-    // Previously unlocked Web Audio contexts stay running while this success
-    // page is active. Suspending here can re-lock audio on mobile PWAs.
   } catch {
     // Audio cleanup is best-effort.
   }
@@ -153,116 +152,46 @@ function stopReadyAlert(timeoutIds: Set<number>) {
 
 async function playReadyAlert(timeoutIds: Set<number>) {
   stopReadyAlert(timeoutIds);
-  let started = false;
+  const audioWindow = window as AudioWindow;
+  const generation = audioWindow.__bbSchnellReadyAlertGeneration || 0;
 
   try {
     const media = getReadyMediaElement();
     const mediaStarted = await playReadyMediaRound(media);
-    started = mediaStarted || started;
+    if (!mediaStarted) return false;
 
-    // Repeated rounds are only scheduled after the first audible play() was
-    // accepted. A blocked iOS autoplay must not create hidden pending timers
-    // that suddenly start when the customer presses "Bestellung beenden".
-    if (mediaStarted) {
-      [1600, 3200, 4800, 6400, 8000].forEach((delay) => {
-        const timeoutId = window.setTimeout(() => {
-          timeoutIds.delete(timeoutId);
-          void playReadyMediaRound(media);
-        }, delay);
-        timeoutIds.add(timeoutId);
-      });
-    }
-  } catch {
-    // Web Audio fallback below may still run.
-  }
-
-  try {
-    const audioWindow = window as AudioWindow;
-    const AudioContextClass =
-      window.AudioContext ||
-      (window as typeof window & { webkitAudioContext?: typeof AudioContext })
-        .webkitAudioContext;
-    if (AudioContextClass) {
-      const context =
-        audioWindow.__bbSchnellReadyAudioContext || new AudioContextClass();
-      audioWindow.__bbSchnellReadyAudioContext = context;
-
-      if (context.state === "suspended") {
-        // Do not leave a resume().then(schedule) callback pending. On iOS that
-        // callback can otherwise fire on the later finish-button gesture.
-        await Promise.race([
-          context.resume().catch(() => undefined),
-          new Promise<void>((resolve) => window.setTimeout(resolve, 280)),
-        ]);
-      }
-
-      if (context.state === "running") {
-        const sources: OscillatorNode[] = [];
-        const nodes: AudioNode[] = [];
-        const compressor = context.createDynamicsCompressor();
-        compressor.threshold.value = -24;
-        compressor.knee.value = 8;
-        compressor.ratio.value = 12;
-        compressor.attack.value = 0.002;
-        compressor.release.value = 0.18;
-
-        const master = context.createGain();
-        master.gain.value = 1;
-        compressor.connect(master);
-        master.connect(context.destination);
-        nodes.push(compressor, master);
-
-        const roundOffsets = [0, 1.45, 2.9, 4.35, 5.8, 7.25];
-        const notes = [988, 1318, 1568, 1318, 1760, 2093];
-
-        roundOffsets.forEach((roundOffset) => {
-          notes.forEach((frequency, index) => {
-            const start = context.currentTime + roundOffset + index * 0.16;
-            const oscillator = context.createOscillator();
-            const gain = context.createGain();
-            oscillator.type = index % 2 === 0 ? "square" : "sawtooth";
-            oscillator.frequency.setValueAtTime(frequency, start);
-            gain.gain.setValueAtTime(0.0001, start);
-            gain.gain.exponentialRampToValueAtTime(0.96, start + 0.012);
-            gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.13);
-            oscillator.connect(gain);
-            gain.connect(compressor);
-            oscillator.start(start);
-            oscillator.stop(start + 0.15);
-            sources.push(oscillator);
-            nodes.push(gain);
-          });
+    // The customer-ready sound keeps repeating until "Bestellung beenden".
+    // Timers are tracked and synchronously cleared by stopReadyAlert().
+    const scheduleNextRound = () => {
+      if (
+        audioWindow.__bbSchnellReadyAlertGeneration !== generation
+      ) return;
+      const timeoutId = window.setTimeout(() => {
+        timeoutIds.delete(timeoutId);
+        if (
+          audioWindow.__bbSchnellReadyAlertGeneration !== generation
+        ) return;
+        void playReadyMediaRound(media).then((played) => {
+          if (
+            played &&
+            audioWindow.__bbSchnellReadyAlertGeneration === generation
+          ) scheduleNextRound();
         });
+      }, 1_800);
+      timeoutIds.add(timeoutId);
+    };
+    scheduleNextRound();
 
-        audioWindow.__bbSchnellReadyStopWebAudio = () => {
-          for (const source of sources) {
-            try { source.stop(); } catch {}
-            try { source.disconnect(); } catch {}
-          }
-          for (const node of nodes) {
-            try { node.disconnect(); } catch {}
-          }
-        };
-        started = true;
-      }
-    }
-  } catch {
-    // Audio is best-effort. Visual ready state still works.
-  }
-
-  if (started) {
     try {
-      navigator.vibrate?.([
-        650, 120, 650, 140, 950, 240,
-        650, 120, 650, 140, 950, 240,
-        800, 140, 800, 140, 1200,
-      ]);
+      navigator.vibrate?.([650, 120, 650, 140, 950]);
     } catch {
       // Vibration is not available on every browser (including iOS Safari).
     }
-  }
 
-  return started;
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export default function SuccessPage() {
@@ -279,7 +208,6 @@ export default function SuccessPage() {
   const [statusError, setStatusError] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [appReadyNotifications, setAppReadyNotifications] = useState(false);
-  const [readySoundBlocked, setReadySoundBlocked] = useState(false);
   const [reward, setReward] = useState<SchnellRewardPublic | null>(null);
   const [rewardVisible, setRewardVisible] = useState(false);
   const rewardShownRef = useRef(false);
@@ -314,12 +242,10 @@ export default function SuccessPage() {
         lastReadyEventRef.current = normalizedEventId;
         pendingReadyEventRef.current = "";
         readyAlertRunningRef.current = true;
-        setReadySoundBlocked(false);
         return true;
       }
 
       readyAlertRunningRef.current = false;
-      if (!endedRef.current) setReadySoundBlocked(true);
       return false;
     })();
 
@@ -678,7 +604,6 @@ export default function SuccessPage() {
     pendingReadyEventRef.current = "";
     readyAlertRunningRef.current = false;
     readyAlertAttemptRef.current = null;
-    setReadySoundBlocked(false);
     stopReadyAlert(readyTimeoutIdsRef.current);
     void releaseWakeLock();
   }, [orderId, releaseWakeLock]);
@@ -806,22 +731,6 @@ export default function SuccessPage() {
               Ausgabe zu bezahlen. Vielen Dank!
             </p>
           </div>
-        ) : null}
-
-        {readySoundBlocked && terminal ? (
-          <button
-            type="button"
-            onClick={() => {
-              void primeReadyAudioChannel().then(() =>
-                tryStartReadyAlert(
-                  pendingReadyEventRef.current || `ready:${orderId}`,
-                ),
-              );
-            }}
-            className="mx-auto mt-6 rounded-full border border-amber-300/50 bg-amber-300/15 px-5 py-3 font-black text-amber-100"
-          >
-            Ton einschalten
-          </button>
         ) : null}
 
         {statusError ? (

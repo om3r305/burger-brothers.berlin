@@ -267,9 +267,10 @@ async function postOrder(port, order) {
     const kitchen = printableText(kitchenBuffer);
     const textFontA = Buffer.from([0x1b, 0x4d, 0x00]);
     const normalLineSpacing = Buffer.from([0x1b, 0x33, 0x24]);
-    const emphasizedLineSpacing = Buffer.from([0x1b, 0x33, 0x32]);
+    const productLineSpacing = Buffer.from([0x1b, 0x33, 0x26]);
     const textFontB = Buffer.from([0x1b, 0x4d, 0x01]);
-    const wallReadableText = Buffer.from([0x1d, 0x21, 0x11]);
+    const wideSingleHeightText = Buffer.from([0x1d, 0x21, 0x10]);
+    const oversizedText = Buffer.from([0x1d, 0x21, 0x11]);
     const doubleStrikeOn = Buffer.from([0x1b, 0x47, 0x01]);
     assert.ok(
       countSequence(kitchenBuffer, textFontA) >= 1,
@@ -280,20 +281,25 @@ async function postOrder(port, order) {
       'Schnell kitchen receipt must restore readable 36-dot line spacing',
     );
     assert.ok(
-      countSequence(kitchenBuffer, emphasizedLineSpacing) >= 2,
-      'Schnell kitchen category and product rows must use intermediate 50-dot spacing',
+      countSequence(kitchenBuffer, productLineSpacing) >= 1,
+      'Schnell kitchen product rows must use readable 38-dot spacing',
     );
     assert.ok(
-      countSequence(kitchenBuffer, textFontB) >= 2,
-      'Schnell kitchen category and product rows must use intermediate Font B',
+      countSequence(kitchenBuffer, textFontB) >= 1,
+      'Schnell kitchen product rows must use wide Font B',
     );
     assert.ok(
-      countSequence(kitchenBuffer, wallReadableText) >= 2,
-      'Schnell kitchen category and product rows must use readable 2x text',
+      countSequence(kitchenBuffer, wideSingleHeightText) >= 1,
+      'Schnell kitchen product/footer rows must use wide single-height text',
+    );
+    assert.equal(
+      countSequence(kitchenBuffer, oversizedText),
+      0,
+      'oversized 2x2 kitchen text must not return',
     );
     assert.ok(
-      countSequence(kitchenBuffer, doubleStrikeOn) >= 2,
-      'Schnell kitchen category and product rows must be visibly thicker',
+      countSequence(kitchenBuffer, doubleStrikeOn) >= 1,
+      'Schnell kitchen product and extra rows must stay visibly thicker',
     );
 
     assert.match(cash, /Berliner Str\. 9/);

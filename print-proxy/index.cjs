@@ -1390,8 +1390,8 @@ function pushSchnellKitchenPricedLine(out, label, amount, options={}){
 }
 
 function pushSchnellKitchenHeroPricedLine(out, label, amount){
-  // Font B at 2x2 creates an intermediate wall-readable size: clearly larger
-  // than normal Font A, but noticeably smaller than the oversized Font A 2x2.
+  // Product rows use a wide but single-height Font B. This keeps them clearly
+  // stronger than extras without the oversized, crowded 2x2 appearance.
   // At 80 mm it provides about 28 usable double-width columns.
   const bigWidth = 28;
   const left = String(label || '').trim();
@@ -1399,7 +1399,7 @@ function pushSchnellKitchenHeroPricedLine(out, label, amount){
   const maxLeftWithPrice = Math.max(6, bigWidth - right.length - 1);
   const wrapped = wrapLines('', left, left.length <= maxLeftWithPrice ? maxLeftWithPrice : bigWidth);
 
-  out.push(fontSel(1), lineSpace(50), size(2,2), bold(1), doubleStrike(1));
+  out.push(fontSel(1), lineSpace(38), size(2,1), bold(1), doubleStrike(1));
 
   if (wrapped.length === 1 && left.length <= maxLeftWithPrice) {
     const spaces = Math.max(1, bigWidth - wrapped[0].length - right.length);
@@ -1435,15 +1435,15 @@ function pushSchnellKitchenItem(out, item, ctx){
       const amount = Math.max(0, num(extra?.price)) * qty;
       if (!label) continue;
       if (amount > 0.009) {
-        pushSchnellKitchenPricedLine(out, `   + ${label}`, signedMoneyDe(amount));
+        pushSchnellKitchenPricedLine(out, `   + ${label}`, signedMoneyDe(amount), { boldText:true });
       } else {
-        pushSchnellKitchenWrapped(out, '   + ', label);
+        pushSchnellKitchenWrapped(out, '   + ', label, { boldText:true });
       }
       continue;
     }
 
     const extraName = upperReceipt(cleanName(extra?.label || extra?.name || 'Extra'));
-    if (extraName) pushSchnellKitchenWrapped(out, '   + ', extraName);
+    if (extraName) pushSchnellKitchenWrapped(out, '   + ', extraName, { boldText:true });
   }
 
   for (const removed of Array.isArray(item?.rm) ? item.rm : []){
@@ -1483,27 +1483,22 @@ function buildSchnellKitchenTicket(o){
 
   for (const group of kitchenGroupOrder([...grouped.keys()])){
     out.push(
-      fontSel(1),
-      lineSpace(50),
-      size(2,2),
-      bold(1),
-      doubleStrike(1),
+      fontSel(0),
+      lineSpace(36),
+      size(1,1),
+      bold(0),
+      doubleStrike(0),
       underline(1),
       text(upperReceipt(group)),
       underline(0),
-      doubleStrike(0),
-      bold(0),
-      size(1,1),
-      fontSel(0),
-      lineSpace(36),
       text(''),
     );
     for (const item of grouped.get(group)) pushSchnellKitchenItem(out, item, ctx);
   }
 
   if (ctx.customerNumber > 0){
-    out.push(align(1), bold(1), size(2,2), text(String(ctx.customerNumber)), size(1,1));
-    if (ctx.isTakeaway) out.push(size(2,2), text('ZUM MITNEHMEN'), size(1,1));
+    out.push(align(1), bold(1), size(2,1), text(String(ctx.customerNumber)), size(1,1));
+    if (ctx.isTakeaway) out.push(text('ZUM MITNEHMEN'));
     out.push(bold(0), align(0));
   }
 

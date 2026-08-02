@@ -25,13 +25,13 @@ assert.match(kitchenBlock, /fontSel\(0\)/, 'real ESC/POS text Font A must be sel
 assert.match(proxy, /const doubleStrike = on=> Buffer\.from\(\[ESC,0x47,on\?1:0\]\)/, 'double-strike helper missing');
 assert.match(
   kitchenHelpers,
-  /fontSel\(1\), lineSpace\(50\), size\(2,2\), bold\(1\), doubleStrike\(1\)/,
-  'main product rows must use wall-readable 2x bold text',
+  /fontSel\(1\), lineSpace\(38\), size\(2,1\), bold\(1\), doubleStrike\(1\)/,
+  'main product rows must use readable wide single-height bold text',
 );
 assert.match(
   kitchenBlock,
-  /fontSel\(1\)[\s\S]*lineSpace\(50\)[\s\S]*size\(2,2\)[\s\S]*underline\(1\)[\s\S]*upperReceipt\(group\)/,
-  'category headings must be wall-readable, bold and underlined',
+  /fontSel\(0\)[\s\S]*size\(1,1\)[\s\S]*bold\(0\)[\s\S]*underline\(1\)[\s\S]*upperReceipt\(group\)/,
+  'category headings must be smaller, regular-weight and underlined',
 );
 assert.match(
   kitchenHelpers,
@@ -39,6 +39,7 @@ assert.match(
   'font and line spacing must reset after emphasized rows',
 );
 assert.match(proxy, /pushSchnellKitchenPricedLine/, 'controlled price wrapping helper missing');
+assert.match(kitchenHelpers, /pushSchnellKitchenWrapped\(out, '   \+ ', extraName, \{ boldText:true \}\)/, 'extras must stay normal-size but bold');
 
 assert.match(
   statusRoute,

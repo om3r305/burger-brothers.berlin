@@ -25,34 +25,44 @@ assert.match(
 );
 assert.match(
   kitchen,
-  /fontSel\(1\)[\s\S]*lineSpace\(50\)[\s\S]*size\(2,2\)[\s\S]*underline\(1\)[\s\S]*upperReceipt\(group\)[\s\S]*fontSel\(0\)/,
-  'group headings must use intermediate Font B 2x2 and restore Font A',
+  /fontSel\(0\)[\s\S]*size\(1,1\)[\s\S]*bold\(0\)[\s\S]*underline\(1\)[\s\S]*upperReceipt\(group\)/,
+  'group headings must be smaller, regular-weight and underlined',
 );
 assert.match(
   kitchenHelpers,
-  /function pushSchnellKitchenHeroPricedLine[\s\S]*const bigWidth = 28;[\s\S]*fontSel\(1\), lineSpace\(50\), size\(2,2\), bold\(1\), doubleStrike\(1\)[\s\S]*fontSel\(0\)/,
-  'main products must use intermediate thick Font B 2x2 text',
+  /function pushSchnellKitchenHeroPricedLine[\s\S]*const bigWidth = 28;[\s\S]*fontSel\(1\), lineSpace\(38\), size\(2,1\), bold\(1\), doubleStrike\(1\)[\s\S]*fontSel\(0\)/,
+  'main products must use wide single-height bold Font B text',
 );
 assert.doesNotMatch(
   kitchenHelpers,
-  /pushSchnellKitchenHeroPricedLine[\s\S]*lineSpace\(64\), size\(2,2\)/,
-  'oversized Font A wall text must not return',
+  /pushSchnellKitchenHeroPricedLine[\s\S]*size\(2,2\)/,
+  'oversized 2x2 product text must not return',
 );
 assert.match(
+  kitchenHelpers,
+  /pushSchnellKitchenWrapped\(out, '   \+ ', extraName, \{ boldText:true \}\)/,
+  'extras must stay normal-size and become bold',
+);
+assert.match(
+  kitchen,
+  /size\(2,1\), text\(String\(ctx\.customerNumber\)\)[\s\S]*text\('ZUM MITNEHMEN'\)/,
+  'customer number and takeaway label must use the reduced footer size',
+);
+assert.doesNotMatch(
   kitchen,
   /size\(2,2\), text\(String\(ctx\.customerNumber\)\)/,
-  'customer number must stay at reduced 2x size',
-);
-assert.doesNotMatch(
-  kitchen,
-  /size\(3,3\), text\(String\(ctx\.customerNumber\)\)/,
-  'old oversized customer number must not return',
+  'oversized customer number must not return',
 );
 
 assert.match(
   serviceWorker,
-  /notificationclick[\s\S]*readyOpen[\s\S]*readyEventId[\s\S]*BB_SCHNELL_NOTIFICATION_OPEN/,
-  'notification click must carry the ready event into the opened success page',
+  /notificationclick[\s\S]*pathname !== "\/schnellbestellung\/success"[\s\S]*client\.postMessage\(openMessage\)[\s\S]*await client\.focus\(\)[\s\S]*client\.postMessage\(openMessage\)/,
+  'notification click must focus the waiting success page without navigating it',
+);
+assert.match(
+  serviceWorker,
+  /Navigation reloads the document and destroys the audio channel/,
+  'service worker must document the iOS audio-channel preservation rule',
 );
 assert.match(
   successPage,
@@ -66,23 +76,23 @@ assert.match(
 );
 assert.match(
   successPage,
-  /await Promise\.race\([\s\S]*context\.resume\(\)[\s\S]*280/,
-  'blocked Web Audio resume must not remain pending until the finish button',
-);
-assert.match(
-  successPage,
-  /__bbSchnellReadyStopWebAudio[\s\S]*source\.stop\(\)[\s\S]*node\.disconnect\(\)/,
-  'scheduled Web Audio nodes must be stoppable by Bestellung beenden',
+  /scheduleNextRound[\s\S]*__bbSchnellReadyAlertGeneration[\s\S]*1_800/,
+  'ready sound must repeat automatically with a stop-safe generation guard',
 );
 assert.match(
   successPage,
   /data-schnell-finish="true"[\s\S]*onClick=\{finish\}/,
-  'finish button must be excluded from sound-unlock fallback and stop the alert',
+  'Bestellung beenden must stop the active alert',
 );
-assert.match(
+assert.doesNotMatch(
   successPage,
-  /readySoundBlocked[\s\S]*Ton einschalten/,
-  'iOS autoplay rejection must have an explicit sound activation fallback',
+  /Ton einschalten|readySoundBlocked/,
+  'manual sound button must be removed',
+);
+assert.doesNotMatch(
+  successPage,
+  /__bbSchnellReadyStopWebAudio|createDynamicsCompressor|oscillator\.type =/,
+  'synthetic delayed Web Audio alert must be removed',
 );
 
-console.log('Schnell tuned ticket / notification-open sound regression tests: OK');
+console.log('Schnell final ticket / notification-click sound regression tests: OK');
