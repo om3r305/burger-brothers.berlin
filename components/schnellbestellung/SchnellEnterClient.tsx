@@ -687,22 +687,14 @@ export default function SchnellEnterClient({ token }: { token: string }) {
       setInstalledHint(marker);
       installSchnellManifest();
 
-      // Android must use the installed Home Screen app. A valid restaurant QR
-      // is still checked by the server before the install gate is shown. Direct
-      // menu URLs use androidInstall=1 and are redirected here without creating
-      // a browser session.
+      // Android browser QR entries now use the proven main installer page.
+      // The installed standalone app still continues to the secure QR scanner.
       if (!isStandalone && isAndroid) {
-        if (installOnly && !token) {
-          setProblem(null);
-          setCanRetry(false);
-          setMessage("");
-          setBusyState(false);
-          setScreen("android_install");
-          return;
-        }
-
-        busyRef.current = false;
-        await start(token, { navigate: false });
+        const installUrl = new URL("/install", window.location.origin);
+        installUrl.searchParams.set("schnell", "1");
+        window.location.replace(
+          `${installUrl.pathname}${installUrl.search}`,
+        );
         return;
       }
 

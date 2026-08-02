@@ -85,7 +85,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 (function () {
   try {
     if (location.pathname !== "/install") return;
-    if (new URLSearchParams(location.search).get("settings") === "1") return;
+    var installParams = new URLSearchParams(location.search);
+    if (
+      installParams.get("settings") === "1" ||
+      installParams.get("schnell") === "1"
+    ) return;
 
     var decisionKey = "bb_notification_prompt_decision_v1";
     var legacyKey = "bb_general_install_done_v1";
