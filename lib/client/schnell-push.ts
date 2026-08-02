@@ -53,6 +53,23 @@ function pushWindow() {
   return window as SchnellPushWindow;
 }
 
+function bufferSourceBytes(value: BufferSource | null | undefined) {
+  if (!value) return null;
+  if (value instanceof ArrayBuffer) return new Uint8Array(value);
+  return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+}
+
+function subscriptionUsesPublicKey(
+  subscription: PushSubscription,
+  publicKey: string,
+) {
+  const actual = bufferSourceBytes(subscription.options?.applicationServerKey);
+  if (!actual) return true;
+  const expected = base64UrlToUint8Array(publicKey);
+  if (actual.length !== expected.length) return false;
+  return actual.every((byte, index) => byte === expected[index]);
+}
+
 async function fetchWithTimeout(
   input: RequestInfo | URL,
   init: RequestInit,
@@ -149,7 +166,19 @@ async function getOrCreateSubscription(
     "subscription_timeout",
   );
 
-  if (existing) return existing;
+  if (existing && subscriptionUsesPublicKey(existing, publicKey)) {
+    return existing;
+  }
+
+  if (existing) {
+    // VAPID anahtarı değiştiyse tarayıcı eski subscription'ı döndürmeye devam
+    // eder. Eski anahtarla bağlı endpoint'e yeni anahtarla push gönderilemez.
+    await withPwaStepTimeout(
+      existing.unsubscribe(),
+      Math.min(timeoutMs, 5_000),
+      "subscription_timeout",
+    ).catch(() => false);
+  }
 
   try {
     return await withPwaStepTimeout(
@@ -167,7 +196,9 @@ async function getOrCreateSubscription(
       "subscription_timeout",
     ).catch(() => null);
 
-    if (recovered) return recovered;
+    if (recovered && subscriptionUsesPublicKey(recovered, publicKey)) {
+      return recovered;
+    }
     throw error;
   }
 }

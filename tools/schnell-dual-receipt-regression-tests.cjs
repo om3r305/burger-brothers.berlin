@@ -266,20 +266,29 @@ async function postOrder(port, order) {
     const cash = printableText(cashBuffer);
     const kitchen = printableText(kitchenBuffer);
     const textFontA = Buffer.from([0x1b, 0x4d, 0x00]);
-    const readableLineSpacing = Buffer.from([0x1b, 0x33, 0x24]);
-    const verticalOnlyDoubleHeight = Buffer.from([0x1d, 0x21, 0x01]);
+    const normalLineSpacing = Buffer.from([0x1b, 0x33, 0x24]);
+    const emphasizedLineSpacing = Buffer.from([0x1b, 0x33, 0x34]);
+    const oneStepLargerText = Buffer.from([0x1d, 0x21, 0x01]);
+    const doubleStrikeOn = Buffer.from([0x1b, 0x47, 0x01]);
     assert.ok(
       countSequence(kitchenBuffer, textFontA) >= 1,
       'Schnell kitchen receipt must select real ESC/POS text Font A',
     );
     assert.ok(
-      countSequence(kitchenBuffer, readableLineSpacing) >= 1,
-      'Schnell kitchen receipt must use readable 36-dot line spacing',
+      countSequence(kitchenBuffer, normalLineSpacing) >= 1,
+      'Schnell kitchen receipt must restore readable 36-dot line spacing',
     );
-    assert.equal(
-      countSequence(kitchenBuffer, verticalOnlyDoubleHeight),
-      0,
-      'Schnell kitchen body must not use vertically stretched 1x2 text',
+    assert.ok(
+      countSequence(kitchenBuffer, emphasizedLineSpacing) >= 2,
+      'Schnell kitchen category and product rows must reserve 52-dot spacing',
+    );
+    assert.ok(
+      countSequence(kitchenBuffer, oneStepLargerText) >= 2,
+      'Schnell kitchen category and product rows must be one step larger',
+    );
+    assert.ok(
+      countSequence(kitchenBuffer, doubleStrikeOn) >= 2,
+      'Schnell kitchen category and product rows must be visibly thicker',
     );
 
     assert.match(cash, /Berliner Str\. 9/);

@@ -1,11 +1,24 @@
 self.addEventListener("install", () => self.skipWaiting());
-self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));
+self.addEventListener("activate", (event) => {
+  event.waitUntil(
+    Promise.all([
+      self.clients.claim(),
+      caches.keys().then((keys) =>
+        Promise.all(
+          keys
+            .filter((key) => key.startsWith("bb-push-state-") && key !== PUSH_STATE_CACHE)
+            .map((key) => caches.delete(key)),
+        ),
+      ),
+    ]),
+  );
+});
 
 // Checkout/session verileri uygulamanın kendi cache katmanında yönetilir.
 // Service Worker bilinçli olarak fetch cevabı cache'lemez.
 self.addEventListener("fetch", () => {});
 
-const PUSH_STATE_CACHE = "bb-push-state-v2";
+const PUSH_STATE_CACHE = "bb-push-state-v3";
 
 function stateKey(eventId) {
   return `/__bb_push_seen__/${encodeURIComponent(String(eventId || ""))}`;
@@ -28,29 +41,38 @@ async function markSeen(eventId) {
   );
 }
 
-async function loadGeneralEvents() {
-  const response = await fetch("/api/push/pending", {
-    method: "GET",
-    credentials: "include",
-    cache: "no-store",
-    headers: { accept: "application/json" },
-  });
+async function fetchJsonWithTimeout(url, timeoutMs = 4_500) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(
+    () => controller.abort(),
+    Math.max(1_500, Number(timeoutMs) || 4_500),
+  );
 
-  if (!response.ok) return [];
-  const data = await response.json().catch(() => ({}));
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      credentials: "include",
+      cache: "no-store",
+      headers: { accept: "application/json" },
+      signal: controller.signal,
+    });
+    if (!response.ok) return null;
+    return await response.json().catch(() => null);
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function loadGeneralEvents() {
+  const data = await fetchJsonWithTimeout("/api/push/pending");
   return data && data.ok && Array.isArray(data.events) ? data.events : [];
 }
 
 async function loadSchnellReadyEvent() {
-  const response = await fetch("/api/schnellbestellung/push?pending=1", {
-    method: "GET",
-    credentials: "include",
-    cache: "no-store",
-    headers: { accept: "application/json" },
-  });
-
-  if (!response.ok) return null;
-  const data = await response.json().catch(() => ({}));
+  const data = await fetchJsonWithTimeout(
+    "/api/schnellbestellung/push?pending=1",
+    3_500,
+  );
   return data && data.ok ? data.event || null : null;
 }
 
@@ -165,20 +187,24 @@ async function showSchnellReadyEvent(readyEvent) {
 self.addEventListener("push", (pushEvent) => {
   pushEvent.waitUntil(
     (async () => {
-      // Genel bildirim ve Schnellbestellung aynı VAPID altyapısını paylaşır.
-      // Her ikisi de kontrol edilir; dedupe cache aynı olayı iki kez göstermez.
-      const [generalEvents, schnellEvent] = await Promise.all([
-        loadGeneralEvents().catch(() => []),
-        loadSchnellReadyEvent().catch(() => null),
-      ]);
+      // Schnellbestellung eski çalışan sürümde yalnız kendi pending endpoint'ini
+      // bekliyordu. Genel bildirim endpoint'i yavaşlasa bile hazır sipariş
+      // bildirimi artık onu beklemez; iki iş bağımsız çalışır.
+      const schnellTask = (async () => {
+        const schnellEvent = await loadSchnellReadyEvent().catch(() => null);
+        if (schnellEvent) {
+          await showSchnellReadyEvent(schnellEvent).catch(() => undefined);
+        }
+      })();
 
-      for (const event of generalEvents.slice(0, 10)) {
-        await showGeneralEvent(event).catch(() => undefined);
-      }
+      const generalTask = (async () => {
+        const generalEvents = await loadGeneralEvents().catch(() => []);
+        for (const event of generalEvents.slice(0, 10)) {
+          await showGeneralEvent(event).catch(() => undefined);
+        }
+      })();
 
-      if (schnellEvent) {
-        await showSchnellReadyEvent(schnellEvent).catch(() => undefined);
-      }
+      await Promise.allSettled([schnellTask, generalTask]);
     })(),
   );
 });

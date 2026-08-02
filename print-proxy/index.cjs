@@ -262,6 +262,7 @@ const LINE = 42; // 80mm, font A
 const init      = () => Buffer.from([ESC,0x40]);
 const align     = n => Buffer.from([ESC,0x61,n]);
 const bold      = on=> Buffer.from([ESC,0x45,on?1:0]);
+const doubleStrike = on=> Buffer.from([ESC,0x47,on?1:0]);
 const underline = on=> Buffer.from([ESC,0x2D,on?1:0]);
 const CUT_ENABLED = String(process.env.CUT_ENABLED || '1') === '1';
 const CUT_FEED_LINES = Number(process.env.CUT_FEED_LINES || 8);
@@ -1383,9 +1384,20 @@ function pushSchnellKitchenWrapped(out, prefix, value, options={}){
 }
 
 function pushSchnellKitchenPricedLine(out, label, amount, options={}){
-  if (options.boldText) out.push(bold(1));
+  const emphasize = options.emphasize === true;
+  if (emphasize) {
+    out.push(lineSpace(52), size(1,2), bold(1), doubleStrike(1));
+  } else if (options.boldText) {
+    out.push(bold(1), doubleStrike(1));
+  }
+
   pushSchnellPricedLine(out, label, amount);
-  if (options.boldText) out.push(bold(0));
+
+  if (emphasize) {
+    out.push(doubleStrike(0), bold(0), size(1,1), lineSpace(36));
+  } else if (options.boldText) {
+    out.push(doubleStrike(0), bold(0));
+  }
 }
 
 function pushSchnellKitchenItem(out, item, ctx){
@@ -1397,7 +1409,7 @@ function pushSchnellKitchenItem(out, item, ctx){
     out,
     `${qty}x ${itemName}`,
     priceText,
-    { boldText:true },
+    { boldText:true, emphasize:true },
   );
 
   const doneness = receiptDonenessLabel(item);
@@ -1460,11 +1472,17 @@ function buildSchnellKitchenTicket(o){
 
   for (const group of kitchenGroupOrder([...grouped.keys()])){
     out.push(
+      lineSpace(52),
+      size(1,2),
       bold(1),
+      doubleStrike(1),
       underline(1),
       text(upperReceipt(group)),
       underline(0),
+      doubleStrike(0),
       bold(0),
+      size(1,1),
+      lineSpace(36),
       text(''),
     );
     for (const item of grouped.get(group)) pushSchnellKitchenItem(out, item, ctx);

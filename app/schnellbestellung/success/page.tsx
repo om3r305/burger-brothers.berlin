@@ -58,6 +58,59 @@ function getReadyMediaElement() {
   return media;
 }
 
+async function primeReadyAudioChannel() {
+  let primed = false;
+
+  try {
+    const audioWindow = window as AudioWindow;
+    const AudioContextClass =
+      window.AudioContext ||
+      (window as typeof window & { webkitAudioContext?: typeof AudioContext })
+        .webkitAudioContext;
+
+    if (AudioContextClass) {
+      const context =
+        audioWindow.__bbSchnellReadyAudioContext || new AudioContextClass();
+      audioWindow.__bbSchnellReadyAudioContext = context;
+      await context.resume();
+
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      gain.gain.value = 0.00001;
+      oscillator.connect(gain);
+      gain.connect(context.destination);
+      oscillator.start();
+      oscillator.stop(context.currentTime + 0.025);
+      primed = true;
+    }
+  } catch {
+    // HTML media priming below may still succeed.
+  }
+
+  try {
+    const media = getReadyMediaElement();
+    const originalVolume = media.volume;
+    media.volume = 0.001;
+    await media.play();
+    media.pause();
+    media.currentTime = 0;
+    media.volume = originalVolume;
+    primed = true;
+  } catch {
+    // A later real user gesture can retry the unlock.
+  }
+
+  if (primed) {
+    try {
+      window.sessionStorage.setItem("bb_schnell_ready_audio_primed", "1");
+    } catch {
+      // Session storage is optional.
+    }
+  }
+
+  return primed;
+}
+
 function playReadyMediaRound(media: HTMLAudioElement) {
   try {
     media.pause();
@@ -196,6 +249,34 @@ export default function SuccessPage() {
   const wakeLockRef = useRef<WakeLockSentinelLike | null>(null);
   const readyTimeoutIdsRef = useRef(new Set<number>());
 
+  useEffect(() => {
+    let disposed = false;
+
+    function removeUnlockListeners() {
+      window.removeEventListener("pointerdown", unlockAudio);
+      window.removeEventListener("touchend", unlockAudio);
+      window.removeEventListener("keydown", unlockAudio);
+    }
+
+    function unlockAudio() {
+      void primeReadyAudioChannel().then((ok) => {
+        if (ok && !disposed) removeUnlockListeners();
+      });
+    }
+
+    window.addEventListener("pointerdown", unlockAudio, { passive: true });
+    window.addEventListener("touchend", unlockAudio, { passive: true });
+    window.addEventListener("keydown", unlockAudio);
+
+    // Same-window navigation is usually already primed. Re-opened PWAs try once
+    // immediately and then retry on the first real touch/key gesture.
+    void primeReadyAudioChannel();
+
+    return () => {
+      disposed = true;
+      removeUnlockListeners();
+    };
+  }, []);
 
   useEffect(() => {
     if (!orderId) return;
@@ -380,20 +461,29 @@ export default function SuccessPage() {
             setReward(data.reward);
           }
 
-          if (data.status === "ready") {
-            const readyEventId = String(data.readyEventId || "").trim();
+          const readyEventId = String(data.readyEventId || "").trim();
+          const isNewReadyEvent =
+            Boolean(readyEventId) && lastReadyEventRef.current !== readyEventId;
 
+          // Fertig atlanıp doğrudan Ausgegeben seçildiğinde status "done" olur,
+          // fakat readyEventId yine üretilir. Ses yalnız status=ready şartına bağlı
+          // kalmaz; yeni olay görüldüğü anda bir kez çalar.
+          if (isNewReadyEvent) {
+            lastReadyEventRef.current = readyEventId;
             if (data.liveReadyAlertEnabled !== false) {
-              if (readyEventId) {
-                if (lastReadyEventRef.current !== readyEventId) {
-                  lastReadyEventRef.current = readyEventId;
-                  playReadyAlert(readyTimeoutIdsRef.current);
-                }
-              } else if (!legacyReadyActiveRef.current) {
-                // Eski siparişlerde readyEventId yoksa status geçişini kullan.
-                legacyReadyActiveRef.current = true;
-                playReadyAlert(readyTimeoutIdsRef.current);
-              }
+              playReadyAlert(readyTimeoutIdsRef.current);
+            }
+          }
+
+          if (data.status === "ready") {
+            if (
+              !readyEventId &&
+              data.liveReadyAlertEnabled !== false &&
+              !legacyReadyActiveRef.current
+            ) {
+              // Eski siparişlerde readyEventId yoksa status geçişini kullan.
+              legacyReadyActiveRef.current = true;
+              playReadyAlert(readyTimeoutIdsRef.current);
             }
           } else {
             legacyReadyActiveRef.current = false;

@@ -8,24 +8,35 @@ const read = (relative) => fs.readFileSync(path.join(root, relative), 'utf8');
 const proxy = read('print-proxy/index.cjs');
 const statusRoute = read('app/api/orders/status/route.ts');
 const pushServer = read('lib/server/schnell-push.ts');
+const pushClient = read('lib/client/schnell-push.ts');
 const successPage = read('app/schnellbestellung/success/page.tsx');
+const serviceWorker = read('public/sw.js');
 
 const kitchenStart = proxy.indexOf('function buildSchnellKitchenTicket');
 const kitchenEnd = proxy.indexOf('async function buildPrintPayload');
 assert.ok(kitchenStart >= 0 && kitchenEnd > kitchenStart, 'Schnell kitchen ticket block missing');
 const kitchenBlock = proxy.slice(kitchenStart, kitchenEnd);
+const kitchenHelpers = proxy.slice(
+  proxy.indexOf('function pushSchnellKitchenWrapped'),
+  kitchenEnd,
+);
 
 assert.match(kitchenBlock, /fontSel\(0\)/, 'real ESC/POS text Font A must be selected');
-assert.match(kitchenBlock, /lineSpace\(36\)/, 'readable line spacing must be used');
-assert.doesNotMatch(
-  proxy.slice(proxy.indexOf('function pushSchnellKitchenWrapped'), kitchenEnd),
-  /size\(1,\s*options\.height\s*\|\|\s*2\)/,
-  'kitchen body must not vertically stretch every line',
+assert.match(proxy, /const doubleStrike = on=> Buffer\.from\(\[ESC,0x47,on\?1:0\]\)/, 'double-strike helper missing');
+assert.match(
+  kitchenHelpers,
+  /lineSpace\(52\), size\(1,2\), bold\(1\), doubleStrike\(1\)/,
+  'main product rows must use readable one-step larger bold text',
 );
-assert.doesNotMatch(
+assert.match(
   kitchenBlock,
-  /size\(1,\s*2\).*upperReceipt\(group\)/s,
-  'category headings must not be vertically stretched',
+  /lineSpace\(52\)[\s\S]*size\(1,2\)[\s\S]*underline\(1\)[\s\S]*upperReceipt\(group\)/,
+  'category headings must be larger, bold and underlined',
+);
+assert.match(
+  kitchenHelpers,
+  /size\(1,1\), lineSpace\(36\)/,
+  'font and line spacing must reset after emphasized rows',
 );
 assert.match(proxy, /pushSchnellKitchenPricedLine/, 'controlled price wrapping helper missing');
 
@@ -45,7 +56,33 @@ assert.match(
   'Schnell ready push must be attempted before the status response finishes',
 );
 assert.match(pushServer, /timeoutMs = 4_000/, 'bounded push timeout missing');
+
 assert.match(successPage, /retryDelays = \[0, 1_500, 5_000\]/, 'order push binding retries missing');
 assert.match(successPage, /bindWithRetry/, 'push binding retry function missing');
+assert.match(successPage, /primeReadyAudioChannel/, 'foreground audio unlock helper missing');
+assert.match(successPage, /pointerdown[\s\S]*touchend[\s\S]*keydown/, 'audio must retry on a real user gesture');
+assert.match(
+  successPage,
+  /const isNewReadyEvent =[\s\S]*lastReadyEventRef\.current !== readyEventId/,
+  'new ready events must be detected independently of status=ready',
+);
+assert.match(
+  successPage,
+  /if \(isNewReadyEvent\)[\s\S]*playReadyAlert/,
+  'Fertig or direct Ausgegeben must trigger foreground sound once',
+);
 
-console.log('kitchen font / Schnell push regression tests: OK');
+assert.match(pushClient, /subscriptionUsesPublicKey/, 'VAPID subscription key validation missing');
+assert.match(pushClient, /existing\.unsubscribe\(\)/, 'stale VAPID subscription must be replaced');
+
+assert.match(serviceWorker, /bb-push-state-v3/, 'service worker push state version was not refreshed');
+assert.match(serviceWorker, /fetchJsonWithTimeout/, 'service worker pending fetch timeout missing');
+assert.match(serviceWorker, /const schnellTask =[\s\S]*showSchnellReadyEvent/, 'Schnell notification task missing');
+assert.match(serviceWorker, /const generalTask =/, 'general notification task missing');
+assert.match(
+  serviceWorker,
+  /Promise\.allSettled\(\[schnellTask, generalTask\]\)/,
+  'Schnell notification must not wait for the general pending endpoint',
+);
+
+console.log('kitchen typography / Schnell push regression tests: OK');
