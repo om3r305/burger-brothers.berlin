@@ -5,10 +5,10 @@ export const metadata: Metadata = {
   title: "Schnellbestellung | Burger Brothers Berlin",
   description: "Direkt im Restaurant bestellen.",
   applicationName: "Burger Brothers Schnellbestellung",
-  manifest: "/manifest-schnellbestellung.webmanifest",
+  manifest: "/api/schnellbestellung/manifest?v=4",
   appleWebApp: {
     capable: true,
-    title: "Burger Brothers",
+    title: "BB Schnell",
     statusBarStyle: "black-translucent",
   },
   icons: {
@@ -23,7 +23,7 @@ export const metadata: Metadata = {
   other: {
     "mobile-web-app-capable": "yes",
     "apple-mobile-web-app-capable": "yes",
-    "apple-mobile-web-app-title": "Burger Brothers",
+    "apple-mobile-web-app-title": "BB Schnell",
     "apple-mobile-web-app-status-bar-style": "black-translucent",
   },
 };

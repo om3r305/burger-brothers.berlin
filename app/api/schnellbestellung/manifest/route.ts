@@ -10,7 +10,7 @@ export async function GET() {
     {
       id: "/schnellbestellung/?app=schnellbestellung",
       name: "Burger Brothers Schnellbestellung",
-      short_name: "Burger Brothers",
+      short_name: "BB Schnell",
       description:
         "Direkt im Restaurant bestellen und eine Fertig-Benachrichtigung erhalten.",
       start_url: START_URL,
@@ -23,13 +23,13 @@ export async function GET() {
       orientation: "portrait-primary",
       icons: [
         {
-          src: "/schnell-icon-192.png?v=1",
+          src: "/schnell-icon-192.png?v=2",
           sizes: "192x192",
           type: "image/png",
           purpose: "any",
         },
         {
-          src: "/schnell-icon-512.png?v=1",
+          src: "/schnell-icon-512.png?v=2",
           sizes: "512x512",
           type: "image/png",
           purpose: "any",

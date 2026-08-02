@@ -678,7 +678,7 @@ export default function SchnellClient() {
     setAndroidAccessAllowed(!blocked);
 
     if (blocked) {
-      router.replace("/schnellbestellung/enter?androidInstall=1");
+      router.replace("/schnellbestellung/install");
     }
   }, [router]);
 

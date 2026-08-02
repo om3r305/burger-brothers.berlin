@@ -459,11 +459,7 @@ export default function SchnellEnterClient({ token }: { token: string }) {
         }
 
         if (data.error === "android_install_required") {
-          setBusyState(false);
-          setProblem(null);
-          setCanRetry(false);
-          setMessage("");
-          setScreen("android_install");
+          window.location.replace("/schnellbestellung/install");
           return "android_install_required" as const;
         }
 
@@ -687,14 +683,10 @@ export default function SchnellEnterClient({ token }: { token: string }) {
       setInstalledHint(marker);
       installSchnellManifest();
 
-      // Android browser QR entries now use the proven main installer page.
-      // The installed standalone app still continues to the secure QR scanner.
+      // Android browser QR entries use the dedicated Schnellbestellung
+      // installer, whose manifest, scope and start URL are Schnell-only.
       if (!isStandalone && isAndroid) {
-        const installUrl = new URL("/install", window.location.origin);
-        installUrl.searchParams.set("schnell", "1");
-        window.location.replace(
-          `${installUrl.pathname}${installUrl.search}`,
-        );
+        window.location.replace("/schnellbestellung/install");
         return;
       }
 
