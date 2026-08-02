@@ -100,26 +100,6 @@ function text(value: any, fallback = "") {
   return s || fallback;
 }
 
-function normalizeTaxRate(value: any): 7 | 19 | undefined {
-  const rate = Number(value);
-  return rate === 7 || rate === 19 ? rate : undefined;
-}
-
-function normalizeDoneness(value: any) {
-  const code = text(
-    value && typeof value === "object" && !Array.isArray(value)
-      ? value.code
-      : value,
-  ).toLowerCase();
-  const labels: Record<string, string> = {
-    light: "Leicht gebraten",
-    normal: "Normal gebraten",
-    well_done: "Durchgebraten",
-  };
-
-  return labels[code] ? { code, label: labels[code] } : undefined;
-}
-
 function date(value: any): Date | null {
   if (!value && value !== 0) return null;
   if (value instanceof Date) return Number.isFinite(value.valueOf()) ? value : null;
@@ -177,18 +157,22 @@ function normalizeItems(value: any) {
       category: item?.category != null ? String(item.category) : undefined,
       price: num(item?.price ?? item?.unitPrice, 0),
       qty: Math.max(1, num(item?.qty ?? item?.quantity ?? 1, 1)),
-      taxRate: normalizeTaxRate(
-        item?.taxRate ?? item?.tax_rate ?? item?.vatRate ?? item?.vat_rate,
-      ),
       add: arr(item?.add ?? item?.extras).map((extra: any) => ({
         id: extra?.id != null ? String(extra.id) : undefined,
         label: text(extra?.label ?? extra?.name, "Extra"),
         name: text(extra?.name ?? extra?.label, "Extra"),
         price: num(extra?.price, 0),
+        kind: extra?.kind != null ? String(extra.kind) : undefined,
       })),
       rm: arr(item?.rm ?? item?.remove).map((entry: any) => String(entry)),
       note: text(item?.note) || undefined,
-      doneness: normalizeDoneness(item?.doneness),
+      taxRate: item?.taxRate != null ? num(item.taxRate, 0) : undefined,
+      originalPrice: item?.originalPrice != null ? num(item.originalPrice, 0) : undefined,
+      sourceKind: item?.sourceKind != null ? String(item.sourceKind) : undefined,
+      lunchMenu: item?.lunchMenu ? sanitize(item.lunchMenu) : undefined,
+      complimentaryTableSauce: item?.complimentaryTableSauce === true,
+      freeReason: item?.freeReason != null ? String(item.freeReason) : undefined,
+      campaign: item?.campaign ? sanitize(item.campaign) : undefined,
       _idx: index,
     }),
   );
@@ -308,8 +292,18 @@ function serializeJob(row: any, jobId: string) {
     note: text(meta?.note ?? meta?.orderNote ?? customer?.deliveryHint ?? customer?.note),
     meta: {
       source: meta?.source ?? row?.channel ?? "web",
+      customerNumber: Number(meta?.customerNumber || 0) || null,
+      businessDate: meta?.businessDate ?? null,
+      fulfillment: meta?.fulfillment ?? null,
+      takeaway: meta?.takeaway === true,
       paymentMethod: meta?.paymentMethod ?? meta?.payment?.method ?? null,
       paymentStatus: meta?.paymentStatus ?? meta?.payment?.status ?? null,
+      campaigns: arr(meta?.campaigns).map(sanitize),
+      reward: meta?.reward ? sanitize(meta.reward) : null,
+      coupon: meta?.coupon ?? row?.coupon ?? null,
+      couponDiscount,
+      note: text(meta?.note ?? meta?.orderNote) || null,
+      orderNote: text(meta?.orderNote ?? meta?.note) || null,
     },
   });
 }

@@ -143,6 +143,11 @@ function indexAscii(buffer, value) {
       paymentStatus: 'pending',
     });
 
+    assert.equal(
+      pickup.reduce((count, byte, index) => count + (byte === 0x1b && pickup[index + 1] === 0x40 ? 1 : 0), 0),
+      1,
+      'Abholung must keep its existing single-receipt flow',
+    );
     assert.equal(containsAscii(pickup, 'ABHOLUNG'), true, 'pickup heading missing');
     assert.equal(containsAscii(pickup, 'Kamener Weg'), false, 'pickup must not print customer address');
     assert.equal(containsAscii(pickup, 'mer'), false, 'pickup must not print customer name at bottom');
@@ -162,6 +167,11 @@ function indexAscii(buffer, value) {
       paymentStatus: 'paid',
     });
 
+    assert.equal(
+      delivery.reduce((count, byte, index) => count + (byte === 0x1b && delivery[index + 1] === 0x40 ? 1 : 0), 0),
+      1,
+      'Lieferung must keep its existing single-receipt flow',
+    );
     assert.equal(containsAscii(delivery, 'GEPLANT LIEFERUNG'), true, 'large planned delivery heading missing');
     assert.equal(containsAscii(delivery, '13507 - Kamener Weg'), true, 'delivery ZIP and street missing');
     assert.equal(containsAscii(delivery, 'mer'), true, 'delivery customer name missing');
@@ -188,18 +198,26 @@ function indexAscii(buffer, value) {
       },
     });
 
-    const schnellHeading = indexAscii(schnell, 'Schnellbestellung');
+    const schnellHeading = indexAscii(schnell, 'SCHNELLBESTELLUNG');
     const headerTime = indexAscii(schnell, '21:40');
     const storeHeader = indexAscii(schnell, 'Berliner Str. 9');
-    const payment = indexAscii(schnell, 'BAR OFFEN');
-    const salon = indexAscii(schnell, 'SALONBESTELLUNG');
+    const thanks = indexAscii(schnell, 'Vielen Dank');
     const takeaway = indexAscii(schnell, 'ZUM MITNEHMEN');
+    const initCount = schnell.reduce(
+      (count, byte, index) =>
+        count + (byte === 0x1b && schnell[index + 1] === 0x40 ? 1 : 0),
+      0,
+    );
 
-    assert.ok(schnellHeading >= 0, 'Schnellbestellung heading missing');
-    assert.ok(headerTime > schnellHeading && headerTime < storeHeader, 'header must show actual Schnell order time');
-    assert.equal(containsAscii(schnell, '22:15'), false, 'Schnell header must not show ETA time');
-    assert.ok(salon > payment, 'customer number block must be below BAR OFFEN');
-    assert.ok(takeaway > salon, 'takeaway label must follow customer number block');
+    assert.equal(initCount, 2, 'Schnellbestellung must print exactly one cash and one kitchen receipt');
+    assert.ok(storeHeader >= 0, 'cash receipt store header missing');
+    assert.ok(headerTime > storeHeader, 'cash receipt must show actual Schnell order time');
+    assert.ok(thanks > headerTime, 'cash receipt thank-you line missing');
+    assert.ok(schnellHeading > thanks, 'kitchen receipt must follow the cash receipt');
+    assert.equal(containsAscii(schnell, '22:15'), false, 'Schnell receipts must not show ETA time');
+    assert.equal(containsAscii(schnell, 'BAR OFFEN'), false, 'Schnell cash receipt must not print BAR OFFEN');
+    assert.equal(containsAscii(schnell, 'SALONBESTELLUNG'), false, 'kitchen receipt must not print SALONBESTELLUNG');
+    assert.ok(takeaway > schnellHeading, 'takeaway label must be at the bottom of the kitchen receipt');
     assert.equal(containsAscii(schnell, 'Nummer 6'), false, 'duplicate Nummer 6 line must be removed');
 
     const discounts = await capture({
@@ -226,9 +244,10 @@ function indexAscii(buffer, value) {
       },
     });
 
-    assert.equal(containsAscii(discounts, 'Schnell-Rabatt'), true, 'campaign reason missing on receipt');
-    assert.equal(containsAscii(discounts, '20 % Rabatt'), true, 'reward discount text missing on receipt');
-    assert.equal(containsAscii(discounts, 'auf deine Bestellung'), true, 'reward reason missing on receipt');
+    assert.equal(containsAscii(discounts, 'Rabatt'), true, 'conditional discount row missing on cash receipt');
+    assert.equal(containsAscii(discounts, 'Geschenk'), true, 'conditional gift row missing on cash receipt');
+    assert.equal(containsAscii(discounts, 'BAR OFFEN'), false, 'Schnell cash receipt must stay free of payment instructions');
+    assert.equal(containsAscii(discounts, 'ZUM MITNEHMEN'), false, 'eat-here Schnell order must print only the number');
 
     console.log('receipt layout regression tests: OK');
   } finally {

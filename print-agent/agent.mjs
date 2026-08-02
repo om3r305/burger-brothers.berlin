@@ -245,21 +245,6 @@ function clean(value) {
   return String(value ?? "").trim();
 }
 
-function normalizeDoneness(value) {
-  const code = clean(
-    value && typeof value === "object" && !Array.isArray(value)
-      ? value.code
-      : value,
-  ).toLowerCase();
-  const labels = {
-    light: "Leicht gebraten",
-    normal: "Normal gebraten",
-    well_done: "Durchgebraten",
-  };
-
-  return labels[code] ? { code, label: labels[code] } : undefined;
-}
-
 function normalizeCustomerForProxy(customer = {}) {
   const addressLine = clean(
     customer.addressLine ||
@@ -303,14 +288,20 @@ function normalizeItemsForProxy(items = []) {
           label: clean(extra?.label || extra?.name),
           name: clean(extra?.name || extra?.label),
           price: num(extra?.price, 0),
+          kind: extra?.kind ? String(extra.kind) : undefined,
         }))
       : [],
     rm: Array.isArray(item.rm || item.remove)
       ? (item.rm || item.remove).map((entry) => String(entry))
       : [],
     note: clean(item.note),
-    doneness: normalizeDoneness(item.doneness),
     taxRate: item.taxRate,
+    originalPrice: item.originalPrice,
+    sourceKind: item.sourceKind,
+    lunchMenu: item.lunchMenu,
+    complimentaryTableSauce: item.complimentaryTableSauce === true,
+    freeReason: item.freeReason,
+    campaign: item.campaign,
   }));
 }
 
@@ -357,6 +348,8 @@ function jobToProxyOrder(job) {
     mode: job.mode || "delivery",
     channel: job.channel || job?.meta?.source || "web",
     status: job.status || "new",
+    customerNumber: Number(job.customerNumber || job?.meta?.customerNumber || 0) || undefined,
+    businessDate: job.businessDate || job?.meta?.businessDate || undefined,
     planned: job.planned || undefined,
     etaMin: job.etaMin ?? undefined,
     etaAdjustMin: job.etaAdjustMin ?? 0,
@@ -394,6 +387,12 @@ function jobToProxyOrder(job) {
 
     meta: {
       ...(job.meta || {}),
+      customerNumber: Number(job.customerNumber || job?.meta?.customerNumber || 0) || undefined,
+      businessDate: job.businessDate || job?.meta?.businessDate || undefined,
+      fulfillment: job?.meta?.fulfillment || undefined,
+      takeaway: job?.meta?.takeaway === true,
+      campaigns: Array.isArray(job?.meta?.campaigns) ? job.meta.campaigns : [],
+      reward: job?.meta?.reward || null,
       note,
       orderNote: note,
       paymentMethod: job?.payment?.method || job?.meta?.paymentMethod || null,

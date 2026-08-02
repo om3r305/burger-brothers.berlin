@@ -378,7 +378,7 @@ function pushWrapped(out, prefix, value, opts={}){
 }
 
 /* ====== CODE128 ====== */
-function code128(data=''){
+function code128(data='', opts={}){
   const clean = String(data || '')
     .trim()
     .replace(/[^ -~]/g, '')
@@ -397,7 +397,7 @@ function code128(data=''){
     Buffer.from([GS,0x77, Math.max(1, Math.min(3, BARCODE_MODULE))]),    // modül genişliği
     Buffer.from([GS,0x6B,0x49, payload.length]),                     // CODE128
     payload,
-    text(clean)                                                     // barkod altında tek satır
+    opts?.showText === false ? Buffer.alloc(0) : text(clean)         // eski fişlerde HRI satırı korunur
   ]);
 }
 
@@ -435,23 +435,6 @@ function cleanName(name=''){
     }
   }
   return s;
-}
-
-const DONENESS_LABELS = {
-  light: 'Leicht gebraten',
-  normal: 'Normal gebraten',
-  well_done: 'Durchgebraten',
-};
-
-function receiptDonenessLabel(item){
-  const value = item?.doneness;
-  const code = String(
-    value && typeof value === 'object' && !Array.isArray(value)
-      ? value.code
-      : value || '',
-  ).trim().toLowerCase();
-
-  return DONENESS_LABELS[code] || '';
 }
 
 /* ====== KATEGORİ ====== */
@@ -1061,6 +1044,327 @@ async function printLogoIfAny(overrideUrl){
   }
 }
 
+
+/* ====== Schnellbestellung: ayrı kasa + mutfak fişi ====== */
+function isSchnellOrder(o={}){
+  const mode = String(o?.mode || '').trim().toLowerCase();
+  const channel = String(o?.channel || '').trim().toLowerCase();
+  const source = String(o?.meta?.source || '').trim().toLowerCase();
+  return channel === 'schnellbestellung' || source === 'qr_quick_order';
+}
+
+function moneyDe(v){
+  return `${num(v).toFixed(2).replace('.', ',')} €`;
+}
+
+function signedMoneyDe(v){
+  const value = round2(num(v));
+  return `${value > 0 ? '+' : ''}${moneyDe(value)}`;
+}
+
+function upperReceipt(value=''){
+  // CP858/CP857 büyük ẞ karakterini desteklemez; okunabilir SOßEN biçimi korunur.
+  return String(value || '').toLocaleUpperCase('de-DE').replace(/ẞ/g, 'ß');
+}
+
+function receiptDateParts(value){
+  const date = new Date(value || Date.now());
+  const safe = Number.isFinite(date.valueOf()) ? date : new Date();
+  return {
+    date: `${String(safe.getDate()).padStart(2,'0')}.${String(safe.getMonth()+1).padStart(2,'0')}.${safe.getFullYear()}`,
+    time: `${String(safe.getHours()).padStart(2,'0')}:${String(safe.getMinutes()).padStart(2,'0')}`,
+  };
+}
+
+function isLunchSideExtra(extra={}){
+  const id = String(extra?.id || '').toLowerCase();
+  const kind = String(extra?.kind || '').toLowerCase();
+  return kind === 'side_upgrade' || id.startsWith('lunch-side:');
+}
+
+function isIncludedLunchSide(extra={}){
+  if (!isLunchSideExtra(extra)) return false;
+  const label = String(extra?.label || extra?.name || '').toLowerCase();
+  return num(extra?.price) <= 0.009 || /\binklusive\b/.test(label);
+}
+
+function cleanLunchSideLabel(extra={}){
+  return String(extra?.label || extra?.name || '')
+    .replace(/\s*\(\s*\+?\s*[-+]?\d+(?:[.,]\d+)?\s*€?\s*\)\s*$/i, '')
+    .trim();
+}
+
+function isBlackAngusItem(item={}){
+  const value = `${item?.name || ''} ${item?.sku || ''}`.toLowerCase();
+  return /\bblack\s*angus\b|\bangus\b/.test(value);
+}
+
+function noteLines(value=''){
+  return String(value || '')
+    .split(/[\r\n;]+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function isDonenessLine(value=''){
+  return /\bleicht\s+gebraten\b/i.test(String(value || ''));
+}
+
+function resolveSchnellReceiptContext(o={}){
+  const items = Array.isArray(o?.items) ? o.items : [];
+  const P = o?.pricing || {};
+  const F = o?.fees || {};
+  const M = o?.meta || {};
+  const PAY = o?.payment || M?.payment || {};
+
+  const merchandiseValue = num(o?.merchandise);
+  const pricingSubtotalValue = num(P.subtotal);
+  const subtotalHint = merchandiseValue > 0 ? merchandiseValue : pricingSubtotalValue;
+  const receiptItemPricing = resolveReceiptItemPricing(o, items, subtotalHint);
+  const itemsSum = receiptItemPricing.subtotal;
+  const subtotal = merchandiseValue > 0
+    ? merchandiseValue
+    : pricingSubtotalValue > 0
+      ? pricingSubtotalValue
+      : itemsSum;
+
+  const deliveryFee = findDeliveryFeeDeep(o);
+  const serviceFee = num(PAY.serviceFeeTotal ?? P.service ?? F.service);
+  const otherFee = num(P.other ?? P.misc ?? F.other);
+
+  const rewardMeta = M?.reward && typeof M.reward === 'object' ? M.reward : {};
+  const rewardDiscount = Math.max(0, num(rewardMeta?.discountAmount));
+  let regularDiscount = Math.max(0, num(o?.discount ?? P.regularDiscount ?? F.discount));
+  regularDiscount = Math.max(0, regularDiscount - rewardDiscount);
+  const couponDiscount = Math.max(0, num(o?.couponDiscount ?? P.couponDiscount ?? M?.couponDiscount));
+  let discountSum = regularDiscount + couponDiscount + rewardDiscount;
+
+  let explicitTotal = num(
+    PAY.collectedTotal ?? PAY.payableTotal ?? P.total ?? o?.total ?? o?.amount ?? o?.payable ?? o?.toPay,
+  );
+  if (explicitTotal <= 0) {
+    explicitTotal = Math.max(0, subtotal + deliveryFee + serviceFee + otherFee - discountSum);
+  }
+
+  const derivedDiscount = Math.max(0, subtotal + deliveryFee + serviceFee + otherFee - explicitTotal);
+  if (discountSum <= 0 && derivedDiscount > 0) {
+    regularDiscount = derivedDiscount;
+    discountSum = derivedDiscount;
+  }
+
+  let br7 = 0;
+  let br19 = 0;
+  for (const item of items){
+    const qty = Math.max(1, num(item?.qty || 1));
+    const gross = receiptItemUnitPrice(item, receiptItemPricing) * qty;
+    const rate = Number(item?.taxRate);
+    if (rate === 7) br7 += gross;
+    else if (rate === 19) br19 += gross;
+    else if (ALLOW_LEGACY_TAX_FALLBACK) {
+      if (detectCategory(item) === 'Getränke') br19 += gross;
+      else br7 += gross;
+    } else {
+      const error = new Error('tax_rate_missing');
+      error.statusCode = 422;
+      error.publicCode = 'tax_rate_missing';
+      throw error;
+    }
+  }
+
+  const vat = calcVatBlocks({
+    br7,
+    br19,
+    delivery: deliveryFee,
+    discount: discountSum,
+  });
+
+  return {
+    items,
+    meta: M,
+    receiptItemPricing,
+    subtotal,
+    deliveryFee,
+    serviceFee,
+    otherFee,
+    regularDiscount,
+    couponDiscount,
+    rewardDiscount,
+    explicitTotal: roundFinalTotal(explicitTotal),
+    vat,
+    customerNumber: Number(o?.customerNumber ?? M?.customerNumber ?? 0),
+    isTakeaway: M?.takeaway === true || String(M?.fulfillment || '').toLowerCase() === 'takeaway',
+    orderId: String(o?.id || o?.orderId || ''),
+    when: receiptDateParts(o?.ts || o?.createdAt || Date.now()),
+  };
+}
+
+function schnellCashBaseUnitPrice(item={}){
+  const originalPrice = num(item?.originalPrice);
+  const price = num(item?.price);
+  return originalPrice > price ? originalPrice : price;
+}
+
+function pushSchnellCashItem(out, item){
+  const qty = Math.max(1, num(item?.qty || 1));
+  const baseLine = schnellCashBaseUnitPrice(item) * qty;
+  const itemName = cleanName(String(item?.name || 'Artikel'));
+  const itemPrice = item?.complimentaryTableSauce === true ? 'Kostenlos' : moneyDe(baseLine);
+  out.push(bold(1), text(twoCol(`${qty}x ${itemName}`, itemPrice)), bold(0));
+
+  for (const extra of Array.isArray(item?.add) ? item.add : []){
+    if (isIncludedLunchSide(extra)) continue;
+    const rawName = isLunchSideExtra(extra)
+      ? cleanLunchSideLabel(extra)
+      : cleanName(extra?.label || extra?.name || 'Extra');
+    if (!rawName) continue;
+    const amount = Math.max(0, num(extra?.price)) * qty;
+    const amountText = amount > 0.009 ? moneyDe(amount) : 'Kostenlos';
+    out.push(text(twoCol(`   + ${rawName}`, amountText)));
+  }
+
+  for (const removed of Array.isArray(item?.rm) ? item.rm : []){
+    const value = String(removed || '').trim();
+    if (value) pushWrapped(out, '   Ohne ', value, { max: LINE });
+  }
+
+  for (const line of noteLines(item?.note)){
+    pushWrapped(out, '   ', line, { max: LINE });
+  }
+  out.push(text(''));
+}
+
+async function buildSchnellCashReceipt(o, opts={}){
+  const ctx = resolveSchnellReceiptContext(o);
+  const out = [init(), selectCodepage(), fontA(), lineSpace(30)];
+  const logoChunk = await printLogoIfAny(opts.logoUrl);
+  if (logoChunk.length) out.push(logoChunk);
+  else out.push(align(1), size(2,2), text(opts.brand || 'Burger Brothers'), size(1,1), align(0));
+
+  out.push(align(1));
+  for (const rawLine of STORE_HEADER_LINES){
+    const line = String(rawLine || '').replace(/^St\.Nr\s*:/i, 'St. Nr:');
+    out.push(text(line));
+  }
+  out.push(align(0), text(''));
+  out.push(text(twoCol(ctx.when.date, ctx.when.time)), text(''));
+
+  for (const item of ctx.items) pushSchnellCashItem(out, item);
+
+  out.push(text('-'.repeat(LINE)));
+  out.push(text(twoCol('Zwischensumme', moneyDe(ctx.subtotal))));
+  if (ctx.deliveryFee > 0) out.push(text(twoCol('Lieferaufschläge', moneyDe(ctx.deliveryFee))));
+  if (ctx.serviceFee > 0) out.push(text(twoCol('Service', moneyDe(ctx.serviceFee))));
+  if (ctx.otherFee > 0) out.push(text(twoCol('Sonstiges', moneyDe(ctx.otherFee))));
+  if (ctx.regularDiscount > 0) out.push(text(twoCol('Rabatt', '-' + moneyDe(ctx.regularDiscount))));
+  if (ctx.couponDiscount > 0){
+    const code = firstNonEmptyText(o?.coupon, ctx.meta?.coupon);
+    out.push(text(twoCol(code ? `Gutschein ${code}` : 'Gutschein', '-' + moneyDe(ctx.couponDiscount))));
+  }
+  if (ctx.rewardDiscount > 0) out.push(text(twoCol('Geschenk', '-' + moneyDe(ctx.rewardDiscount))));
+  out.push(text('-'.repeat(LINE)));
+  out.push(bold(1), size(1,2), text(twoCol('GESAMT', moneyDe(ctx.explicitTotal))), size(1,1), bold(0));
+  out.push(text('='.repeat(LINE)), text(''));
+
+  out.push(text('Enthaltene MwSt.:'));
+  out.push(text(twoCol('7 %', moneyDe(ctx.vat.vat7))));
+  out.push(text(twoCol('19 %', moneyDe(ctx.vat.vat19))));
+  out.push(text(''), text('-'.repeat(LINE)), text(''));
+
+  if (ctx.customerNumber > 0){
+    out.push(align(1), bold(1), size(2,2), text(String(ctx.customerNumber)), size(1,1), bold(0), text(''));
+  }
+  if (ctx.orderId) out.push(code128(ctx.orderId, { showText:false }), text(''));
+  out.push(align(1), text('Vielen Dank für Ihre Bestellung!'), align(0));
+  out.push(lineSpaceDefault(), feedLines(CUT_FEED_LINES), cut());
+  return Buffer.concat(out);
+}
+
+function kitchenGroupOrder(keys){
+  const preferred = [
+    'Mittagsmenü',
+    'Burger',
+    'Vegan / Vegetarisch',
+    'Hotdogs',
+    'Extras',
+    'Getränke',
+    'Soßen',
+  ];
+  return [
+    ...preferred.filter((key) => keys.includes(key)),
+    ...keys.filter((key) => !preferred.includes(key)).sort(),
+  ];
+}
+
+function pushSchnellKitchenItem(out, item, ctx){
+  const qty = Math.max(1, num(item?.qty || 1));
+  const lineTotal = receiptItemUnitPrice(item, ctx.receiptItemPricing) * qty;
+  const itemName = upperReceipt(cleanName(String(item?.name || 'Artikel')));
+  const priceText = item?.complimentaryTableSauce === true ? 'KOSTENLOS' : moneyDe(lineTotal);
+  out.push(bold(1), text(twoCol(`${qty}x ${itemName}`, priceText)), bold(0));
+
+  for (const extra of Array.isArray(item?.add) ? item.add : []){
+    if (isIncludedLunchSide(extra)) continue;
+    if (isLunchSideExtra(extra)){
+      const label = upperReceipt(cleanLunchSideLabel(extra));
+      if (label) pushWrapped(out, '   ', label, { max: LINE });
+      const amount = Math.max(0, num(extra?.price)) * qty;
+      if (amount > 0.009) out.push(text(`   ${signedMoneyDe(amount)}`));
+      continue;
+    }
+
+    const extraName = upperReceipt(cleanName(extra?.label || extra?.name || 'Extra'));
+    if (extraName) pushWrapped(out, '   + ', extraName, { max: LINE });
+  }
+
+  for (const removed of Array.isArray(item?.rm) ? item.rm : []){
+    const value = upperReceipt(String(removed || '').trim());
+    if (value) pushWrapped(out, '   OHNE ', value, { max: LINE });
+  }
+
+  const angus = isBlackAngusItem(item);
+  for (const rawLine of noteLines(item?.note)){
+    if (isDonenessLine(rawLine) && !angus) continue;
+    const line = upperReceipt(rawLine);
+    if (line) pushWrapped(out, '   ', line, { max: LINE });
+  }
+  out.push(text(''));
+}
+
+function buildSchnellKitchenTicket(o){
+  const ctx = resolveSchnellReceiptContext(o);
+  const out = [init(), selectCodepage(), fontA(), lineSpace(30)];
+  out.push(text(twoCol(ctx.when.date, ctx.when.time)));
+  out.push(bold(1), text('SCHNELLBESTELLUNG'), bold(0), text(''));
+
+  const grouped = new Map();
+  for (const item of ctx.items){
+    const group = detectCategory(item);
+    if (!grouped.has(group)) grouped.set(group, []);
+    grouped.get(group).push(item);
+  }
+
+  for (const group of kitchenGroupOrder([...grouped.keys()])){
+    out.push(bold(1), underline(1), text(upperReceipt(group)), underline(0), bold(0), text(''));
+    for (const item of grouped.get(group)) pushSchnellKitchenItem(out, item, ctx);
+  }
+
+  if (ctx.customerNumber > 0){
+    out.push(align(1), bold(1), size(3,3), text(String(ctx.customerNumber)), size(1,1));
+    if (ctx.isTakeaway) out.push(size(2,2), text('ZUM MITNEHMEN'), size(1,1));
+    out.push(bold(0), align(0));
+  }
+
+  out.push(lineSpaceDefault(), feedLines(CUT_FEED_LINES), cut());
+  return Buffer.concat(out);
+}
+
+async function buildPrintPayload(o, opts={}){
+  if (!isSchnellOrder(o)) return buildTicketFromOrder(o, opts);
+  const cashReceipt = await buildSchnellCashReceipt(o, opts);
+  const kitchenTicket = buildSchnellKitchenTicket(o);
+  return Buffer.concat([cashReceipt, kitchenTicket]);
+}
+
 /* ====== Fiş (tam) ====== */
 async function buildTicketFromOrder(o, opts={}){
   const brand = opts.brand || 'Burger Brothers';
@@ -1263,21 +1567,6 @@ async function buildTicketFromOrder(o, opts={}){
         ? 'Kostenlos'
         : money(line);
       out.push(bold(1), size(1,1), text(twoCol(`${qty}x ${itemName}`, itemPriceText)), bold(0));
-
-      const doneness = receiptDonenessLabel(it);
-      if (doneness){
-        out.push(
-          align(1),
-          bold(1),
-          size(2,2),
-          text('GARSTUFE'),
-          text(doneness.toUpperCase()),
-          size(1,1),
-          bold(0),
-          align(0),
-        );
-      }
-
       if (Array.isArray(it.add) && it.add.length){
         for (const a of it.add){
           const extraName = cleanName(a?.label || a?.name || 'Extra');
@@ -1529,7 +1818,7 @@ const server = http.createServer(async (req,res)=>{
       if (!body?.order || typeof body.order !== 'object' || Array.isArray(body.order)) {
         return jsonResponse(res, 400, {ok:false, error:'order_required'});
       }
-      const payload=await buildTicketFromOrder(body?.order||{}, body?.options||{});
+      const payload=await buildPrintPayload(body?.order||{}, body?.options||{});
       await sendToPrinter(payload);
       return jsonResponse(res, 200, {ok:true,printed:String(body?.order?.id||'')});
     }catch(e){

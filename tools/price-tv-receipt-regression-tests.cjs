@@ -299,52 +299,57 @@ function lineStartingWith(text, label) {
 
     assert.match(
       lineWith(schnellText, "1x Avocado Burger") || "",
-      /10\.50€/,
-      "Schnell item line must include the 1.00 EUR cheese extra",
+      /9,50 €?/,
+      "Schnell cash receipt must keep the base item price on the item row",
     );
     assert.match(
-      lineWith(schnellText, "1x Big Daddy") || "",
-      /12\.00€/,
-      "Schnell item line must include the 1.50 EUR jalapeno extra",
+      lineWith(schnellText, "+ Kse") || "",
+      /1,00 €?/,
+      "Schnell cash receipt must print the paid extra on its own row",
+    );
+    assert.match(
+      lineWith(schnellText, "1x AVOCADO BURGER") || "",
+      /10,50 €?/,
+      "Schnell kitchen receipt must show the extras-aware item total",
+    );
+    assert.match(
+      lineWith(schnellText, "1x BIG DADDY") || "",
+      /12,00 €?/,
+      "Schnell kitchen receipt must include paid extras in the item total",
     );
     assert.match(
       lineWith(schnellText, "Zwischensumme") || "",
-      /41\.60€/,
+      /41,60 €?/,
       "receipt subtotal must include paid extras",
     );
     assert.equal(
-      schnellText.includes("-8.32€"),
+      schnellText.includes("Geschenk"),
       true,
-      "real reward discount must be printed",
+      "real reward discount must be printed as Geschenk",
+    );
+    assert.equal(
+      schnellText.includes("-8,32 €"),
+      true,
+      "real reward amount must be printed",
     );
     assert.match(
-      lineWith(schnellText, "Gesamt") || "",
-      /33\.28€/,
+      lineWith(schnellText, "GESAMT") || "",
+      /33,28 €?/,
       "receipt total must stay at the exact cent amount",
     );
     assert.equal(
-      schnellText.includes("33.30€"),
+      schnellText.includes("33,30 €"),
       false,
       "receipt must not round 33.28 EUR to 33.30 EUR",
     );
     assert.match(
-      lineStartingWith(schnellText, "Netto MwSt 19 %") || "",
-      /3\.76€/,
-      "19 percent net amount is incorrect",
-    );
-    assert.match(
-      lineStartingWith(schnellText, "MwSt 19 %") || "",
-      /0\.72€/,
+      lineStartingWith(schnellText, "19 %") || "",
+      /0,72 €?/,
       "19 percent VAT amount is incorrect",
     );
     assert.match(
-      lineStartingWith(schnellText, "Netto MwSt 7 %") || "",
-      /26\.92€/,
-      "7 percent net amount must include burger extras",
-    );
-    assert.match(
-      lineStartingWith(schnellText, "MwSt 7 %") || "",
-      /1\.88€/,
+      lineStartingWith(schnellText, "7 %") || "",
+      /1,88 €?/,
       "7 percent VAT amount must include burger extras",
     );
 
