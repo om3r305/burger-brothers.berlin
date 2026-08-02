@@ -27,12 +27,34 @@ type ProblemKind =
   | "server"
   | null;
 
-type EnterScreen = "status" | "choice" | "install" | "scanner" | "push";
+type EnterScreen =
+  | "status"
+  | "choice"
+  | "install"
+  | "android_install"
+  | "scanner"
+  | "push";
 type SessionRequestResult =
   | "done"
+  | "android_install_required"
   | "location_required"
   | "invalid_qr"
   | "failed";
+
+type AndroidInstallState =
+  | "waiting"
+  | "prompting"
+  | "dismissed"
+  | "installed"
+  | "manual";
+
+type BeforeInstallPromptEvent = Event & {
+  prompt(): Promise<void>;
+  userChoice: Promise<{
+    outcome: "accepted" | "dismissed";
+    platform: string;
+  }>;
+};
 
 type GeoFailure = { code: number; message?: string };
 
@@ -194,6 +216,10 @@ function isAppleMobileDevice() {
   );
 }
 
+function isAndroidMobileDevice() {
+  return /Android/i.test(navigator.userAgent || "");
+}
+
 function isStandaloneDisplayMode() {
   const appleNavigator = navigator as Navigator & { standalone?: boolean };
   return (
@@ -294,6 +320,7 @@ export default function SchnellEnterClient({ token }: { token: string }) {
   const retryTokenRef = useRef("");
   const retryOptionsRef = useRef<StartOptions>({});
   const locationCheckEnabledRef = useRef<boolean | null>(null);
+  const androidInstallPromptRef = useRef<BeforeInstallPromptEvent | null>(null);
 
   const [busy, setBusy] = useState(true);
   const [message, setMessage] = useState("Schnellbestellung wird vorbereitet …");
@@ -301,8 +328,12 @@ export default function SchnellEnterClient({ token }: { token: string }) {
   const [screen, setScreen] = useState<EnterScreen>("status");
   const [canRetry, setCanRetry] = useState(false);
   const [appleMobile, setAppleMobile] = useState(false);
+  const [androidMobile, setAndroidMobile] = useState(false);
   const [standalone, setStandalone] = useState(false);
   const [installedHint, setInstalledHint] = useState(false);
+  const [androidInstallReady, setAndroidInstallReady] = useState(false);
+  const [androidInstallState, setAndroidInstallState] =
+    useState<AndroidInstallState>("waiting");
   const [scannerError, setScannerError] = useState("");
   const [backgroundPushEnabled, setBackgroundPushEnabled] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
@@ -314,6 +345,30 @@ export default function SchnellEnterClient({ token }: { token: string }) {
   const setBusyState = useCallback((value: boolean) => {
     busyRef.current = value;
     setBusy(value);
+  }, []);
+
+  useEffect(() => {
+    const onBeforeInstallPrompt = (event: Event) => {
+      if (!isAndroidMobileDevice() || isStandaloneDisplayMode()) return;
+      event.preventDefault();
+      androidInstallPromptRef.current = event as BeforeInstallPromptEvent;
+      setAndroidInstallReady(true);
+      setAndroidInstallState("waiting");
+    };
+
+    const onAppInstalled = () => {
+      androidInstallPromptRef.current = null;
+      setAndroidInstallReady(false);
+      setAndroidInstallState("installed");
+    };
+
+    window.addEventListener("beforeinstallprompt", onBeforeInstallPrompt);
+    window.addEventListener("appinstalled", onAppInstalled);
+
+    return () => {
+      window.removeEventListener("beforeinstallprompt", onBeforeInstallPrompt);
+      window.removeEventListener("appinstalled", onAppInstalled);
+    };
   }, []);
 
   const requestSession = useCallback(
@@ -361,6 +416,15 @@ export default function SchnellEnterClient({ token }: { token: string }) {
             router.replace("/schnellbestellung");
           }
           return "done" as const;
+        }
+
+        if (data.error === "android_install_required") {
+          setBusyState(false);
+          setProblem(null);
+          setCanRetry(false);
+          setMessage("");
+          setScreen("android_install");
+          return "android_install_required" as const;
         }
 
         if (data.error === "location_required") {
@@ -439,6 +503,9 @@ export default function SchnellEnterClient({ token }: { token: string }) {
           : await requestSession(cleanToken, undefined, options);
       if (directResult === "done") {
         if (options.navigate === false) setBusyState(false);
+        return directResult;
+      }
+      if (directResult === "android_install_required") {
         return directResult;
       }
       if (directResult !== "location_required") {
@@ -567,18 +634,39 @@ export default function SchnellEnterClient({ token }: { token: string }) {
 
     const initialize = async () => {
       const isApple = isAppleMobileDevice();
+      const isAndroid = isAndroidMobileDevice();
       const isStandalone = isStandaloneDisplayMode();
       const marker = readInstallMarker();
+      const installOnly =
+        new URLSearchParams(window.location.search).get("androidInstall") === "1";
 
       if (cancelled) return;
       setAppleMobile(isApple);
+      setAndroidMobile(isAndroid);
       setStandalone(isStandalone);
       setInstalledHint(marker);
       installSchnellManifest();
 
-      // Normal Android/desktop browser flow does not need a separate session
-      // read before validating the freshly scanned QR. Removing that serial DB
-      // request makes first entry noticeably faster.
+      // Android must use the installed Home Screen app. A valid restaurant QR
+      // is still checked by the server before the install gate is shown. Direct
+      // menu URLs use androidInstall=1 and are redirected here without creating
+      // a browser session.
+      if (!isStandalone && isAndroid) {
+        if (installOnly && !token) {
+          setProblem(null);
+          setCanRetry(false);
+          setMessage("");
+          setBusyState(false);
+          setScreen("android_install");
+          return;
+        }
+
+        busyRef.current = false;
+        await start(token, { navigate: false });
+        return;
+      }
+
+      // Desktop and other non-Apple browsers retain their existing direct flow.
       if (!isStandalone && !isApple) {
         busyRef.current = false;
         await start(token, { navigate: true });
@@ -687,6 +775,31 @@ export default function SchnellEnterClient({ token }: { token: string }) {
     }
   }, [pushBusy, router]);
 
+  const installAndroidApp = useCallback(async () => {
+    const prompt = androidInstallPromptRef.current;
+
+    if (!prompt) {
+      setAndroidInstallState("manual");
+      return;
+    }
+
+    setAndroidInstallState("prompting");
+
+    try {
+      await prompt.prompt();
+      const choice = await prompt.userChoice;
+      androidInstallPromptRef.current = null;
+      setAndroidInstallReady(false);
+      setAndroidInstallState(
+        choice.outcome === "accepted" ? "installed" : "dismissed",
+      );
+    } catch {
+      androidInstallPromptRef.current = null;
+      setAndroidInstallReady(false);
+      setAndroidInstallState("manual");
+    }
+  }, []);
+
   const retry = useCallback(() => {
     const retryToken = retryTokenRef.current;
     if (!retryToken) return;
@@ -709,6 +822,93 @@ export default function SchnellEnterClient({ token }: { token: string }) {
     problem === "timeout" ||
     problem === "accuracy_low";
 
+  if (screen === "android_install") {
+    const installFinished = androidInstallState === "installed";
+    const installDismissed = androidInstallState === "dismissed";
+    const manualInstall =
+      androidInstallState === "manual" || !androidInstallReady;
+
+    return (
+      <main className="bb-schnell-page grid min-h-dvh place-items-center p-5 text-white">
+        <section className="bb-schnell-sheet w-full max-w-md rounded-3xl border border-amber-300/30 p-6 shadow-2xl shadow-black/30">
+          <div className="text-center">
+            <img
+              src="/schnell-icon-180.png?v=1"
+              className="mx-auto h-24 w-24 rounded-[24px]"
+              alt="Burger Brothers"
+            />
+            <p className="mt-5 text-sm font-black uppercase tracking-[0.18em] text-amber-300">
+              Android-App erforderlich
+            </p>
+            <h1 className="mt-2 text-3xl font-black">
+              Burger Brothers installieren
+            </h1>
+            <p className="mt-3 leading-6 text-stone-300">
+              Schnellbestellungen sind auf Android nur über die installierte
+              Burger-Brothers-App möglich. Die Installation ist kostenlos.
+            </p>
+          </div>
+
+          {!installFinished ? (
+            <button
+              type="button"
+              disabled={androidInstallState === "prompting"}
+              onClick={() => void installAndroidApp()}
+              className="mt-7 w-full rounded-2xl bg-amber-400 px-5 py-4 text-lg font-black text-black disabled:opacity-60"
+            >
+              {androidInstallState === "prompting"
+                ? "Installation wird geöffnet …"
+                : androidInstallReady
+                  ? "Burger Brothers installieren"
+                  : "Installationsanleitung anzeigen"}
+            </button>
+          ) : null}
+
+          {installDismissed ? (
+            <div className="mt-4 rounded-2xl border border-amber-300/30 bg-amber-300/10 p-4 text-sm leading-6 text-amber-100">
+              Die Installation wurde abgebrochen. Ohne Installation kann auf
+              Android keine Schnellbestellung geöffnet werden.
+            </div>
+          ) : null}
+
+          {manualInstall && !installFinished ? (
+            <div className="mt-4 rounded-2xl border border-white/15 bg-black/20 p-4 text-left text-sm leading-6 text-stone-200">
+              <strong className="block text-white">Manuell installieren</strong>
+              <span className="mt-2 block">
+                Chrome: Menü ⋮ → „App installieren“ oder „Zum Startbildschirm
+                hinzufügen“.
+              </span>
+              <span className="mt-2 block">
+                Samsung Internet: Menü ☰ → „Seite hinzufügen zu“ →
+                „Startbildschirm“.
+              </span>
+            </div>
+          ) : null}
+
+          {installFinished ? (
+            <div className="mt-6 rounded-2xl border border-emerald-300/30 bg-emerald-400/10 p-4 text-sm leading-6 text-emerald-100">
+              <strong className="block text-lg">Installation abgeschlossen</strong>
+              Schließen Sie den Browser, öffnen Sie Burger Brothers über das
+              neue Symbol auf dem Startbildschirm und scannen Sie dort den
+              aktuellen Restaurant-QR-Code.
+            </div>
+          ) : null}
+
+          <div className="mt-5 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm leading-6 text-stone-300">
+            QR-Code, Standortprüfung und sichere Sitzung bleiben weiterhin
+            aktiv. Eine Bestellung direkt im Android-Browser ist nicht möglich.
+          </div>
+
+          <p className="mt-5 text-center text-xs leading-5 text-stone-500">
+            {androidMobile
+              ? "Android erkannt · Installation erforderlich"
+              : "Diese Sperre gilt ausschließlich für Android-Geräte."}
+          </p>
+        </section>
+      </main>
+    );
+  }
+
   if (screen === "scanner") {
     return (
       <SchnellQrScanner
@@ -724,7 +924,9 @@ export default function SchnellEnterClient({ token }: { token: string }) {
       ? pushResult.ok
         ? "Benachrichtigungen sind aktiviert. Das Menü wird geöffnet …"
         : pushResult.code === "permission_denied"
-          ? "Benachrichtigungen sind blockiert. Öffnen Sie iPhone-Einstellungen → Mitteilungen → Burger Brothers."
+          ? androidMobile
+            ? "Benachrichtigungen sind blockiert. Öffnen Sie Android-Einstellungen → Apps → Burger Brothers → Benachrichtigungen."
+            : "Benachrichtigungen sind blockiert. Öffnen Sie iPhone-Einstellungen → Mitteilungen → Burger Brothers."
           : pushResult.code === "not_configured"
             ? "Der Benachrichtigungsdienst ist auf dem Server noch nicht vollständig eingerichtet."
             : pushResult.code === "disabled"
@@ -800,7 +1002,7 @@ export default function SchnellEnterClient({ token }: { token: string }) {
 
           <p className="mt-5 text-center text-xs leading-5 text-stone-500">
             Dieser Bildschirm erscheint nur in der installierten
-            Burger-Brothers-App auf iPhone und iPad.
+            Burger-Brothers-App.
           </p>
         </section>
       </main>

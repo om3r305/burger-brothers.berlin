@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import {
   getSchnellSettings,
+  isAndroidUserAgent,
   SCHNELL_COOKIE,
+  schnellSessionIsInstalledApp,
   verifySessionToken,
 } from "@/lib/server/schnellbestellung";
 import { readRequestCookie } from "@/lib/server/request-security";
@@ -23,6 +25,10 @@ export async function GET(req: Request) {
         Boolean(session) &&
         settings.locationCheckEnabled &&
         Date.now() - Number(session?.locAt) > settings.recheckMinutes * 60_000,
+      installedApp: schnellSessionIsInstalledApp(session),
+      androidInstallRequired:
+        isAndroidUserAgent(req.headers.get("user-agent")) &&
+        !schnellSessionIsInstalledApp(session),
       locationCheckEnabled: settings.locationCheckEnabled,
       iosHomeScreenFlowEnabled: settings.iosHomeScreenFlowEnabled,
       backgroundReadyPushEnabled: settings.backgroundReadyPushEnabled,

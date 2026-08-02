@@ -4,6 +4,7 @@ import {
   getSchnellCampaignPrice,
   getSchnellLunchAvailability,
   getSchnellSettings,
+  isAndroidUserAgent,
   isComplimentaryTableSauce,
   loadSchnellCatalogProducts,
   SCHNELL_CATEGORY_ORDER,
@@ -11,6 +12,7 @@ import {
   schnellCategoryLabel,
   schnellProductIsAllowed,
   schnellProductRequiresDoneness,
+  schnellSessionIsInstalledApp,
   verifySessionToken,
 } from "@/lib/server/schnellbestellung";
 import { readRequestCookie } from "@/lib/server/request-security";
@@ -166,6 +168,19 @@ export async function GET(req: Request) {
       { ok: false, error: "session_required" },
       {
         status: 401,
+        headers: { "Cache-Control": "private, no-store" },
+      },
+    );
+  }
+
+  if (
+    isAndroidUserAgent(req.headers.get("user-agent")) &&
+    !schnellSessionIsInstalledApp(session)
+  ) {
+    return NextResponse.json(
+      { ok: false, error: "android_install_required" },
+      {
+        status: 403,
         headers: { "Cache-Control": "private, no-store" },
       },
     );

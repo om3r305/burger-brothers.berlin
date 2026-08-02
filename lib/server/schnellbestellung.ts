@@ -818,6 +818,19 @@ export function verifyAccessToken(token: string, settings: SchnellSettings) {
   return payload;
 }
 
+export function isAndroidUserAgent(value: unknown) {
+  return /Android/i.test(String(value || ""));
+}
+
+export function schnellSessionIsInstalledApp(session: unknown) {
+  return Boolean(
+    session &&
+      typeof session === "object" &&
+      !Array.isArray(session) &&
+      (session as Record<string, unknown>).homeScreen === true,
+  );
+}
+
 export function createSessionToken(
   settings: SchnellSettings,
   data: {
@@ -826,6 +839,7 @@ export function createSessionToken(
     lng?: number;
     accuracy?: number;
     locationVerified?: boolean;
+    homeScreen?: boolean;
   },
 ) {
   const now = Date.now();
@@ -836,6 +850,7 @@ export function createSessionToken(
     locAt: now,
     gen: settings.generation,
     locationVerified: data.locationVerified === true,
+    homeScreen: data.homeScreen === true,
     deviceId: data.deviceId,
     ...(Number.isFinite(data.lat) ? { lat: data.lat } : {}),
     ...(Number.isFinite(data.lng) ? { lng: data.lng } : {}),

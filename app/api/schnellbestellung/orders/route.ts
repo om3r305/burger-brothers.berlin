@@ -2,7 +2,9 @@ import { NextResponse } from "next/server";
 import {
   createCashSchnellOrder,
   getSchnellSettings,
+  isAndroidUserAgent,
   SCHNELL_COOKIE,
+  schnellSessionIsInstalledApp,
   verifySessionToken,
 } from "@/lib/server/schnellbestellung";
 import {
@@ -29,6 +31,19 @@ export async function POST(req: Request) {
 
   if (!session) {
     return NextResponse.json({ ok: false, error: "session_expired" }, { status: 401 });
+  }
+
+  if (
+    isAndroidUserAgent(req.headers.get("user-agent")) &&
+    !schnellSessionIsInstalledApp(session)
+  ) {
+    return NextResponse.json(
+      { ok: false, error: "android_install_required" },
+      {
+        status: 403,
+        headers: { "Cache-Control": "no-store" },
+      },
+    );
   }
 
   if (

@@ -655,7 +655,58 @@ function playOrderConfirmationSoundOnce() {
   }
 }
 
+function isAndroidBrowserWithoutInstalledMode() {
+  if (!/Android/i.test(navigator.userAgent || "")) return false;
+
+  const navigatorWithStandalone = navigator as Navigator & {
+    standalone?: boolean;
+  };
+
+  return !(
+    window.matchMedia?.("(display-mode: standalone)").matches === true ||
+    navigatorWithStandalone.standalone === true
+  );
+}
+
 export default function SchnellClient() {
+  const router = useRouter();
+  const [androidAccessAllowed, setAndroidAccessAllowed] =
+    useState<boolean | null>(null);
+
+  useEffect(() => {
+    const blocked = isAndroidBrowserWithoutInstalledMode();
+    setAndroidAccessAllowed(!blocked);
+
+    if (blocked) {
+      router.replace("/schnellbestellung/enter?androidInstall=1");
+    }
+  }, [router]);
+
+  if (androidAccessAllowed !== true) {
+    return (
+      <main className="bb-schnell-page grid min-h-dvh place-items-center p-5 text-white">
+        <section className="bb-schnell-sheet w-full max-w-sm rounded-3xl border border-amber-300/25 p-6 text-center shadow-2xl shadow-black/30">
+          <img
+            src="/schnell-icon-180.png?v=1"
+            className="mx-auto h-20 w-20 rounded-[22px]"
+            alt="Burger Brothers"
+          />
+          <h1 className="mt-5 text-2xl font-black">
+            Burger Brothers wird geprüft …
+          </h1>
+          <p className="mt-3 text-sm leading-6 text-stone-300">
+            Android-Schnellbestellungen werden über die installierte App
+            geöffnet.
+          </p>
+        </section>
+      </main>
+    );
+  }
+
+  return <SchnellOrderClient />;
+}
+
+function SchnellOrderClient() {
   const router = useRouter();
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -748,7 +799,15 @@ export default function SchnellClient() {
           return;
         }
 
-        if (envelope.status === 401) {
+        if (
+          envelope.status === 403 &&
+          data.error === "android_install_required"
+        ) {
+          router.replace("/schnellbestellung/enter?homescreen=1");
+          setError(
+            "Bitte öffnen Sie Burger Brothers über das Symbol auf Ihrem Startbildschirm und scannen Sie den QR-Code erneut.",
+          );
+        } else if (envelope.status === 401) {
           setError(
             "Ihre Schnellbestellung-Sitzung ist abgelaufen. Bitte scannen Sie den QR-Code erneut.",
           );
@@ -1102,6 +1161,13 @@ export default function SchnellClient() {
       const data = await response.json().catch(() => ({}));
 
       if (!response.ok) {
+        if (data.error === "android_install_required") {
+          router.replace("/schnellbestellung/enter?homescreen=1");
+          throw new Error(
+            "Bitte öffnen Sie Burger Brothers über das Symbol auf Ihrem Startbildschirm und scannen Sie den QR-Code erneut.",
+          );
+        }
+
         const message =
           data.error === "location_recheck_required"
             ? "Bitte scannen Sie den aktuellen QR-Code erneut."

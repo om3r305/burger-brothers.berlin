@@ -3,6 +3,7 @@ import {
   createSessionToken,
   distanceMeters,
   getSchnellSettings,
+  isAndroidUserAgent,
   SCHNELL_COOKIE,
   verifyAccessToken,
 } from "@/lib/server/schnellbestellung";
@@ -44,10 +45,25 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "device_missing" }, { status: 400 });
   }
 
+  const homeScreen = body.homeScreen === true;
+  if (
+    isAndroidUserAgent(req.headers.get("user-agent")) &&
+    !homeScreen
+  ) {
+    return NextResponse.json(
+      { ok: false, error: "android_install_required" },
+      {
+        status: 409,
+        headers: { "Cache-Control": "no-store" },
+      },
+    );
+  }
+
   if (!settings.locationCheckEnabled) {
     const sessionToken = createSessionToken(settings, {
       deviceId,
       locationVerified: false,
+      homeScreen,
     });
     const response = NextResponse.json({
       ok: true,
@@ -110,6 +126,7 @@ export async function POST(req: Request) {
     accuracy,
     deviceId,
     locationVerified: true,
+    homeScreen,
   });
   const response = NextResponse.json({
     ok: true,
