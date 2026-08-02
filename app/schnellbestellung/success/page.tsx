@@ -233,7 +233,30 @@ export default function SuccessPage() {
 
   useEffect(() => {
     prewarmSchnellPush();
-    if (orderId) void bindSchnellPushToOrder(orderId);
+    if (!orderId) return;
+
+    let cancelled = false;
+    const timers: number[] = [];
+    const retryDelays = [0, 1_500, 5_000];
+
+    const bindWithRetry = async (attempt: number) => {
+      if (cancelled) return;
+      const ok = await bindSchnellPushToOrder(orderId);
+      if (ok || cancelled || attempt >= retryDelays.length - 1) return;
+
+      const timer = window.setTimeout(
+        () => void bindWithRetry(attempt + 1),
+        retryDelays[attempt + 1],
+      );
+      timers.push(timer);
+    };
+
+    void bindWithRetry(0);
+
+    return () => {
+      cancelled = true;
+      timers.forEach((timer) => window.clearTimeout(timer));
+    };
   }, [orderId]);
 
   useEffect(() => {

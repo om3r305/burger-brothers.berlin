@@ -915,14 +915,23 @@ function buildStatusUpdateData(
       };
     }
 
-    // Her gerçek non-ready -> ready geçişi telefona ayrı bir olay olarak gider.
-    // Böylece Fertig -> Neu/Preparing -> tekrar Fertig akışında müşteri ikinci
-    // kez de sesli/görsel uyarı alır; polling aynı olayı tekrar çalmaz.
-    if (
-      next === "ready" &&
-      previousStatus !== "ready" &&
-      isSchnellOrderLike(row, metaObj)
-    ) {
+    // Schnellbestellung'da normal Fertig geçişi ready olayı üretir.
+    // Personel "Fertig"e basmadan doğrudan "Ausgegeben"e basarsa da müşteri
+    // bildirimden mahrum kalmasın diye ilk done geçişi aynı olayı üretir.
+    // ready -> done sırasında yeni event oluşturulmaz; aynı event id ile yapılan
+    // ikinci boş push yalnız başarısız ilk gönderimi tekrar dener (SW dedupe eder).
+    const createsSchnellReadyEvent =
+      isSchnellOrderLike(row, metaObj) &&
+      (
+        (next === "ready" && previousStatus !== "ready") ||
+        (
+          next === "done" &&
+          previousStatus !== "ready" &&
+          previousStatus !== "done"
+        )
+      );
+
+    if (createsSchnellReadyEvent) {
       const readyEventSequence =
         Math.max(0, Math.trunc(toNumber(metaObj?.readyEventSequence, 0))) + 1;
       nextMeta.readyEventSequence = readyEventSequence;
@@ -1384,9 +1393,18 @@ async function handleStatusUpdate(req: Request) {
     });
 
     const updatedMeta = ensureObj((updated as any)?.meta);
+    const isSchnellReadyPushTransition =
+      (
+        requestedStatus === "ready" &&
+        currentStatus !== "ready"
+      ) ||
+      (
+        requestedStatus === "done" &&
+        currentStatus !== "done" &&
+        Boolean(updatedMeta.readyEventId)
+      );
     const readyPushCandidate =
-      requestedStatus === "ready" &&
-      currentStatus !== "ready" &&
+      isSchnellReadyPushTransition &&
       isSchnellOrderLike(updated, updatedMeta) &&
       Boolean(updatedMeta.readyPushSubscription);
     const readyPushSettings = readyPushCandidate
@@ -1399,22 +1417,30 @@ async function handleStatusUpdate(req: Request) {
       const orderIdForPush = String((updated as any)?.id || "");
       const subscriptionForPush = updatedMeta.readyPushSubscription;
 
-      runAfterResponse(async () => {
-        const result = await sendEmptySchnellPush(subscriptionForPush);
+      // Bu özel push status cevabından önce denenir. Serverless ortamda after()
+      // görevinin erken sonlanması yüzünden bildirim kaybolmasın. Timeout sınırlı;
+      // TV status isteğine sürekli yük değil, yalnız Fertig/Ausgegeben anında eklenir.
+      const result = await sendEmptySchnellPush(subscriptionForPush, 4_000);
 
-        if (result.expired && orderIdForPush) {
-          const cleanedMeta = { ...updatedMeta };
-          delete cleanedMeta.readyPushSubscription;
-          cleanedMeta.readyPushExpiredAt = Date.now();
+      if (result.expired && orderIdForPush) {
+        const cleanedMeta = { ...updatedMeta };
+        delete cleanedMeta.readyPushSubscription;
+        cleanedMeta.readyPushExpiredAt = Date.now();
 
-          await prisma.order
-            .update({
-              where: { id: orderIdForPush },
-              data: { meta: sanitizeJson(cleanedMeta) },
-            })
-            .catch(() => undefined);
-        }
-      });
+        await prisma.order
+          .update({
+            where: { id: orderIdForPush },
+            data: { meta: sanitizeJson(cleanedMeta) },
+          })
+          .catch(() => undefined);
+      } else if (!result.ok) {
+        console.error("[orders/status] schnell ready push failed", {
+          orderId: orderIdForPush,
+          attempted: result.attempted,
+          status: result.status,
+          error: result.error || "push_failed",
+        });
+      }
     }
 
     if (requestedStatus && requestedStatus !== currentStatus) {

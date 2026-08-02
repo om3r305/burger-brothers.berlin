@@ -1376,12 +1376,16 @@ function pushSchnellKitchenWrapped(out, prefix, value, options={}){
   for (const line of lines){
     out.push(
       options.boldText ? bold(1) : bold(0),
-      size(1, options.height || 2),
       text(line),
-      size(1,1),
       bold(0),
     );
   }
+}
+
+function pushSchnellKitchenPricedLine(out, label, amount, options={}){
+  if (options.boldText) out.push(bold(1));
+  pushSchnellPricedLine(out, label, amount);
+  if (options.boldText) out.push(bold(0));
 }
 
 function pushSchnellKitchenItem(out, item, ctx){
@@ -1389,7 +1393,12 @@ function pushSchnellKitchenItem(out, item, ctx){
   const lineTotal = receiptItemUnitPrice(item, ctx.receiptItemPricing) * qty;
   const itemName = upperReceipt(cleanName(String(item?.name || 'Artikel')));
   const priceText = item?.complimentaryTableSauce === true ? 'KOSTENLOS' : moneyDe(lineTotal);
-  out.push(bold(1), size(1,2), text(twoCol(`${qty}x ${itemName}`, priceText)), size(1,1), bold(0));
+  pushSchnellKitchenPricedLine(
+    out,
+    `${qty}x ${itemName}`,
+    priceText,
+    { boldText:true },
+  );
 
   const doneness = receiptDonenessLabel(item);
   if (doneness){
@@ -1401,10 +1410,12 @@ function pushSchnellKitchenItem(out, item, ctx){
     if (isLunchSideExtra(extra)){
       const label = upperReceipt(cleanLunchSideLabel(extra));
       const amount = Math.max(0, num(extra?.price)) * qty;
-      const value = amount > 0.009
-        ? `${label} (${signedMoneyDe(amount)})`
-        : label;
-      if (value) pushSchnellKitchenWrapped(out, '   + ', value);
+      if (!label) continue;
+      if (amount > 0.009) {
+        pushSchnellKitchenPricedLine(out, `   + ${label}`, signedMoneyDe(amount));
+      } else {
+        pushSchnellKitchenWrapped(out, '   + ', label);
+      }
       continue;
     }
 
@@ -1427,7 +1438,16 @@ function pushSchnellKitchenItem(out, item, ctx){
 
 function buildSchnellKitchenTicket(o){
   const ctx = resolveSchnellReceiptContext(o);
-  const out = [init(), selectCodepage(), fontA(), lineSpace(30)];
+  // Gerçek ESC/POS metin Font A (ESC M 0) kullanılır. Eski fontA()
+  // yardımcısı barkod HRI fontunu seçiyordu ve metni değiştirmiyordu.
+  // 1x2 dikey büyütme kaldırıldığı için harfler artık sıkışmaz/üst üste binmez.
+  const out = [
+    init(),
+    selectCodepage(),
+    fontSel(0),
+    size(1,1),
+    lineSpace(36),
+  ];
   out.push(text(twoCol(ctx.when.date, ctx.when.time)));
   out.push(bold(1), text('SCHNELLBESTELLUNG'), bold(0), text(''));
 
@@ -1442,9 +1462,7 @@ function buildSchnellKitchenTicket(o){
     out.push(
       bold(1),
       underline(1),
-      size(1,2),
       text(upperReceipt(group)),
-      size(1,1),
       underline(0),
       bold(0),
       text(''),
@@ -1458,9 +1476,10 @@ function buildSchnellKitchenTicket(o){
     out.push(bold(0), align(0));
   }
 
-  out.push(lineSpaceDefault(), feedLines(CUT_FEED_LINES), cut());
+  out.push(fontSel(0), size(1,1), lineSpaceDefault(), feedLines(CUT_FEED_LINES), cut());
   return Buffer.concat(out);
 }
+
 async function buildPrintPayload(o, opts={}){
   if (!isSchnellOrder(o)) return buildTicketFromOrder(o, opts);
   const cashReceipt = await buildSchnellCashReceipt(o, opts);

@@ -130,6 +130,7 @@ function createVapidJwt(endpoint: string, publicKey: string, privateKey: string,
 
 export async function sendEmptySchnellPush(
   subscriptionValue: unknown,
+  timeoutMs = 4_000,
 ): Promise<SchnellPushSendResult> {
   const subscription = normalizeSchnellPushSubscription(subscriptionValue);
   const config = getSchnellPushConfig();
@@ -145,7 +146,10 @@ export async function sendEmptySchnellPush(
     config.subject,
   );
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 8_000);
+  const timeout = setTimeout(
+    () => controller.abort(),
+    Math.max(1_500, Math.min(8_000, Number(timeoutMs) || 4_000)),
+  );
 
   try {
     const response = await fetch(subscription.endpoint, {

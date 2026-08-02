@@ -265,10 +265,21 @@ async function postOrder(port, order) {
     assert.ok(kitchenBuffer.lastIndexOf(cutCommand) > kitchenBuffer.length - 16, 'kitchen receipt must end with a cut command');
     const cash = printableText(cashBuffer);
     const kitchen = printableText(kitchenBuffer);
-    const doubleHeight = Buffer.from([0x1d, 0x21, 0x01]);
+    const textFontA = Buffer.from([0x1b, 0x4d, 0x00]);
+    const readableLineSpacing = Buffer.from([0x1b, 0x33, 0x24]);
+    const verticalOnlyDoubleHeight = Buffer.from([0x1d, 0x21, 0x01]);
     assert.ok(
-      countSequence(kitchenBuffer, doubleHeight) >= 8,
-      'kitchen categories and critical item lines must use double-height text',
+      countSequence(kitchenBuffer, textFontA) >= 1,
+      'Schnell kitchen receipt must select real ESC/POS text Font A',
+    );
+    assert.ok(
+      countSequence(kitchenBuffer, readableLineSpacing) >= 1,
+      'Schnell kitchen receipt must use readable 36-dot line spacing',
+    );
+    assert.equal(
+      countSequence(kitchenBuffer, verticalOnlyDoubleHeight),
+      0,
+      'Schnell kitchen body must not use vertically stretched 1x2 text',
     );
 
     assert.match(cash, /Berliner Str\. 9/);
@@ -296,7 +307,7 @@ async function postOrder(port, order) {
     assert.match(kitchen, /MITTAGSMEN/);
     assert.match(kitchen, /1x ALL AMERICAN \+ FRIES\s+9,90 €/);
     assert.match(kitchen, /1x CHEESY CHEESE \+ FRIES\s+9,90 €/);
-    assert.match(kitchen, /CURLY FRIES STATT POMMES \(\+1,00 €\)/);
+    assert.match(kitchen, /CURLY FRIES STATT POMMES\s+\+1,00 €/);
     assert.match(kitchen, /1x BLACK ANGUS BURGER\s+12,50 €/);
     assert.match(kitchen, /LEICHT GEBRATEN/);
     assert.equal(
