@@ -18,7 +18,7 @@ self.addEventListener("activate", (event) => {
 // Service Worker bilinçli olarak fetch cevabı cache'lemez.
 self.addEventListener("fetch", () => {});
 
-const PUSH_STATE_CACHE = "bb-push-state-v4";
+const PUSH_STATE_CACHE = "bb-push-state-v5";
 
 function stateKey(eventId) {
   return `/__bb_push_seen__/${encodeURIComponent(String(eventId || ""))}`;
@@ -214,11 +214,33 @@ self.addEventListener("push", (pushEvent) => {
 });
 
 self.addEventListener("notificationclick", (event) => {
+  const notificationData = event.notification.data || {};
   event.notification.close();
-  const targetUrl = new URL(
-    (event.notification.data && event.notification.data.url) || "/menu",
-    self.location.origin,
-  ).href;
+
+  const target = new URL(notificationData.url || "/menu", self.location.origin);
+  const isSchnellReady = notificationData.type === "schnell_ready";
+  const readyEventId = String(notificationData.readyEventId || "").trim();
+  const orderId = String(
+    notificationData.orderId || target.searchParams.get("order") || "",
+  ).trim();
+
+  if (isSchnellReady) {
+    target.searchParams.set("readyOpen", "1");
+    if (readyEventId) target.searchParams.set("readyEventId", readyEventId);
+    if (orderId && !target.searchParams.get("order")) {
+      target.searchParams.set("order", orderId);
+    }
+  }
+
+  const openMessage = {
+    type: "BB_SCHNELL_NOTIFICATION_OPEN",
+    readyEventId,
+    event: {
+      id: readyEventId,
+      orderId,
+      customerNumber: notificationData.customerNumber,
+    },
+  };
 
   event.waitUntil(
     (async () => {
@@ -227,16 +249,45 @@ self.addEventListener("notificationclick", (event) => {
         includeUncontrolled: true,
       });
 
-      for (const client of windows) {
-        if ("focus" in client) {
-          if ("navigate" in client) await client.navigate(targetUrl);
+      if (isSchnellReady) {
+        for (const client of windows) {
+          if (!("focus" in client)) continue;
+          let clientUrl;
+          try {
+            clientUrl = new URL(client.url);
+          } catch {
+            continue;
+          }
+          if (clientUrl.pathname !== "/schnellbestellung/success") continue;
+          const clientOrderId = String(
+            clientUrl.searchParams.get("order") || "",
+          ).trim();
+          if (orderId && clientOrderId && clientOrderId !== orderId) continue;
+
+          client.postMessage(openMessage);
           await client.focus();
+          [50, 150, 350, 700].forEach((delay) => {
+            setTimeout(() => client.postMessage(openMessage), delay);
+          });
           return;
         }
       }
 
+      const targetUrl = target.href;
+      for (const client of windows) {
+        if (!("focus" in client)) continue;
+        let targetClient = client;
+        if ("navigate" in client) {
+          targetClient = (await client.navigate(targetUrl)) || client;
+        }
+        await targetClient.focus();
+        if (isSchnellReady) targetClient.postMessage(openMessage);
+        return;
+      }
+
       if (self.clients.openWindow) {
-        await self.clients.openWindow(targetUrl);
+        const targetClient = await self.clients.openWindow(targetUrl);
+        if (isSchnellReady) targetClient?.postMessage(openMessage);
       }
     })(),
   );

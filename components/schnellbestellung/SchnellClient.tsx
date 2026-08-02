@@ -137,8 +137,8 @@ type HistoryEntry = {
 type AudioWindow = Window &
   typeof globalThis & {
     __bbSchnellReadyAudioContext?: AudioContext;
-    __bbSchnellReadyAudioBuffer?: AudioBuffer;
     __bbSchnellReadyMedia?: HTMLAudioElement;
+    __bbSchnellReadyKeepAlive?: boolean;
   };
 
 const DEFAULT_CATALOG_SETTINGS: CatalogSettings = {
@@ -647,6 +647,23 @@ function saveHistoryEntry(
   localStorage.setItem(HISTORY_KEY, JSON.stringify(next));
 }
 
+function stopReadyAudioKeepAlive() {
+  try {
+    const audioWindow = window as AudioWindow;
+    const media = audioWindow.__bbSchnellReadyMedia;
+    if (media) {
+      media.pause();
+      media.loop = false;
+      media.currentTime = 0;
+      media.volume = 1;
+    }
+    audioWindow.__bbSchnellReadyKeepAlive = false;
+    window.sessionStorage.removeItem("bb_schnell_ready_audio_armed");
+  } catch {
+    // Cleanup is best-effort.
+  }
+}
+
 function primeReadyAudio() {
   try {
     const audioWindow = window as AudioWindow;
@@ -663,43 +680,47 @@ function primeReadyAudio() {
 
       const oscillator = context.createOscillator();
       const gain = context.createGain();
-      gain.gain.value = 0.00001;
+      gain.gain.value = 0.000001;
       oscillator.connect(gain);
       gain.connect(context.destination);
       oscillator.start();
       oscillator.stop(context.currentTime + 0.03);
     }
 
-    // Aynı kullanıcı dokunuşunda HTML media kanalını da hazırla. Next.js
-    // client navigation sırasında window nesnesi korunduğu için başarı ekranı
-    // daha sonra aynı audio elementini tekrar kullanabilir.
+    // iPhone için kritik fark: medya yalnız hazırlanıp durdurulmaz. Sipariş
+    // dokunuşuyla gerçekten başlatılır ve duyulmayacak kadar düşük seviyede
+    // döngüde tutulur. Fertig bildirimi açıldığında yeni play() gerekmeden aynı
+    // elementin seviyesi yükseltilir.
     const media =
       audioWindow.__bbSchnellReadyMedia ||
       new Audio("/sounds/dine-in.wav");
     media.preload = "auto";
-    media.volume = 1;
+    media.loop = true;
+    media.volume = 0.0001;
     media.muted = false;
     media.setAttribute("playsinline", "true");
     audioWindow.__bbSchnellReadyMedia = media;
 
-    const originalVolume = media.volume;
-    media.volume = 0.001;
-    const prime = media.play();
-    if (prime && typeof prime.then === "function") {
-      void prime
-        .then(() => {
-          media.pause();
-          media.currentTime = 0;
-          media.volume = originalVolume;
-        })
-        .catch(() => {
-          media.volume = originalVolume;
-        });
+    try {
+      media.currentTime = 0;
+    } catch {
+      // Seeking is optional during initial load.
     }
 
-    sessionStorage.setItem("bb_schnell_ready_audio_primed", "1");
+    const armed = media.play();
+    if (armed && typeof armed.then === "function") {
+      void armed
+        .then(() => {
+          audioWindow.__bbSchnellReadyKeepAlive = true;
+          window.sessionStorage.setItem("bb_schnell_ready_audio_armed", "1");
+        })
+        .catch(() => {
+          audioWindow.__bbSchnellReadyKeepAlive = false;
+          window.sessionStorage.removeItem("bb_schnell_ready_audio_armed");
+        });
+    }
   } catch {
-    // Sound remains best-effort on mobile browsers.
+    // Push bildirimi ses kanalı açılamasa da çalışmaya devam eder.
   }
 }
 
@@ -1202,6 +1223,7 @@ export default function SchnellClient() {
       );
     } catch (caught) {
       stopRewardCelebrationSound();
+      stopReadyAudioKeepAlive();
       setError(
         caught instanceof Error
           ? caught.message
