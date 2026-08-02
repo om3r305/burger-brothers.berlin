@@ -137,6 +137,7 @@ type HistoryEntry = {
 type AudioWindow = Window &
   typeof globalThis & {
     __bbSchnellReadyAudioContext?: AudioContext;
+    __bbSchnellReadyAudioBuffer?: AudioBuffer;
     __bbSchnellReadyMedia?: HTMLAudioElement;
   };
 
@@ -671,6 +672,22 @@ function primeReadyAudio() {
         oscillator.start();
         oscillator.stop(context.currentTime + 0.03);
       }).catch(() => undefined);
+
+      // Decode the real alert sound into the already-unlocked Web Audio
+      // context. iOS may later reject HTMLAudioElement.play() after a push
+      // notification opens the PWA, while this primed context remains usable.
+      if (!audioWindow.__bbSchnellReadyAudioBuffer) {
+        void fetch("/sounds/dine-in.wav", { cache: "force-cache" })
+          .then((response) => {
+            if (!response.ok) throw new Error("ready sound unavailable");
+            return response.arrayBuffer();
+          })
+          .then((arrayBuffer) => context.decodeAudioData(arrayBuffer))
+          .then((audioBuffer) => {
+            audioWindow.__bbSchnellReadyAudioBuffer = audioBuffer;
+          })
+          .catch(() => undefined);
+      }
     }
 
     // Prime the exact HTMLAudioElement reused by the success page. The play()

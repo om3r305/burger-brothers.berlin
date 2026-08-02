@@ -43,6 +43,9 @@ type NavigatorWithWakeLock = Navigator & {
 type AudioWindow = Window &
   typeof globalThis & {
     __bbSchnellReadyAudioContext?: AudioContext;
+    __bbSchnellReadyAudioBuffer?: AudioBuffer;
+    __bbSchnellReadyBufferSource?: AudioBufferSourceNode;
+    __bbSchnellReadyOscillators?: Set<OscillatorNode>;
     __bbSchnellReadyMedia?: HTMLAudioElement;
     __bbSchnellReadyAlertGeneration?: number;
   };
@@ -132,13 +135,45 @@ async function playReadyMediaRound(media: HTMLAudioElement) {
   }
 }
 
-function stopReadyAlert(timeoutIds: Set<number>) {
+function stopReadyAlert(
+  timeoutIds: Set<number>,
+  suspendContext = false,
+) {
   const audioWindow = window as AudioWindow;
   audioWindow.__bbSchnellReadyAlertGeneration =
     (audioWindow.__bbSchnellReadyAlertGeneration || 0) + 1;
 
   timeoutIds.forEach((timeoutId) => window.clearTimeout(timeoutId));
   timeoutIds.clear();
+
+  try {
+    audioWindow.__bbSchnellReadyBufferSource?.stop();
+  } catch {
+    // The source may already have ended.
+  }
+  try {
+    audioWindow.__bbSchnellReadyBufferSource?.disconnect();
+  } catch {
+    // Best-effort audio cleanup.
+  }
+  audioWindow.__bbSchnellReadyBufferSource = undefined;
+
+  const oscillators = audioWindow.__bbSchnellReadyOscillators;
+  if (oscillators) {
+    oscillators.forEach((oscillator) => {
+      try {
+        oscillator.stop();
+      } catch {
+        // The oscillator may already have ended.
+      }
+      try {
+        oscillator.disconnect();
+      } catch {
+        // Best-effort audio cleanup.
+      }
+    });
+    oscillators.clear();
+  }
 
   try {
     const media = audioWindow.__bbSchnellReadyMedia;
@@ -150,6 +185,16 @@ function stopReadyAlert(timeoutIds: Set<number>) {
     // Audio cleanup is best-effort.
   }
 
+  if (suspendContext) {
+    try {
+      void audioWindow.__bbSchnellReadyAudioContext
+        ?.suspend()
+        .catch(() => undefined);
+    } catch {
+      // Context cleanup is best-effort.
+    }
+  }
+
   try {
     navigator.vibrate?.(0);
   } catch {
@@ -157,48 +202,145 @@ function stopReadyAlert(timeoutIds: Set<number>) {
   }
 }
 
-async function playReadyAlert(timeoutIds: Set<number>) {
-  stopReadyAlert(timeoutIds);
-  const audioWindow = window as AudioWindow;
-  const generation = audioWindow.__bbSchnellReadyAlertGeneration || 0;
+function startPrimedWebAudioAlert(
+  audioWindow: AudioWindow,
+  timeoutIds: Set<number>,
+  generation: number,
+) {
+  const context = audioWindow.__bbSchnellReadyAudioContext;
+  if (!context) return false;
+
+  // Preferred path: play the real pre-decoded alert sound through the Web
+  // Audio context unlocked by the final order-button tap.
+  const audioBuffer = audioWindow.__bbSchnellReadyAudioBuffer;
+  if (audioBuffer) {
+    try {
+      const source = context.createBufferSource();
+      const gain = context.createGain();
+      source.buffer = audioBuffer;
+      source.loop = true;
+      gain.gain.value = 1;
+      source.connect(gain);
+      gain.connect(context.destination);
+      audioWindow.__bbSchnellReadyBufferSource = source;
+      source.start(0);
+      void context.resume().catch(() => undefined);
+      return true;
+    } catch {
+      // Fall through to the proven oscillator alert from the original build.
+    }
+  }
 
   try {
-    const media = getReadyMediaElement();
-    const mediaStarted = await playReadyMediaRound(media);
-    if (!mediaStarted) return false;
+    const oscillators =
+      audioWindow.__bbSchnellReadyOscillators || new Set<OscillatorNode>();
+    audioWindow.__bbSchnellReadyOscillators = oscillators;
 
-    // The customer-ready sound keeps repeating until "Bestellung beenden".
-    // Timers are tracked and synchronously cleared by stopReadyAlert().
-    const scheduleNextRound = () => {
+    const scheduleRound = () => {
       if (
         audioWindow.__bbSchnellReadyAlertGeneration !== generation
       ) return;
+
+      const compressor = context.createDynamicsCompressor();
+      compressor.threshold.value = -24;
+      compressor.knee.value = 8;
+      compressor.ratio.value = 12;
+      compressor.attack.value = 0.002;
+      compressor.release.value = 0.18;
+
+      const master = context.createGain();
+      master.gain.value = 0.9;
+      compressor.connect(master);
+      master.connect(context.destination);
+
+      const notes = [988, 1318, 1568, 1318, 1760, 2093];
+      notes.forEach((frequency, index) => {
+        const start = context.currentTime + 0.03 + index * 0.16;
+        const oscillator = context.createOscillator();
+        const gain = context.createGain();
+        oscillator.type = index % 2 === 0 ? "square" : "sawtooth";
+        oscillator.frequency.setValueAtTime(frequency, start);
+        gain.gain.setValueAtTime(0.0001, start);
+        gain.gain.exponentialRampToValueAtTime(0.75, start + 0.012);
+        gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.13);
+        oscillator.connect(gain);
+        gain.connect(compressor);
+        oscillators.add(oscillator);
+        oscillator.onended = () => oscillators.delete(oscillator);
+        oscillator.start(start);
+        oscillator.stop(start + 0.15);
+      });
+
       const timeoutId = window.setTimeout(() => {
         timeoutIds.delete(timeoutId);
-        if (
-          audioWindow.__bbSchnellReadyAlertGeneration !== generation
-        ) return;
-        void playReadyMediaRound(media).then((played) => {
-          if (
-            played &&
-            audioWindow.__bbSchnellReadyAlertGeneration === generation
-          ) scheduleNextRound();
-        });
+        scheduleRound();
       }, 1_800);
       timeoutIds.add(timeoutId);
     };
-    scheduleNextRound();
 
+    // Sources can be scheduled while iOS temporarily suspends the context.
+    // When the notification tap foregrounds the already-open PWA, the primed
+    // context resumes and the alert begins without requiring a page tap.
+    scheduleRound();
+    void context.resume().catch(() => undefined);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function playReadyAlert(timeoutIds: Set<number>) {
+  stopReadyAlert(timeoutIds, false);
+  const audioWindow = window as AudioWindow;
+  const generation = audioWindow.__bbSchnellReadyAlertGeneration || 0;
+
+  const webAudioStarted = startPrimedWebAudioAlert(
+    audioWindow,
+    timeoutIds,
+    generation,
+  );
+
+  let mediaStarted = false;
+  if (!webAudioStarted) {
+    try {
+      const media = getReadyMediaElement();
+      mediaStarted = await playReadyMediaRound(media);
+      if (mediaStarted) {
+        const scheduleNextRound = () => {
+          if (
+            audioWindow.__bbSchnellReadyAlertGeneration !== generation
+          ) return;
+          const timeoutId = window.setTimeout(() => {
+            timeoutIds.delete(timeoutId);
+            if (
+              audioWindow.__bbSchnellReadyAlertGeneration !== generation
+            ) return;
+            void playReadyMediaRound(media).then((played) => {
+              if (
+                played &&
+                audioWindow.__bbSchnellReadyAlertGeneration === generation
+              ) scheduleNextRound();
+            });
+          }, 1_800);
+          timeoutIds.add(timeoutId);
+        };
+        scheduleNextRound();
+      }
+    } catch {
+      mediaStarted = false;
+    }
+  }
+
+  if (webAudioStarted || mediaStarted) {
     try {
       navigator.vibrate?.([650, 120, 650, 140, 950]);
     } catch {
       // Vibration is not available on every browser (including iOS Safari).
     }
-
     return true;
-  } catch {
-    return false;
   }
+
+  return false;
 }
 
 export default function SuccessPage() {
@@ -467,12 +609,21 @@ export default function SuccessPage() {
       setStatus("ready");
       const eventId =
         readyEventId || pendingReadyEventRef.current || `push:${orderId}`;
-      scheduleReadyStartBurst(eventId);
+      pendingReadyEventRef.current = eventId;
+
+      if (message.type === "BB_SCHNELL_READY_PUSH") {
+        // This is the original working behavior: start the audio channel as
+        // soon as the push reaches the waiting PWA, even while it is hidden.
+        // The later notification tap only foregrounds an alert already armed.
+        void tryStartReadyAlert(eventId);
+      } else {
+        scheduleReadyStartBurst(eventId);
+      }
     };
 
     navigator.serviceWorker.addEventListener("message", onMessage);
     return () => navigator.serviceWorker.removeEventListener("message", onMessage);
-  }, [orderId, scheduleReadyStartBurst]);
+  }, [orderId, scheduleReadyStartBurst, tryStartReadyAlert]);
 
   useEffect(() => {
     const retryPendingAlert = () => {
@@ -531,7 +682,7 @@ export default function SuccessPage() {
     return () => {
       document.removeEventListener("visibilitychange", onVisibility);
       clearReadyStartRetries();
-      stopReadyAlert(readyTimeoutIdsRef.current);
+      stopReadyAlert(readyTimeoutIdsRef.current, true);
       void releaseWakeLock();
     };
   }, [clearReadyStartRetries, releaseWakeLock, requestWakeLock]);
@@ -639,7 +790,7 @@ export default function SuccessPage() {
     clearReadyStartRetries();
     readyAlertRunningRef.current = false;
     readyAlertAttemptRef.current = null;
-    stopReadyAlert(readyTimeoutIdsRef.current);
+    stopReadyAlert(readyTimeoutIdsRef.current, true);
     void releaseWakeLock();
   }, [clearReadyStartRetries, orderId, releaseWakeLock]);
 

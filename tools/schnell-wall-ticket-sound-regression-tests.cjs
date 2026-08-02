@@ -7,6 +7,7 @@ const read = (relative) => fs.readFileSync(path.join(root, relative), 'utf8');
 
 const proxy = read('print-proxy/index.cjs');
 const successPage = read('app/schnellbestellung/success/page.tsx');
+const schnellClient = read('components/schnellbestellung/SchnellClient.tsx');
 const serviceWorker = read('public/sw.js');
 
 const kitchenStart = proxy.indexOf('function buildSchnellKitchenTicket');
@@ -104,10 +105,30 @@ assert.doesNotMatch(
   /Ton einschalten|readySoundBlocked/,
   'manual sound button must be removed',
 );
-assert.doesNotMatch(
+assert.match(
+  schnellClient,
+  /__bbSchnellReadyAudioBuffer[\s\S]*fetch\("\/sounds\/dine-in\.wav"[\s\S]*decodeAudioData/,
+  'the order-button gesture must decode the real ready sound into the primed Web Audio context',
+);
+assert.match(
   successPage,
-  /__bbSchnellReadyStopWebAudio|createDynamicsCompressor|oscillator\.type =/,
-  'synthetic delayed Web Audio alert must be removed',
+  /startPrimedWebAudioAlert[\s\S]*createBufferSource\(\)[\s\S]*source\.loop = true[\s\S]*context\.resume\(\)/,
+  'the ready screen must play the real alert through the already-unlocked Web Audio context',
+);
+assert.match(
+  successPage,
+  /BB_SCHNELL_READY_PUSH[\s\S]*message\.type === "BB_SCHNELL_READY_PUSH"[\s\S]*tryStartReadyAlert\(eventId\)[\s\S]*scheduleReadyStartBurst/,
+  'background push must arm the old proven audio path before the notification is tapped',
+);
+assert.match(
+  successPage,
+  /createDynamicsCompressor[\s\S]*oscillator\.type = index % 2 === 0 \? "square" : "sawtooth"/,
+  'the original Web Audio alarm must remain as a fallback when the decoded file is unavailable',
+);
+assert.match(
+  successPage,
+  /stopReadyAlert\(readyTimeoutIdsRef\.current, true\)[\s\S]*Bestellung beenden/,
+  'Bestellung beenden must stop and suspend every active alert channel',
 );
 
 console.log('Schnell final ticket / notification-click sound regression tests: OK');
