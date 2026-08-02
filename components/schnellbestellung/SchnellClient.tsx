@@ -12,7 +12,6 @@ import { loadSchnellCatalog } from "@/lib/client/schnell-catalog";
 import {
   bindSchnellPushToOrder,
   prewarmSchnellPush,
-  requestSchnellPushPermissionFromGesture,
 } from "@/lib/client/schnell-push";
 
 type Extra = {
@@ -659,64 +658,47 @@ function primeReadyAudio() {
       const context =
         audioWindow.__bbSchnellReadyAudioContext || new AudioContextClass();
       audioWindow.__bbSchnellReadyAudioContext = context;
+      void context.resume();
 
-      // Called directly from the final order button's user gesture. Keeping
-      // this context resumed lets the later success page play its alert even
-      // after client-side navigation.
-      void context.resume().then(() => {
-        const oscillator = context.createOscillator();
-        const gain = context.createGain();
-        gain.gain.value = 0.00001;
-        oscillator.connect(gain);
-        gain.connect(context.destination);
-        oscillator.start();
-        oscillator.stop(context.currentTime + 0.03);
-      }).catch(() => undefined);
-
-      // Decode the real alert sound into the already-unlocked Web Audio
-      // context. iOS may later reject HTMLAudioElement.play() after a push
-      // notification opens the PWA, while this primed context remains usable.
-      if (!audioWindow.__bbSchnellReadyAudioBuffer) {
-        void fetch("/sounds/dine-in.wav", { cache: "force-cache" })
-          .then((response) => {
-            if (!response.ok) throw new Error("ready sound unavailable");
-            return response.arrayBuffer();
-          })
-          .then((arrayBuffer) => context.decodeAudioData(arrayBuffer))
-          .then((audioBuffer) => {
-            audioWindow.__bbSchnellReadyAudioBuffer = audioBuffer;
-          })
-          .catch(() => undefined);
-      }
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      gain.gain.value = 0.00001;
+      oscillator.connect(gain);
+      gain.connect(context.destination);
+      oscillator.start();
+      oscillator.stop(context.currentTime + 0.03);
     }
 
-    // Prime the exact HTMLAudioElement reused by the success page. The play()
-    // call happens inside the trusted button gesture, before the first await.
+    // İlk çalışan sürümdeki davranış:
+    // Aynı "Ja, bestellen" dokunuşunda gerçek ses elementi açılır.
+    // Push izni bu dokunuşa karışmaz; izin giriş ekranında yönetilir.
     const media =
       audioWindow.__bbSchnellReadyMedia ||
       new Audio("/sounds/dine-in.wav");
     media.preload = "auto";
-    media.volume = 0.001;
+    media.volume = 1;
     media.muted = false;
     media.setAttribute("playsinline", "true");
     audioWindow.__bbSchnellReadyMedia = media;
 
+    const originalVolume = media.volume;
+    media.volume = 0.001;
     const prime = media.play();
     if (prime && typeof prime.then === "function") {
       void prime
         .then(() => {
           media.pause();
           media.currentTime = 0;
-          media.volume = 1;
-          sessionStorage.setItem("bb_schnell_ready_audio_primed", "1");
+          media.volume = originalVolume;
         })
         .catch(() => {
-          media.volume = 1;
-          sessionStorage.removeItem("bb_schnell_ready_audio_primed");
+          media.volume = originalVolume;
         });
     }
+
+    sessionStorage.setItem("bb_schnell_ready_audio_primed", "1");
   } catch {
-    // Sound remains best-effort on mobile browsers.
+    // Bildirim yine çalışır; ses mobil tarayıcıda best-effort kalır.
   }
 }
 
@@ -1804,7 +1786,6 @@ export default function SchnellClient() {
                 disabled={busy}
                 onClick={() => {
                   primeReadyAudio();
-                  requestSchnellPushPermissionFromGesture();
                   void placeOrder();
                 }}
                 className="rounded-xl bg-emerald-500 p-3 font-black text-black disabled:opacity-50"
