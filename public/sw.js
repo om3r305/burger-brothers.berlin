@@ -227,6 +227,7 @@ self.addEventListener("notificationclick", (event) => {
 
   if (isSchnellReady) {
     target.searchParams.set("readyOpen", "1");
+    target.searchParams.set("app", "schnell");
     if (readyEventId) target.searchParams.set("readyEventId", readyEventId);
     if (orderId && !target.searchParams.get("order")) {
       target.searchParams.set("order", orderId);
@@ -260,6 +261,7 @@ self.addEventListener("notificationclick", (event) => {
             continue;
           }
           if (clientUrl.pathname !== "/schnellbestellung/success") continue;
+          if (clientUrl.searchParams.get("app") !== "schnell") continue;
           const clientOrderId = String(
             clientUrl.searchParams.get("order") || "",
           ).trim();
@@ -275,15 +277,20 @@ self.addEventListener("notificationclick", (event) => {
       }
 
       const targetUrl = target.href;
-      for (const client of windows) {
-        if (!("focus" in client)) continue;
-        let targetClient = client;
-        if ("navigate" in client) {
-          targetClient = (await client.navigate(targetUrl)) || client;
+
+      // Schnell bildirimi normal Safari sekmesini veya ana Burger Brothers
+      // penceresini ele geçirmemeli. Uygun BB Schnell penceresi yukarıda
+      // bulunmadıysa işletim sisteminden Schnell kapsamını açmasını isteriz.
+      if (!isSchnellReady) {
+        for (const client of windows) {
+          if (!("focus" in client)) continue;
+          let targetClient = client;
+          if ("navigate" in client) {
+            targetClient = (await client.navigate(targetUrl)) || client;
+          }
+          await targetClient.focus();
+          return;
         }
-        await targetClient.focus();
-        if (isSchnellReady) targetClient.postMessage(openMessage);
-        return;
       }
 
       if (self.clients.openWindow) {

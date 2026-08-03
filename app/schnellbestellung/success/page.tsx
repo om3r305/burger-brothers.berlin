@@ -44,14 +44,76 @@ type NavigatorWithWakeLock = Navigator & {
   };
 };
 
+const COMPLETED_ORDER_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+function completedOrderKey(orderId: string) {
+  return `bb_schnell_completed:${orderId}`;
+}
+
+function hasCompletedSchnellOrder(orderId: string) {
+  if (!orderId || typeof window === "undefined") return false;
+
+  try {
+    const completedAt = Number(
+      window.localStorage.getItem(completedOrderKey(orderId)) || 0,
+    );
+    if (!Number.isFinite(completedAt) || completedAt <= 0) return false;
+
+    if (Date.now() - completedAt > COMPLETED_ORDER_TTL_MS) {
+      window.localStorage.removeItem(completedOrderKey(orderId));
+      return false;
+    }
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function markSchnellOrderCompleted(orderId: string) {
+  if (!orderId || typeof window === "undefined") return;
+
+  try {
+    window.localStorage.setItem(completedOrderKey(orderId), String(Date.now()));
+  } catch {
+    // URL'deki completed=1 işareti yedek davranış olarak kalır.
+  }
+}
+
+function replaceSuccessUrl(params: {
+  completed?: boolean;
+  standalone?: boolean;
+}) {
+  if (typeof window === "undefined") return;
+
+  const url = new URL(window.location.href);
+
+  if (params.completed) {
+    url.searchParams.set("completed", "1");
+    url.searchParams.delete("readyOpen");
+    url.searchParams.delete("readyEventId");
+  }
+
+  if (params.standalone) {
+    url.searchParams.set("app", "schnell");
+  }
+
+  window.history.replaceState(
+    window.history.state,
+    "",
+    `${url.pathname}${url.search}${url.hash}`,
+  );
+}
+
 export default function SuccessPage() {
   const searchParams = useSearchParams();
   const orderId = searchParams.get("order")?.trim() || "";
   const initialNumber = searchParams.get("number") || "–";
+  const completedFromUrl = searchParams.get("completed") === "1";
 
   const [customerNumber, setCustomerNumber] = useState(initialNumber);
   const [status, setStatus] = useState<OrderStatus>("new");
-  const [ended, setEnded] = useState(false);
+  const [ended, setEnded] = useState(completedFromUrl);
   const [statusError, setStatusError] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [appReadyNotifications, setAppReadyNotifications] = useState(false);
@@ -62,9 +124,32 @@ export default function SuccessPage() {
   const [rewardVisible, setRewardVisible] = useState(false);
   const rewardShownRef = useRef(false);
 
-  const endedRef = useRef(false);
+  const endedRef = useRef(completedFromUrl);
   const wakeLockRef = useRef<WakeLockSentinelLike | null>(null);
 
+  useEffect(() => {
+    if (isStandaloneDisplayMode()) {
+      replaceSuccessUrl({ standalone: true });
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!orderId) return;
+
+    const completed =
+      completedFromUrl || hasCompletedSchnellOrder(orderId);
+
+    if (!completed) return;
+
+    endedRef.current = true;
+    setEnded(true);
+    stopSchnellReadyAlarm();
+    clearSchnellActiveOrder(orderId);
+    replaceSuccessUrl({
+      completed: true,
+      standalone: isStandaloneDisplayMode(),
+    });
+  }, [completedFromUrl, orderId]);
 
   useEffect(() => {
     if (!orderId) return;
@@ -278,7 +363,12 @@ export default function SuccessPage() {
     setEnded(true);
     setStatusError(false);
     stopSchnellReadyAlarm();
+    markSchnellOrderCompleted(orderId);
     clearSchnellActiveOrder(orderId);
+    replaceSuccessUrl({
+      completed: true,
+      standalone: isStandaloneDisplayMode(),
+    });
 
     try {
       window.localStorage.removeItem("bb_schnell_pending_order");
@@ -300,7 +390,7 @@ export default function SuccessPage() {
             Bestellung abgeschlossen
           </h1>
           <p className="mx-auto mt-4 max-w-sm text-lg leading-7 text-stone-300">
-            Sie können Burger Brothers jetzt schließen.
+            Sie können BB Schnell jetzt schließen.
           </p>
 
           <div className="mx-auto mt-10 w-full max-w-sm rounded-3xl border border-white/10 bg-white/5 p-6">
@@ -309,7 +399,7 @@ export default function SuccessPage() {
               Vom unteren Bildschirmrand nach oben wischen
             </p>
             <p className="mt-2 text-sm leading-6 text-stone-400">
-              Beim nächsten Besuch öffnen Sie Burger Brothers und scannen den
+              Beim nächsten Besuch öffnen Sie BB Schnell und scannen den
               QR-Code im Restaurant direkt in der App.
             </p>
           </div>
