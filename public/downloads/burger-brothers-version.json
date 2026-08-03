@@ -1,0 +1,11 @@
+{
+    "available":  true,
+    "version":  "1.0.0",
+    "versionCode":  1,
+    "apkUrl":  "/downloads/burger-brothers.apk",
+    "sha256":  "C69F71ED296189D500E45E030B5BBEB43094F6BB83FF46CB434AF03B8141951A",
+    "sizeBytes":  3776189,
+    "publishedAt":  "2026-08-03T08:09:18.6198141Z",
+    "minimumAndroid":  8,
+    "packageId":  "berlin.burgerbrothers.app"
+}

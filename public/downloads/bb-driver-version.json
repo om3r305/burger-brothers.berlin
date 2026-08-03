@@ -1,0 +1,11 @@
+{
+    "available":  true,
+    "version":  "1.0.0",
+    "versionCode":  1,
+    "apkUrl":  "/downloads/bb-driver.apk",
+    "sha256":  "5A9946DFA267E15804606E5A740B6AF4B27EF52E538702835DE26EE46C02D4EA",
+    "sizeBytes":  4061392,
+    "publishedAt":  "2026-08-03T08:10:27.1535590Z",
+    "minimumAndroid":  8,
+    "packageId":  "berlin.burgerbrothers.driver"
+}

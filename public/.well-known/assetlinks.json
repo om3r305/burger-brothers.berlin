@@ -1,0 +1,38 @@
+[
+    {
+        "relation":  [
+                         "delegate_permission/common.handle_all_urls"
+                     ],
+        "target":  {
+                       "namespace":  "android_app",
+                       "package_name":  "berlin.burgerbrothers.app",
+                       "sha256_cert_fingerprints":  [
+                                                        "25:B4:15:3E:0E:5B:44:92:82:8E:F1:55:DC:72:3A:97:B8:74:AC:DD:FA:5A:34:3F:CF:76:59:E9:45:7B:1A:DF"
+                                                    ]
+                   }
+    },
+    {
+        "relation":  [
+                         "delegate_permission/common.handle_all_urls"
+                     ],
+        "target":  {
+                       "namespace":  "android_app",
+                       "package_name":  "berlin.burgerbrothers.schnell",
+                       "sha256_cert_fingerprints":  [
+                                                        "25:B4:15:3E:0E:5B:44:92:82:8E:F1:55:DC:72:3A:97:B8:74:AC:DD:FA:5A:34:3F:CF:76:59:E9:45:7B:1A:DF"
+                                                    ]
+                   }
+    },
+    {
+        "relation":  [
+                         "delegate_permission/common.handle_all_urls"
+                     ],
+        "target":  {
+                       "namespace":  "android_app",
+                       "package_name":  "berlin.burgerbrothers.driver",
+                       "sha256_cert_fingerprints":  [
+                                                        "25:B4:15:3E:0E:5B:44:92:82:8E:F1:55:DC:72:3A:97:B8:74:AC:DD:FA:5A:34:3F:CF:76:59:E9:45:7B:1A:DF"
+                                                    ]
+                   }
+    }
+]

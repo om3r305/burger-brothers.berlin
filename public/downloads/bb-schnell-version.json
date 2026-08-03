@@ -1,0 +1,11 @@
+{
+    "available":  true,
+    "version":  "1.0.0",
+    "versionCode":  1,
+    "apkUrl":  "/downloads/bb-schnell.apk",
+    "sha256":  "958CE2E0F59F9228E1A0F3E790044EB60A17AEBB95BAD4247DFE497BD94282BC",
+    "sizeBytes":  3328489,
+    "publishedAt":  "2026-08-03T08:09:54.9909632Z",
+    "minimumAndroid":  8,
+    "packageId":  "berlin.burgerbrothers.schnell"
+}

@@ -1,0 +1,46 @@
+{
+  "packageId": "berlin.burgerbrothers.schnell",
+  "host": "www.burger-brothers.berlin",
+  "name": "Burger Brothers Schnellbestellung",
+  "launcherName": "BB Schnell",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "themeColor": "#03151f",
+  "themeColorDark": "#03151f",
+  "navigationColor": "#000000",
+  "navigationColorDark": "#000000",
+  "navigationDividerColor": "#000000",
+  "navigationDividerColorDark": "#000000",
+  "backgroundColor": "#03151f",
+  "enableNotifications": true,
+  "enableSiteSettingsShortcut": true,
+  "startUrl": "/schnellbestellung/enter?homescreen=1&source=android-twa",
+  "iconUrl": "https://www.burger-brothers.berlin/schnell-icon-512.png?v=2",
+  "maskableIconUrl": "https://www.burger-brothers.berlin/schnell-icon-512.png?v=2",
+  "splashScreenFadeOutDuration": 300,
+  "signingKey": {
+    "path": "__KEYSTORE_PATH__",
+    "alias": "burger-brothers-mobile"
+  },
+  "appVersionName": "__VERSION_NAME__",
+  "appVersionCode": 1,
+  "appVersion": "__VERSION_NAME__",
+  "shortcuts": [],
+  "generatorApp": "bubblewrap-cli",
+  "webManifestUrl": "https://www.burger-brothers.berlin/manifest-schnellbestellung.webmanifest",
+  "fallbackType": "customtabs",
+  "features": {
+    "locationDelegation": {
+      "enabled": true
+    }
+  },
+  "alphaDependencies": {
+    "enabled": false
+  },
+  "isChromeOSOnly": false,
+  "isMetaQuest": false,
+  "minSdkVersion": 26,
+  "fingerprints": [],
+  "additionalTrustedOrigins": [],
+  "retainedBundles": []
+}

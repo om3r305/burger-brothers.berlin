@@ -1,0 +1,24 @@
+name: BurgerBrothersApp
+options:
+  bundleIdPrefix: berlin.burgerbrothers
+settings:
+  base:
+    IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+targets:
+  BurgerBrothersApp:
+    type: application
+    platform: iOS
+    sources:
+      - Sources
+      - Resources
+    info:
+      path: Config/Info.plist
+    entitlements:
+      path: Config/App.entitlements
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: berlin.burgerbrothers.app
+        PRODUCT_NAME: "Burger Brothers"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: ""

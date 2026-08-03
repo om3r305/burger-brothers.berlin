@@ -1,0 +1,46 @@
+{
+  "packageId": "berlin.burgerbrothers.app",
+  "host": "www.burger-brothers.berlin",
+  "name": "Burger Brothers Berlin",
+  "launcherName": "Burger Brothers",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "themeColor": "#0b0f14",
+  "themeColorDark": "#0b0f14",
+  "navigationColor": "#000000",
+  "navigationColorDark": "#000000",
+  "navigationDividerColor": "#000000",
+  "navigationDividerColorDark": "#000000",
+  "backgroundColor": "#0b0f14",
+  "enableNotifications": true,
+  "enableSiteSettingsShortcut": true,
+  "startUrl": "/?source=android-twa",
+  "iconUrl": "https://www.burger-brothers.berlin/icon-kurier-512.png?v=6",
+  "maskableIconUrl": "https://www.burger-brothers.berlin/icon-kurier-512.png?v=6",
+  "splashScreenFadeOutDuration": 300,
+  "signingKey": {
+    "path": "__KEYSTORE_PATH__",
+    "alias": "burger-brothers-mobile"
+  },
+  "appVersionName": "__VERSION_NAME__",
+  "appVersionCode": 1,
+  "appVersion": "__VERSION_NAME__",
+  "shortcuts": [],
+  "generatorApp": "bubblewrap-cli",
+  "webManifestUrl": "https://www.burger-brothers.berlin/manifest.webmanifest",
+  "fallbackType": "customtabs",
+  "features": {
+    "locationDelegation": {
+      "enabled": false
+    }
+  },
+  "alphaDependencies": {
+    "enabled": false
+  },
+  "isChromeOSOnly": false,
+  "isMetaQuest": false,
+  "minSdkVersion": 26,
+  "fingerprints": [],
+  "additionalTrustedOrigins": [],
+  "retainedBundles": []
+}
