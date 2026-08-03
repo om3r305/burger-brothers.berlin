@@ -1212,7 +1212,12 @@ function SchnellOrderClient() {
       } catch {
         // Status API aynı ödülü yeniden sağlayabilir.
       }
-      void bindSchnellPushToOrder(createdOrderId);
+      if (createdOrderId) {
+        // Başarı sayfasına geçmeden önce aboneliği siparişe bağla. İşlem
+        // başarısız olursa fonksiyon false döner; sipariş akışı bozulmaz ve
+        // başarı sayfasındaki mevcut retry ikinci kez dener.
+        await bindSchnellPushToOrder(createdOrderId);
+      }
       router.push(
         `/schnellbestellung/success?number=${encodeURIComponent(
           data.customerNumber,

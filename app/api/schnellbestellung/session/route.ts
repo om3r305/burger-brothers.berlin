@@ -31,7 +31,9 @@ export async function GET(req: Request) {
         !schnellSessionIsInstalledApp(session),
       locationCheckEnabled: settings.locationCheckEnabled,
       iosHomeScreenFlowEnabled: settings.iosHomeScreenFlowEnabled,
-      backgroundReadyPushEnabled: settings.backgroundReadyPushEnabled,
+      backgroundReadyPushEnabled:
+        settings.backgroundReadyPushEnabled &&
+        readRequestCookie(req, "bb_schnell_push_skip") !== "1",
       payments: {
         cash: settings.cashEnabled,
         online: settings.onlineEnabled,

@@ -44,18 +44,14 @@ export async function GET(req: Request) {
   if (rate) return rate;
 
   const settings = await getSchnellSettings();
-  const session = sessionForRequest(req, settings);
-  if (!session) {
-    return NextResponse.json(
-      { ok: false, error: "session_expired" },
-      { status: 401, headers: NO_STORE_HEADERS },
-    );
-  }
-
   const config = getSchnellPushConfig();
   const url = new URL(req.url);
   const pending = url.searchParams.get("pending") === "1";
 
+  // VAPID public key gizli değildir. Uygulama ilk açıldığında, QR oturumu
+  // oluşmadan önce Android/iOS sistem bildirim izni istenebilmesi için yalnız
+  // yapılandırma cevabı oturumsuz okunabilir. Sipariş olayı ve abonelik
+  // işlemleri aşağıda güvenli Schnell oturumu istemeye devam eder.
   if (!pending) {
     return NextResponse.json(
       {
@@ -68,6 +64,14 @@ export async function GET(req: Request) {
             : "",
       },
       { headers: NO_STORE_HEADERS },
+    );
+  }
+
+  const session = sessionForRequest(req, settings);
+  if (!session) {
+    return NextResponse.json(
+      { ok: false, error: "session_expired" },
+      { status: 401, headers: NO_STORE_HEADERS },
     );
   }
 

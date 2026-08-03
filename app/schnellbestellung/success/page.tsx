@@ -14,6 +14,10 @@ import {
   prewarmSchnellPush,
 } from "@/lib/client/schnell-push";
 import { isStandaloneDisplayMode } from "@/lib/client/pwa-compat";
+import {
+  startSchnellReadyAlarm,
+  stopSchnellReadyAlarm,
+} from "@/lib/client/schnell-ready-alarm";
 
 type OrderStatus = "new" | "preparing" | "ready" | "done" | "cancelled";
 
@@ -51,6 +55,9 @@ export default function SuccessPage() {
   const [statusError, setStatusError] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [appReadyNotifications, setAppReadyNotifications] = useState(false);
+  const [readyOpenedFromNotification, setReadyOpenedFromNotification] = useState(
+    searchParams.get("readyOpen") === "1",
+  );
   const [reward, setReward] = useState<SchnellRewardPublic | null>(null);
   const [rewardVisible, setRewardVisible] = useState(false);
   const rewardShownRef = useRef(false);
@@ -138,6 +145,9 @@ export default function SuccessPage() {
         return;
       }
 
+      if (message?.type === "BB_SCHNELL_NOTIFICATION_OPEN") {
+        setReadyOpenedFromNotification(true);
+      }
       if (Number(message.event?.customerNumber) > 0) {
         setCustomerNumber(String(message.event?.customerNumber));
       }
@@ -148,6 +158,26 @@ export default function SuccessPage() {
     return () =>
       navigator.serviceWorker.removeEventListener("message", onMessage);
   }, []);
+
+  useEffect(() => {
+    const terminalReady = status === "ready" || status === "done";
+
+    if (readyOpenedFromNotification && terminalReady && !ended) {
+      void startSchnellReadyAlarm();
+      return;
+    }
+
+    if (ended || status === "cancelled") {
+      stopSchnellReadyAlarm();
+    }
+  }, [ended, readyOpenedFromNotification, status]);
+
+  useEffect(
+    () => () => {
+      stopSchnellReadyAlarm();
+    },
+    [],
+  );
 
   const requestWakeLock = useCallback(async () => {
     try {
@@ -247,6 +277,7 @@ export default function SuccessPage() {
     endedRef.current = true;
     setEnded(true);
     setStatusError(false);
+    stopSchnellReadyAlarm();
     clearSchnellActiveOrder(orderId);
 
     try {

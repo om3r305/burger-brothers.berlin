@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Script from "next/script";
+import SchnellNotificationGate from "@/components/schnellbestellung/SchnellNotificationGate";
 
 export const metadata: Metadata = {
   title: "Schnellbestellung | Burger Brothers Berlin",
@@ -57,7 +58,7 @@ export default function SchnellbestellungLayout({
         strategy="beforeInteractive"
         dangerouslySetInnerHTML={{ __html: androidInstallCapture }}
       />
-      {children}
+      <SchnellNotificationGate>{children}</SchnellNotificationGate>
     </>
   );
 }

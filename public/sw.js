@@ -177,6 +177,7 @@ async function showSchnellReadyEvent(readyEvent) {
       url,
       type: "schnell_ready",
       orderId: readyEvent && readyEvent.orderId,
+      customerNumber,
       readyEventId: eventId,
     },
     actions: [

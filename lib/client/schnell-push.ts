@@ -42,6 +42,16 @@ function browserSupportsPush() {
   );
 }
 
+function schnellPushSkippedForSession() {
+  try {
+    return document.cookie
+      .split(";")
+      .some((entry) => entry.trim() === "bb_schnell_push_skip=1");
+  } catch {
+    return false;
+  }
+}
+
 function base64UrlToUint8Array(value: string) {
   const padding = "=".repeat((4 - (value.length % 4)) % 4);
   const base64 = (value + padding).replace(/-/g, "+").replace(/_/g, "/");
@@ -345,7 +355,7 @@ export async function activateSchnellPushFromGesture(
 }
 
 export function requestSchnellPushPermissionFromGesture() {
-  if (!browserSupportsPush()) return;
+  if (!browserSupportsPush() || schnellPushSkippedForSession()) return;
 
   const currentWindow = pushWindow();
   const currentConfig = currentWindow.__bbSchnellPushConfig;
