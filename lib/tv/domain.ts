@@ -517,28 +517,59 @@ export function getOrderExactCreatedMs(
   return fallback;
 }
 
+function isDoneLockTarget(order: Partial<StoredOrder>) {
+  const root = cleanObj(order);
+  const status = normalizeStatus(order?.status);
+
+  return (
+    status === "done" ||
+    (String(root.mode || "").toLowerCase() === "dine_in" && status === "ready")
+  );
+}
+
+function isSchnellReadyLockTarget(order: Partial<StoredOrder>) {
+  const root = cleanObj(order);
+
+  return (
+    String(root.mode || "").toLowerCase() === "dine_in" &&
+    normalizeStatus(order?.status) === "ready"
+  );
+}
+
 export function getDoneAtMs(order: Partial<StoredOrder>): number | null {
+  const root = cleanObj(order);
   const meta = cleanObj(order?.meta);
+  const schnellReady = isSchnellReadyLockTarget(order);
 
   const candidates = [
-    order?.doneAt,
-    order?.done_at,
-    order?.completedAt,
-    order?.completed_at,
-    order?.deliveredAt,
-    order?.delivered_at,
-    meta?.doneAt,
-    meta?.done_at,
-    meta?.completedAt,
-    meta?.completed_at,
-    meta?.deliveredAt,
-    meta?.delivered_at,
+    ...(schnellReady
+      ? [
+          root.readyAt,
+          root.ready_at,
+          meta.readyAt,
+          meta.ready_at,
+          statusHistoryMs(order?.history, "ready"),
+          statusHistoryMs(meta?.history, "ready"),
+        ]
+      : []),
+    root.doneAt,
+    root.done_at,
+    root.completedAt,
+    root.completed_at,
+    root.deliveredAt,
+    root.delivered_at,
+    meta.doneAt,
+    meta.done_at,
+    meta.completedAt,
+    meta.completed_at,
+    meta.deliveredAt,
+    meta.delivered_at,
     statusHistoryMs(order?.history, "done"),
     statusHistoryMs(meta?.history, "done"),
-    order?.updatedAt,
-    order?.updated_at,
-    meta?.updatedAt,
-    meta?.updated_at,
+    root.updatedAt,
+    root.updated_at,
+    meta.updatedAt,
+    meta.updated_at,
   ];
 
   for (const candidate of candidates) {
@@ -550,7 +581,7 @@ export function getDoneAtMs(order: Partial<StoredOrder>): number | null {
 }
 
 export function doneLockRemainingMs(order: Partial<StoredOrder>, nowMs = Date.now()) {
-  if (normalizeStatus(order?.status) !== "done") return 0;
+  if (!isDoneLockTarget(order)) return 0;
 
   const doneAt = getDoneAtMs(order);
   if (doneAt == null) return DONE_LOCK_AFTER_MS;
@@ -559,7 +590,7 @@ export function doneLockRemainingMs(order: Partial<StoredOrder>, nowMs = Date.no
 }
 
 export function isDoneLocked(order: Partial<StoredOrder>, nowMs = Date.now()) {
-  if (normalizeStatus(order?.status) !== "done") return false;
+  if (!isDoneLockTarget(order)) return false;
 
   const doneAt = getDoneAtMs(order);
   // Legacy completed orders without a reliable completion timestamp are
@@ -570,9 +601,12 @@ export function isDoneLocked(order: Partial<StoredOrder>, nowMs = Date.now()) {
 }
 
 export function doneLockTitle(order: Partial<StoredOrder>, nowMs = Date.now()) {
-  if (normalizeStatus(order?.status) !== "done") return undefined;
+  if (!isDoneLockTarget(order)) return undefined;
+
   if (isDoneLocked(order, nowMs)) {
-    return "Diese Bestellung ist abgeschlossen und nach 10 Minuten gesperrt.";
+    return isSchnellReadyLockTarget(order)
+      ? "Diese Schnellbestellung ist seit 10 Minuten fertig und gesperrt."
+      : "Diese Bestellung ist abgeschlossen und nach 10 Minuten gesperrt.";
   }
 
   const minutes = Math.ceil(doneLockRemainingMs(order, nowMs) / 60_000);
