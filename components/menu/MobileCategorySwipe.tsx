@@ -47,6 +47,7 @@ const COMPLETE_DISTANCE_PX = 72;
 const FAST_DISTANCE_PX = 36;
 const FAST_VELOCITY_PX_MS = 0.46;
 const PREVIEW_DISTANCE_PX = 150;
+const COMMIT_SETTLE_MS = 180;
 
 type Axis = "pending" | "horizontal" | "vertical";
 type Direction = "previous" | "next";
@@ -211,7 +212,10 @@ function edgeRevealGeometry(
     "theme-auto": 38,
     minimal: 18,
   };
-  const committedWidth = style === "cinematic-video" ? 100 : previewWidths[style] + 4;
+  // Video dahil hiçbir stil parmak bırakılınca tam ekrana büyümez.
+  // Commit, kullanıcının kenarda açtığı önizleme genişliğini korur.
+  const committedWidth =
+    style === "cinematic-video" ? previewWidths[style] : previewWidths[style] + 4;
   const width =
     style === "edge-glow"
       ? normalized > 0
@@ -556,6 +560,7 @@ export default function MobileCategorySwipe() {
       }
 
       const normalized = clampProgress(progress);
+      overlay.style.setProperty("--bb-swipe-duration", `${settings.durationMs}ms`);
       const style = resolveMenuTransitionStyle(settings, target);
       const categoryAccent = settings.categoryColors[target];
       const themePalette = activeThemePalette(categoryAccent);
@@ -638,20 +643,29 @@ export default function MobileCategorySwipe() {
       };
     };
 
-    const navigateTo = (target: MenuNavKey, direction: Direction) => {
+    const navigateTo = (
+      target: MenuNavKey,
+      direction: Direction,
+      releaseProgress: number,
+    ) => {
       if (navigationLockedRef.current) return;
 
       navigationLockedRef.current = true;
       const href = MENU_NAV_ROUTES[target];
+      const committedProgress = clampProgress(releaseProgress);
 
-      showPreview(target, direction, 1);
+      showPreview(target, direction, committedProgress, false);
 
       if (overlay) {
         overlay.dataset.committed = "true";
         overlay.dataset.dragging = "false";
+        overlay.style.setProperty(
+          "--bb-swipe-duration",
+          `${COMMIT_SETTLE_MS}ms`,
+        );
         const style = (overlay.dataset.style ||
           "edge-glow") as MenuTransitionStyle;
-        setReveal(1, direction, style, true);
+        setReveal(committedProgress, direction, style, true);
       }
 
       startAppNavigation({
@@ -667,7 +681,7 @@ export default function MobileCategorySwipe() {
       resetTimerRef.current = window.setTimeout(() => {
         navigationLockedRef.current = false;
         hidePreview();
-      }, transitionSettingsRef.current.durationMs + 480);
+      }, COMMIT_SETTLE_MS);
     };
 
     const onTouchStart = (event: TouchEvent) => {
@@ -787,7 +801,11 @@ export default function MobileCategorySwipe() {
       gestureRef.current = emptyGesture();
 
       if (shouldNavigate && target && direction) {
-        navigateTo(target, direction);
+        navigateTo(
+          target,
+          direction,
+          clampProgress((absX - AXIS_LOCK_PX) / PREVIEW_DISTANCE_PX),
+        );
       } else {
         hidePreview();
       }

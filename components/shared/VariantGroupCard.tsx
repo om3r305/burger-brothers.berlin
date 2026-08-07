@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { useCart } from "@/components/store";
 import {
   optimizedLocalImageUrl,
@@ -53,6 +54,11 @@ export default function VariantGroupCard({
   const [open, setOpen] = useState(false);
   const [note, setHinweise] = useState("");
   const [counts, setCounts] = useState<Record<string, number>>({});
+  const [portalReady, setPortalReady] = useState(false);
+
+  useEffect(() => {
+    setPortalReady(true);
+  }, []);
 
   const cat: NonNullable<Props["category"]> = (category ?? "drinks") as any;
   const displayImage = optimizedLocalImageUrl(image) || image || "";
@@ -111,18 +117,63 @@ export default function VariantGroupCard({
     setOpen(false);
   };
 
-  // Modal ESC + body scroll lock
+  // Modal ESC + gerçek mobil viewport scroll kilidi
   useEffect(() => {
-    if (!open) return;
+    if (!portalReady || !open) return;
+
+    const body = document.body;
+    const root = document.documentElement;
+    const scrollY = window.scrollY;
+    const hadRootClass = root.classList.contains("bb-modal-open");
+    const hadBodyClass = body.classList.contains("bb-modal-open");
+    const previousRootOverflow = root.style.overflow;
+    const previousRootOverscroll = root.style.overscrollBehavior;
+    const previousBodyOverflow = body.style.overflow;
+    const previousBodyOverscroll = body.style.overscrollBehavior;
+    const previousBodyPosition = body.style.position;
+    const previousBodyTop = body.style.top;
+    const previousBodyLeft = body.style.left;
+    const previousBodyRight = body.style.right;
+    const previousBodyWidth = body.style.width;
+    const previousBodyPaddingRight = body.style.paddingRight;
+    const scrollbarWidth = Math.max(0, window.innerWidth - root.clientWidth);
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+
+    root.classList.add("bb-modal-open");
+    body.classList.add("bb-modal-open");
+    root.style.overflow = "hidden";
+    root.style.overscrollBehavior = "none";
+    body.style.overflow = "hidden";
+    body.style.overscrollBehavior = "none";
+    body.style.position = "fixed";
+    body.style.top = `-${scrollY}px`;
+    body.style.left = "0";
+    body.style.right = "0";
+    body.style.width = "100%";
+
+    if (scrollbarWidth > 0) {
+      body.style.paddingRight = `${scrollbarWidth}px`;
+    }
+
     window.addEventListener("keydown", onKey);
+
     return () => {
       window.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prev;
+      if (!hadRootClass) root.classList.remove("bb-modal-open");
+      if (!hadBodyClass) body.classList.remove("bb-modal-open");
+      root.style.overflow = previousRootOverflow;
+      root.style.overscrollBehavior = previousRootOverscroll;
+      body.style.overflow = previousBodyOverflow;
+      body.style.overscrollBehavior = previousBodyOverscroll;
+      body.style.position = previousBodyPosition;
+      body.style.top = previousBodyTop;
+      body.style.left = previousBodyLeft;
+      body.style.right = previousBodyRight;
+      body.style.width = previousBodyWidth;
+      body.style.paddingRight = previousBodyPaddingRight;
+      window.scrollTo(0, scrollY);
     };
-  }, [open]);
+  }, [open, portalReady]);
 
   return (
     <article className="card product-card p-4 flex flex-col min-h-[380px]">
@@ -177,68 +228,125 @@ export default function VariantGroupCard({
       </div>
 
       {/* ==== MODAL ==== */}
-      {open && !outOfStock && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" onClick={() => setOpen(false)} role="dialog" aria-modal="true">
-          <div className="w-full max-w-2xl rounded-2xl border border-stone-700/60 bg-stone-900/95 p-4" onClick={(e) => e.stopPropagation()}>
-            <div className="mb-3 flex items-center justify-between">
-              <div className="text-lg font-semibold">{name}</div>
-              <button className="btn-ghost" onClick={() => setOpen(false)}>Schließen</button>
-            </div>
-
-            <div className="space-y-3">
-              {variants.map((v) => {
-                const avail = isVAvail(v);
-                return (
-                  <div
-                    key={v.id}
-                    className={`flex items-center justify-between rounded-xl border p-3 ${avail ? "border-stone-700/40 bg-stone-900/60" : "border-stone-800/50 bg-stone-900/40 opacity-60"}`}
-                  >
-                    <div>
-                      <div className="text-sm font-medium">
-                        {v.name}
-                        {!avail && (
-                          <span className="ml-2 rounded-full bg-stone-700/60 px-2 py-0.5 text-[10px] uppercase tracking-wide">
-                            Nicht verfügbar
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-xs text-stone-400">{fmt(v.price)}</div>
+      {portalReady && open && !outOfStock
+        ? createPortal(
+            <div
+              className="bb-product-modal fixed inset-0 flex items-center justify-center overflow-hidden bg-black/70 backdrop-blur-[2px]"
+              style={{
+                zIndex: 2147482500,
+                paddingTop: "max(12px, env(safe-area-inset-top))",
+                paddingRight: "max(12px, env(safe-area-inset-right))",
+                paddingBottom: "max(12px, env(safe-area-inset-bottom))",
+                paddingLeft: "max(12px, env(safe-area-inset-left))",
+              }}
+              onClick={() => setOpen(false)}
+              role="dialog"
+              aria-modal="true"
+              aria-label={`${name} auswählen`}
+            >
+              <div
+                className="bb-modal-shell w-full max-w-2xl overflow-hidden rounded-2xl border border-stone-700/60 bg-stone-900/95"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="shrink-0 border-b border-stone-700/60 px-4 pb-3 pt-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1 text-lg font-semibold leading-tight">
+                      {name}
                     </div>
-
-                    <div className="flex items-center gap-3">
-                      <div className="w-20 text-right text-sm text-stone-300">
-                        {fmt((counts[v.id] || 0) * v.price)}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button className="qty" onClick={() => avail && dec(v.id)} disabled={!avail}>−</button>
-                        <span className="w-8 text-center">{counts[v.id] || 0}</span>
-                        <button className="qty" onClick={() => avail && inc(v.id)} disabled={!avail}>+</button>
-                      </div>
-                    </div>
+                    <button
+                      type="button"
+                      className="btn-ghost shrink-0"
+                      onClick={() => setOpen(false)}
+                    >
+                      Schließen
+                    </button>
                   </div>
-                );
-              })}
-            </div>
+                </div>
 
-            <div className="mt-4">
-              <label className="mb-2 block text-sm font-medium">Hinweis (optional)</label>
-              <input
-                value={note}
-                onChange={(e) => setHinweise(e.target.value)}
-                className="w-full rounded-lg border border-stone-700/60 bg-stone-800/60 p-2 outline-none"
-                placeholder="z. B. ohne Eis / ohne Salz"
-              />
-            </div>
+                <div
+                  className="bb-modal-scroll min-h-0 flex-1 overflow-y-auto px-4 py-3"
+                  style={{ WebkitOverflowScrolling: "touch", touchAction: "pan-y" }}
+                >
+                  <div className="space-y-3">
+                    {variants.map((v) => {
+                      const avail = isVAvail(v);
+                      return (
+                        <div
+                          key={v.id}
+                          className={`flex items-center justify-between gap-3 rounded-xl border p-3 ${avail ? "border-stone-700/40 bg-stone-900/60" : "border-stone-800/50 bg-stone-900/40 opacity-60"}`}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="break-words text-sm font-medium">
+                              {v.name}
+                              {!avail && (
+                                <span className="ml-2 rounded-full bg-stone-700/60 px-2 py-0.5 text-[10px] uppercase tracking-wide">
+                                  Nicht verfügbar
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-xs text-stone-400">{fmt(v.price)}</div>
+                          </div>
 
-            <div className="mt-4 flex items-center justify-between">
-              <button className="btn-ghost" onClick={reset}>Alles zurücksetzen</button>
-              <button className="card-cta" disabled={totals.count === 0} onClick={handleAdd}>
-                Hinzufügen – {totals.count} Artikel • {fmt(totals.price)}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+                          <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+                            <div className="hidden w-20 text-right text-sm text-stone-300 min-[390px]:block">
+                              {fmt((counts[v.id] || 0) * v.price)}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                className="qty"
+                                onClick={() => avail && dec(v.id)}
+                                disabled={!avail}
+                              >
+                                −
+                              </button>
+                              <span className="w-8 text-center">{counts[v.id] || 0}</span>
+                              <button
+                                type="button"
+                                className="qty"
+                                onClick={() => avail && inc(v.id)}
+                                disabled={!avail}
+                              >
+                                +
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="mt-4">
+                    <label className="mb-2 block text-sm font-medium">Hinweis (optional)</label>
+                    <input
+                      value={note}
+                      onChange={(e) => setHinweise(e.target.value)}
+                      className="w-full rounded-lg border border-stone-700/60 bg-stone-800/60 p-2 outline-none"
+                      placeholder="z. B. ohne Eis / ohne Salz"
+                    />
+                  </div>
+                </div>
+
+                <div className="bb-modal-footer shrink-0 border-t border-stone-700/60 bg-stone-900/95 px-4 pt-3">
+                  <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <button type="button" className="btn-ghost w-full sm:w-auto" onClick={reset}>
+                      Alles zurücksetzen
+                    </button>
+                    <button
+                      type="button"
+                      className="card-cta w-full sm:w-auto"
+                      disabled={totals.count === 0}
+                      onClick={handleAdd}
+                    >
+                      Hinzufügen – {totals.count} Artikel • {fmt(totals.price)}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
     </article>
   );
 }

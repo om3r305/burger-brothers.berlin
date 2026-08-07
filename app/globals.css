@@ -2056,6 +2056,8 @@ body.bb-modal-open {
   transform: none !important;
   contain: none !important;
   isolation: isolate;
+  overflow: hidden !important;
+  overscroll-behavior: none;
 }
 
 .bb-product-modal .bb-modal-shell {
@@ -2067,6 +2069,7 @@ body.bb-modal-open {
     max(12px, env(safe-area-inset-top)) -
     max(12px, env(safe-area-inset-bottom))
   ) !important;
+  min-height: 0;
   flex-direction: column;
   overflow: hidden;
   box-shadow:
@@ -2079,10 +2082,12 @@ body.bb-modal-open {
   flex: 1 1 auto;
   overflow-y: auto;
   overscroll-behavior: contain;
+  touch-action: pan-y;
   -webkit-overflow-scrolling: touch;
 }
 
 .bb-product-modal .bb-modal-footer {
+  flex: 0 0 auto;
   padding-bottom: calc(.75rem + env(safe-area-inset-bottom));
 }
 

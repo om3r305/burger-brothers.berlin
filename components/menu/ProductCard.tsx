@@ -254,9 +254,19 @@ export default function ProductCard({
 
     const body = document.body;
     const root = document.documentElement;
+    const scrollY = window.scrollY;
+    const hadRootClass = root.classList.contains("bb-modal-open");
+    const hadBodyClass = body.classList.contains("bb-modal-open");
+    const previousRootOverflow = root.style.overflow;
+    const previousRootOverscroll = root.style.overscrollBehavior;
     const previousOverflow = body.style.overflow;
     const previousPaddingRight = body.style.paddingRight;
     const previousOverscroll = body.style.overscrollBehavior;
+    const previousPosition = body.style.position;
+    const previousTop = body.style.top;
+    const previousLeft = body.style.left;
+    const previousRight = body.style.right;
+    const previousWidth = body.style.width;
     const scrollbarWidth = Math.max(
       0,
       window.innerWidth - document.documentElement.clientWidth,
@@ -264,19 +274,34 @@ export default function ProductCard({
 
     root.classList.add("bb-modal-open");
     body.classList.add("bb-modal-open");
+    root.style.overflow = "hidden";
+    root.style.overscrollBehavior = "none";
     body.style.overflow = "hidden";
     body.style.overscrollBehavior = "none";
+    body.style.position = "fixed";
+    body.style.top = `-${scrollY}px`;
+    body.style.left = "0";
+    body.style.right = "0";
+    body.style.width = "100%";
 
     if (scrollbarWidth > 0) {
       body.style.paddingRight = `${scrollbarWidth}px`;
     }
 
     return () => {
-      root.classList.remove("bb-modal-open");
-      body.classList.remove("bb-modal-open");
+      if (!hadRootClass) root.classList.remove("bb-modal-open");
+      if (!hadBodyClass) body.classList.remove("bb-modal-open");
+      root.style.overflow = previousRootOverflow;
+      root.style.overscrollBehavior = previousRootOverscroll;
       body.style.overflow = previousOverflow;
       body.style.paddingRight = previousPaddingRight;
       body.style.overscrollBehavior = previousOverscroll;
+      body.style.position = previousPosition;
+      body.style.top = previousTop;
+      body.style.left = previousLeft;
+      body.style.right = previousRight;
+      body.style.width = previousWidth;
+      window.scrollTo(0, scrollY);
     };
   }, [open, portalReady, showLegend]);
 
