@@ -65,15 +65,15 @@
     "zustand": "4.5.2"
   },
   "devDependencies": {
-    "@types/node": "24.5.2",
-    "autoprefixer": "10.4.19",
+    "@types/node": "26.1.2",
+    "autoprefixer": "10.5.4",
     "dotenv": "^17.4.2",
     "local-ssl-proxy": "^2.0.5",
-    "postcss": "8.5.19",
-    "prisma": "6.19.3",
-    "tailwindcss": "3.4.10",
+    "postcss": "8.5.23",
+    "prisma": "7.9.1",
+    "tailwindcss": "4.3.3",
     "ts-node": "^10.9.2",
-    "typescript": "5.4.5"
+    "typescript": "7.0.2"
   },
   "engines": {
     "node": ">=20"
