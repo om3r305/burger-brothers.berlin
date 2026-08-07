@@ -1,0 +1,1821 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import NormalizedProductImage from "@/components/menu/NormalizedProductImage";
+import { saveSchnellActiveOrder } from "@/lib/client/schnell-active-order";
+import {
+  prewarmRewardCelebration,
+  stopRewardCelebrationSound,
+} from "@/lib/client/reward-celebration";
+import { loadSchnellCatalog } from "@/lib/client/schnell-catalog";
+import {
+  bindSchnellPushToOrder,
+  prewarmSchnellPush,
+  requestSchnellPushPermissionFromGesture,
+} from "@/lib/client/schnell-push";
+
+type Extra = {
+  id: string;
+  name: string;
+  label?: string;
+  price: number;
+};
+
+type LunchSideOption = {
+  id: string;
+  name: string;
+  price: number;
+  upgradePrice: number;
+  included: boolean;
+};
+
+type LunchMenuInfo = {
+  menuId: string;
+  burgerProductId: string;
+  burgerName: string;
+  includedSideProductId: string;
+  includedSideName: string;
+  sideOptions: LunchSideOption[];
+  vegetarian: boolean;
+  badge: string;
+  allowNotes: boolean;
+};
+
+type Doneness = "light" | "normal" | "well_done";
+
+const DONENESS_OPTIONS: Array<{ value: Doneness; label: string }> = [
+  { value: "light", label: "Leicht gebraten" },
+  { value: "normal", label: "Normal gebraten" },
+  { value: "well_done", label: "Durchgebraten" },
+];
+
+type Product = {
+  id: string;
+  sku?: string;
+  name: string;
+  description: string;
+  imageUrl: string;
+  category: string;
+  categoryLabel: string;
+  price: number;
+  originalPrice?: number;
+  campaignBadge?: string;
+  campaignActive?: boolean;
+  extras: Extra[];
+  allergens: string[];
+  allergenHinweise?: string;
+  complimentaryTableSauce?: boolean;
+  requiresDoneness?: boolean;
+  lunchMenu?: LunchMenuInfo;
+};
+
+type Category = { key: string; label: string };
+
+type CartLine = {
+  key: string;
+  product: Product;
+  qty: number;
+  extraIds: string[];
+  note: string;
+  doneness?: Doneness;
+  selectedSideProductId?: string;
+};
+
+type CatalogSettings = {
+  cashEnabled: boolean;
+  onlineEnabled: boolean;
+  splitEnabled: boolean;
+  takeawayEnabled: boolean;
+  orderHistoryEnabled: boolean;
+  historyMaxOrders: number;
+  historyDays: number;
+  lunchActive: boolean;
+  lunchAvailableUntil?: string;
+  lunchSchedule: {
+    enabled: boolean;
+    weekdays: number[];
+    startTime: string;
+    endTime: string;
+    timezone: "Europe/Berlin";
+  };
+};
+
+type CatalogResponse = {
+  ok?: boolean;
+  products?: Product[];
+  categories?: Category[];
+  settings?: Partial<CatalogSettings>;
+  error?: string;
+};
+
+type CachedCatalog = {
+  savedAt: number;
+  products: Product[];
+  categories: Category[];
+  settings: CatalogSettings;
+};
+
+type HistoryItem = {
+  productId: string;
+  qty: number;
+  extraIds: string[];
+  note: string;
+  doneness?: Doneness;
+  selectedSideProductId?: string;
+};
+
+type HistoryEntry = {
+  id: string;
+  createdAt: number;
+  customerNumber: number;
+  takeaway: boolean;
+  total: number;
+  items: HistoryItem[];
+};
+
+const DEFAULT_CATALOG_SETTINGS: CatalogSettings = {
+  cashEnabled: true,
+  onlineEnabled: false,
+  splitEnabled: false,
+  takeawayEnabled: true,
+  orderHistoryEnabled: true,
+  historyMaxOrders: 5,
+  historyDays: 90,
+  lunchActive: false,
+  lunchAvailableUntil: undefined,
+  lunchSchedule: {
+    enabled: false,
+    weekdays: [1, 2, 3, 4, 5],
+    startTime: "10:00",
+    endTime: "16:00",
+    timezone: "Europe/Berlin",
+  },
+};
+
+const CATALOG_CACHE_KEY = "bb_schnell_catalog_v8";
+const CATALOG_CACHE_MAX_AGE_MS = 30 * 60_000;
+const HISTORY_KEY = "bb_schnell_order_history_v1";
+
+const ALLERGEN_LEGEND: Record<string, string> = {
+  A: "Glutenhaltiges Getreide",
+  A1: "Weizen",
+  A2: "Roggen",
+  A3: "Gerste",
+  A4: "Hafer",
+  A5: "Dinkel",
+  B: "Krebstiere",
+  C: "Eier",
+  D: "Fisch",
+  E: "Erdnüsse",
+  F: "Soja",
+  G: "Milch (inkl. Laktose)",
+  H: "Schalenfrüchte",
+  L: "Sellerie",
+  M: "Senf",
+  N: "Sesam",
+  O: "Schwefeldioxid/Sulfite",
+  P: "Lupinen",
+  R: "Weichtiere",
+};
+
+const euro = (value: number) =>
+  value.toLocaleString("de-DE", { style: "currency", currency: "EUR" });
+
+function normalizeDoneness(value: unknown): Doneness | undefined {
+  const code =
+    typeof value === "object" && value !== null
+      ? String((value as { code?: unknown }).code || "")
+      : String(value || "");
+
+  return code === "light" || code === "normal" || code === "well_done"
+    ? code
+    : undefined;
+}
+
+function donenessLabel(value: unknown) {
+  const normalized = normalizeDoneness(value);
+  return (
+    DONENESS_OPTIONS.find((option) => option.value === normalized)?.label || ""
+  );
+}
+
+function normalizedProductIdentity(value: unknown) {
+  return String(value || "")
+    .toLocaleLowerCase("de-DE")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function productRequiresDoneness(product: Product) {
+  if (product.requiresDoneness === true) return true;
+
+  const sku = String(product.sku || "").toLocaleLowerCase("de-DE");
+  if (
+    sku === "burger-black-angus-burger" ||
+    sku.startsWith("burger-black-angus-burger-")
+  ) {
+    return true;
+  }
+
+  return [product.name, product.lunchMenu?.burgerName].some((name) =>
+    /\bblack angus\b/.test(normalizedProductIdentity(name)),
+  );
+}
+
+function formatCampaignBadge(value: string) {
+  const text = value.trim().replace(/^🔥\s*|\s*🔥$/g, "").trim() || "Angebot";
+  return `🔥 ${text.toLocaleUpperCase("de-DE")} 🔥`;
+}
+
+function normalizedSauceName(value: string) {
+  return value
+    .toLocaleLowerCase("de-DE")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9äöüß\s-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isComplimentaryTableSauceProduct(product: Product) {
+  if (product.complimentaryTableSauce === true) return true;
+  if (product.category !== "sauces") return false;
+
+  const name = normalizedSauceName(product.name)
+    .replace(/\s+(?:to\s+go|take\s*away|takeaway|zum\s+mitnehmen)\s*$/i, "")
+    .trim();
+
+  return /^(?:heinz\s+)?(?:ketchup|mayo|mayonnaise)(?:\s+(?:(?:sauce|soße|sosse|portion|becher|dip|sachet|päckchen|paeckchen|packchen|packung|tüte|tuete|tute|\d+(?:[.,]\d+)?(?:ml|g)?|ml|g))){0,5}$/i.test(
+    name,
+  );
+}
+
+function productDisplayName(product: Product, takeaway: boolean) {
+  if (takeaway || !isComplimentaryTableSauceProduct(product)) {
+    return product.name;
+  }
+
+  return product.name
+    .replace(
+      /\s*(?:\((?:to\s*go|take\s*away|takeaway|zum\s+mitnehmen)\)|(?:to\s+go|take\s*away|takeaway|zum\s+mitnehmen))\s*$/i,
+      "",
+    )
+    .trim();
+}
+
+function lunchCategoryLabel(schedule: CatalogSettings["lunchSchedule"]) {
+  const start = schedule.startTime?.trim();
+  const end = schedule.endTime?.trim();
+  return start && end ? `Mittagsmenü (${start}–${end})` : "Mittagsmenü";
+}
+
+function preloadCatalogImages(
+  products: Product[],
+  category: string,
+  limit = 10,
+) {
+  if (typeof window === "undefined" || !category) return;
+
+  products
+    .filter((product) => product.category === category && product.imageUrl)
+    .slice(0, limit)
+    .forEach((product) => {
+      const image = new Image();
+      image.decoding = "async";
+      image.setAttribute("fetchpriority", "high");
+      image.src = product.imageUrl;
+    });
+}
+
+function CatalogProductImage({
+  product,
+  index,
+}: {
+  product: Product;
+  index: number;
+}) {
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    setFailed(false);
+  }, [product.imageUrl]);
+
+  if (!product.imageUrl || failed) {
+    return (
+      <div className="bb-schnell-product-fallback grid h-full w-full place-items-center px-3 text-center text-xs font-bold text-stone-500">
+        Burger Brothers
+      </div>
+    );
+  }
+
+  if (
+    product.category === "burger" ||
+    product.category === "vegan" ||
+    product.category === "lunch"
+  ) {
+    return (
+      <NormalizedProductImage
+        src={product.imageUrl}
+        alt={product.name}
+        profile="schnell"
+        eager={index < 4}
+        fetchPriority={index < 2 ? "high" : "auto"}
+        onError={() => setFailed(true)}
+      />
+    );
+  }
+
+  return (
+    <img
+      src={product.imageUrl}
+      loading={index < 4 ? "eager" : "lazy"}
+      decoding="async"
+      fetchPriority={index < 2 ? "high" : "auto"}
+      onError={() => setFailed(true)}
+      className="h-full w-full object-contain"
+      alt={product.name}
+    />
+  );
+}
+
+function productUnitPrice(product: Product, takeaway: boolean) {
+  return isComplimentaryTableSauceProduct(product) && !takeaway
+    ? 0
+    : product.price;
+}
+
+function selectedLunchSide(product: Product, selectedSideProductId?: string) {
+  if (!product.lunchMenu) return null;
+  return (
+    product.lunchMenu.sideOptions.find(
+      (side) => side.id === selectedSideProductId,
+    ) ||
+    product.lunchMenu.sideOptions.find((side) => side.included) ||
+    null
+  );
+}
+
+function lunchUpgradePrice(product: Product, selectedSideProductId?: string) {
+  return selectedLunchSide(product, selectedSideProductId)?.upgradePrice || 0;
+}
+
+function lineTotal(line: CartLine, takeaway: boolean) {
+  const extras = line.product.extras
+    .filter((extra) => line.extraIds.includes(extra.id))
+    .reduce((sum, extra) => sum + extra.price, 0);
+  return (
+    productUnitPrice(line.product, takeaway) +
+    lunchUpgradePrice(line.product, line.selectedSideProductId) +
+    extras
+  ) * line.qty;
+}
+
+function productPriceLabel(product: Product, takeaway: boolean) {
+  return isComplimentaryTableSauceProduct(product) && !takeaway
+    ? "Kostenlos"
+    : euro(product.price);
+}
+
+function berlinLunchScheduleActive(
+  schedule: CatalogSettings["lunchSchedule"],
+  nowMs: number,
+) {
+  if (!schedule.enabled || schedule.weekdays.length === 0) return false;
+
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Berlin",
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date(nowMs));
+  const values = Object.fromEntries(
+    parts.map((part) => [part.type, part.value]),
+  );
+  const weekdayMap: Record<string, number> = {
+    Mon: 1,
+    Tue: 2,
+    Wed: 3,
+    Thu: 4,
+    Fri: 5,
+    Sat: 6,
+    Sun: 7,
+  };
+  const weekday = weekdayMap[values.weekday] || 1;
+  const minuteOfDay =
+    Number(values.hour || 0) * 60 + Number(values.minute || 0);
+  const clockMinutes = (value: string) => {
+    const match = value.match(/^(\d{1,2}):(\d{2})$/);
+    if (!match) return 0;
+    return Number(match[1]) * 60 + Number(match[2]);
+  };
+  const start = clockMinutes(schedule.startTime);
+  const end = clockMinutes(schedule.endTime);
+  const days = new Set(schedule.weekdays);
+
+  if (start === end) return false;
+  if (start < end) {
+    return days.has(weekday) && minuteOfDay >= start && minuteOfDay < end;
+  }
+  if (minuteOfDay >= start) return days.has(weekday);
+
+  const previousWeekday = weekday === 1 ? 7 : weekday - 1;
+  return days.has(previousWeekday) && minuteOfDay < end;
+}
+
+function makeLineKey(productId: string, extraIds: string[]) {
+  return `${productId}:${[...extraIds].sort().join(",")}:${crypto.randomUUID()}`;
+}
+
+function reconcileCartWithCatalog(
+  cart: CartLine[],
+  products: Product[],
+): CartLine[] {
+  const productById = new Map(products.map((product) => [product.id, product]));
+
+  return cart.flatMap((line) => {
+    const product = productById.get(line.product.id);
+    if (!product) return [];
+
+    const extraIds = line.extraIds.filter((extraId) =>
+      product.extras.some((extra) => extra.id === extraId),
+    );
+    const selectedSideProductId = product.lunchMenu
+      ? product.lunchMenu.sideOptions.some(
+          (side) => side.id === line.selectedSideProductId,
+        )
+        ? line.selectedSideProductId
+        : product.lunchMenu.includedSideProductId
+      : undefined;
+    const doneness = productRequiresDoneness(product)
+      ? normalizeDoneness(line.doneness)
+      : undefined;
+
+    return [
+      {
+        ...line,
+        product,
+        extraIds,
+        doneness,
+        selectedSideProductId,
+      },
+    ];
+  });
+}
+
+function orderFingerprint(cart: CartLine[], takeaway: boolean) {
+  return JSON.stringify({
+    takeaway,
+    items: cart.map((line) => ({
+      productId: line.product.id,
+      qty: line.qty,
+      extraIds: [...line.extraIds].sort(),
+      selectedSideProductId: line.selectedSideProductId || "",
+      doneness: line.doneness || "",
+      note: line.note.trim(),
+    })),
+  });
+}
+
+function getStableIdempotencyKey(cart: CartLine[], takeaway: boolean) {
+  const storageKey = "bb_schnell_pending_order";
+  const fingerprint = orderFingerprint(cart, takeaway);
+
+  try {
+    const current = JSON.parse(localStorage.getItem(storageKey) || "null") as
+      | { key?: string; fingerprint?: string; createdAt?: number }
+      | null;
+    const fresh =
+      current?.key &&
+      current.fingerprint === fingerprint &&
+      Date.now() - Number(current.createdAt || 0) < 30 * 60_000;
+
+    if (fresh) return current.key as string;
+  } catch {
+    localStorage.removeItem(storageKey);
+  }
+
+  const key = crypto.randomUUID();
+  localStorage.setItem(
+    storageKey,
+    JSON.stringify({ key, fingerprint, createdAt: Date.now() }),
+  );
+  return key;
+}
+
+function normalizeCatalogSettings(
+  value: Partial<CatalogSettings> | undefined,
+): CatalogSettings {
+  return {
+    ...DEFAULT_CATALOG_SETTINGS,
+    ...(value || {}),
+    historyMaxOrders: Math.max(
+      1,
+      Math.min(20, Number(value?.historyMaxOrders) || 5),
+    ),
+    historyDays: Math.max(1, Math.min(365, Number(value?.historyDays) || 90)),
+    lunchActive: value?.lunchActive === true,
+    lunchAvailableUntil:
+      typeof value?.lunchAvailableUntil === "string"
+        ? value.lunchAvailableUntil
+        : undefined,
+    lunchSchedule: {
+      enabled: value?.lunchSchedule?.enabled === true,
+      weekdays: Array.isArray(value?.lunchSchedule?.weekdays)
+        ? value.lunchSchedule.weekdays
+            .map(Number)
+            .filter(
+              (day: number) =>
+                Number.isInteger(day) && day >= 1 && day <= 7,
+            )
+        : [1, 2, 3, 4, 5],
+      startTime:
+        typeof value?.lunchSchedule?.startTime === "string"
+          ? value.lunchSchedule.startTime
+          : "10:00",
+      endTime:
+        typeof value?.lunchSchedule?.endTime === "string"
+          ? value.lunchSchedule.endTime
+          : "16:00",
+      timezone: "Europe/Berlin",
+    },
+  };
+}
+
+function readCachedCatalog(): CachedCatalog | null {
+  try {
+    const parsed = JSON.parse(
+      window.localStorage.getItem(CATALOG_CACHE_KEY) || "null",
+    ) as CachedCatalog | null;
+
+    if (
+      !parsed ||
+      !Array.isArray(parsed.products) ||
+      !Array.isArray(parsed.categories) ||
+      Date.now() - Number(parsed.savedAt || 0) > CATALOG_CACHE_MAX_AGE_MS
+    ) {
+      return null;
+    }
+
+    return {
+      ...parsed,
+      settings: normalizeCatalogSettings(parsed.settings),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedCatalog(
+  products: Product[],
+  categories: Category[],
+  settings: CatalogSettings,
+) {
+  try {
+    window.localStorage.setItem(
+      CATALOG_CACHE_KEY,
+      JSON.stringify({ savedAt: Date.now(), products, categories, settings }),
+    );
+  } catch {
+    // Optional performance cache.
+  }
+}
+
+function readHistory(settings: CatalogSettings) {
+  if (!settings.orderHistoryEnabled) return [];
+
+  try {
+    const history = JSON.parse(
+      localStorage.getItem(HISTORY_KEY) || "[]",
+    ) as HistoryEntry[];
+    const minimumTime = Date.now() - settings.historyDays * 24 * 60 * 60_000;
+
+    return history
+      .filter(
+        (entry) =>
+          entry &&
+          Number(entry.createdAt) >= minimumTime &&
+          Array.isArray(entry.items),
+      )
+      .slice(0, settings.historyMaxOrders);
+  } catch {
+    localStorage.removeItem(HISTORY_KEY);
+    return [];
+  }
+}
+
+function saveHistoryEntry(
+  settings: CatalogSettings,
+  cart: CartLine[],
+  takeaway: boolean,
+  customerNumber: number,
+  total: number,
+) {
+  if (!settings.orderHistoryEnabled) return;
+
+  const entry: HistoryEntry = {
+    id: crypto.randomUUID(),
+    createdAt: Date.now(),
+    customerNumber,
+    takeaway,
+    total,
+    items: cart.map((line) => ({
+      productId: line.product.id,
+      qty: line.qty,
+      extraIds: [...line.extraIds],
+      note: line.note,
+      doneness: line.doneness,
+      selectedSideProductId: line.selectedSideProductId,
+    })),
+  };
+
+  const next = [entry, ...readHistory(settings)].slice(
+    0,
+    settings.historyMaxOrders,
+  );
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(next));
+}
+
+function playOrderConfirmationSoundOnce() {
+  try {
+    const media = new Audio("/sounds/dine-in.wav");
+    media.preload = "auto";
+    media.loop = false;
+    media.volume = 1;
+    media.muted = false;
+    media.setAttribute("playsinline", "true");
+    media.currentTime = 0;
+    void media.play().catch(() => undefined);
+  } catch {
+    // Bestellung wird auch ohne lokalen Bestätigungston gesendet.
+  }
+}
+
+function isAndroidBrowserWithoutInstalledMode() {
+  if (!/Android/i.test(navigator.userAgent || "")) return false;
+
+  const navigatorWithStandalone = navigator as Navigator & {
+    standalone?: boolean;
+  };
+
+  return !(
+    window.matchMedia?.("(display-mode: standalone)").matches === true ||
+    navigatorWithStandalone.standalone === true
+  );
+}
+
+export default function SchnellClient() {
+  const router = useRouter();
+  const [androidAccessAllowed, setAndroidAccessAllowed] =
+    useState<boolean | null>(null);
+
+  useEffect(() => {
+    const blocked = isAndroidBrowserWithoutInstalledMode();
+    setAndroidAccessAllowed(!blocked);
+
+    if (blocked) {
+      router.replace("/schnellbestellung/install");
+    }
+  }, [router]);
+
+  if (androidAccessAllowed !== true) {
+    return (
+      <main className="bb-schnell-page grid min-h-dvh place-items-center p-5 text-white">
+        <section className="bb-schnell-sheet w-full max-w-sm rounded-3xl border border-amber-300/25 p-6 text-center shadow-2xl shadow-black/30">
+          <img
+            src="/schnell-icon-180.png?v=1"
+            className="mx-auto h-20 w-20 rounded-[22px]"
+            alt="Burger Brothers"
+          />
+          <h1 className="mt-5 text-2xl font-black">
+            Burger Brothers wird geprüft …
+          </h1>
+          <p className="mt-3 text-sm leading-6 text-stone-300">
+            Android-Schnellbestellungen werden über die installierte App
+            geöffnet.
+          </p>
+        </section>
+      </main>
+    );
+  }
+
+  return <SchnellOrderClient />;
+}
+
+function SchnellOrderClient() {
+  const router = useRouter();
+  const [products, setProducts] = useState<Product[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [catalogSettings, setCatalogSettings] = useState<CatalogSettings>(
+    DEFAULT_CATALOG_SETTINGS,
+  );
+  const [cart, setCart] = useState<CartLine[]>([]);
+  const [category, setCategory] = useState("");
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [selectedExtraIds, setSelectedExtraIds] = useState<string[]>([]);
+  const [selectedSideProductId, setSelectedSideProductId] = useState("");
+  const [selectedDoneness, setSelectedDoneness] = useState<Doneness | "">("");
+  const [selectionError, setSelectionError] = useState("");
+  const [selectedNote, setSelectedNote] = useState("");
+  const [cartOpen, setCartOpen] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [takeaway, setTakeaway] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [clockMs, setClockMs] = useState(() => Date.now());
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    prewarmSchnellPush();
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setClockMs(Date.now()), 15_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const saved = localStorage.getItem("bb_schnell_cart");
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) setCart(parsed);
+      } catch {
+        localStorage.removeItem("bb_schnell_cart");
+      }
+    }
+
+    const cached = readCachedCatalog();
+    if (cached?.products.length) {
+      const firstCategory =
+        cached.categories[0]?.key || cached.products[0]?.category || "";
+      preloadCatalogImages(cached.products, firstCategory, 6);
+      setProducts(cached.products);
+      setCategories(cached.categories);
+      setCatalogSettings(cached.settings);
+      setHistory(readHistory(cached.settings));
+      setCategory(
+        cached.categories[0]?.key || cached.products[0]?.category || "",
+      );
+      setLoading(false);
+    }
+
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const envelope = await loadSchnellCatalog<CatalogResponse>();
+        const data = envelope.data;
+
+        if (cancelled) return;
+
+        if (envelope.ok && Array.isArray(data.products)) {
+          const nextProducts = data.products;
+          const nextCategories = Array.isArray(data.categories)
+            ? data.categories
+            : [];
+          const nextSettings = normalizeCatalogSettings(data.settings);
+          const firstCategory =
+            nextCategories[0]?.key || nextProducts[0]?.category || "";
+
+          preloadCatalogImages(nextProducts, firstCategory, 6);
+          setProducts(nextProducts);
+          setCategories(nextCategories);
+          setCatalogSettings(nextSettings);
+          setHistory(readHistory(nextSettings));
+          setCategory((current) =>
+            nextCategories.some((item) => item.key === current)
+              ? current
+              : nextCategories[0]?.key || nextProducts[0]?.category || "",
+          );
+          setError("");
+          writeCachedCatalog(nextProducts, nextCategories, nextSettings);
+          return;
+        }
+
+        if (
+          envelope.status === 403 &&
+          data.error === "android_install_required"
+        ) {
+          router.replace("/schnellbestellung/enter?homescreen=1");
+          setError(
+            "Bitte öffnen Sie Burger Brothers über das Symbol auf Ihrem Startbildschirm und scannen Sie den QR-Code erneut.",
+          );
+        } else if (envelope.status === 401) {
+          setError(
+            "Ihre Schnellbestellung-Sitzung ist abgelaufen. Bitte scannen Sie den QR-Code erneut.",
+          );
+        } else {
+          setError("Die Speisekarte ist gerade nicht verfügbar.");
+        }
+      } catch {
+        if (!cancelled && !cached?.products.length) {
+          setError("Die Speisekarte ist gerade nicht verfügbar.");
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem("bb_schnell_cart", JSON.stringify(cart));
+  }, [cart]);
+
+  useEffect(() => {
+    if (!products.length) return;
+    setCart((current) => reconcileCartWithCatalog(current, products));
+  }, [products]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const refreshCatalog = async () => {
+      try {
+        const envelope = await loadSchnellCatalog<CatalogResponse>({
+          forceRefresh: true,
+          cacheMode: "no-store",
+        });
+        const data = envelope.data;
+        if (cancelled || !envelope.ok || !Array.isArray(data.products)) return;
+
+        const nextProducts = data.products;
+        const nextCategories = Array.isArray(data.categories)
+          ? data.categories
+          : [];
+        const nextSettings = normalizeCatalogSettings(data.settings);
+
+        setProducts(nextProducts);
+        setCategories(nextCategories);
+        setCatalogSettings(nextSettings);
+        setSelectedProduct((current) =>
+          current
+            ? nextProducts.find((product) => product.id === current.id) || null
+            : null,
+        );
+        setCategory((current) =>
+          nextCategories.some((item) => item.key === current)
+            ? current
+            : nextCategories[0]?.key || nextProducts[0]?.category || "",
+        );
+        writeCachedCatalog(nextProducts, nextCategories, nextSettings);
+      } catch {
+        // A failed silent refresh must not interrupt an active order.
+      }
+    };
+
+    const timer = window.setInterval(() => {
+      void refreshCatalog();
+    }, 60_000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  const lunchActiveNow = useMemo(() => {
+    if (catalogSettings.lunchSchedule.enabled) {
+      return berlinLunchScheduleActive(
+        catalogSettings.lunchSchedule,
+        clockMs,
+      );
+    }
+
+    if (!catalogSettings.lunchActive) return false;
+    const until = catalogSettings.lunchAvailableUntil
+      ? new Date(catalogSettings.lunchAvailableUntil).getTime()
+      : Number.POSITIVE_INFINITY;
+    return Number.isFinite(until) ? clockMs < until : true;
+  }, [
+    catalogSettings.lunchActive,
+    catalogSettings.lunchAvailableUntil,
+    catalogSettings.lunchSchedule,
+    clockMs,
+  ]);
+
+  const availableCategories = useMemo(
+    () =>
+      categories.filter(
+        (item) => item.key !== "lunch" || lunchActiveNow,
+      ),
+    [categories, lunchActiveNow],
+  );
+
+  useEffect(() => {
+    if (category === "lunch" && !lunchActiveNow) {
+      setCategory(
+        availableCategories[0]?.key ||
+          products.find((product) => product.category !== "lunch")?.category ||
+          "",
+      );
+    }
+  }, [availableCategories, category, lunchActiveNow, products]);
+
+  useEffect(() => {
+    preloadCatalogImages(products, category, 6);
+
+    const currentIndex = availableCategories.findIndex(
+      (item) => item.key === category,
+    );
+    const nextCategory =
+      currentIndex >= 0
+        ? availableCategories[currentIndex + 1]?.key
+        : availableCategories[0]?.key;
+    const timer = nextCategory
+      ? window.setTimeout(
+          () => preloadCatalogImages(products, nextCategory, 2),
+          500,
+        )
+      : null;
+
+    return () => {
+      if (timer !== null) window.clearTimeout(timer);
+    };
+  }, [availableCategories, category, products]);
+
+  const visibleProducts = useMemo(
+    () =>
+      products.filter(
+        (product) =>
+          product.category === category &&
+          (product.category !== "lunch" || lunchActiveNow),
+      ),
+    [category, lunchActiveNow, products],
+  );
+
+  const itemCount = cart.reduce((sum, line) => sum + line.qty, 0);
+  const total = cart.reduce(
+    (sum, line) => sum + lineTotal(line, takeaway),
+    0,
+  );
+  const activeLunchCategoryLabel = lunchCategoryLabel(
+    catalogSettings.lunchSchedule,
+  );
+
+  function openProduct(product: Product) {
+    setSelectedProduct(product);
+    setSelectedExtraIds([]);
+    setSelectedSideProductId(
+      product.lunchMenu?.includedSideProductId || "",
+    );
+    setSelectedDoneness("");
+    setSelectionError("");
+    setSelectedNote("");
+    setError("");
+  }
+
+  useEffect(() => {
+    if (!selectedProduct?.lunchMenu) return;
+    if (
+      selectedProduct.lunchMenu.sideOptions.some(
+        (side) => side.id === selectedSideProductId,
+      )
+    ) {
+      return;
+    }
+
+    setSelectedSideProductId(
+      selectedProduct.lunchMenu.includedSideProductId,
+    );
+  }, [selectedProduct, selectedSideProductId]);
+
+  function addSelectedProduct() {
+    if (!selectedProduct) return;
+
+    const requiresDoneness = productRequiresDoneness(selectedProduct);
+    const doneness = normalizeDoneness(selectedDoneness);
+    if (requiresDoneness && !doneness) {
+      const message = "Bitte wählen Sie die Garstufe für den Black Angus Burger.";
+      setSelectionError(message);
+      setError(message);
+      window.requestAnimationFrame(() => {
+        document
+          .getElementById("schnell-black-angus-doneness")
+          ?.scrollIntoView({ behavior: "smooth", block: "center" });
+      });
+      return;
+    }
+
+    setCart((current) => [
+      ...current,
+      {
+        key: makeLineKey(selectedProduct.id, selectedExtraIds),
+        product: selectedProduct,
+        qty: 1,
+        extraIds: selectedExtraIds,
+        doneness: requiresDoneness ? doneness : undefined,
+        selectedSideProductId: selectedProduct.lunchMenu
+          ? selectedSideProductId || selectedProduct.lunchMenu.includedSideProductId
+          : undefined,
+        note: selectedProduct.lunchMenu?.allowNotes === false
+          ? ""
+          : selectedNote.trim().slice(0, 300),
+      },
+    ]);
+    setSelectedProduct(null);
+    setSelectedExtraIds([]);
+    setSelectedSideProductId("");
+    setSelectedDoneness("");
+    setSelectionError("");
+    setSelectedNote("");
+    setError("");
+  }
+
+  function changeQty(key: string, delta: number) {
+    setCart((current) =>
+      current
+        .map((line) =>
+          line.key === key
+            ? { ...line, qty: Math.max(0, Math.min(20, line.qty + delta)) }
+            : line,
+        )
+        .filter((line) => line.qty > 0),
+    );
+  }
+
+  function clearCart() {
+    setCart([]);
+    setConfirmOpen(false);
+    setCartOpen(false);
+    try {
+      window.localStorage.removeItem("bb_schnell_cart");
+    } catch {
+      // React state remains the source of truth when storage is unavailable.
+    }
+  }
+
+  function restoreHistory(entry: HistoryEntry) {
+    const productById = new Map(products.map((product) => [product.id, product]));
+    const restored: CartLine[] = [];
+    let skipped = 0;
+    let missingDoneness = 0;
+
+    for (const item of entry.items) {
+      const product = productById.get(item.productId);
+      if (!product) {
+        skipped += 1;
+        continue;
+      }
+
+      const validExtraIds = item.extraIds.filter((extraId) =>
+        product.extras.some((extra) => extra.id === extraId),
+      );
+      const selectedSideId = product.lunchMenu
+        ? product.lunchMenu.sideOptions.some(
+            (side) => side.id === item.selectedSideProductId,
+          )
+          ? item.selectedSideProductId
+          : product.lunchMenu.includedSideProductId
+        : undefined;
+      const doneness = normalizeDoneness(item.doneness);
+      if (productRequiresDoneness(product) && !doneness) {
+        skipped += 1;
+        missingDoneness += 1;
+        continue;
+      }
+
+      restored.push({
+        key: makeLineKey(product.id, validExtraIds),
+        product,
+        qty: Math.max(1, Math.min(20, Number(item.qty) || 1)),
+        extraIds: validExtraIds,
+        doneness: productRequiresDoneness(product) ? doneness : undefined,
+        selectedSideProductId: selectedSideId,
+        note: String(item.note || "").slice(0, 300),
+      });
+    }
+
+    if (!restored.length) {
+      setError("Die Artikel dieser Bestellung sind momentan nicht verfügbar.");
+      return;
+    }
+
+    setCart(restored);
+    setTakeaway(catalogSettings.takeawayEnabled && entry.takeaway);
+    setHistoryOpen(false);
+    setCartOpen(true);
+
+    if (missingDoneness > 0) {
+      setError(
+        "Black Angus muss wegen der Garstufe neu ausgewählt werden.",
+      );
+    } else if (skipped > 0) {
+      setError("Nicht verfügbare Artikel wurden nicht übernommen.");
+    }
+  }
+
+  async function placeOrder() {
+    if (!cart.length || busy) return;
+
+    const missingDoneness = cart.find(
+      (line) =>
+        productRequiresDoneness(line.product) &&
+        !normalizeDoneness(line.doneness),
+    );
+    if (missingDoneness) {
+      setConfirmOpen(false);
+      setCartOpen(true);
+      setError(
+        "Bitte wählen Sie die Garstufe für jeden Black Angus Burger neu aus.",
+      );
+      return;
+    }
+
+    setBusy(true);
+    setError("");
+    stopRewardCelebrationSound();
+    prewarmRewardCelebration();
+
+    try {
+      const idempotencyKey = getStableIdempotencyKey(cart, takeaway);
+      const response = await fetch("/api/schnellbestellung/orders", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "idempotency-key": idempotencyKey,
+        },
+        body: JSON.stringify({
+          paymentMethod: "cash",
+          takeaway: catalogSettings.takeawayEnabled && takeaway,
+          items: cart.map((line) => ({
+            productId: line.product.id,
+            qty: line.qty,
+            extraIds: line.extraIds,
+            selectedSideProductId: line.selectedSideProductId,
+            doneness: line.doneness,
+            note: line.note,
+          })),
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        if (data.error === "android_install_required") {
+          router.replace("/schnellbestellung/enter?homescreen=1");
+          throw new Error(
+            "Bitte öffnen Sie Burger Brothers über das Symbol auf Ihrem Startbildschirm und scannen Sie den QR-Code erneut.",
+          );
+        }
+
+        const message =
+          data.error === "location_recheck_required"
+            ? "Bitte scannen Sie den aktuellen QR-Code erneut."
+            : data.error === "DEVICE_RATE_LIMIT"
+              ? `Sie können in etwa ${Math.max(
+                  1,
+                  Math.ceil(Number(data.retryAfterSeconds || 60) / 60),
+                )} Min. erneut bestellen. Bei Bedarf hilft unser Personal gern weiter.`
+              : data.error === "PRODUCT_UNAVAILABLE"
+                ? "Ein Artikel ist nicht mehr verfügbar."
+                : data.error === "DONENESS_REQUIRED"
+                  ? "Bitte wählen Sie die Garstufe für den Black Angus Burger."
+                  : data.error === "LUNCH_MENU_UNAVAILABLE"
+                    ? "Das Mittagsmenü ist leider nicht mehr verfügbar. Bitte aktualisieren Sie Ihre Bestellung."
+                    : data.error === "SCHNELL_UNAVAILABLE"
+                      ? "Schnellbestellung ist momentan pausiert."
+                      : "Die Bestellung konnte nicht gesendet werden.";
+        throw new Error(message);
+      }
+
+      saveHistoryEntry(
+        catalogSettings,
+        cart,
+        catalogSettings.takeawayEnabled && takeaway,
+        Number(data.customerNumber || 0),
+        Number(data.total || total),
+      );
+
+      localStorage.removeItem("bb_schnell_cart");
+      localStorage.removeItem("bb_schnell_pending_order");
+      setCart([]);
+      const createdOrderId = String(data.orderId || "");
+      const createdCustomerNumber = Number(data.customerNumber || 0);
+      saveSchnellActiveOrder(createdOrderId, createdCustomerNumber);
+      try {
+        if (data.reward?.winId && createdOrderId) {
+          window.sessionStorage.setItem(
+            `bb_schnell_reward:${createdOrderId}`,
+            JSON.stringify(data.reward),
+          );
+        }
+      } catch {
+        // Status API aynı ödülü yeniden sağlayabilir.
+      }
+      void bindSchnellPushToOrder(createdOrderId);
+      router.push(
+        `/schnellbestellung/success?number=${encodeURIComponent(
+          data.customerNumber,
+        )}&order=${encodeURIComponent(data.orderId)}`,
+      );
+    } catch (caught) {
+      stopRewardCelebrationSound();
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Die Bestellung konnte nicht gesendet werden.",
+      );
+      setConfirmOpen(false);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <main className="bb-schnell-page min-h-dvh pb-28 text-white">
+      <header className="bb-schnell-header sticky top-0 z-20 border-b px-4 py-3 backdrop-blur">
+        <div className="mx-auto flex max-w-3xl items-center gap-3">
+          <img
+            src="/logo-burger-brothers.webp"
+            className="h-11 w-11 rounded-full"
+            alt="Burger Brothers"
+          />
+          <div className="min-w-0 flex-1">
+            <h1 className="font-black">Schnellbestellung</h1>
+            <p className="text-xs text-stone-400">Direkt im Restaurant bestellen</p>
+          </div>
+          {catalogSettings.orderHistoryEnabled && history.length ? (
+            <button
+              type="button"
+              onClick={() => setHistoryOpen(true)}
+              className="shrink-0 rounded-xl bg-white/10 px-3 py-2 text-xs font-bold"
+            >
+              Letzte Bestellungen
+            </button>
+          ) : null}
+        </div>
+
+        <div className="mx-auto mt-3 flex max-w-3xl gap-2 overflow-x-auto pb-1">
+          {availableCategories.map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              onPointerDown={() => preloadCatalogImages(products, item.key, 6)}
+              onMouseEnter={() => preloadCatalogImages(products, item.key, 4)}
+              onClick={() => setCategory(item.key)}
+              className={`bb-schnell-category whitespace-nowrap rounded-full px-4 py-2 text-sm font-bold ${
+                category === item.key
+                  ? "bb-theme-primary bb-schnell-primary"
+                  : "bg-white/10"
+              }`}
+            >
+              {item.key === "lunch" ? activeLunchCategoryLabel : item.label}
+            </button>
+          ))}
+        </div>
+      </header>
+
+      <section className="bb-schnell-grid mx-auto grid max-w-3xl grid-cols-2 gap-3 p-3">
+        {loading && products.length === 0
+          ? Array.from({ length: 6 }, (_, index) => (
+              <div
+                key={`catalog-skeleton-${index}`}
+                className="bb-schnell-card overflow-hidden rounded-2xl border"
+                aria-hidden="true"
+              >
+                <div className="bb-schnell-product-media aspect-[3/2] animate-pulse" />
+                <div className="space-y-2 p-3">
+                  <div className="h-4 w-3/4 animate-pulse rounded bg-white/10" />
+                  <div className="h-3 w-full animate-pulse rounded bg-white/10" />
+                  <div className="h-5 w-1/3 animate-pulse rounded bg-white/10" />
+                </div>
+              </div>
+            ))
+          : null}
+
+        {!loading && category && visibleProducts.length === 0 ? (
+          <div className="bb-schnell-card col-span-2 rounded-2xl border p-6 text-center text-stone-300">
+            In dieser Kategorie sind momentan keine Artikel verfügbar.
+          </div>
+        ) : null}
+
+        {visibleProducts.map((product, index) => (
+          <button
+            key={product.id}
+            type="button"
+            onClick={() => openProduct(product)}
+            className="bb-schnell-card relative flex h-full min-w-0 flex-col overflow-hidden rounded-2xl border text-left"
+          >
+            {product.campaignBadge &&
+            !(isComplimentaryTableSauceProduct(product) && !takeaway) ? (
+              <span className="absolute right-2 top-2 z-10 animate-pulse rounded-full border border-yellow-200/70 bg-gradient-to-r from-red-600 via-orange-500 to-amber-400 px-2.5 py-1 text-[11px] font-black text-white shadow-[0_0_22px_rgba(251,146,60,0.75)]">
+                {formatCampaignBadge(product.campaignBadge)}
+              </span>
+            ) : null}
+
+            <div className="bb-schnell-product-media relative aspect-[3/2] w-full overflow-hidden">
+              <CatalogProductImage product={product} index={index} />
+            </div>
+
+            <div className="bb-schnell-card-body flex flex-1 flex-col p-3">
+              {product.lunchMenu &&
+              (product.lunchMenu.vegetarian ||
+                product.lunchMenu.badge.trim()) ? (
+                <div className="mb-2 flex flex-wrap gap-1.5">
+                  {product.lunchMenu.badge.trim() ? (
+                    <span className="rounded-full border border-amber-200/60 bg-amber-300/15 px-2 py-1 text-[10px] font-black text-amber-100">
+                      {product.lunchMenu.badge.trim()}
+                    </span>
+                  ) : null}
+                  {product.lunchMenu.vegetarian ? (
+                    <span className="rounded-full border border-emerald-300/50 bg-emerald-300/10 px-2 py-1 text-[10px] font-black text-emerald-100">
+                      🌱 Vegetarisch
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
+              <h2 className="bb-schnell-card-title font-bold leading-tight">
+                {productDisplayName(product, takeaway)}
+              </h2>
+              {product.description ? (
+                <p className="bb-schnell-card-description mt-1 text-xs leading-snug text-stone-400">
+                  {product.description}
+                </p>
+              ) : (
+                <span className="bb-schnell-card-description" aria-hidden="true" />
+              )}
+
+              {product.allergens.length ? (
+                <div className="mt-2 flex flex-wrap gap-1" aria-label="Allergene">
+                  {product.allergens.map((allergen) => (
+                    <span
+                      key={allergen}
+                      title={ALLERGEN_LEGEND[allergen] || `Allergen ${allergen}`}
+                      className="bb-schnell-allergen rounded border px-1.5 py-0.5 text-[10px] font-black"
+                    >
+                      {allergen}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+
+              <div className="mt-auto flex flex-wrap items-baseline gap-2 pt-2">
+                <span className="bb-schnell-accent-text font-black">
+                  {productPriceLabel(product, takeaway)}
+                </span>
+                {product.originalPrice &&
+                !(isComplimentaryTableSauceProduct(product) && !takeaway) ? (
+                  <span className="text-xs text-stone-500 line-through">
+                    {euro(product.originalPrice)}
+                  </span>
+                ) : null}
+              </div>
+            </div>
+          </button>
+        ))}
+      </section>
+
+      {error ? (
+        <div className="fixed bottom-24 left-4 right-4 z-[80] mx-auto max-w-md rounded-xl bg-red-600 p-3 text-center font-bold shadow-2xl">
+          {error}
+        </div>
+      ) : null}
+
+      <div className="bb-schnell-footer fixed inset-x-0 bottom-0 z-30 border-t p-3 pb-[max(.75rem,env(safe-area-inset-bottom))]">
+        <button
+          type="button"
+          onClick={() => setCartOpen(true)}
+          disabled={!cart.length}
+          className="bb-theme-primary bb-schnell-primary mx-auto flex w-full max-w-3xl items-center justify-between rounded-2xl px-5 py-4 font-black disabled:opacity-50"
+        >
+          <span>{itemCount} Artikel</span>
+          <span>Warenkorb · {euro(total)}</span>
+        </button>
+      </div>
+
+      {selectedProduct ? (
+        <div
+          className="fixed inset-0 z-50 flex items-end bg-black/70"
+          onClick={() => setSelectedProduct(null)}
+        >
+          <div
+            onClick={(event) => event.stopPropagation()}
+            className="bb-schnell-sheet max-h-[88dvh] w-full overflow-y-auto rounded-t-3xl p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]"
+          >
+            <div className="mx-auto max-w-xl">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-2xl font-black">{productDisplayName(selectedProduct, takeaway)}</h2>
+                  <div className="bb-schnell-accent-text mt-1 font-black">
+                    {productPriceLabel(selectedProduct, takeaway)}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedProduct(null)}
+                  className="rounded-full bg-white/10 px-3 py-2 font-bold"
+                  aria-label="Schließen"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {selectedProduct.description ? (
+                <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4">
+                  <div className="text-xs font-black uppercase tracking-wider text-stone-400">
+                    Zutaten
+                  </div>
+                  <p className="mt-2 text-stone-200">{selectedProduct.description}</p>
+                </div>
+              ) : null}
+
+              {selectedProduct.allergens.length || selectedProduct.allergenHinweise ? (
+                <div className="mt-3 rounded-2xl border border-amber-300/25 bg-amber-300/10 p-4">
+                  <div className="text-xs font-black uppercase tracking-wider text-amber-200">
+                    Allergene
+                  </div>
+                  {selectedProduct.allergens.length ? (
+                    <p className="mt-2 text-sm text-amber-50">
+                      {selectedProduct.allergens
+                        .map(
+                          (allergen) =>
+                            `${allergen}${
+                              ALLERGEN_LEGEND[allergen]
+                                ? ` (${ALLERGEN_LEGEND[allergen]})`
+                                : ""
+                            }`,
+                        )
+                        .join(", ")}
+                    </p>
+                  ) : null}
+                  {selectedProduct.allergenHinweise ? (
+                    <p className="mt-2 text-sm text-amber-100">
+                      {selectedProduct.allergenHinweise}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {selectedProduct.lunchMenu ? (
+                <div className="mt-5">
+                  <div className="text-sm font-black">Beilage wählen</div>
+                  <div className="mt-2 space-y-2">
+                    {selectedProduct.lunchMenu.sideOptions.map((side) => (
+                      <label
+                        key={side.id}
+                        className={`flex items-center justify-between gap-3 rounded-xl border p-4 ${
+                          selectedSideProductId === side.id
+                            ? "border-amber-300/60 bg-amber-300/10"
+                            : "border-white/10 bg-white/5"
+                        }`}
+                      >
+                        <span className="font-bold">
+                          <input
+                            type="radio"
+                            name="lunch-side"
+                            checked={selectedSideProductId === side.id}
+                            onChange={() => setSelectedSideProductId(side.id)}
+                            className="mr-3"
+                          />
+                          {side.name}
+                        </span>
+                        <b>
+                          {side.included
+                            ? "inklusive"
+                            : `+ ${euro(side.upgradePrice)}`}
+                        </b>
+                      </label>
+                    ))}
+                  </div>
+                  <p className="mt-2 text-xs text-stone-400">
+                    Der Aufpreis wird automatisch aus den aktuellen Produktpreisen berechnet.
+                  </p>
+                </div>
+              ) : null}
+
+              {productRequiresDoneness(selectedProduct) ? (
+                <fieldset
+                  id="schnell-black-angus-doneness"
+                  className={`mt-5 rounded-2xl border p-4 ${
+                    selectionError
+                      ? "border-red-400/80 bg-red-500/10"
+                      : "border-amber-300/35 bg-amber-300/10"
+                  }`}
+                >
+                  <legend className="px-2 text-sm font-black text-amber-100">
+                    Wie soll das Fleisch gebraten werden?
+                  </legend>
+                  <p className="mb-3 text-xs font-bold text-amber-200">
+                    Pflichtauswahl für Black Angus
+                  </p>
+                  <div className="space-y-2">
+                    {DONENESS_OPTIONS.map((option) => (
+                      <label
+                        key={option.value}
+                        className={`flex cursor-pointer items-center rounded-xl border p-4 font-bold ${
+                          selectedDoneness === option.value
+                            ? "border-amber-300/70 bg-amber-300/15"
+                            : "border-white/10 bg-black/20"
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name={`black-angus-doneness-${selectedProduct.id}`}
+                          checked={selectedDoneness === option.value}
+                          onChange={() => {
+                            setSelectedDoneness(option.value);
+                            setSelectionError("");
+                            setError("");
+                          }}
+                          className="mr-3 h-5 w-5"
+                        />
+                        {option.label}
+                      </label>
+                    ))}
+                  </div>
+                  {selectionError ? (
+                    <p
+                      className="mt-3 rounded-xl border border-red-300/40 bg-red-500/15 p-3 text-sm font-black text-red-100"
+                      role="alert"
+                    >
+                      {selectionError}
+                    </p>
+                  ) : null}
+                </fieldset>
+              ) : null}
+
+              {selectedProduct.extras?.length ? (
+                <div className="mt-5 space-y-2">
+                  <div className="text-sm font-black">Extras</div>
+                  {selectedProduct.extras.map((extra) => (
+                    <label
+                      key={extra.id}
+                      className="flex items-center justify-between rounded-xl bg-white/5 p-4"
+                    >
+                      <span>
+                        <input
+                          type="checkbox"
+                          checked={selectedExtraIds.includes(extra.id)}
+                          onChange={() =>
+                            setSelectedExtraIds((current) =>
+                              current.includes(extra.id)
+                                ? current.filter((id) => id !== extra.id)
+                                : [...current, extra.id],
+                            )
+                          }
+                          className="mr-3"
+                        />
+                        {extra.name}
+                      </span>
+                      <b>+ {euro(extra.price)}</b>
+                    </label>
+                  ))}
+                </div>
+              ) : null}
+
+              {selectedProduct.lunchMenu?.allowNotes === false ? null : (
+                <label className="mt-5 block">
+                  <span className="text-sm font-black">Hinweis (optional)</span>
+                  <textarea
+                    value={selectedNote}
+                    onChange={(event) => setSelectedNote(event.target.value)}
+                    maxLength={300}
+                    rows={3}
+                    className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 p-3"
+                    placeholder="Zum Beispiel: ohne Zwiebeln"
+                  />
+                </label>
+              )}
+
+              <button
+                type="button"
+                onClick={addSelectedProduct}
+                className="bb-theme-primary bb-schnell-primary mt-6 w-full rounded-2xl p-4 font-black"
+              >
+                Zum Warenkorb hinzufügen
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {cartOpen ? (
+        <div className="fixed inset-0 z-50 flex items-end bg-black/75">
+          <div className="bb-schnell-sheet max-h-[90dvh] w-full overflow-y-auto rounded-t-3xl p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+            <div className="mx-auto max-w-xl">
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="text-2xl font-black">Warenkorb</h2>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={clearCart}
+                    disabled={!cart.length}
+                    className="rounded-xl border border-red-300/25 bg-red-400/10 px-3 py-2 text-xs font-black text-red-100 transition hover:bg-red-400/20 disabled:cursor-not-allowed disabled:opacity-40"
+                    aria-label="Alle Artikel aus dem Warenkorb entfernen"
+                  >
+                    🗑 Alles entfernen
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCartOpen(false)}
+                    className="rounded-full bg-white/10 px-3 py-2 font-bold"
+                    aria-label="Warenkorb schließen"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-5 space-y-3">
+                {cart.map((line) => (
+                  <div
+                    key={line.key}
+                    className="rounded-2xl border border-white/10 bg-white/5 p-4"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="font-black">{productDisplayName(line.product, takeaway)}</div>
+                        {line.product.lunchMenu ? (
+                          <div className="mt-1 text-xs font-bold text-amber-200">
+                            {(() => {
+                              const side = selectedLunchSide(
+                                line.product,
+                                line.selectedSideProductId,
+                              );
+                              if (!side) return "";
+                              return side.included
+                                ? `${side.name} inklusive`
+                                : `${side.name} statt ${line.product.lunchMenu?.includedSideName} · +${euro(side.upgradePrice)}`;
+                            })()}
+                          </div>
+                        ) : null}
+                        {line.doneness ? (
+                          <div className="mt-1 text-sm font-black text-amber-200">
+                            Garstufe: {donenessLabel(line.doneness)}
+                          </div>
+                        ) : productRequiresDoneness(line.product) ? (
+                          <div className="mt-1 text-xs font-black text-red-300">
+                            Garstufe fehlt – Artikel bitte neu auswählen
+                          </div>
+                        ) : null}
+                        {line.extraIds.length ? (
+                          <div className="mt-1 text-xs text-stone-400">
+                            Extras: {line.product.extras
+                              .filter((extra) => line.extraIds.includes(extra.id))
+                              .map((extra) => `${extra.name} (+${euro(extra.price)})`)
+                              .join(", ")}
+                          </div>
+                        ) : null}
+                        {line.note ? (
+                          <div className="mt-1 text-xs text-amber-200">
+                            Hinweis: {line.note}
+                          </div>
+                        ) : null}
+                      </div>
+                      <div className="bb-schnell-accent-text font-black">
+                        {isComplimentaryTableSauceProduct(line.product) && !takeaway
+                          ? "Kostenlos"
+                          : euro(lineTotal(line, takeaway))}
+                      </div>
+                    </div>
+                    <div className="mt-3 flex items-center justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => changeQty(line.key, -1)}
+                        className="h-10 w-10 rounded-xl bg-white/10 text-xl font-black"
+                      >
+                        −
+                      </button>
+                      <span className="min-w-8 text-center font-black">{line.qty}</span>
+                      <button
+                        type="button"
+                        onClick={() => changeQty(line.key, 1)}
+                        className="h-10 w-10 rounded-xl bg-white/10 text-xl font-black"
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {catalogSettings.takeawayEnabled ? (
+                <label className="mt-5 flex items-center gap-3 rounded-2xl border border-amber-300/30 bg-amber-300/10 p-4 font-bold">
+                  <input
+                    type="checkbox"
+                    checked={takeaway}
+                    onChange={(event) => setTakeaway(event.target.checked)}
+                    className="h-5 w-5"
+                  />
+                  Zum Mitnehmen
+                </label>
+              ) : null}
+
+              <div className="mt-5 flex items-center justify-between border-t border-white/10 pt-4 text-xl font-black">
+                <span>Gesamt</span>
+                <span>{euro(total)}</span>
+              </div>
+
+              <button
+                type="button"
+                disabled={!cart.length || busy}
+                onClick={() => setConfirmOpen(true)}
+                className="bb-theme-primary bb-schnell-primary mt-5 w-full rounded-2xl p-4 font-black disabled:opacity-50"
+              >
+                Bestellung abschließen
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {historyOpen ? (
+        <div className="fixed inset-0 z-[60] flex items-end bg-black/75">
+          <div className="bb-schnell-sheet max-h-[88dvh] w-full overflow-y-auto rounded-t-3xl p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+            <div className="mx-auto max-w-xl">
+              <div className="flex items-center justify-between">
+                <h2 className="text-2xl font-black">Letzte Bestellungen</h2>
+                <button
+                  type="button"
+                  onClick={() => setHistoryOpen(false)}
+                  className="rounded-full bg-white/10 px-3 py-2 font-bold"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="mt-5 space-y-3">
+                {history.map((entry) => (
+                  <article
+                    key={entry.id}
+                    className="rounded-2xl border border-white/10 bg-white/5 p-4"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="font-black">
+                          {new Intl.DateTimeFormat("de-DE", {
+                            dateStyle: "medium",
+                            timeStyle: "short",
+                          }).format(new Date(entry.createdAt))}
+                        </div>
+                        <div className="mt-1 text-sm text-stone-400">
+                          {entry.items.reduce((sum, item) => sum + item.qty, 0)} Artikel
+                          {entry.takeaway ? " · Zum Mitnehmen" : ""}
+                        </div>
+                      </div>
+                      <div className="bb-schnell-accent-text font-black">
+                        {euro(entry.total)}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => restoreHistory(entry)}
+                      className="bb-theme-primary bb-schnell-primary mt-4 w-full rounded-xl px-4 py-3 font-black"
+                    >
+                      In den Warenkorb
+                    </button>
+                  </article>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {confirmOpen ? (
+        <div className="fixed inset-0 z-[70] grid place-items-center bg-black/80 p-5 backdrop-blur-sm">
+          <section className="bb-schnell-sheet w-full max-w-md rounded-3xl border p-6 text-center shadow-2xl">
+            <h2 className="text-2xl font-black">Bestellung abschließen?</h2>
+            <p className="mt-3 text-stone-300">
+              {catalogSettings.takeawayEnabled && takeaway
+                ? "Ihre Bestellung wird zum Mitnehmen aufgegeben. Möchten Sie fortfahren?"
+                : "Ihre Bestellung wird zum Verzehr im Restaurant aufgegeben. Möchten Sie fortfahren?"}
+            </p>
+            <div className="mt-6 grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => setConfirmOpen(false)}
+                className="rounded-xl border border-white/15 bg-white/10 p-3 font-bold"
+              >
+                Zurück
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  playOrderConfirmationSoundOnce();
+                  requestSchnellPushPermissionFromGesture();
+                  void placeOrder();
+                }}
+                className="rounded-xl bg-emerald-500 p-3 font-black text-black disabled:opacity-50"
+              >
+                {busy ? "Wird gesendet …" : "Ja, bestellen"}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+    </main>
+  );
+}

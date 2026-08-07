@@ -12,6 +12,7 @@ import AppRouteTransition from "@/components/AppRouteTransition";
 import CatalogProvider from "@/components/catalog/CatalogProvider";
 import CustomerAppBootstrap from "@/components/CustomerAppBootstrap";
 import PrivacyConsent from "@/components/PrivacyConsent";
+import MobileCategorySwipe from "@/components/menu/MobileCategorySwipe";
 
 /* 🔧 SSG yerine runtime render (prerender hatalarını engelle) */
 export const dynamic = "force-dynamic";
@@ -289,6 +290,9 @@ body:has(#bb-landing-page) .bb-mobile-footer-gap {
 
         {/* Uygulama hissi veren merkezi route geçiş katmanı */}
         <AppRouteTransition />
+
+        {/* Mobil menü kategorileri arasında hızlı sağ/sol kaydırma */}
+        <MobileCategorySwipe />
 
         {/* Öffentliche Besucher-Statistik für Admin > Statistiken */}
         <AnalyticsPing />

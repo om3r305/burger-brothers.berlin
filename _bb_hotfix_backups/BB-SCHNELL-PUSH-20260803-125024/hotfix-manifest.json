@@ -1,0 +1,17 @@
+{
+    "hotfix":  "BB-SCHNELL-PUSH-IOS-ANDROID-HOTFIX-V1",
+    "projectRoot":  "C:\\Web\\burger",
+    "files":  [
+                  "components/schnellbestellung/SchnellNotificationGate.tsx",
+                  "lib/client/schnell-ready-alarm.ts",
+                  "app/schnellbestellung/layout.tsx",
+                  "app/api/schnellbestellung/push/route.ts",
+                  "app/api/schnellbestellung/session/route.ts",
+                  "lib/client/schnell-push.ts",
+                  "components/schnellbestellung/SchnellClient.tsx",
+                  "app/schnellbestellung/success/page.tsx",
+                  "public/sw.js"
+              ],
+    "backupRoot":  "C:\\Web\\burger\\_bb_hotfix_backups\\BB-SCHNELL-PUSH-20260803-125024",
+    "appliedAt":  "2026-08-03T12:50:24.2550168+02:00"
+}

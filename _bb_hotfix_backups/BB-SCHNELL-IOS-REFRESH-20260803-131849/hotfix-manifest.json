@@ -1,0 +1,10 @@
+{
+    "hotfix":  "BB-SCHNELL-IOS-OPEN-REFRESH-HOTFIX-V2",
+    "projectRoot":  "C:\\Web\\burger",
+    "files":  [
+                  "app\\schnellbestellung\\success\\page.tsx",
+                  "public\\sw.js"
+              ],
+    "backupRoot":  "C:\\Web\\burger\\_bb_hotfix_backups\\BB-SCHNELL-IOS-REFRESH-20260803-131849",
+    "appliedAt":  "2026-08-03T13:18:49.9981971+02:00"
+}

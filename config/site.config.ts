@@ -12,7 +12,7 @@ export const siteConfig = {
      whatsappDefaultMessage: "Hallo! Ich möchte bestellen.",
     phone: "030 40573030",
     address: "Berliner Straße 9, 13507 Berlin",
-    email: "contact@burgerbrothers.berlin",
+    email: "info@burger-brothers.berlin",
     instagram: "https://instagram.com/burgerbrothers",
     tiktok: "",
     facebook: "",
