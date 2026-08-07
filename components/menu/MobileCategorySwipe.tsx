@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { startAppNavigation } from "@/components/AppRouteTransition";
 import { warmCategoryData } from "@/lib/public-data-cache";
-import { readSettings } from "@/lib/settings";
+import { fetchAndApplyRemoteSettings, readSettings } from "@/lib/settings";
 import {
   createDefaultMenuTransitionSettings,
   normalizeMenuTransitionSettings,
@@ -312,6 +312,11 @@ export default function MobileCategorySwipe() {
     };
 
     applySettings();
+
+    void fetchAndApplyRemoteSettings()
+      .then((next) => applySettings(next))
+      .catch(() => undefined);
+
     window.addEventListener("bb_settings_changed", onSettings as EventListener);
     window.addEventListener("bb:settings-sync", onSettings as EventListener);
 
