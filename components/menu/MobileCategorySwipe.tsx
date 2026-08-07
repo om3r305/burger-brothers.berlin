@@ -556,7 +556,7 @@ export default function MobileCategorySwipe() {
         (displayStyle === "minimal" ? 0.08 : 0.14) + normalized * 0.86,
       );
       const labelOpacity = settings.labelEnabled
-        ? clampProgress((normalized - 0.12) * 1.9)
+        ? clampProgress(0.32 + normalized * 2.4)
         : 0;
       const videoOpacity =
         displayStyle === "cinematic-video"
