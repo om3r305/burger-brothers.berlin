@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
 import {
   installPublicDataFetchCache,
   invalidatePublicData,
@@ -9,6 +10,10 @@ import {
   warmCategoryData,
   warmPublicData,
 } from "@/lib/public-data-cache";
+import {
+  MENU_NAV_KEYS,
+  type MenuNavKey,
+} from "@/lib/menu-navigation";
 
 const PASSIVE_REFRESH_GAP_MS = 60_000;
 
@@ -37,11 +42,37 @@ function safeParse(value: string | null) {
   }
 }
 
+function categoryForLocation(
+  pathname: string,
+  searchParams: { get(name: string): string | null } | null,
+): MenuNavKey | null {
+  if (pathname === "/extras") return "extras";
+  if (pathname === "/drinks") return "drinks";
+  if (pathname === "/sauces") return "sauces";
+  if (pathname === "/hotdogs") return "hotdogs";
+  if (pathname === "/donuts") return "donuts";
+  if (pathname === "/bubble-tea") return "bubbletea";
+  if (pathname !== "/menu") return null;
+
+  const raw = String(
+    searchParams?.get("cat") || searchParams?.get("tab") || "burger",
+  )
+    .trim()
+    .toLowerCase();
+
+  return (MENU_NAV_KEYS as readonly string[]).includes(raw)
+    ? (raw as MenuNavKey)
+    : "burger";
+}
+
 export default function CatalogProvider({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const activeCategory = categoryForLocation(pathname, searchParams);
   const lastPassiveRefreshRef = useRef(0);
   const externalRefreshTimerRef = useRef<number | null>(null);
 
@@ -167,6 +198,22 @@ export default function CatalogProvider({
       document.removeEventListener("visibilitychange", onVisibility);
     };
   }, []);
+
+  useEffect(() => {
+    if (!activeCategory) return;
+
+    const keys = MENU_NAV_KEYS as readonly MenuNavKey[];
+    const currentIndex = keys.indexOf(activeCategory);
+    if (currentIndex < 0) return;
+
+    const neighbors = [keys[currentIndex - 1], keys[currentIndex + 1]].filter(
+      (key): key is MenuNavKey => Boolean(key),
+    );
+
+    for (const key of neighbors) {
+      void warmCategoryData(key);
+    }
+  }, [activeCategory]);
 
   return <>{children}</>;
 }

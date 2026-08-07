@@ -27,6 +27,7 @@
     "performance:test": "node tools/operational-polling-regression-tests.cjs",
     "transition:test": "node tools/menu-transition-regression-tests.cjs",
     "modal-swipe:test": "node tools/modal-swipe-regression-tests.cjs",
+    "image-navigation:test": "node tools/image-navigation-regression-tests.cjs",
     "verify": "npm run env:check && npm run artifact:check && npm run typecheck && npm run hardening:test && npm run performance:test && npm run security:test && npm run showcase:test && npm run schnell:test && npm run notifications:test && npm run brian:test && npm run build",
     "pricing:test": "node tools/order-pricing-tests.cjs",
     "session:test": "node tools/session-security-tests.cjs",

@@ -11,6 +11,13 @@ const securityHeaders = [
   { key: "Cross-Origin-Resource-Policy", value: "same-site" },
 ];
 
+const menuImageCacheHeaders = [
+  {
+    key: "Cache-Control",
+    value: "public, max-age=300, stale-while-revalidate=604800",
+  },
+];
+
 if (process.env.NODE_ENV === "production") {
   securityHeaders.push({
     key: "Strict-Transport-Security",
@@ -32,6 +39,22 @@ const nextConfig = {
   },
   async headers() {
     return [
+      {
+        source: "/images/:path*",
+        headers: menuImageCacheHeaders,
+      },
+      {
+        source: "/badges/:path*",
+        headers: menuImageCacheHeaders,
+      },
+      {
+        source: "/logo-burger-brothers.webp",
+        headers: menuImageCacheHeaders,
+      },
+      {
+        source: "/logo-burger-brothers.png",
+        headers: menuImageCacheHeaders,
+      },
       {
         source: "/:path*",
         headers: securityHeaders,

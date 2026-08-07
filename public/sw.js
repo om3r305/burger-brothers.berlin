@@ -1,3 +1,6 @@
+const PUSH_STATE_CACHE = "bb-push-state-v5";
+const MENU_IMAGE_CACHE = "bb-menu-images-v1";
+
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (event) => {
   event.waitUntil(
@@ -6,7 +9,11 @@ self.addEventListener("activate", (event) => {
       caches.keys().then((keys) =>
         Promise.all(
           keys
-            .filter((key) => key.startsWith("bb-push-state-") && key !== PUSH_STATE_CACHE)
+            .filter(
+              (key) =>
+                (key.startsWith("bb-push-state-") && key !== PUSH_STATE_CACHE) ||
+                (key.startsWith("bb-menu-images-") && key !== MENU_IMAGE_CACHE),
+            )
             .map((key) => caches.delete(key)),
         ),
       ),
@@ -14,11 +21,50 @@ self.addEventListener("activate", (event) => {
   );
 });
 
-// Checkout/session verileri uygulamanın kendi cache katmanında yönetilir.
-// Service Worker bilinçli olarak fetch cevabı cache'lemez.
-self.addEventListener("fetch", () => {});
+// Checkout/API isteklerine dokunulmaz. Yalnızca herkese açık menü görselleri
+// stale-while-revalidate ile anında açılır ve arka planda güncellenir.
+function isMenuImageRequest(request) {
+  if (!request || request.method !== "GET") return false;
 
-const PUSH_STATE_CACHE = "bb-push-state-v5";
+  try {
+    const url = new URL(request.url);
+    if (url.origin !== self.location.origin) return false;
+
+    return (
+      url.pathname.startsWith("/images/") ||
+      url.pathname.startsWith("/badges/") ||
+      url.pathname === "/logo-burger-brothers.webp" ||
+      url.pathname === "/logo-burger-brothers.png"
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function menuImageResponse(event) {
+  const request = event.request;
+  const cache = await caches.open(MENU_IMAGE_CACHE);
+  const cached = await cache.match(request);
+  const network = fetch(request).then(async (response) => {
+    if (response && response.ok) {
+      await cache.put(request, response.clone());
+    }
+
+    return response;
+  });
+
+  if (cached) {
+    event.waitUntil(network.catch(() => undefined));
+    return cached;
+  }
+
+  return network;
+}
+
+self.addEventListener("fetch", (event) => {
+  if (!isMenuImageRequest(event.request)) return;
+  event.respondWith(menuImageResponse(event));
+});
 
 function stateKey(eventId) {
   return `/__bb_push_seen__/${encodeURIComponent(String(eventId || ""))}`;

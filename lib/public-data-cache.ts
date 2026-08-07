@@ -1,5 +1,7 @@
 "use client";
 
+import { optimizedLocalImageUrl } from "@/lib/media/local-optimized-image";
+
 export type PublicDataKind =
   | "catalog"
   | "groups"
@@ -52,6 +54,10 @@ const memory = new Map<PublicDataKind, CacheEntry>();
 const inflight = new Map<PublicDataKind, Promise<CacheEntry>>();
 const lastNetworkAt = new Map<PublicDataKind, number>();
 const lastCategoryWarmAt = new Map<string, number>();
+const retainedWarmImages = new Map<string, HTMLImageElement>();
+const imageWarmInflight = new Map<string, Promise<void>>();
+
+const MAX_RETAINED_WARM_IMAGES = 12;
 
 let localHydrated = false;
 let installed = false;
@@ -680,19 +686,91 @@ function imageUrlOf(value: any) {
   return url;
 }
 
-function preloadUrls(urls: string[], limit = 10) {
-  if (!isBrowser()) return;
+function actualMenuImageUrl(value: string) {
+  return optimizedLocalImageUrl(value) || value;
+}
 
-  const unique = Array.from(new Set(urls.filter(Boolean))).slice(0, limit);
+function retainWarmImage(url: string, image: HTMLImageElement) {
+  retainedWarmImages.delete(url);
+  retainedWarmImages.set(url, image);
 
-  for (const url of unique) {
+  while (retainedWarmImages.size > MAX_RETAINED_WARM_IMAGES) {
+    const oldest = retainedWarmImages.keys().next().value as
+      | string
+      | undefined;
+    if (!oldest) break;
+    retainedWarmImages.delete(oldest);
+  }
+}
+
+function warmImageUrl(url: string) {
+  const retained = retainedWarmImages.get(url);
+
+  if (retained) {
+    retainWarmImage(url, retained);
+    return Promise.resolve();
+  }
+
+  const running = imageWarmInflight.get(url);
+  if (running) return running;
+
+  const task = new Promise<void>((resolve) => {
     try {
       const image = new Image();
+      let settled = false;
       image.decoding = "async";
+      image.loading = "eager";
       (image as any).fetchPriority = "low";
+      retainWarmImage(url, image);
+
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        const decoded = image.decode?.();
+
+        if (decoded && typeof decoded.finally === "function") {
+          void decoded.catch(() => undefined).finally(resolve);
+          return;
+        }
+
+        resolve();
+      };
+
+      const fail = () => {
+        retainedWarmImages.delete(url);
+        if (settled) return;
+        settled = true;
+        resolve();
+      };
+
+      image.addEventListener("load", finish, { once: true });
+      image.addEventListener("error", fail, { once: true });
       image.src = url;
-    } catch {}
-  }
+
+      if (image.complete) finish();
+    } catch {
+      resolve();
+    }
+  }).finally(() => {
+    imageWarmInflight.delete(url);
+  });
+
+  imageWarmInflight.set(url, task);
+  return task;
+}
+
+async function preloadUrls(urls: string[], limit = 10) {
+  if (!isBrowser()) return;
+
+  const unique = Array.from(
+    new Set(
+      urls
+        .filter(Boolean)
+        .map(actualMenuImageUrl),
+    ),
+  ).slice(0, limit);
+
+  await Promise.allSettled(unique.map(warmImageUrl));
 }
 
 export async function warmCategoryData(categoryInput: string) {
@@ -754,7 +832,7 @@ export async function warmCategoryData(categoryInput: string) {
     ]);
   }
 
-  preloadUrls(
+  await preloadUrls(
     [...productUrls, ...groupUrls],
     category === "burger" ? 12 : 8,
   );

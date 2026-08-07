@@ -4,6 +4,7 @@
 import Image from "next/image";
 import { useState } from "react";
 import { useCart } from "@/components/store";
+import { optimizedLocalImageUrl } from "@/lib/media/local-optimized-image";
 
 type Props = {
   sku: string;
@@ -73,17 +74,20 @@ export default function SauceCard({
     .filter(Boolean)
     .slice(0, 3);
 
-  const CoverSingle = ({ src }: { src: string }) =>
-    useNativeImg ? (
+  const CoverSingle = ({ src }: { src: string }) => {
+    const optimizedSrc = optimizedLocalImageUrl(src) || src;
+
+    return useNativeImg ? (
       <img
         src={src}
         alt={name}
         loading="lazy"
+        decoding="async"
         className="absolute inset-0 h-full w-full object-cover"
       />
     ) : (
       <Image
-        src={src}
+        src={optimizedSrc}
         alt={name}
         fill
         sizes="(max-width:768px) 100vw, 33vw"
@@ -92,6 +96,7 @@ export default function SauceCard({
         priority={false}
       />
     );
+  };
 
   const CoverCollage = () => {
     if (imgs.length === 2) {
