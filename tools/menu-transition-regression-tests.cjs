@@ -25,6 +25,8 @@ assert.match(swipe, /activeThemePalette\(categoryAccent\)/);
 assert.match(swipe, /return viewportWidth <= 900/);
 assert.doesNotMatch(nav, /MENU_TRANSITION_REQUEST_EVENT/);
 assert.match(nav, /Mobil özel[\s\S]*?yalnızca sağ\/sol parmak hareketinde çalışır/);
+assert.match(nav, /import MobileCategorySwipe from "@\/components\/menu\/MobileCategorySwipe"/);
+assert.match(nav, /<MobileCategorySwipe \/>/);
 
 assert.match(css, /BB MOBILE CATEGORY SWIPE V12 - EDGE LIGHT PRO ENGINE/);
 assert.match(css, /@media \(max-width: 900px\)[\s\S]*?bb-mobile-category-swipe--pro/);

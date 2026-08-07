@@ -12,6 +12,7 @@ import {
 } from "react";
 import { useCart } from "@/components/store";
 import { startAppNavigation } from "@/components/AppRouteTransition";
+import MobileCategorySwipe from "@/components/menu/MobileCategorySwipe";
 import { warmCategoryData } from "@/lib/public-data-cache";
 import {
   MENU_NAV_ITEMS,
@@ -399,68 +400,72 @@ export default function NavBar(props: {
   }, [beginNavigation, router]);
 
   return (
-    <nav
-      ref={navRef}
-      aria-label="Menükategorien"
-      className={`bb-app-nav ${className}`}
-    >
-      {variant === "plain" && showLocationCaption ? (
-        <span className="bb-app-nav__location">Berlin Tegel</span>
-      ) : null}
+    <>
+      <nav
+        ref={navRef}
+        aria-label="Menükategorien"
+        className={`bb-app-nav ${className}`}
+      >
+        {variant === "plain" && showLocationCaption ? (
+          <span className="bb-app-nav__location">Berlin Tegel</span>
+        ) : null}
 
-      <div className="bb-app-nav__tabs" role="tablist">
-        {visibleTabs.map((item) => {
-          const key = normalizeMenuKey(item.key);
-          const active = key === activeKey;
-          const vegan = key === "vegan";
+        <div className="bb-app-nav__tabs" role="tablist">
+          {visibleTabs.map((item) => {
+            const key = normalizeMenuKey(item.key);
+            const active = key === activeKey;
+            const vegan = key === "vegan";
 
-          return (
-            <button
-              key={key}
-              type="button"
-              role="tab"
-              aria-selected={active}
-              aria-current={active ? "page" : undefined}
-              data-bb-tab-key={key}
-              data-bb-tab-active={active ? "true" : "false"}
-              className={[
-                "nav-pill",
-                "bb-app-nav__tab",
-                active ? "nav-pill--active" : "",
-                vegan && active ? "nav-pill--vegan" : "",
-              ]
-                .filter(Boolean)
-                .join(" ")}
-              onPointerDown={() => primeCategory(key)}
-              onMouseEnter={() => primeCategory(key)}
-              onFocus={() => primeCategory(key)}
-              onClick={() => handleTabClick(key)}
-            >
-              {vegan ? (
-                <span aria-hidden className="mr-1">
-                  🌿
-                </span>
-              ) : null}
+            return (
+              <button
+                key={key}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                aria-current={active ? "page" : undefined}
+                data-bb-tab-key={key}
+                data-bb-tab-active={active ? "true" : "false"}
+                className={[
+                  "nav-pill",
+                  "bb-app-nav__tab",
+                  active ? "nav-pill--active" : "",
+                  vegan && active ? "nav-pill--vegan" : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+                onPointerDown={() => primeCategory(key)}
+                onMouseEnter={() => primeCategory(key)}
+                onFocus={() => primeCategory(key)}
+                onClick={() => handleTabClick(key)}
+              >
+                {vegan ? (
+                  <span aria-hidden className="mr-1">
+                    🌿
+                  </span>
+                ) : null}
 
-              {item.label}
-            </button>
-          );
-        })}
+                {item.label}
+              </button>
+            );
+          })}
 
-        <button
-          type="button"
-          className="nav-pill nav-pill--cart bb-app-nav__cart"
-          aria-label="Warenkorb öffnen"
-          onClick={openCart}
-        >
-          <span aria-hidden>🛒</span>
-          <span className="font-medium">{cartCount}</span>
-          <span aria-hidden className="opacity-55">
-            •
-          </span>
-          <span className="font-semibold">{formattedCartTotal}</span>
-        </button>
-      </div>
-    </nav>
+          <button
+            type="button"
+            className="nav-pill nav-pill--cart bb-app-nav__cart"
+            aria-label="Warenkorb öffnen"
+            onClick={openCart}
+          >
+            <span aria-hidden>🛒</span>
+            <span className="font-medium">{cartCount}</span>
+            <span aria-hidden className="opacity-55">
+              •
+            </span>
+            <span className="font-semibold">{formattedCartTotal}</span>
+          </button>
+        </div>
+      </nav>
+
+      <MobileCategorySwipe />
+    </>
   );
 }
