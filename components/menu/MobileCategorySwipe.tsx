@@ -298,7 +298,7 @@ export default function MobileCategorySwipe() {
           `${Math.round(10 + next.shadowStrength * 0.24)}%`,
         );
         overlay.dataset.enabled = next.enabled ? "true" : "false";
-        overlay.dataset.labelEnabled = next.labelEnabled ? "true" : "false";
+        overlay.dataset.labelEnabled = "true";
 
         if (!next.enabled) {
           overlay.dataset.visible = "false";
@@ -560,9 +560,7 @@ export default function MobileCategorySwipe() {
       const sceneOpacity = clampProgress(
         (displayStyle === "minimal" ? 0.08 : 0.14) + normalized * 0.86,
       );
-      const labelOpacity = settings.labelEnabled
-        ? clampProgress(0.32 + normalized * 2.4)
-        : 0;
+      const labelOpacity = clampProgress(0.32 + normalized * 2.4);
       const videoOpacity =
         displayStyle === "cinematic-video"
           ? clampProgress((normalized - 0.08) * 1.24)
