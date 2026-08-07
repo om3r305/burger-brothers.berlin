@@ -8,6 +8,7 @@ import {
   writeFallbackSnapshot,
 } from "@/lib/server/fallback-snapshot";
 import { createDefaultThemeSettings } from "@/lib/themes";
+import { createDefaultMenuTransitionSettings } from "@/lib/menu-transitions";
 import { verifySessionToken } from "@/lib/server/session";
 import { enforceRateLimit, forbiddenResponse, hasTrustedMutationOrigin } from "@/lib/server/request-security";
 import {
@@ -181,6 +182,7 @@ const DEFAULT_SETTINGS: PlainObject = {
   },
 
   theme: createDefaultThemeSettings(),
+  menuTransitions: createDefaultMenuTransitionSettings(),
 };
 
 function isPlainObject(value: any): value is PlainObject {
@@ -347,6 +349,7 @@ const PUBLIC_SETTING_KEYS = new Set([
   "pfand",
   "theme",
   "themes",
+  "menuTransitions",
   "features",
   "menu",
   "catalog",

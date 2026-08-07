@@ -253,6 +253,7 @@ export default function NavBar(props: {
         window.clearTimeout(unlockTimerRef.current);
         unlockTimerRef.current = null;
       }
+
     };
 
     window.addEventListener("bb:navigation-end", unlock as EventListener);
@@ -321,8 +322,8 @@ export default function NavBar(props: {
       if (!beginNavigation(href)) return;
 
       /*
-       * Menu sayfası kendi burger/vegan state'ini yönetiyorsa mevcut callback
-       * korunur. Diğer bütün sayfalarda mevcut route isimleri aynen kullanılır.
+       * Üst kategori butonları normal route geçişini kullanır. Mobil özel
+       * renk efekti yalnızca sağ/sol parmak hareketinde çalışır.
        */
       if (typeof onTabChange === "function") {
         onTabChange(key);

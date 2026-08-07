@@ -12,7 +12,12 @@ import {
 } from "@/lib/freebies";
 import type { FreebieRule } from "@/lib/freebies";
 import SeasonalThemeEditor from "@/components/SeasonalThemeEditor";
+import MenuTransitionEditor from "@/components/admin/MenuTransitionEditor";
 import { createDefaultThemeSettings, normalizeThemeSettings } from "@/lib/themes";
+import {
+  createDefaultMenuTransitionSettings,
+  normalizeMenuTransitionSettings,
+} from "@/lib/menu-transitions";
 
 /* ───────────────────────── constants ───────────────────────── */
 
@@ -144,6 +149,7 @@ const DEFAULT_MODEL: SettingsModel = {
   },
 
   theme: createDefaultThemeSettings(),
+  menuTransitions: createDefaultMenuTransitionSettings(),
 
   printing: {
     logoUrl: "/logo.png",
@@ -1030,6 +1036,7 @@ function normalizeForSave(raw: any) {
   };
 
   next.theme = normalizeThemeSettings(next.theme);
+  next.menuTransitions = normalizeMenuTransitionSettings(next.menuTransitions);
 
   return next;
 }
@@ -1889,6 +1896,23 @@ export default function AdminSettingsPage() {
           <FreebieRulesEditor
             value={normalizeFreebieConfig(m.freebies || {}).rules}
             onChange={(rules) => setNested(["freebies", "rules"], rules)}
+          />
+        </section>
+
+        {/* MOBILE MENU TRANSITIONS */}
+        <section className="card">
+          <div className="mb-4">
+            <div className="text-lg font-medium">Mobil Menü Geçişleri</div>
+            <div className="mt-1 text-xs leading-relaxed text-stone-400">
+              Kategori kaydırmalarının şeklini, hızını ve renklerini yönetir. Üst ve alt
+              köşeler sabit kalır; BB Signature Yay yalnızca orta bölümü doğal bir yay
+              olarak açar.
+            </div>
+          </div>
+
+          <MenuTransitionEditor
+            value={m.menuTransitions}
+            onChange={(value) => setNested(["menuTransitions"], value)}
           />
         </section>
 

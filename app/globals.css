@@ -2692,3 +2692,1072 @@ body:has(.bb-admin-app) {
     display: none !important;
   }
 }
+
+/* =========================================================
+   MOBILE CATEGORY SWIPE — hızlı, hafif ve yalnızca telefonda
+   Ana içeriğe transform uygulanmaz; fixed/sticky/modal işleyişi korunur.
+   ========================================================= */
+.bb-mobile-category-swipe {
+  --bb-swipe-color: #ff7a18;
+  --bb-swipe-progress: 0;
+  --bb-swipe-color-strength: .1;
+  --bb-swipe-glow-blur: 5px;
+  --bb-swipe-brightness: .72;
+  --bb-swipe-saturation: .82;
+  --bb-swipe-opacity: 0;
+  --bb-swipe-wash-opacity: 0;
+  position: fixed;
+  inset: 0;
+  z-index: 2147482400;
+  display: none;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0;
+  contain: strict;
+  transition: opacity 90ms ease-out;
+}
+
+.bb-mobile-category-swipe[data-instant="true"] {
+  transition: none !important;
+}
+
+.bb-mobile-category-swipe[data-visible="true"] {
+  opacity: var(--bb-swipe-opacity);
+}
+
+.bb-mobile-category-swipe__wash {
+  position: absolute;
+  inset: 0;
+  opacity: var(--bb-swipe-wash-opacity);
+}
+
+.bb-mobile-category-swipe[data-direction="next"]
+  .bb-mobile-category-swipe__wash {
+  background: linear-gradient(
+    270deg,
+    color-mix(in srgb, var(--bb-swipe-color) 82%, transparent) 0%,
+    color-mix(in srgb, var(--bb-swipe-color) 34%, transparent) 24%,
+    transparent 66%
+  );
+}
+
+.bb-mobile-category-swipe[data-direction="previous"]
+  .bb-mobile-category-swipe__wash {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--bb-swipe-color) 82%, transparent) 0%,
+    color-mix(in srgb, var(--bb-swipe-color) 34%, transparent) 24%,
+    transparent 66%
+  );
+}
+
+.bb-mobile-category-swipe__label {
+  position: absolute;
+  top: 50%;
+  display: flex;
+  max-width: min(72vw, 280px);
+  align-items: center;
+  gap: .5rem;
+  border: 1px solid
+    color-mix(in srgb, var(--bb-swipe-color) 62%, rgba(255,255,255,.18));
+  border-radius: 999px;
+  background: rgba(8, 8, 8, .78);
+  padding: .62rem .86rem;
+  color: #fff;
+  font-size: .82rem;
+  font-weight: 750;
+  line-height: 1;
+  letter-spacing: .01em;
+  white-space: nowrap;
+  opacity: var(--bb-swipe-progress);
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, .28),
+    0 0 22px color-mix(in srgb, var(--bb-swipe-color) 24%, transparent);
+  transform: translateY(-50%);
+  transition:
+    opacity 70ms linear,
+    border-color 70ms linear;
+}
+
+.bb-mobile-category-swipe[data-direction="next"]
+  .bb-mobile-category-swipe__label {
+  right: max(14px, env(safe-area-inset-right));
+}
+
+.bb-mobile-category-swipe[data-direction="previous"]
+  .bb-mobile-category-swipe__label {
+  left: max(14px, env(safe-area-inset-left));
+}
+
+.bb-mobile-category-swipe__dot {
+  width: .52rem;
+  height: .52rem;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--bb-swipe-color);
+  box-shadow: 0 0 12px var(--bb-swipe-color);
+}
+
+.bb-mobile-category-swipe[data-committed="true"]
+  .bb-mobile-category-swipe__wash {
+  opacity: 1;
+}
+
+@media (max-width: 767px) and (pointer: coarse) {
+  .bb-mobile-category-swipe {
+    display: block;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bb-mobile-category-swipe,
+  .bb-mobile-category-swipe__label {
+    transition: none !important;
+  }
+}
+
+/* BB MOBILE CATEGORY SWIPE V10 - BEGIN */
+/*
+  V10 real-footage fixed-corner rounded band
+  - Dört köşe tamamen sabit kalır; video yalnızca ekranın orta bandında görünür.
+  - Sivri ok/elmas veya dev elips yoktur; kenardan gelen gövdenin önü yuvarlak bir yaydır.
+  - Yayın üst-alt sınırı ince sinematik çizgilerle görünür.
+  - Burger mevcut gerçek alev videosunu kullanır.
+  - Diğer kategoriler yerel, gerçek stok video dosyalarını kullanır.
+  - Ayrı kart, çizgi film objesi, CSS şişesi veya geometrik alev yoktur.
+*/
+.bb-mobile-category-swipe.bb-mobile-category-swipe--real-footage {
+  --bb-swipe-accent: #ff9418;
+  --bb-swipe-deep: #7d1400;
+  --bb-swipe-soft: #ffd36a;
+  --bb-swipe-progress: 0;
+  --bb-swipe-clip: polygon(0% 19%, 0.01% 50%, 0% 81%);
+  --bb-swipe-label-inset: 7vw;
+  --bb-swipe-label-scale: .92;
+  --bb-swipe-scene-opacity: 0;
+  --bb-swipe-label-opacity: 0;
+  --bb-swipe-video-opacity: 0;
+  --bb-swipe-edge-opacity: 0;
+  position: fixed;
+  inset: 0;
+  z-index: 2147482400;
+  display: none;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0;
+  isolation: isolate;
+  contain: strict;
+  transition: opacity 76ms linear;
+}
+
+.bb-mobile-category-swipe--real-footage[data-visible="true"] {
+  opacity: 1;
+}
+
+.bb-mobile-category-swipe--real-footage[data-instant="true"],
+.bb-mobile-category-swipe--real-footage[data-instant="true"] * {
+  transition: none !important;
+}
+
+.bb-mobile-category-swipe-real__scene {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  opacity: var(--bb-swipe-scene-opacity);
+  transform: translateZ(0);
+  filter:
+    drop-shadow(0 0 1px color-mix(in srgb, var(--bb-swipe-soft) 82%, white))
+    drop-shadow(0 0 12px color-mix(in srgb, var(--bb-swipe-accent) 58%, transparent));
+  will-change: clip-path, opacity;
+  transition:
+    clip-path 210ms cubic-bezier(.16, .82, .18, 1),
+    -webkit-clip-path 210ms cubic-bezier(.16, .82, .18, 1),
+    opacity 86ms linear;
+}
+
+.bb-mobile-category-swipe-real__scene {
+  clip-path: var(--bb-swipe-clip);
+  -webkit-clip-path: var(--bb-swipe-clip);
+}
+
+.bb-mobile-category-swipe--real-footage[data-dragging="true"]
+  .bb-mobile-category-swipe-real__scene {
+  transition: none;
+}
+
+.bb-mobile-category-swipe-real__fallback,
+.bb-mobile-category-swipe-real__video,
+.bb-mobile-category-swipe-real__grade {
+  position: absolute;
+  inset: 0;
+}
+
+.bb-mobile-category-swipe-real__fallback {
+  background:
+    radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--bb-swipe-soft) 32%, transparent), transparent 48%),
+    linear-gradient(90deg, var(--bb-swipe-deep), #050505 82%);
+}
+
+.bb-mobile-category-swipe--real-footage[data-direction="next"]
+  .bb-mobile-category-swipe-real__fallback {
+  background:
+    radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--bb-swipe-soft) 32%, transparent), transparent 48%),
+    linear-gradient(270deg, var(--bb-swipe-deep), #050505 82%);
+}
+
+.bb-mobile-category-swipe-real__video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  opacity: 0;
+  transform: scale(1.035) translateZ(0);
+  will-change: opacity, transform;
+  transition: opacity 110ms linear;
+  background: #050505;
+}
+
+.bb-mobile-category-swipe--real-footage[data-video-ready="true"]
+  .bb-mobile-category-swipe-real__video {
+  opacity: var(--bb-swipe-video-opacity);
+}
+
+.bb-mobile-category-swipe--real-footage[data-category="burger"]
+  .bb-mobile-category-swipe-real__video {
+  object-position: 50% 52%;
+  filter: saturate(1.18) contrast(1.12) brightness(.88);
+}
+
+.bb-mobile-category-swipe--real-footage[data-category="vegan"]
+  .bb-mobile-category-swipe-real__video {
+  object-position: 50% 50%;
+  filter: saturate(1.2) contrast(1.05) brightness(.9);
+}
+
+.bb-mobile-category-swipe--real-footage[data-category="extras"]
+  .bb-mobile-category-swipe-real__video {
+  object-position: 50% 54%;
+  filter: saturate(1.13) contrast(1.08) brightness(.9);
+}
+
+.bb-mobile-category-swipe--real-footage[data-category="drinks"]
+  .bb-mobile-category-swipe-real__video {
+  object-position: 50% 48%;
+  filter: saturate(1.12) contrast(1.12) brightness(.82);
+}
+
+.bb-mobile-category-swipe--real-footage[data-category="hotdogs"]
+  .bb-mobile-category-swipe-real__video {
+  object-position: 50% 50%;
+  filter: saturate(1.12) contrast(1.13) brightness(.82);
+}
+
+.bb-mobile-category-swipe--real-footage[data-category="sauces"]
+  .bb-mobile-category-swipe-real__video {
+  object-position: 50% 54%;
+  filter: saturate(1.14) contrast(1.08) brightness(.9);
+}
+
+.bb-mobile-category-swipe--real-footage[data-category="donuts"]
+  .bb-mobile-category-swipe-real__video {
+  object-position: 50% 50%;
+  filter: saturate(1.18) contrast(1.08) brightness(.9);
+}
+
+.bb-mobile-category-swipe--real-footage[data-category="bubbletea"]
+  .bb-mobile-category-swipe-real__video {
+  object-position: 50% 50%;
+  filter: saturate(1.12) contrast(1.06) brightness(.9);
+}
+
+.bb-mobile-category-swipe-real__grade {
+  background:
+    radial-gradient(ellipse 92% 88% at 50% 50%, transparent 24%, rgba(0,0,0,.18) 72%, rgba(0,0,0,.5) 100%),
+    linear-gradient(180deg, rgba(0,0,0,.18), transparent 28%, transparent 72%, rgba(0,0,0,.25));
+  opacity: .92;
+}
+
+.bb-mobile-category-swipe--real-footage[data-direction="previous"]
+  .bb-mobile-category-swipe-real__grade {
+  background:
+    linear-gradient(90deg, rgba(0,0,0,.02), rgba(0,0,0,.1) 46%, rgba(0,0,0,.52) 100%),
+    radial-gradient(ellipse 92% 88% at 50% 50%, transparent 24%, rgba(0,0,0,.18) 72%, rgba(0,0,0,.5) 100%);
+}
+
+.bb-mobile-category-swipe--real-footage[data-direction="next"]
+  .bb-mobile-category-swipe-real__grade {
+  background:
+    linear-gradient(270deg, rgba(0,0,0,.02), rgba(0,0,0,.1) 46%, rgba(0,0,0,.52) 100%),
+    radial-gradient(ellipse 92% 88% at 50% 50%, transparent 24%, rgba(0,0,0,.18) 72%, rgba(0,0,0,.5) 100%);
+}
+
+/* V10: yay sınırları sahnenin dışında çizilir; dört köşenin üstünde video oluşmaz. */
+.bb-mobile-category-swipe-real__edge-lines {
+  position: absolute;
+  inset: 0;
+  z-index: 7;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+  opacity: var(--bb-swipe-edge-opacity);
+  transition: opacity 86ms linear;
+  filter: drop-shadow(0 0 8px color-mix(in srgb, var(--bb-swipe-accent) 52%, transparent));
+}
+
+.bb-mobile-category-swipe--real-footage[data-dragging="true"]
+  .bb-mobile-category-swipe-real__edge-lines {
+  transition: none;
+}
+
+.bb-mobile-category-swipe-real__edge-glow,
+.bb-mobile-category-swipe-real__edge-core {
+  fill: none;
+  vector-effect: non-scaling-stroke;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.bb-mobile-category-swipe-real__edge-glow {
+  stroke: color-mix(in srgb, var(--bb-swipe-accent) 78%, white);
+  stroke-width: 5.5;
+  opacity: .28;
+}
+
+.bb-mobile-category-swipe-real__edge-core {
+  stroke: color-mix(in srgb, var(--bb-swipe-soft) 86%, white);
+  stroke-width: 1.45;
+  opacity: .94;
+}
+
+.bb-mobile-category-swipe--real-footage[data-committed="true"]
+  .bb-mobile-category-swipe-real__edge-glow {
+  opacity: .4;
+}
+
+.bb-mobile-category-swipe-real__label {
+  position: absolute;
+  top: 50%;
+  z-index: 5;
+  max-width: min(76vw, 620px);
+  color: #fff;
+  font-size: clamp(34px, 10.8vw, 58px);
+  font-weight: 950;
+  line-height: .94;
+  letter-spacing: -.045em;
+  white-space: nowrap;
+  opacity: var(--bb-swipe-label-opacity);
+  text-shadow:
+    0 3px 0 rgba(0,0,0,.42),
+    0 10px 28px rgba(0,0,0,.72),
+    0 0 18px color-mix(in srgb, var(--bb-swipe-accent) 34%, transparent);
+  transform: translateY(-50%) scale(var(--bb-swipe-label-scale));
+  transform-origin: center;
+  will-change: transform, opacity;
+}
+
+.bb-mobile-category-swipe--real-footage[data-direction="previous"]
+  .bb-mobile-category-swipe-real__label {
+  left: var(--bb-swipe-label-inset);
+  text-align: left;
+}
+
+.bb-mobile-category-swipe--real-footage[data-direction="next"]
+  .bb-mobile-category-swipe-real__label {
+  right: var(--bb-swipe-label-inset);
+  text-align: right;
+}
+
+.bb-mobile-category-swipe--real-footage[data-committed="true"]
+  .bb-mobile-category-swipe-real__label {
+  opacity: 1;
+}
+
+@media (max-width: 767px) and (pointer: coarse) {
+  .bb-mobile-category-swipe.bb-mobile-category-swipe--real-footage {
+    display: block;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bb-mobile-category-swipe--real-footage,
+  .bb-mobile-category-swipe--real-footage * {
+    animation: none !important;
+  }
+
+  .bb-mobile-category-swipe-real__scene {
+    transition-duration: 80ms;
+  }
+}
+
+@supports not (color: color-mix(in srgb, white, black)) {
+  .bb-mobile-category-swipe-real__scene {
+    filter: drop-shadow(0 0 12px rgba(255,148,24,.55));
+  }
+
+  .bb-mobile-category-swipe-real__fallback {
+    background: linear-gradient(90deg, var(--bb-swipe-deep), #050505 82%);
+  }
+
+  .bb-mobile-category-swipe-real__label {
+    text-shadow: 0 3px 0 rgba(0,0,0,.42), 0 10px 28px rgba(0,0,0,.72);
+  }
+
+  .bb-mobile-category-swipe-real__edge-lines {
+    filter: drop-shadow(0 0 8px rgba(255,148,24,.5));
+  }
+
+  .bb-mobile-category-swipe-real__edge-glow {
+    stroke: rgba(255,210,130,.92);
+  }
+
+  .bb-mobile-category-swipe-real__edge-core {
+    stroke: rgba(255,255,255,.94);
+  }
+}
+/* BB MOBILE CATEGORY SWIPE V10 - END */
+
+/* BB MOBILE CATEGORY SWIPE V12 - EDGE LIGHT PRO ENGINE */
+.bb-mobile-category-swipe.bb-mobile-category-swipe--pro {
+  --bb-swipe-accent: #ff9418;
+  --bb-swipe-accent-2: #ffc13b;
+  --bb-swipe-accent-3: #7c2d12;
+  --bb-swipe-theme-bg: #050505;
+  --bb-swipe-progress: 0;
+  --bb-swipe-clip: polygon(100% 0%, 100% 50%, 100% 100%);
+  --bb-swipe-reveal-width: .001%;
+  --bb-swipe-label-inset: 6vw;
+  --bb-swipe-label-scale: .95;
+  --bb-swipe-label-shift: 0px;
+  --bb-swipe-scene-opacity: 0;
+  --bb-swipe-label-opacity: 0;
+  --bb-swipe-video-opacity: 0;
+  --bb-swipe-edge-opacity: 0;
+  --bb-swipe-duration: 520ms;
+  --bb-swipe-shadow-strength: .38;
+  --bb-swipe-shadow-percent: 48%;
+  --bb-swipe-shadow-soft-percent: 20%;
+  --bb-swipe-angle: 270deg;
+  --bb-swipe-origin: 84% 50%;
+  position: fixed;
+  inset: 0;
+  z-index: 2147482400;
+  display: none;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0;
+  isolation: isolate;
+  contain: strict;
+  transition: opacity 90ms linear;
+}
+
+.bb-mobile-category-swipe--pro[data-direction="previous"] {
+  --bb-swipe-angle: 90deg;
+  --bb-swipe-origin: 16% 50%;
+}
+
+.bb-mobile-category-swipe--pro[data-visible="true"][data-enabled="true"] {
+  opacity: 1;
+}
+
+.bb-mobile-category-swipe--pro[data-instant="true"],
+.bb-mobile-category-swipe--pro[data-instant="true"] * {
+  transition: none !important;
+}
+
+.bb-mobile-category-swipe--pro .bb-mobile-category-swipe-real__scene {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  opacity: var(--bb-swipe-scene-opacity);
+  clip-path: var(--bb-swipe-clip);
+  -webkit-clip-path: var(--bb-swipe-clip);
+  transform: translateZ(0);
+  filter:
+    drop-shadow(
+      0 0 calc(4px + 13px * var(--bb-swipe-shadow-strength))
+      color-mix(in srgb, var(--bb-swipe-accent) 26%, transparent)
+    )
+    drop-shadow(
+      0 7px calc(8px + 20px * var(--bb-swipe-shadow-strength))
+      rgba(0, 0, 0, .48)
+    );
+  will-change: clip-path, opacity;
+  transition:
+    clip-path var(--bb-swipe-duration) cubic-bezier(.18, .84, .16, 1),
+    -webkit-clip-path var(--bb-swipe-duration) cubic-bezier(.18, .84, .16, 1),
+    opacity 100ms linear;
+}
+
+.bb-mobile-category-swipe--pro[data-dragging="true"]
+  .bb-mobile-category-swipe-real__scene {
+  transition: none;
+}
+
+.bb-mobile-category-swipe--pro :is(
+  .bb-mobile-category-swipe-real__fallback,
+  .bb-mobile-category-swipe-real__video,
+  .bb-mobile-category-swipe-real__grade
+) {
+  position: absolute;
+  inset: 0;
+}
+
+.bb-mobile-category-swipe--pro .bb-mobile-category-swipe-real__fallback {
+  overflow: hidden;
+  background:
+    radial-gradient(
+      ellipse 68% 80% at var(--bb-swipe-origin),
+      color-mix(in srgb, var(--bb-swipe-accent) 68%, white 2%) 0%,
+      color-mix(in srgb, var(--bb-swipe-accent) 58%, #120a05 42%) 38%,
+      color-mix(in srgb, var(--bb-swipe-accent) 20%, #050505 80%) 78%,
+      #040404 100%
+    ),
+    linear-gradient(var(--bb-swipe-angle), #050505, var(--bb-swipe-accent));
+}
+
+.bb-mobile-category-swipe--pro .bb-mobile-category-swipe-real__fallback::before,
+.bb-mobile-category-swipe--pro .bb-mobile-category-swipe-real__fallback::after {
+  content: "";
+  position: absolute;
+  inset: -12%;
+  pointer-events: none;
+}
+
+.bb-mobile-category-swipe--pro .bb-mobile-category-swipe-real__fallback::before {
+  background: linear-gradient(
+    var(--bb-swipe-angle),
+    transparent 28%,
+    rgba(255,255,255,.11) 46%,
+    transparent 58%
+  );
+  opacity: calc(.16 + var(--bb-swipe-progress) * .2);
+  transform: translate3d(0, 0, 0);
+}
+
+.bb-mobile-category-swipe--pro .bb-mobile-category-swipe-real__fallback::after {
+  background: radial-gradient(
+    ellipse 54% 48% at var(--bb-swipe-origin),
+    rgba(255,255,255,.14),
+    transparent 70%
+  );
+  opacity: .52;
+}
+
+/* Kenar ışığı: ekranı kapatmaz; yalnızca hedef kategorinin geldiği kenarı yakar. */
+.bb-mobile-category-swipe--pro[data-style="edge-glow"]
+  .bb-mobile-category-swipe-real__scene {
+  -webkit-mask-image: linear-gradient(
+    var(--bb-swipe-angle),
+    #000 0%,
+    rgba(0,0,0,.92) 34%,
+    rgba(0,0,0,.38) 68%,
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    var(--bb-swipe-angle),
+    #000 0%,
+    rgba(0,0,0,.92) 34%,
+    rgba(0,0,0,.38) 68%,
+    transparent 100%
+  );
+  filter:
+    brightness(var(--bb-swipe-brightness))
+    saturate(var(--bb-swipe-saturation))
+    drop-shadow(
+      0 0 var(--bb-swipe-glow-blur)
+      color-mix(in srgb, var(--bb-swipe-accent) var(--bb-swipe-shadow-percent), transparent)
+    )
+    drop-shadow(0 0 24px color-mix(in srgb, var(--bb-swipe-accent) var(--bb-swipe-shadow-soft-percent), transparent));
+}
+
+.bb-mobile-category-swipe--pro[data-style="edge-glow"]
+  .bb-mobile-category-swipe-real__edge-lines {
+  display: none;
+}
+
+.bb-mobile-category-swipe--pro[data-style="edge-glow"]
+  .bb-mobile-category-swipe-real__fallback {
+  background:
+    linear-gradient(
+      180deg,
+      transparent 0%,
+      color-mix(in srgb, var(--bb-swipe-accent) 22%, transparent) 18%,
+      color-mix(in srgb, var(--bb-swipe-accent) 86%, #070707 14%) 50%,
+      color-mix(in srgb, var(--bb-swipe-accent) 22%, transparent) 82%,
+      transparent 100%
+    ),
+    linear-gradient(
+      var(--bb-swipe-angle),
+      transparent 0%,
+      color-mix(in srgb, var(--bb-swipe-accent) 20%, #050505 80%) 52%,
+      var(--bb-swipe-accent) 100%
+    );
+}
+
+.bb-mobile-category-swipe--pro[data-style="edge-glow"]
+  .bb-mobile-category-swipe-real__fallback::before {
+  background:
+    linear-gradient(180deg, transparent 8%, rgba(255,255,255,.32) 50%, transparent 92%),
+    linear-gradient(var(--bb-swipe-angle), transparent 38%, rgba(255,255,255,.2) 78%, transparent 100%);
+  opacity: var(--bb-swipe-color-strength);
+}
+
+.bb-mobile-category-swipe--pro[data-style="edge-glow"]
+  .bb-mobile-category-swipe-real__fallback::after {
+  background: radial-gradient(
+    ellipse 92% 44% at var(--bb-swipe-origin),
+    color-mix(in srgb, var(--bb-swipe-accent) 74%, white 26%),
+    transparent 74%
+  );
+  opacity: var(--bb-swipe-color-strength);
+}
+
+/* Renk dalgası: tek neon çizgi yerine katmanlı ve yumuşak renk derinliği. */
+.bb-mobile-category-swipe--pro[data-style="color-wave"]
+  .bb-mobile-category-swipe-real__fallback {
+  background:
+    radial-gradient(circle at var(--bb-swipe-origin), rgba(255,255,255,.18) 0 7%, transparent 31%),
+    radial-gradient(ellipse 86% 70% at var(--bb-swipe-origin), color-mix(in srgb, var(--bb-swipe-accent) 86%, white 4%) 0 22%, transparent 69%),
+    linear-gradient(var(--bb-swipe-angle), #050505 4%, color-mix(in srgb, var(--bb-swipe-accent) 34%, #070707 66%) 56%, var(--bb-swipe-accent));
+}
+
+.bb-mobile-category-swipe--pro[data-style="color-wave"]
+  .bb-mobile-category-swipe-real__fallback::before {
+  background:
+    radial-gradient(ellipse 76% 14% at 50% 34%, rgba(255,255,255,.12), transparent 72%),
+    radial-gradient(ellipse 72% 12% at 50% 66%, color-mix(in srgb, var(--bb-swipe-accent) 45%, transparent), transparent 74%);
+  opacity: .78;
+}
+
+/* Işık şeridi: sakin, dar ve metalik katmanlar. */
+.bb-mobile-category-swipe--pro[data-style="soft-ribbon"]
+  .bb-mobile-category-swipe-real__fallback {
+  background:
+    linear-gradient(176deg, transparent 0 34%, rgba(255,255,255,.13) 41%, transparent 49%),
+    linear-gradient(184deg, transparent 0 52%, color-mix(in srgb, var(--bb-swipe-accent) 60%, transparent) 60%, transparent 69%),
+    linear-gradient(var(--bb-swipe-angle), #030303 3%, color-mix(in srgb, var(--bb-swipe-accent) 38%, #070707 62%) 60%, color-mix(in srgb, var(--bb-swipe-accent) 72%, white 4%));
+}
+
+.bb-mobile-category-swipe--pro[data-style="soft-ribbon"]
+  .bb-mobile-category-swipe-real__fallback::after {
+  opacity: .22;
+}
+
+/* Tema modu mevcut tema paletini kategori rengiyle harmanlar. */
+.bb-mobile-category-swipe--pro[data-style="theme-auto"]
+  .bb-mobile-category-swipe-real__fallback {
+  background:
+    radial-gradient(ellipse 82% 72% at var(--bb-swipe-origin), color-mix(in srgb, var(--bb-swipe-accent-2) 52%, transparent) 0%, transparent 68%),
+    linear-gradient(var(--bb-swipe-angle), var(--bb-swipe-theme-bg) 2%, color-mix(in srgb, var(--bb-swipe-accent-3) 54%, var(--bb-swipe-theme-bg) 46%) 54%, var(--bb-swipe-accent));
+}
+
+.bb-mobile-category-swipe--pro[data-style="theme-auto"][data-theme="halloween"]
+  .bb-mobile-category-swipe-real__fallback::before {
+  background:
+    radial-gradient(ellipse 82% 18% at 52% 38%, rgba(168,85,247,.26), transparent 72%),
+    radial-gradient(ellipse 88% 20% at 48% 64%, rgba(255,122,0,.18), transparent 74%);
+  opacity: .9;
+}
+
+.bb-mobile-category-swipe--pro[data-style="theme-auto"]
+  .bb-mobile-category-swipe-real__fallback::after {
+  background:
+    radial-gradient(circle at 24% 24%, var(--bb-swipe-accent-2) 0 1px, transparent 2px),
+    radial-gradient(circle at 70% 62%, var(--bb-swipe-accent-3) 0 1px, transparent 2px);
+  background-size: 56px 56px, 74px 74px;
+  opacity: .22;
+}
+
+.bb-mobile-category-swipe--pro[data-style="theme-auto"]:is(
+  [data-theme="christmas"],
+  [data-theme="weihnachten"]
+) .bb-mobile-category-swipe-real__fallback::before {
+  background:
+    radial-gradient(circle at 28% 34%, rgba(250,204,21,.32) 0 2px, transparent 3px),
+    radial-gradient(circle at 64% 66%, rgba(255,255,255,.2) 0 1px, transparent 2px),
+    linear-gradient(var(--bb-swipe-angle), transparent 30%, rgba(250,204,21,.13) 51%, transparent 67%);
+  background-size: 74px 74px, 58px 58px, auto;
+  opacity: .78;
+}
+
+.bb-mobile-category-swipe--pro[data-style="theme-auto"][data-theme="winter"]
+  .bb-mobile-category-swipe-real__fallback::before {
+  background:
+    linear-gradient(176deg, transparent 31%, rgba(224,242,254,.2) 44%, transparent 57%),
+    radial-gradient(ellipse 88% 62% at var(--bb-swipe-origin), rgba(186,230,253,.2), transparent 74%);
+  opacity: .82;
+}
+
+.bb-mobile-category-swipe--pro[data-style="theme-auto"]:is(
+  [data-theme="neon"],
+  [data-theme="lights"],
+  [data-theme="retrowave"]
+) .bb-mobile-category-swipe-real__fallback::before {
+  background:
+    linear-gradient(174deg, transparent 36%, var(--bb-swipe-accent-2) 42%, transparent 48%),
+    linear-gradient(186deg, transparent 54%, var(--bb-swipe-accent) 60%, transparent 66%);
+  opacity: .44;
+}
+
+/* Sade mod: ağır parıltı veya video olmadan hızlı ve temiz. */
+.bb-mobile-category-swipe--pro[data-style="minimal"]
+  .bb-mobile-category-swipe-real__scene {
+  filter: drop-shadow(0 8px 18px rgba(0,0,0,.3));
+}
+
+.bb-mobile-category-swipe--pro[data-style="minimal"]
+  .bb-mobile-category-swipe-real__fallback {
+  background: linear-gradient(
+    var(--bb-swipe-angle),
+    #070707 3%,
+    color-mix(in srgb, var(--bb-swipe-accent) 36%, #080808 64%) 62%,
+    var(--bb-swipe-accent)
+  );
+}
+
+.bb-mobile-category-swipe--pro[data-style="minimal"]
+  .bb-mobile-category-swipe-real__fallback::before,
+.bb-mobile-category-swipe--pro[data-style="minimal"]
+  .bb-mobile-category-swipe-real__fallback::after {
+  display: none;
+}
+
+.bb-mobile-category-swipe--pro .bb-mobile-category-swipe-real__video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  opacity: 0;
+  transform: scale(1.018) translateZ(0);
+  background: #050505;
+  filter: saturate(1.04) contrast(1.06) brightness(.82);
+  transition: opacity 130ms linear;
+}
+
+.bb-mobile-category-swipe--pro[data-style="cinematic-video"][data-video-ready="true"]
+  .bb-mobile-category-swipe-real__video {
+  opacity: var(--bb-swipe-video-opacity);
+}
+
+.bb-mobile-category-swipe--pro[data-category="burger"] .bb-mobile-category-swipe-real__video { object-position: 50% 52%; }
+.bb-mobile-category-swipe--pro[data-category="extras"] .bb-mobile-category-swipe-real__video { object-position: 50% 54%; }
+.bb-mobile-category-swipe--pro[data-category="drinks"] .bb-mobile-category-swipe-real__video { object-position: 50% 48%; }
+.bb-mobile-category-swipe--pro[data-category="sauces"] .bb-mobile-category-swipe-real__video { object-position: 50% 54%; }
+
+.bb-mobile-category-swipe--pro .bb-mobile-category-swipe-real__grade {
+  background:
+    linear-gradient(180deg, rgba(0,0,0,.12), transparent 32%, transparent 70%, rgba(0,0,0,.18)),
+    linear-gradient(var(--bb-swipe-angle), rgba(0,0,0,.42), transparent 48%, rgba(0,0,0,.08));
+  opacity: .78;
+}
+
+.bb-mobile-category-swipe--pro[data-style="cinematic-video"]
+  .bb-mobile-category-swipe-real__grade {
+  background:
+    linear-gradient(180deg, rgba(0,0,0,.18), transparent 30%, transparent 72%, rgba(0,0,0,.22)),
+    linear-gradient(var(--bb-swipe-angle), rgba(0,0,0,.56), transparent 58%);
+  opacity: .9;
+}
+
+/* V16: iOS Liquid Glass; metalik dolgu yok, tema yalnızca cama hafifçe yansır. */
+.bb-mobile-category-swipe--pro:is(
+  [data-style="minimal"],
+  [data-style="theme-auto"]
+) .bb-mobile-category-swipe-real__scene {
+  -webkit-backdrop-filter: blur(6px) saturate(1.34) contrast(1.025) brightness(1.065);
+  backdrop-filter: blur(6px) saturate(1.34) contrast(1.025) brightness(1.065);
+  -webkit-mask-image: linear-gradient(
+    var(--bb-swipe-angle),
+    #000 0%,
+    rgba(0,0,0,.98) calc(var(--bb-swipe-reveal-width) - 7.5%),
+    rgba(0,0,0,.78) calc(var(--bb-swipe-reveal-width) - 5%),
+    rgba(0,0,0,.34) calc(var(--bb-swipe-reveal-width) - 2.4%),
+    rgba(0,0,0,.08) calc(var(--bb-swipe-reveal-width) - .6%),
+    transparent var(--bb-swipe-reveal-width),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    var(--bb-swipe-angle),
+    #000 0%,
+    rgba(0,0,0,.98) calc(var(--bb-swipe-reveal-width) - 7.5%),
+    rgba(0,0,0,.78) calc(var(--bb-swipe-reveal-width) - 5%),
+    rgba(0,0,0,.34) calc(var(--bb-swipe-reveal-width) - 2.4%),
+    rgba(0,0,0,.08) calc(var(--bb-swipe-reveal-width) - .6%),
+    transparent var(--bb-swipe-reveal-width),
+    transparent 100%
+  );
+  filter:
+    drop-shadow(0 9px 24px rgba(0,0,0,.16))
+    drop-shadow(0 0 16px rgba(240,248,255,.045));
+}
+
+.bb-mobile-category-swipe--pro[data-style="minimal"]
+  .bb-mobile-category-swipe-real__scene {
+  background:
+    linear-gradient(145deg, rgba(255,255,255,.09), rgba(255,255,255,.018) 28%, transparent 55%),
+    linear-gradient(var(--bb-swipe-angle), rgba(240,248,255,.055), rgba(210,225,240,.022) 42%, transparent 100%);
+}
+
+.bb-mobile-category-swipe--pro[data-style="minimal"]
+  .bb-mobile-category-swipe-real__fallback {
+  background:
+    linear-gradient(156deg, transparent 0 17%, rgba(255,255,255,.27) 22%, rgba(210,230,245,.055) 26%, transparent 33%),
+    radial-gradient(ellipse 88% 54% at var(--bb-swipe-origin), rgba(255,255,255,.075), transparent 72%),
+    linear-gradient(var(--bb-swipe-angle), rgba(240,248,255,.08), rgba(148,180,210,.025) 48%, transparent 100%);
+  opacity: .68;
+  filter: saturate(1.08) contrast(1.03);
+  mix-blend-mode: screen;
+}
+
+.bb-mobile-category-swipe--pro:is(
+  [data-style="minimal"],
+  [data-style="theme-auto"]
+) .bb-mobile-category-swipe-real__fallback::before {
+  display: block;
+  background:
+    radial-gradient(ellipse 62% 17% at var(--bb-swipe-origin), rgba(255,255,255,.2), transparent 72%),
+    linear-gradient(164deg, transparent 0 18%, rgba(255,255,255,.24) 23%, rgba(214,234,250,.045) 27%, transparent 33%) !important;
+  background-size: auto !important;
+  opacity: .42 !important;
+}
+
+.bb-mobile-category-swipe--pro[data-style="minimal"]
+  .bb-mobile-category-swipe-real__fallback::after {
+  display: block;
+  background:
+    radial-gradient(ellipse 72% 45% at var(--bb-swipe-origin), rgba(226,240,252,.095), transparent 72%),
+    radial-gradient(circle at 28% 68%, rgba(255,255,255,.1), transparent 24%);
+  opacity: .38;
+}
+
+.bb-mobile-category-swipe--pro[data-style="minimal"]
+  .bb-mobile-category-swipe-real__grade {
+  background:
+    linear-gradient(158deg, transparent 12%, rgba(255,255,255,.3) 23%, rgba(220,238,252,.05) 28%, transparent 36%),
+    radial-gradient(ellipse 82% 52% at var(--bb-swipe-origin), rgba(255,255,255,.08), transparent 72%);
+  opacity: var(--bb-swipe-color-strength);
+  mix-blend-mode: screen;
+}
+
+.bb-mobile-category-swipe--pro[data-style="theme-auto"]
+  .bb-mobile-category-swipe-real__scene {
+  background:
+    linear-gradient(145deg, rgba(255,255,255,.09), rgba(255,255,255,.018) 28%, transparent 55%),
+    color-mix(in srgb, var(--bb-swipe-theme-bg) 3%, transparent);
+}
+
+.bb-mobile-category-swipe--pro[data-style="theme-auto"]
+  .bb-mobile-category-swipe-real__fallback {
+  background:
+    linear-gradient(156deg, transparent 0 17%, rgba(255,255,255,.27) 22%, rgba(220,238,252,.05) 26%, transparent 33%),
+    radial-gradient(ellipse 86% 54% at var(--bb-swipe-origin), color-mix(in srgb, var(--bb-swipe-accent-2) 12%, transparent), transparent 72%),
+    linear-gradient(
+      var(--bb-swipe-angle),
+      color-mix(in srgb, var(--bb-swipe-accent-2) 9%, transparent),
+      color-mix(in srgb, var(--bb-swipe-accent) 6%, transparent) 46%,
+      color-mix(in srgb, var(--bb-swipe-accent-3) 3%, transparent) 72%,
+      transparent 100%
+    );
+  opacity: .62;
+  filter: saturate(1.12) contrast(1.03);
+  mix-blend-mode: screen;
+}
+
+.bb-mobile-category-swipe--pro[data-style="theme-auto"]
+  .bb-mobile-category-swipe-real__fallback::after {
+  display: block;
+  background:
+    radial-gradient(ellipse 72% 44% at var(--bb-swipe-origin), color-mix(in srgb, var(--bb-swipe-accent-2) 14%, transparent), transparent 72%),
+    radial-gradient(circle at 70% 64%, color-mix(in srgb, var(--bb-swipe-accent) 10%, transparent), transparent 24%);
+  opacity: .34;
+}
+
+.bb-mobile-category-swipe--pro[data-style="theme-auto"]
+  .bb-mobile-category-swipe-real__grade {
+  background:
+    linear-gradient(158deg, transparent 12%, rgba(255,255,255,.3) 23%, rgba(220,238,252,.05) 28%, transparent 36%),
+    radial-gradient(ellipse 82% 52% at var(--bb-swipe-origin), color-mix(in srgb, var(--bb-swipe-accent-2) 11%, transparent), transparent 72%),
+    linear-gradient(
+      var(--bb-swipe-angle),
+      color-mix(in srgb, var(--bb-swipe-accent-2) 10%, transparent) 0%,
+      color-mix(in srgb, var(--bb-swipe-accent) 6%, transparent) 42%,
+      color-mix(in srgb, var(--bb-swipe-accent-3) 3%, transparent) 70%,
+      transparent 100%
+    );
+  opacity: var(--bb-swipe-color-strength);
+  mix-blend-mode: screen;
+}
+
+.bb-mobile-category-swipe--pro:is(
+  [data-style="minimal"],
+  [data-style="theme-auto"]
+) .bb-mobile-category-swipe-real__edge-lines {
+  display: none;
+}
+
+.bb-mobile-category-swipe--pro:is(
+  [data-style="minimal"],
+  [data-style="theme-auto"]
+) .bb-mobile-category-swipe-real__label {
+  color: rgba(255,255,255,.96);
+  text-shadow:
+    0 3px 18px rgba(0,0,0,.7),
+    0 1px 0 rgba(255,255,255,.18);
+}
+
+html[data-bb-performance="lite"]
+  .bb-mobile-category-swipe--pro:is(
+    [data-style="minimal"],
+    [data-style="theme-auto"]
+  ) .bb-mobile-category-swipe-real__scene {
+  -webkit-backdrop-filter: blur(4px) saturate(1.22) contrast(1.015) brightness(1.045);
+  backdrop-filter: blur(4px) saturate(1.22) contrast(1.015) brightness(1.045);
+}
+
+.bb-mobile-category-swipe--pro .bb-mobile-category-swipe-real__edge-lines {
+  position: absolute;
+  inset: 0;
+  z-index: 7;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+  opacity: var(--bb-swipe-edge-opacity);
+  filter: drop-shadow(
+    0 0 calc(2px + 7px * var(--bb-swipe-shadow-strength))
+    color-mix(in srgb, var(--bb-swipe-accent) 44%, transparent)
+  );
+  transition: opacity 100ms linear;
+}
+
+.bb-mobile-category-swipe--pro[data-dragging="true"]
+  .bb-mobile-category-swipe-real__edge-lines {
+  transition: none;
+}
+
+.bb-mobile-category-swipe--pro :is(
+  .bb-mobile-category-swipe-real__edge-glow,
+  .bb-mobile-category-swipe-real__edge-core
+) {
+  fill: none;
+  vector-effect: non-scaling-stroke;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.bb-mobile-category-swipe--pro .bb-mobile-category-swipe-real__edge-glow {
+  stroke: color-mix(in srgb, var(--bb-swipe-accent) 72%, white 28%);
+  stroke-width: 3.2;
+  opacity: calc(.12 + var(--bb-swipe-shadow-strength) * .2);
+}
+
+.bb-mobile-category-swipe--pro .bb-mobile-category-swipe-real__edge-core {
+  stroke: color-mix(in srgb, var(--bb-swipe-accent) 58%, white 42%);
+  stroke-width: .92;
+  opacity: .78;
+}
+
+.bb-mobile-category-swipe--pro[data-style="minimal"]
+  .bb-mobile-category-swipe-real__edge-glow {
+  display: none;
+}
+
+.bb-mobile-category-swipe--pro .bb-mobile-category-swipe-real__label {
+  position: absolute;
+  top: 50%;
+  z-index: 5;
+  max-width: min(68vw, 420px);
+  color: #fff;
+  font-size: clamp(25px, 8.2vw, 42px);
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: -.035em;
+  white-space: nowrap;
+  opacity: var(--bb-swipe-label-opacity);
+  text-shadow: 0 5px 18px rgba(0,0,0,.58);
+  transform: translateY(-50%) scale(var(--bb-swipe-label-scale));
+  transform-origin: center;
+  will-change: transform, opacity;
+}
+
+.bb-mobile-category-swipe--pro[data-style="edge-glow"]
+  .bb-mobile-category-swipe-real__label {
+  max-width: 72vw;
+  color: #fff;
+  font-size: clamp(23px, 7.4vw, 38px);
+  letter-spacing: -.025em;
+  text-shadow:
+    0 3px 16px rgba(0,0,0,.72),
+    0 0 calc(8px + 18px * var(--bb-swipe-shadow-strength))
+      color-mix(in srgb, var(--bb-swipe-accent) 72%, transparent);
+}
+
+.bb-mobile-category-swipe--pro[data-style="edge-glow"][data-direction="previous"]
+  .bb-mobile-category-swipe-real__label {
+  transform:
+    translate3d(var(--bb-swipe-label-shift), -50%, 0)
+    scale(var(--bb-swipe-label-scale));
+}
+
+.bb-mobile-category-swipe--pro[data-style="edge-glow"][data-direction="next"]
+  .bb-mobile-category-swipe-real__label {
+  transform:
+    translate3d(var(--bb-swipe-label-shift), -50%, 0)
+    scale(var(--bb-swipe-label-scale));
+}
+
+.bb-mobile-category-swipe--pro[data-label-enabled="false"]
+  .bb-mobile-category-swipe-real__label {
+  display: none;
+}
+
+.bb-mobile-category-swipe--pro[data-direction="previous"]
+  .bb-mobile-category-swipe-real__label {
+  left: var(--bb-swipe-label-inset);
+  text-align: left;
+}
+
+.bb-mobile-category-swipe--pro[data-direction="next"]
+  .bb-mobile-category-swipe-real__label {
+  right: var(--bb-swipe-label-inset);
+  text-align: right;
+}
+
+.bb-mobile-category-swipe--pro[data-committed="true"]
+  .bb-mobile-category-swipe-real__label {
+  opacity: 1;
+}
+
+@media (max-width: 900px) {
+  .bb-mobile-category-swipe.bb-mobile-category-swipe--pro {
+    display: block;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bb-mobile-category-swipe--pro,
+  .bb-mobile-category-swipe--pro * {
+    animation: none !important;
+  }
+
+  .bb-mobile-category-swipe--pro .bb-mobile-category-swipe-real__scene {
+    transition-duration: 100ms;
+  }
+}
+
+@supports not (color: color-mix(in srgb, white, black)) {
+  .bb-mobile-category-swipe--pro .bb-mobile-category-swipe-real__fallback {
+    background: linear-gradient(var(--bb-swipe-angle), #050505, var(--bb-swipe-accent));
+  }
+
+  .bb-mobile-category-swipe--pro .bb-mobile-category-swipe-real__scene {
+    filter: drop-shadow(0 8px 20px rgba(0,0,0,.45));
+  }
+
+  .bb-mobile-category-swipe--pro .bb-mobile-category-swipe-real__edge-glow,
+  .bb-mobile-category-swipe--pro .bb-mobile-category-swipe-real__edge-core {
+    stroke: var(--bb-swipe-accent);
+  }
+}
+/* BB MOBILE CATEGORY SWIPE V12 - END */

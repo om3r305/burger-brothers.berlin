@@ -2,6 +2,11 @@ import { normalizeFreebieConfig } from "@/lib/freebies";
 import type { FreebieCategory, FreebieRule } from "@/lib/freebies";
 import { createDefaultThemeSettings, normalizeThemeSettings } from "@/lib/themes";
 import type { ThemeSettings } from "@/lib/themes";
+import {
+  createDefaultMenuTransitionSettings,
+  normalizeMenuTransitionSettings,
+} from "@/lib/menu-transitions";
+import type { MenuTransitionSettings } from "@/lib/menu-transitions";
 
 // lib/settings.ts
 export const LS_SETTINGS = "bb_settings_v6";
@@ -391,6 +396,7 @@ export type SettingsV6 = {
   };
 
   theme?: ThemeSettings;
+  menuTransitions?: MenuTransitionSettings;
 
   offers?: {
     freebies?: FreebiesCfg;
@@ -672,6 +678,8 @@ const defaultSettings: SettingsV6 = {
   },
 
   theme: createDefaultThemeSettings(),
+
+  menuTransitions: createDefaultMenuTransitionSettings(),
 
   offers: {
     freebies: {
@@ -1146,6 +1154,7 @@ function normalizeAndMerge(raw: any): SettingsV6 {
   compat.announcements = normalizeAnnouncements(compat.announcements);
   compat.routeDeals = normalizeRouteDeals(compat.routeDeals);
   compat.theme = normalizeThemeSettings(compat.theme);
+  compat.menuTransitions = normalizeMenuTransitionSettings(compat.menuTransitions);
 
   const footerNote =
     compat?.printing?.footerNote ??
@@ -1199,6 +1208,7 @@ function normalizeAndMerge(raw: any): SettingsV6 {
 
   let merged = mergeDeep(defaultSettings, compat) as SettingsV6;
   merged.theme = normalizeThemeSettings(merged.theme);
+  merged.menuTransitions = normalizeMenuTransitionSettings(merged.menuTransitions);
 
   merged.hours = {
     ...merged.hours,
