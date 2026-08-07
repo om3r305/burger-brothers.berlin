@@ -330,6 +330,11 @@ export default function MobileCategorySwipe() {
     const overlay = overlayRef.current;
     const video = videoRef.current;
 
+    if (overlay?.dataset.committed === "true") {
+      gestureRef.current = emptyGesture();
+      return;
+    }
+
     if (overlay) {
       overlay.dataset.visible = "false";
       overlay.dataset.committed = "false";
@@ -441,7 +446,7 @@ export default function MobileCategorySwipe() {
       );
       overlay.style.setProperty(
         "--bb-swipe-label-shift",
-        `${((1 - eased) * (direction === "previous" ? -22 : 22)).toFixed(2)}px`,
+        `${((1 - eased) * (direction === "previous" ? -8 : 8)).toFixed(2)}px`,
       );
     };
 
@@ -814,12 +819,18 @@ export default function MobileCategorySwipe() {
       document.removeEventListener("touchmove", onTouchMove, true);
       document.removeEventListener("touchend", finishGesture, true);
       document.removeEventListener("touchcancel", cancelGesture, true);
-      if (resetTimerRef.current) {
-        window.clearTimeout(resetTimerRef.current);
-        resetTimerRef.current = null;
-      }
+      const keepCommittedPreview =
+        overlay?.dataset.committed === "true" &&
+        resetTimerRef.current !== null;
 
-      hidePreview(true);
+      if (!keepCommittedPreview) {
+        if (resetTimerRef.current !== null) {
+          window.clearTimeout(resetTimerRef.current);
+          resetTimerRef.current = null;
+        }
+
+        hidePreview(true);
+      }
     };
   }, [currentKey, pathname, router, searchKey]);
 

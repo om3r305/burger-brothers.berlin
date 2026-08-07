@@ -3793,3 +3793,25 @@ html[data-bb-performance="lite"]
     0 0 22px color-mix(in srgb, var(--bb-swipe-accent) 18%, transparent);
   transition: opacity 55ms linear;
 }
+/* V18: PRODUCTION SAFE SWIPE LABEL */
+.bb-mobile-category-swipe--pro .bb-mobile-category-swipe-real__label {
+  box-sizing: border-box;
+  width: max-content;
+  max-width: min(
+    360px,
+    calc(100vw - var(--bb-swipe-label-inset) - 18px)
+  );
+  overflow: hidden;
+  padding: .64rem .9rem;
+  font-size: clamp(17px, 5.1vw, 24px);
+  line-height: 1.08;
+  white-space: nowrap;
+  text-overflow: clip;
+}
+
+.bb-mobile-category-swipe--pro[data-category="vegan"]
+  .bb-mobile-category-swipe-real__label {
+  font-size: clamp(15px, 4.55vw, 21px);
+  letter-spacing: -.025em;
+}
+/* V18: PRODUCTION SAFE SWIPE LABEL END */
