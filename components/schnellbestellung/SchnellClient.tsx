@@ -3,6 +3,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import NormalizedProductImage from "@/components/menu/NormalizedProductImage";
+import {
+  localImageFallbackUrl,
+  optimizedLocalImageUrl,
+} from "@/lib/media/local-optimized-image";
 import { saveSchnellActiveOrder } from "@/lib/client/schnell-active-order";
 import {
   prewarmRewardCelebration,
@@ -285,9 +289,24 @@ function preloadCatalogImages(
     .slice(0, limit)
     .forEach((product) => {
       const image = new Image();
+      const preferredImageUrl =
+        optimizedLocalImageUrl(product.imageUrl) || product.imageUrl;
+      const fallbackImageUrl =
+        localImageFallbackUrl(product.imageUrl) || product.imageUrl;
       image.decoding = "async";
       image.setAttribute("fetchpriority", "high");
-      image.src = product.imageUrl;
+
+      if (fallbackImageUrl !== preferredImageUrl) {
+        image.addEventListener(
+          "error",
+          () => {
+            image.src = fallbackImageUrl;
+          },
+          { once: true },
+        );
+      }
+
+      image.src = preferredImageUrl;
     });
 }
 
@@ -299,12 +318,27 @@ function CatalogProductImage({
   index: number;
 }) {
   const [failed, setFailed] = useState(false);
+  const preferredImageUrl =
+    optimizedLocalImageUrl(product.imageUrl) || product.imageUrl;
+  const fallbackImageUrl =
+    localImageFallbackUrl(product.imageUrl) || product.imageUrl;
+  const [imageSource, setImageSource] = useState(preferredImageUrl);
 
   useEffect(() => {
     setFailed(false);
-  }, [product.imageUrl]);
+    setImageSource(preferredImageUrl);
+  }, [preferredImageUrl]);
 
-  if (!product.imageUrl || failed) {
+  const handleImageError = () => {
+    if (fallbackImageUrl && imageSource !== fallbackImageUrl) {
+      setImageSource(fallbackImageUrl);
+      return;
+    }
+
+    setFailed(true);
+  };
+
+  if (!imageSource || failed) {
     return (
       <div className="bb-schnell-product-fallback grid h-full w-full place-items-center px-3 text-center text-xs font-bold text-stone-500">
         Burger Brothers
@@ -319,23 +353,23 @@ function CatalogProductImage({
   ) {
     return (
       <NormalizedProductImage
-        src={product.imageUrl}
+        src={imageSource}
         alt={product.name}
         profile="schnell"
         eager={index < 4}
         fetchPriority={index < 2 ? "high" : "auto"}
-        onError={() => setFailed(true)}
+        onError={handleImageError}
       />
     );
   }
 
   return (
     <img
-      src={product.imageUrl}
+      src={imageSource}
       loading={index < 4 ? "eager" : "lazy"}
       decoding="async"
       fetchPriority={index < 2 ? "high" : "auto"}
-      onError={() => setFailed(true)}
+      onError={handleImageError}
       className="h-full w-full object-contain"
       alt={product.name}
     />
