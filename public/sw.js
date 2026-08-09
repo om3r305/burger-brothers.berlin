@@ -1,5 +1,4 @@
 const PUSH_STATE_CACHE = "bb-push-state-v5";
-const MENU_IMAGE_CACHE = "bb-menu-images-v1";
 
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (event) => {
@@ -12,7 +11,7 @@ self.addEventListener("activate", (event) => {
             .filter(
               (key) =>
                 (key.startsWith("bb-push-state-") && key !== PUSH_STATE_CACHE) ||
-                (key.startsWith("bb-menu-images-") && key !== MENU_IMAGE_CACHE),
+                key.startsWith("bb-menu-images-"),
             )
             .map((key) => caches.delete(key)),
         ),
@@ -21,50 +20,8 @@ self.addEventListener("activate", (event) => {
   );
 });
 
-// Checkout/API isteklerine dokunulmaz. Yalnızca herkese açık menü görselleri
-// stale-while-revalidate ile anında açılır ve arka planda güncellenir.
-function isMenuImageRequest(request) {
-  if (!request || request.method !== "GET") return false;
-
-  try {
-    const url = new URL(request.url);
-    if (url.origin !== self.location.origin) return false;
-
-    return (
-      url.pathname.startsWith("/images/") ||
-      url.pathname.startsWith("/badges/") ||
-      url.pathname === "/logo-burger-brothers.webp" ||
-      url.pathname === "/logo-burger-brothers.png"
-    );
-  } catch {
-    return false;
-  }
-}
-
-async function menuImageResponse(event) {
-  const request = event.request;
-  const cache = await caches.open(MENU_IMAGE_CACHE);
-  const cached = await cache.match(request);
-  const network = fetch(request).then(async (response) => {
-    if (response && response.ok) {
-      await cache.put(request, response.clone());
-    }
-
-    return response;
-  });
-
-  if (cached) {
-    event.waitUntil(network.catch(() => undefined));
-    return cached;
-  }
-
-  return network;
-}
-
-self.addEventListener("fetch", (event) => {
-  if (!isMenuImageRequest(event.request)) return;
-  event.respondWith(menuImageResponse(event));
-});
+// Menü görsellerini tarayıcının HTTP cache'i yönetir. Service worker burada
+// fetch yakalamaz; böylece her menü geçişinde arka plan ağ isteği oluşmaz.
 
 function stateKey(eventId) {
   return `/__bb_push_seen__/${encodeURIComponent(String(eventId || ""))}`;

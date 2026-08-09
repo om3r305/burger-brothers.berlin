@@ -44,7 +44,7 @@ const FRESH_MS: Record<PublicDataKind, number> = {
 };
 
 const MIN_NETWORK_GAP_MS = 2_000;
-const CATEGORY_WARM_TTL_MS = 120_000;
+const CATEGORY_WARM_TTL_MS = 300_000;
 
 const LEGACY_PRODUCTS_KEY = "bb_products_v1";
 const LEGACY_CAMPAIGNS_KEY = "bb_campaigns_v1";
@@ -57,7 +57,8 @@ const lastCategoryWarmAt = new Map<string, number>();
 const retainedWarmImages = new Map<string, HTMLImageElement>();
 const imageWarmInflight = new Map<string, Promise<void>>();
 
-const MAX_RETAINED_WARM_IMAGES = 12;
+const MAX_RETAINED_WARM_IMAGES = 4;
+const IMAGE_WARM_CONCURRENCY = 2;
 
 let localHydrated = false;
 let installed = false;
@@ -726,13 +727,6 @@ function warmImageUrl(url: string) {
       const finish = () => {
         if (settled) return;
         settled = true;
-        const decoded = image.decode?.();
-
-        if (decoded && typeof decoded.finally === "function") {
-          void decoded.catch(() => undefined).finally(resolve);
-          return;
-        }
-
         resolve();
       };
 
@@ -759,7 +753,7 @@ function warmImageUrl(url: string) {
   return task;
 }
 
-async function preloadUrls(urls: string[], limit = 10) {
+async function preloadUrls(urls: string[], limit = 4) {
   if (!isBrowser()) return;
 
   const unique = Array.from(
@@ -770,7 +764,20 @@ async function preloadUrls(urls: string[], limit = 10) {
     ),
   ).slice(0, limit);
 
-  await Promise.allSettled(unique.map(warmImageUrl));
+  const queue = [...unique];
+  const worker = async () => {
+    while (queue.length) {
+      const url = queue.shift();
+      if (url) await warmImageUrl(url);
+    }
+  };
+
+  await Promise.allSettled(
+    Array.from(
+      { length: Math.min(IMAGE_WARM_CONCURRENCY, queue.length) },
+      worker,
+    ),
+  );
 }
 
 export async function warmCategoryData(categoryInput: string) {
@@ -834,7 +841,7 @@ export async function warmCategoryData(categoryInput: string) {
 
   await preloadUrls(
     [...productUrls, ...groupUrls],
-    category === "burger" ? 12 : 8,
+    category === "burger" ? 4 : 3,
   );
 }
 

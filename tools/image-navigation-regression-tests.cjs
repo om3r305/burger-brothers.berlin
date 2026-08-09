@@ -19,24 +19,27 @@ assert.match(
 assert.match(cache, /function actualMenuImageUrl\(/);
 assert.match(cache, /\.map\(actualMenuImageUrl\)/);
 assert.match(cache, /const retainedWarmImages = new Map/);
-assert.match(cache, /const MAX_RETAINED_WARM_IMAGES = 12/);
-assert.match(cache, /image\.decode\?\.\(\)/);
-assert.match(cache, /await Promise\.allSettled\(unique\.map\(warmImageUrl\)\)/);
+assert.match(cache, /const MAX_RETAINED_WARM_IMAGES = 4/);
+assert.match(cache, /const IMAGE_WARM_CONCURRENCY = 2/);
+assert.doesNotMatch(cache, /image\.decode\?\.\(\)/);
+assert.match(cache, /Math\.min\(IMAGE_WARM_CONCURRENCY, queue\.length\)/);
+assert.match(cache, /category === "burger" \? 4 : 3/);
 
 // Sos, donut ve bubble tea kartları artık büyük PNG yerine WebP'yi seçmeli.
 assert.match(sauceCard, /const optimizedSrc = optimizedLocalImageUrl\(src\) \|\| src/);
 assert.match(sauceCard, /src=\{optimizedSrc\}/);
 
-// Aktif kategorinin iki komşusu, kullanıcı kaydırmadan önce hazırlanmalı.
-assert.match(catalogProvider, /const neighbors = \[keys\[currentIndex - 1\], keys\[currentIndex \+ 1\]\]/);
-assert.match(catalogProvider, /void warmCategoryData\(key\)/);
+// Sayfa açılır açılmaz komşu kategoriler topluca indirilmemeli.
+assert.doesNotMatch(catalogProvider, /warmCategoryData/);
+assert.doesNotMatch(catalogProvider, /const neighbors/);
 
-// Public menü görselleri browser ve PWA katmanlarında cache'lenmeli.
+// Public menü görsellerini HTTP cache yönetmeli; service worker her geçişte
+// arka planda yeniden indirme başlatmamalı.
 assert.match(nextConfig, /public, max-age=300, stale-while-revalidate=604800/);
 assert.match(nextConfig, /source: "\/images\/:path\*"/);
-assert.match(serviceWorker, /const MENU_IMAGE_CACHE = "bb-menu-images-v1"/);
-assert.match(serviceWorker, /function isMenuImageRequest\(/);
-assert.match(serviceWorker, /event\.respondWith\(menuImageResponse\(event\)\)/);
-assert.doesNotMatch(serviceWorker, /self\.addEventListener\("fetch", \(\) => \{\}\)/);
+assert.doesNotMatch(serviceWorker, /const MENU_IMAGE_CACHE/);
+assert.doesNotMatch(serviceWorker, /function isMenuImageRequest\(/);
+assert.doesNotMatch(serviceWorker, /event\.respondWith\(menuImageResponse\(event\)\)/);
+assert.match(serviceWorker, /key\.startsWith\("bb-menu-images-"\)/);
 
 console.log("image navigation regression tests: OK");
