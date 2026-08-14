@@ -8,7 +8,8 @@
                        "package_name":  "berlin.burgerbrothers.app",
                        "sha256_cert_fingerprints":  [
                                                         "25:B4:15:3E:0E:5B:44:92:82:8E:F1:55:DC:72:3A:97:B8:74:AC:DD:FA:5A:34:3F:CF:76:59:E9:45:7B:1A:DF",
-                                                        "CC:F7:15:FC:D1:53:21:90:88:0D:EA:D1:B6:E6:9D:C3:A9:49:C4:A8:1A:94:23:9D:E8:18:E8:DA:0E:7D:A0:F1"
+                                                        "CC:F7:15:FC:D1:53:21:90:88:0D:EA:D1:B6:E6:9D:C3:A9:49:C4:A8:1A:94:23:9D:E8:18:E8:DA:0E:7D:A0:F1",
+                                                        "CC:F7:15:FC:D1:53:21:90:88:0D:E0:D1:B6:E6:9D:C3:A9:49:C4:A8:1A:94:23:9D:E8:18:E8:DA:0E:7D:A0:F1"
                                                     ]
                    }
     },
