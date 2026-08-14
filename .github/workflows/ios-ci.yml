@@ -1,0 +1,55 @@
+name: iOS 3 Apps CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - "ios/**"
+      - ".github/workflows/ios-ci.yml"
+  pull_request:
+    paths:
+      - "ios/**"
+      - ".github/workflows/ios-ci.yml"
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Main
+            dir: ios/BurgerBrothersMain
+            project: BurgerBrothersMain.xcodeproj
+            scheme: BurgerBrothersMain
+          - name: Schnell
+            dir: ios/BurgerBrothersSchnell
+            project: BurgerBrothersSchnell.xcodeproj
+            scheme: BurgerBrothersSchnell
+          - name: Driver
+            dir: ios/BurgerBrothersDriver
+            project: BurgerBrothersDriver.xcodeproj
+            scheme: BurgerBrothersDriver
+
+    runs-on: macos-26
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Xcode version
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate project
+        working-directory: ${{ matrix.dir }}
+        run: xcodegen generate
+
+      - name: Build without signing
+        working-directory: ${{ matrix.dir }}
+        run: |
+          set -o pipefail
+          xcodebuild             -project "${{ matrix.project }}"             -scheme "${{ matrix.scheme }}"             -configuration Release             -sdk iphonesimulator             -destination 'generic/platform=iOS Simulator'             CODE_SIGNING_ALLOWED=NO             CODE_SIGNING_REQUIRED=NO             build

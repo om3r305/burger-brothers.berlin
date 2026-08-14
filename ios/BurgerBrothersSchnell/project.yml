@@ -1,0 +1,35 @@
+name: BurgerBrothersSchnell
+options:
+  deploymentTarget:
+    iOS: "16.0"
+  xcodeVersion: "26.0"
+
+settings:
+  base:
+    PRODUCT_NAME: "Burger Brothers Schnell"
+    PRODUCT_BUNDLE_IDENTIFIER: berlin.burgerbrothers.schnell
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "5.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+    TARGETED_DEVICE_FAMILY: "1,2"
+    GENERATE_INFOPLIST_FILE: NO
+    INFOPLIST_FILE: App/Info.plist
+    CODE_SIGN_ENTITLEMENTS: App/App.entitlements
+
+targets:
+  BurgerBrothersSchnell:
+    type: application
+    platform: iOS
+    sources:
+      - path: App
+        excludes:
+          - Info.plist
+          - App.entitlements
+    settings:
+      base:
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    info:
+      path: App/Info.plist
+    entitlements:
+      path: App/App.entitlements
