@@ -82,8 +82,8 @@ function isAllowedOrigin(origin: string | null, req: Request) {
 function withCORS(res: NextResponse, req: Request) {
   const origin = req.headers.get("origin");
 
-  if (isAllowedOrigin(origin, req)) {
-    res.headers.set("Access-Control-Allow-Origin", origin || "*");
+  if (origin && isAllowedOrigin(origin, req)) {
+    res.headers.set("Access-Control-Allow-Origin", origin);
   }
 
   res.headers.set("Vary", "Origin");
