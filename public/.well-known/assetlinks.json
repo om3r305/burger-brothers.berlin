@@ -35,7 +35,8 @@
                        "namespace":  "android_app",
                        "package_name":  "berlin.burgerbrothers.driver",
                        "sha256_cert_fingerprints":  [
-                                                        "25:B4:15:3E:0E:5B:44:92:82:8E:F1:55:DC:72:3A:97:B8:74:AC:DD:FA:5A:34:3F:CF:76:59:E9:45:7B:1A:DF"
+                                                        "25:B4:15:3E:0E:5B:44:92:82:8E:F1:55:DC:72:3A:97:B8:74:AC:DD:FA:5A:34:3F:CF:76:59:E9:45:7B:1A:DF",
+                                                        "18:0F:A8:ED:BB:E3:CC:8A:CA:D4:5A:31:BB:2F:A1:88:A7:0D:8D:0B:B3:89:58:65:2C:84:D7:A7:E2:43:21:EA"
                                                     ]
                    }
     }
