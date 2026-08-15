@@ -22,7 +22,8 @@
                        "package_name":  "berlin.burgerbrothers.schnell",
                        "sha256_cert_fingerprints":  [
                                                         "25:B4:15:3E:0E:5B:44:92:82:8E:F1:55:DC:72:3A:97:B8:74:AC:DD:FA:5A:34:3F:CF:76:59:E9:45:7B:1A:DF",
-                                                        "A9:AF:AB:0E:47:28:5B:BE:96:56:E8:7A:DB:C6:D7:64:E7:B2:AD:CA:31:40:A4:CB:04:BA:F5:7D:57:3F:9F:C4"
+                                                        "A9:AF:AB:0E:47:28:5B:BE:96:56:E8:7A:DB:C6:D7:64:E7:B2:AD:CA:31:40:A4:CB:04:BA:F5:7D:57:3F:9F:C4",
+                                                        "18:B9:72:DB:20:E4:17:2A:C2:84:1D:DE:C7:79:88:25:8B:0E:5B:E6:3A:13:54:01:FB:5C:4D:67:D7:23:D6:34"
                                                     ]
                    }
     },
