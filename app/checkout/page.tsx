@@ -39,7 +39,13 @@ import {
   parseHHMMToDateInTZ,
 } from "@/lib/availability";
 
-import { getStreets, searchStreets, normalizePlz } from "@/lib/streets";
+import {
+  getStreets,
+  searchStreets,
+  normalizePlz,
+  streetEquals,
+  hydrateFromBundledJSON,
+} from "@/lib/streets";
 import * as Coupons from "@/lib/coupons";
 
 import {
@@ -109,6 +115,256 @@ const TrackPanel = dynamic(() => import("@/components/ui/TrackPanel"), {
 });
 
 /* ───────── helpers ───────── */
+
+type GoogleAddressComponent = {
+  long_name?: string;
+  short_name?: string;
+  types?: string[];
+};
+
+type GoogleGeocoderResult = {
+  formatted_address?: string;
+  address_components?: GoogleAddressComponent[];
+  geometry?: {
+    location?: {
+      lat?: () => number;
+      lng?: () => number;
+    };
+  };
+};
+
+type GoogleGeocoder = {
+  geocode: (
+    request: { location: { lat: number; lng: number } },
+    callback: (
+      results: GoogleGeocoderResult[] | null,
+      status: string,
+    ) => void,
+  ) => void;
+};
+
+type GoogleMapsApi = {
+  Geocoder: new () => GoogleGeocoder;
+};
+
+type GoogleMapsWindow = Window & {
+  google?: {
+    maps?: GoogleMapsApi;
+  };
+};
+
+type ReverseGeocodedAddress = {
+  street: string;
+  house: string;
+  zip: string;
+  city: string;
+  country: string;
+  formattedAddress: string;
+  lat: number;
+  lng: number;
+};
+
+type DeliveryAddressValidation = {
+  ok: boolean;
+  valid: boolean;
+  addressComplete: boolean;
+  hasUnconfirmedComponents: boolean;
+  hasInferredComponents: boolean;
+  hasReplacedComponents: boolean;
+  validationGranularity: string;
+  street: string;
+  house: string;
+  zip: string;
+  city: string;
+  formattedAddress: string;
+  lat: number | null;
+  lng: number | null;
+  message?: string;
+  error?: string;
+};
+
+let googleMapsScriptPromise: Promise<GoogleMapsApi> | null = null;
+
+function googleComponent(
+  components: GoogleAddressComponent[] | undefined,
+  type: string,
+  short = false,
+) {
+  const component = (components || []).find((item) =>
+    Array.isArray(item.types) ? item.types.includes(type) : false,
+  );
+
+  return String(short ? component?.short_name || "" : component?.long_name || "").trim();
+}
+
+function reverseGeocoderCity(components: GoogleAddressComponent[] | undefined) {
+  return (
+    googleComponent(components, "locality") ||
+    googleComponent(components, "postal_town") ||
+    googleComponent(components, "administrative_area_level_3") ||
+    "Berlin"
+  );
+}
+
+async function loadGoogleMapsForGeocoding(): Promise<GoogleMapsApi> {
+  if (typeof window === "undefined") {
+    throw new Error("Google Maps ist im Browser nicht verfügbar.");
+  }
+
+  const current = (window as GoogleMapsWindow).google?.maps;
+  if (current?.Geocoder) return current;
+
+  if (googleMapsScriptPromise) return googleMapsScriptPromise;
+
+  const apiKey = String(
+    process.env.NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY || "",
+  ).trim();
+
+  if (!apiKey) {
+    throw new Error("Google Maps ist noch nicht konfiguriert.");
+  }
+
+  googleMapsScriptPromise = new Promise<GoogleMapsApi>((resolve, reject) => {
+    const finish = () => {
+      const maps = (window as GoogleMapsWindow).google?.maps;
+      if (maps?.Geocoder) {
+        resolve(maps);
+      } else {
+        googleMapsScriptPromise = null;
+        reject(new Error("Google Maps konnte nicht geladen werden."));
+      }
+    };
+
+    const existing = document.getElementById(
+      "bb-google-maps-geocoder",
+    ) as HTMLScriptElement | null;
+
+    if (existing) {
+      existing.addEventListener("load", finish, { once: true });
+      existing.addEventListener(
+        "error",
+        () => {
+          googleMapsScriptPromise = null;
+          reject(new Error("Google Maps konnte nicht geladen werden."));
+        },
+        { once: true },
+      );
+      window.setTimeout(() => {
+        const maps = (window as GoogleMapsWindow).google?.maps;
+        if (maps?.Geocoder) resolve(maps);
+      }, 0);
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.id = "bb-google-maps-geocoder";
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(
+      apiKey,
+    )}&v=weekly`;
+    script.async = true;
+    script.defer = true;
+    script.addEventListener("load", finish, { once: true });
+    script.addEventListener(
+      "error",
+      () => {
+        googleMapsScriptPromise = null;
+        reject(new Error("Google Maps konnte nicht geladen werden."));
+      },
+      { once: true },
+    );
+    document.head.appendChild(script);
+  });
+
+  return googleMapsScriptPromise;
+}
+
+async function reverseGeocodePosition(
+  lat: number,
+  lng: number,
+): Promise<ReverseGeocodedAddress> {
+  const maps = await loadGoogleMapsForGeocoding();
+  const geocoder = new maps.Geocoder();
+
+  const results = await new Promise<GoogleGeocoderResult[]>((resolve, reject) => {
+    geocoder.geocode({ location: { lat, lng } }, (items, status) => {
+      if (status === "OK" && Array.isArray(items) && items.length > 0) {
+        resolve(items);
+        return;
+      }
+
+      reject(new Error("Für diesen Standort konnte keine Adresse gefunden werden."));
+    });
+  });
+
+  const result =
+    results.find((item) => {
+      const components = item.address_components || [];
+      return Boolean(
+        googleComponent(components, "route") &&
+          googleComponent(components, "postal_code"),
+      );
+    }) || results[0];
+
+  const components = result.address_components || [];
+
+  return {
+    street: googleComponent(components, "route"),
+    house: googleComponent(components, "street_number"),
+    zip: googleComponent(components, "postal_code").replace(/\D/g, "").slice(0, 5),
+    city: reverseGeocoderCity(components),
+    country: googleComponent(components, "country", true),
+    formattedAddress: String(result.formatted_address || "").trim(),
+    lat,
+    lng,
+  };
+}
+
+async function validateDeliveryAddress(params: {
+  street: string;
+  house: string;
+  zip: string;
+  city: string;
+}): Promise<DeliveryAddressValidation> {
+  const response = await fetch("/api/maps/address/validate", {
+    method: "POST",
+    credentials: "same-origin",
+    cache: "no-store",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify(params),
+  });
+
+  const raw: unknown = await response.json().catch(() => null);
+  const record = isRecord(raw) ? raw : {};
+
+  if (!response.ok || record.ok === false) {
+    throw new Error(
+      stringValue(record.message) ||
+        "Die Lieferadresse konnte gerade nicht geprüft werden.",
+    );
+  }
+
+  return {
+    ok: record.ok === true,
+    valid: record.valid === true,
+    addressComplete: record.addressComplete === true,
+    hasUnconfirmedComponents: record.hasUnconfirmedComponents === true,
+    hasInferredComponents: record.hasInferredComponents === true,
+    hasReplacedComponents: record.hasReplacedComponents === true,
+    validationGranularity: stringValue(record.validationGranularity),
+    street: stringValue(record.street),
+    house: stringValue(record.house),
+    zip: normalizeCheckoutZip(record.zip),
+    city: stringValue(record.city),
+    formattedAddress: stringValue(record.formattedAddress),
+    lat: Number.isFinite(Number(record.lat)) ? Number(record.lat) : null,
+    lng: Number.isFinite(Number(record.lng)) ? Number(record.lng) : null,
+    message: stringValue(record.message) || undefined,
+    error: stringValue(record.error) || undefined,
+  };
+}
 
 const fmt = (n: number) =>
   new Intl.NumberFormat("de-DE", {
@@ -609,6 +865,48 @@ function findOfficialStreet(streets: string[], value: unknown) {
   if (!target) return "";
 
   return streets.find((street) => normalizeStreetChoice(street) === target) || "";
+}
+
+/*
+  Google kann denselben Berliner Straßennamen leicht anders schreiben
+  (z. B. "Str." statt "Straße", Unicode-Bindestriche oder abweichende
+  Leerzeichen). Für den Standort-Import erlauben wir deshalb nur eine
+  kontrollierte kanonische 1:1-Zuordnung. Kein unscharfes "ähnlich genug"
+  Matching: Bei Mehrdeutigkeit muss der Kunde weiterhin selbst wählen.
+*/
+function normalizeGoogleStreetChoice(value: unknown) {
+  return String(value ?? "")
+    .toLocaleLowerCase("de-DE")
+    .replace(/ä/g, "ae")
+    .replace(/ö/g, "oe")
+    .replace(/ü/g, "ue")
+    .replace(/ß/g, "ss")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/straße/g, "strasse")
+    .replace(/strasze/g, "strasse")
+    .replace(/(^|\s)str\.?(?=\s|$)/g, "$1strasse")
+    .replace(/[‐‑‒–—―-]/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function findOfficialStreetFromGoogle(streets: string[], value: unknown) {
+  const direct = findOfficialStreet(streets, value);
+  if (direct) return direct;
+
+  const legacy = streets.find((street) => streetEquals(street, value)) || "";
+  if (legacy) return legacy;
+
+  const target = normalizeGoogleStreetChoice(value);
+  if (!target) return "";
+
+  const matches = streets.filter(
+    (street) => normalizeGoogleStreetChoice(street) === target,
+  );
+
+  return matches.length === 1 ? matches[0] : "";
 }
 
 function safeJsonParse(value: string | null): unknown {
@@ -1138,6 +1436,11 @@ function computeRouteDealBenefit(params: {
 /* ───────── catalog ───────── */
 
 function collectCatalog(): FlatItem[] {
+  // Client component olsa da Next.js ilk renderda sunucuda prerender edebilir.
+  // localStorage sadece browserda vardir; SSR sırasında katalogu bos dondurup
+  // hydration sonrasında mevcut client akışının doldurmasına izin veriyoruz.
+  if (typeof window === "undefined") return [];
+
   const out: FlatItem[] = [];
 
   const readPrice = (value: unknown) => {
@@ -1896,6 +2199,12 @@ export default function CheckoutPage() {
   const [streetOptions, setStreetOptions] = useState<string[]>([]);
   const [streetQuery, setStreetQuery] = useState("");
   const [showSug, setShowSug] = useState(false);
+  const [currentLocationBusy, setCurrentLocationBusy] = useState(false);
+  const addressValidationCacheRef = useRef<{
+    key: string;
+    validatedAt: number;
+    result: DeliveryAddressValidation;
+  } | null>(null);
 
   useEffect(() => {
     if (orderMode !== "delivery") return;
@@ -1903,17 +2212,24 @@ export default function CheckoutPage() {
     const storeZip = normalizeCheckoutZip(plzStore);
     if (!storeZip) return;
 
-    setAddr((current) => {
-      const currentZip = normalizeCheckoutZip(current.zip);
-      if (currentZip === storeZip) return current;
+    const currentZip = normalizeCheckoutZip(addr.zip);
 
-      return clearDeliveryAddressForZip(current, storeZip);
-    });
+    /*
+      Sepet PLZ'si checkout ile zaten aynıysa sokak aramasını sıfırlama.
+      Standort-Import setPLZ() ile store'u güncellediğinde bu effect daha önce
+      Google'dan bulunan sokak adını hemen temizliyordu. Yalnız gerçekten farklı
+      bir PLZ dışarıdan gelirse eski teslimat adresini sıfırla.
+    */
+    if (currentZip === storeZip) {
+      setStreetOptions(getStreets(storeZip));
+      return;
+    }
 
+    setAddr((current) => clearDeliveryAddressForZip(current, storeZip));
     setStreetOptions(getStreets(storeZip));
     setStreetQuery("");
     setShowSug(false);
-  }, [orderMode, plzStore]);
+  }, [orderMode, plzStore, addr.zip]);
 
   useEffect(() => {
     if (profileTimer.current) {
@@ -2600,6 +2916,154 @@ export default function CheckoutPage() {
       setShowSug(false);
     }
   };
+
+
+  const useCurrentDeliveryLocation = useCallback(async () => {
+    if (orderMode !== "delivery" || currentLocationBusy) return;
+
+    if (!("geolocation" in navigator)) {
+      showCheckoutToast(
+        "Standortbestimmung wird von diesem Gerät nicht unterstützt.",
+        "error",
+      );
+      return;
+    }
+
+    setCurrentLocationBusy(true);
+
+    try {
+      const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: true,
+          maximumAge: 10_000,
+          timeout: 12_000,
+        });
+      });
+
+      const found = await reverseGeocodePosition(
+        position.coords.latitude,
+        position.coords.longitude,
+      );
+
+      if (found.country && found.country !== "DE") {
+        throw new Error("Der aktuelle Standort liegt nicht in Deutschland.");
+      }
+
+      if (!/^\d{5}$/.test(found.zip)) {
+        throw new Error("Für den aktuellen Standort konnte keine PLZ erkannt werden.");
+      }
+
+      const deliveryPlzMap = getPricingOverrides("delivery").plzMin || {};
+      if (typeof deliveryPlzMap[found.zip] !== "number") {
+        throw new Error(
+          `Der aktuelle Standort (${found.zip}) liegt außerhalb unseres Liefergebiets.`,
+        );
+      }
+
+      let list = getStreets(found.zip);
+
+      // Die Straßen-DB wird normalerweise lazy geladen. Beim Standort-Button
+      // warten wir einmal explizit darauf, damit ein frischer Checkout nicht
+      // fälschlich "Straße nicht gefunden" meldet.
+      if (!list.length) {
+        await hydrateFromBundledJSON();
+        list = getStreets(found.zip);
+      }
+
+      if (!list.length) {
+        throw new Error(
+          "Die Straßenliste konnte gerade nicht geladen werden. Bitte kurz erneut versuchen oder die Adresse manuell eingeben.",
+        );
+      }
+
+      const official = findOfficialStreetFromGoogle(list, found.street);
+      const accuracyMeters = Number.isFinite(Number(position.coords.accuracy))
+        ? Math.max(0, Math.round(Number(position.coords.accuracy)))
+        : 0;
+
+      /*
+        Standortdaten sofort sichtbar machen. Früher wurden PLZ/Stadt/Hausnummer
+        erst NACH erfolgreichem Straßen-Match gesetzt. Dadurch sah der Kunde bei
+        einem nicht eindeutigen Match trotz erfolgreicher Ortung nur leere Felder.
+        Die Liefer-PLZ bleibt weiterhin unsere harte Grenze und eine nicht
+        bestätigte Google-Straße wird NICHT als gültige Bestellstraße übernommen.
+      */
+      setPLZ(found.zip);
+      setStreetOptions(list);
+      setAddr((current) => ({
+        ...current,
+        zip: found.zip,
+        street: official || "",
+        house: found.house || "",
+        city: found.city || "Berlin",
+      }));
+
+      if (!official) {
+        setStreetQuery(found.street || "");
+        setShowSug(Boolean(found.street));
+
+        const accuracyHint =
+          accuracyMeters >= 120
+            ? ` Der Gerätestandort ist nur ungefähr (±${accuracyMeters} m). Am Smartphone ist GPS meist genauer.`
+            : "";
+
+        showCheckoutToast(
+          `Standort erkannt${found.street ? `: ${found.street}` : ""}. PLZ${
+            found.house ? ", Hausnummer" : ""
+          } und Ort wurden übernommen, aber die Straße konnte unserer Lieferliste nicht eindeutig zugeordnet werden. Bitte die Straße kurz aus der Liste wählen.${accuracyHint}`,
+          "warning",
+        );
+        return;
+      }
+
+      setStreetQuery(official);
+      setShowSug(false);
+
+      if (found.house) {
+        const accuracyHint =
+          accuracyMeters >= 120
+            ? ` · Standort nur ungefähr (±${accuracyMeters} m) – bitte Adresse kurz prüfen.`
+            : "";
+        showCheckoutToast(
+          `Standort erkannt: ${official} ${found.house}, ${found.zip} ${found.city || "Berlin"}${accuracyHint}`,
+          accuracyMeters >= 120 ? "warning" : "success",
+        );
+      } else {
+        const accuracyHint =
+          accuracyMeters >= 120
+            ? ` Der Gerätestandort ist nur ungefähr (±${accuracyMeters} m).`
+            : "";
+        showCheckoutToast(
+          `Standort erkannt. Bitte die Hausnummer noch ergänzen.${accuracyHint}`,
+          "warning",
+        );
+      }
+    } catch (error: unknown) {
+      const geoError =
+        error && typeof error === "object" && "code" in error
+          ? (error as { code?: number; message?: string })
+          : null;
+
+      if (geoError && typeof geoError.code === "number") {
+        const message =
+          geoError.code === 1
+            ? "Standortzugriff wurde nicht erlaubt. Bitte Berechtigung aktivieren oder Adresse manuell eingeben."
+            : geoError.code === 2
+              ? "Der aktuelle Standort konnte nicht bestimmt werden. Bitte Adresse manuell eingeben."
+              : "Standortbestimmung hat zu lange gedauert. Bitte erneut versuchen.";
+        showCheckoutToast(message, "error");
+      } else {
+        showCheckoutToast(errorMessage(error), "error");
+      }
+    } finally {
+      setCurrentLocationBusy(false);
+    }
+  }, [
+    currentLocationBusy,
+    orderMode,
+    setPLZ,
+    showCheckoutToast,
+  ]);
 
   useEffect(() => {
     const zip = normalizeCheckoutZip(addr.zip);
@@ -3304,6 +3768,23 @@ export default function CheckoutPage() {
 
           {orderMode === "delivery" && (
             <>
+              <div className="md:col-span-2">
+                <button
+                  type="button"
+                  onClick={() => void useCurrentDeliveryLocation()}
+                  disabled={currentLocationBusy}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl border border-sky-400/35 bg-sky-500/10 px-4 py-3 text-sm font-semibold text-sky-100 transition hover:bg-sky-500/20 disabled:cursor-wait disabled:opacity-60"
+                >
+                  <span aria-hidden="true">📍</span>
+                  {currentLocationBusy
+                    ? "Standort wird ermittelt…"
+                    : "Meinen Standort verwenden"}
+                </button>
+                <div className="mt-1.5 text-center text-[11px] leading-relaxed text-stone-400">
+                  PLZ, Straße und – wenn verfügbar – Hausnummer werden automatisch übernommen.
+                </div>
+              </div>
+
               <div className="grid grid-cols-2 gap-3 md:col-span-2">
                 <Field label="PLZ *" htmlFor="checkout-zip">
                   <input
@@ -4688,13 +5169,99 @@ export default function CheckoutPage() {
       orderMode === "delivery"
         ? findOfficialStreet(streetOptions, addr.street || streetQuery)
         : "";
-    const streetFinal =
+    let streetFinal =
       orderMode === "delivery"
         ? officialStreetForOrder
         : (addr.street || streetQuery || "").trim();
+    let houseFinal = String(addr.house || "").trim();
+    let zipFinal = normalizeCheckoutZip(addr.zip);
+    let cityFinal = String(addr.city || "").trim() || "Berlin";
+    let deliveryValidation: DeliveryAddressValidation | null = null;
 
     if (orderMode === "delivery" && !officialStreetForOrder) {
       throw new Error("Bitte Straße aus der Liste auswählen.");
+    }
+
+    if (orderMode === "delivery") {
+      if (!houseFinal) {
+        throw new Error("Bitte Hausnummer eingeben.");
+      }
+
+      const validationKey = [
+        zipFinal,
+        normalizeStreetChoice(streetFinal),
+        houseFinal.toLowerCase(),
+        cityFinal.toLowerCase(),
+      ].join("|");
+      const cachedValidation = addressValidationCacheRef.current;
+      const cacheIsFresh = Boolean(
+        cachedValidation &&
+          cachedValidation.key === validationKey &&
+          ts - cachedValidation.validatedAt < 30 * 60_000,
+      );
+
+      deliveryValidation = cacheIsFresh
+        ? cachedValidation?.result || null
+        : await validateDeliveryAddress({
+            street: streetFinal,
+            house: houseFinal,
+            zip: zipFinal,
+            city: cityFinal,
+          });
+
+      if (!cacheIsFresh && deliveryValidation) {
+        addressValidationCacheRef.current = {
+          key: validationKey,
+          validatedAt: ts,
+          result: deliveryValidation,
+        };
+      }
+
+      if (!deliveryValidation?.valid) {
+        throw new Error(
+          deliveryValidation?.hasUnconfirmedComponents
+            ? "Die Adresse konnte nicht eindeutig bestätigt werden. Bitte Straße und Hausnummer prüfen."
+            : "Die Lieferadresse konnte nicht vollständig bestätigt werden. Bitte Angaben prüfen.",
+        );
+      }
+
+      if (deliveryValidation.zip !== zipFinal) {
+        throw new Error(
+          `Die bestätigte Adresse gehört zur PLZ ${deliveryValidation.zip || "unbekannt"}. Bitte PLZ prüfen.`,
+        );
+      }
+
+      const validatedStreetOptions = getStreets(deliveryValidation.zip);
+      const validatedStreet = findOfficialStreetFromGoogle(
+        validatedStreetOptions,
+        deliveryValidation.street,
+      );
+
+      if (!validatedStreet) {
+        throw new Error(
+          "Die bestätigte Straße ist nicht in unserer Lieferliste hinterlegt. Bitte Straße erneut auswählen.",
+        );
+      }
+
+      streetFinal = validatedStreet;
+      houseFinal = deliveryValidation.house || houseFinal;
+      zipFinal = deliveryValidation.zip || zipFinal;
+      cityFinal = deliveryValidation.city || cityFinal;
+
+      if (
+        streetFinal !== addr.street ||
+        houseFinal !== String(addr.house || "").trim() ||
+        cityFinal !== String(addr.city || "").trim()
+      ) {
+        setStreetQuery(streetFinal);
+        setAddr((current) => ({
+          ...current,
+          street: streetFinal,
+          house: houseFinal,
+          zip: zipFinal,
+          city: cityFinal,
+        }));
+      }
     }
 
     const plannedValue =
@@ -4734,7 +5301,7 @@ export default function CheckoutPage() {
     const latestRouteDealRaw = await loadEligibleRouteDeal({
       enabled: settingsRaw?.routeDeals?.enabled === true,
       mode: orderMode,
-      zip: addr.zip || plzStore || "",
+      zip: orderMode === "delivery" ? zipFinal : addr.zip || plzStore || "",
       street: streetFinal,
       phone: addr.phone,
       email: addr.email,
@@ -4769,7 +5336,7 @@ export default function CheckoutPage() {
       source: "web",
       channel: "web",
       orderChannel: orderMode === "pickup" ? "abholung" : "lieferung",
-      plz: orderMode === "delivery" ? addr.zip || null : null,
+      plz: orderMode === "delivery" ? zipFinal || null : null,
       items: attachPfandToOrderItems(
         mapCartToOrderItems(),
       ) as CheckoutOrderItem[],
@@ -4791,18 +5358,18 @@ export default function CheckoutPage() {
         address:
           orderMode === "delivery"
             ? [
-                `${streetFinal} ${addr.house}`.trim(),
-                `${addr.zip} ${addr.city}`.trim(),
+                `${streetFinal} ${houseFinal}`.trim(),
+                `${zipFinal} ${cityFinal}`.trim(),
                 [addr.floor, addr.entrance].filter(Boolean).join(" • "),
               ]
                 .filter(Boolean)
                 .join(" | ")
             : addr.note || undefined,
         street: streetFinal || undefined,
-        house: addr.house || undefined,
-        zip: addr.zip || undefined,
-        plz: addr.zip || undefined,
-        city: addr.city || undefined,
+        house: orderMode === "delivery" ? houseFinal || undefined : addr.house || undefined,
+        zip: orderMode === "delivery" ? zipFinal || undefined : addr.zip || undefined,
+        plz: orderMode === "delivery" ? zipFinal || undefined : addr.zip || undefined,
+        city: orderMode === "delivery" ? cityFinal || undefined : addr.city || undefined,
         floor: addr.floor || undefined,
         entrance: addr.entrance || undefined,
         email: addr.email || undefined,
@@ -4825,6 +5392,26 @@ export default function CheckoutPage() {
             }
           : null,
         emailOptIn: !!addr.emailOptIn,
+        deliveryGeo:
+          orderMode === "delivery" &&
+          deliveryValidation &&
+          deliveryValidation.lat != null &&
+          deliveryValidation.lng != null
+            ? {
+                lat: deliveryValidation.lat,
+                lng: deliveryValidation.lng,
+                source: "google_address_validation",
+                validatedAt: ts,
+                formattedAddress: deliveryValidation.formattedAddress || null,
+                validationGranularity:
+                  deliveryValidation.validationGranularity || null,
+                addressComplete: deliveryValidation.addressComplete,
+                hasInferredComponents:
+                  deliveryValidation.hasInferredComponents,
+                hasReplacedComponents:
+                  deliveryValidation.hasReplacedComponents,
+              }
+            : null,
         payment: {
           method: payment.method,
           status: payment.status,
@@ -4839,7 +5426,7 @@ export default function CheckoutPage() {
               id: latestRouteDeal?.id || null,
               ruleId: latestRouteDeal?.ruleId || null,
               name: latestRouteDeal?.name || "Nachbarschafts-Deal",
-              plz: latestRouteDeal?.plz || addr.zip || null,
+              plz: latestRouteDeal?.plz || zipFinal || null,
               street: latestRouteDeal?.street || streetFinal || null,
               reward: latestRouteDeal?.reward || null,
               label: latestRouteDealBenefit.label,

@@ -27,6 +27,8 @@ let HYDRATE_STARTED = false;
 */
 const STREET_PATCHES: StreetDB = {
   "13503": ["Alt-Heiligensee"],
+  // Berlin'in resmi adres kaynaklarında mevcut; bundled streets.json'da eksik.
+  "13507": ["Bernhard-Lichtenberg-Platz"],
 };
 
 /* ───────────── yardımcılar ───────────── */
