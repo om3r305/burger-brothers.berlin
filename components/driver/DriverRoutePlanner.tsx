@@ -267,6 +267,7 @@ export function DriverRoutePlanner({
   const [routeNotice, setRouteNotice] = useState("");
   const [sorting, setSorting] = useState(false);
   const [draggedId, setDraggedId] = useState<string | null>(null);
+  const [mapFullscreen, setMapFullscreen] = useState(false);
 
   const storageKey = `bb_driver_route_queue_v2_${driver.id}`;
 
@@ -460,9 +461,9 @@ export function DriverRoutePlanner({
       setRouteNotice("");
 
       try {
-        const currentOrigin = activeOrder
-          ? await ensureOrigin()
-          : null;
+        // Route planning always starts from the driver's real current position.
+        // The restaurant address is only a fallback if device location is unavailable.
+        const currentOrigin = await ensureOrigin();
         const matrixOrigin =
           currentOrigin ||
           (String(storeOrigin || "").trim()
@@ -662,6 +663,29 @@ export function DriverRoutePlanner({
     if (livePosition) setLocalOrigin(livePosition);
   }, [livePosition?.lat, livePosition?.lng, livePosition?.ts]);
 
+  // Before "Fahrt starten" customer tracking stays OFF, but the driver route
+  // planner still follows the driver's device locally so planning starts from
+  // the real position instead of the restaurant.
+  useEffect(() => {
+    if (startedOrders.length > 0 || !orders.length || !("geolocation" in navigator)) {
+      return;
+    }
+
+    const watchId = navigator.geolocation.watchPosition(
+      (position) => {
+        setLocalOrigin(driverPositionFromGeolocation(position));
+      },
+      () => undefined,
+      {
+        enableHighAccuracy: true,
+        maximumAge: 3_000,
+        timeout: 10_000,
+      },
+    );
+
+    return () => navigator.geolocation.clearWatch(watchId);
+  }, [orders.length, startedOrders.length]);
+
   useEffect(() => {
     storePointRef.current = null;
   }, [storeOrigin]);
@@ -673,17 +697,17 @@ export function DriverRoutePlanner({
       const maps = await loadGoogleMaps();
       mapsRef.current = maps;
 
-      const routeStarted = startedOrders.length > 0;
-      const currentOrigin = routeStarted
-        ? origin || (await ensureOrigin())
+      const driverOrigin = origin || (await ensureOrigin());
+      const fallbackStorePoint = driverOrigin
+        ? null
         : await resolveStorePoint(maps);
-      const routeOrigin =
-        routeStarted && currentOrigin
-          ? { lat: currentOrigin.lat, lng: currentOrigin.lng }
-          : String(storeOrigin || "").trim() ||
-            (currentOrigin
-              ? { lat: currentOrigin.lat, lng: currentOrigin.lng }
-              : null);
+      const currentOrigin = driverOrigin || fallbackStorePoint;
+      const routeOrigin = driverOrigin
+        ? { lat: driverOrigin.lat, lng: driverOrigin.lng }
+        : String(storeOrigin || "").trim() ||
+          (fallbackStorePoint
+            ? { lat: fallbackStorePoint.lat, lng: fallbackStorePoint.lng }
+            : null);
 
       const points = await Promise.all(
         ordered.map((order) => resolvePoint(order, maps)),
@@ -714,8 +738,9 @@ export function DriverRoutePlanner({
       }
 
       if (currentOrigin) {
-        const originTitle = routeStarted ? "Fahrer" : "Burger Brothers";
-        const originEmoji = routeStarted ? "🚚" : "🏪";
+        const usingDriverOrigin = Boolean(driverOrigin);
+        const originTitle = usingDriverOrigin ? "Fahrer" : "Burger Brothers";
+        const originEmoji = usingDriverOrigin ? "🚚" : "🏪";
 
         if (!driverMarkerRef.current) {
           driverMarkerRef.current = new maps.Marker({
@@ -886,14 +911,23 @@ export function DriverRoutePlanner({
       const distanceMeters = Number(route?.distanceMeters);
       const durationMillis = Number(route?.durationMillis);
 
-      setRouteSummary(
+      const nextSummary =
         Number.isFinite(distanceMeters) && Number.isFinite(durationMillis)
           ? {
               distanceMeters: Math.max(0, distanceMeters),
               durationMillis: Math.max(0, durationMillis),
             }
-          : null,
-      );
+          : null;
+
+      setRouteSummary(nextSummary);
+
+      // For a single delivery, the full route is also the stop metric.
+      if (nextSummary && ordered.length === 1) {
+        setMetrics((current) => ({
+          ...current,
+          [String(ordered[0].id)]: nextSummary,
+        }));
+      }
 
       if (currentOrigin) {
         lastRouteRef.current = {
@@ -923,6 +957,36 @@ export function DriverRoutePlanner({
   useEffect(() => {
     void redrawMap();
   }, [redrawMap]);
+
+  useEffect(() => {
+    const maps = mapsRef.current;
+    const map = mapRef.current;
+
+    if (map) {
+      map.setOptions?.({
+        gestureHandling: mapFullscreen ? "greedy" : "cooperative",
+      });
+      maps?.event?.trigger?.(map, "resize");
+    }
+
+    if (!mapFullscreen) return;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    const frame = window.requestAnimationFrame(() => {
+      if (maps?.event && map) {
+        maps.event.trigger(map, "resize");
+      }
+      lastRouteRef.current = null;
+      void redrawMap();
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [mapFullscreen, redrawMap]);
 
   const move = useCallback(
     (id: string, targetIndex: number) => {
@@ -984,7 +1048,9 @@ export function DriverRoutePlanner({
 
   const gpsText =
     gpsTone === "idle"
-      ? "GPS startet erst mit „Fahrt starten“"
+      ? origin
+        ? "Fahrerposition bereit · Kunden-Tracking aus"
+        : "Fahrerposition wird ermittelt · Kunden-Tracking aus"
       : gpsTone === "live"
         ? `GPS LIVE${Number.isFinite(activeAgeMs) ? ` · vor ${Math.floor(activeAgeMs / 1000)} Sek.` : ""}`
         : gpsTone === "warning"
@@ -995,10 +1061,37 @@ export function DriverRoutePlanner({
 
   if (!orders.length) return null;
 
+  const fullscreenStop = activeOrder || ordered[0] || null;
+  const fullscreenStopIndex = fullscreenStop
+    ? ordered.findIndex((order) => String(order.id) === String(fullscreenStop.id))
+    : -1;
+  const fullscreenMetric =
+    fullscreenStop && fullscreenStopIndex >= 0
+      ? metrics[String(fullscreenStop.id)]
+      : null;
+
   return (
-    <section className="overflow-hidden rounded-2xl border border-white/15 bg-white/[0.055] shadow-2xl backdrop-blur-xl">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 px-3 py-3 sm:px-4">
-        <div>
+    <section
+      className={
+        mapFullscreen
+          ? "fixed inset-0 z-[120] overflow-hidden bg-slate-950 text-stone-100"
+          : "overflow-hidden rounded-2xl border border-white/15 bg-white/[0.055] shadow-2xl backdrop-blur-xl"
+      }
+    >
+      <div
+        className={
+          mapFullscreen
+            ? "pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-2 p-3 pt-[max(0.75rem,env(safe-area-inset-top))]"
+            : "flex flex-wrap items-center justify-between gap-2 border-b border-white/10 px-3 py-3 sm:px-4"
+        }
+      >
+        <div
+          className={
+            mapFullscreen
+              ? "pointer-events-auto rounded-2xl border border-white/15 bg-slate-950/88 px-3 py-2 shadow-xl backdrop-blur-xl"
+              : ""
+          }
+        >
           <div className="text-xs font-extrabold uppercase tracking-[.16em] text-sky-200">
             Driver PRO Route
           </div>
@@ -1007,8 +1100,9 @@ export function DriverRoutePlanner({
           </div>
         </div>
 
-        <div
-          className={`rounded-full border px-3 py-1.5 text-xs font-bold ${
+        <div className="pointer-events-auto flex items-center gap-2">
+          <div
+            className={`rounded-full border px-3 py-1.5 text-xs font-bold ${
             gpsTone === "live"
               ? "border-emerald-300/35 bg-emerald-500/15 text-emerald-100"
               : gpsTone === "warning" || gpsTone === "starting"
@@ -1018,12 +1112,67 @@ export function DriverRoutePlanner({
                   : "border-sky-300/30 bg-sky-500/10 text-sky-100"
           }`}
         >
-          {gpsText}
+            {gpsText}
+          </div>
+
+          {mapFullscreen ? (
+            <button
+              type="button"
+              onClick={() => setMapFullscreen(false)}
+              className="grid h-10 w-10 place-items-center rounded-full border border-white/20 bg-slate-950/90 text-lg font-black text-white shadow-xl backdrop-blur"
+              aria-label="Karte verkleinern"
+              title="Karte verkleinern"
+            >
+              ✕
+            </button>
+          ) : null}
         </div>
       </div>
 
-      <div className="relative min-h-[300px] w-full sm:min-h-[360px]">
+      <div
+        className={
+          mapFullscreen
+            ? "absolute inset-0 w-full"
+            : "relative min-h-[300px] w-full sm:min-h-[360px]"
+        }
+      >
         <div ref={mapNodeRef} className="absolute inset-0" />
+
+        {!mapFullscreen ? (
+          <button
+            type="button"
+            onClick={() => setMapFullscreen(true)}
+            className="absolute right-3 top-3 z-10 grid h-10 w-10 place-items-center rounded-xl border border-white/20 bg-slate-950/90 text-lg font-black text-white shadow-xl backdrop-blur"
+            aria-label="Karte vergrößern"
+            title="Karte vergrößern"
+          >
+            ⛶
+          </button>
+        ) : (
+          <div className="absolute right-3 top-24 z-10 flex flex-col gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                lastRouteRef.current = null;
+                void ensureOrigin().then(() => redrawMap());
+              }}
+              className="grid h-11 w-11 place-items-center rounded-full border border-white/20 bg-slate-950/90 text-lg text-white shadow-xl backdrop-blur"
+              aria-label="Fahrerposition zentrieren"
+              title="Fahrerposition zentrieren"
+            >
+              ◎
+            </button>
+            <button
+              type="button"
+              onClick={onChangeMapPreference}
+              className="grid h-11 w-11 place-items-center rounded-full border border-white/20 bg-slate-950/90 text-lg text-white shadow-xl backdrop-blur"
+              aria-label="Karten-App ändern"
+              title={`Karten-App: ${mapPreferenceLabel}`}
+            >
+              🗺️
+            </button>
+          </div>
+        )}
 
         {mapError ? (
           <div className="absolute inset-x-3 bottom-3 rounded-xl border border-rose-300/30 bg-rose-950/90 px-3 py-2 text-xs text-rose-100 backdrop-blur">
@@ -1031,14 +1180,108 @@ export function DriverRoutePlanner({
           </div>
         ) : null}
 
-        {routeSummary ? (
+        {routeSummary && !mapFullscreen ? (
           <div className="absolute bottom-3 left-3 rounded-xl border border-white/15 bg-slate-950/90 px-3 py-2 text-xs font-semibold text-white shadow-xl backdrop-blur">
             Gesamt: {formatDistance(routeSummary.distanceMeters)} ·{" "}
             {formatDuration(routeSummary.durationMillis)}
           </div>
         ) : null}
+
+        {mapFullscreen && fullscreenStop ? (
+          <div
+            className="absolute inset-x-3 bottom-3 z-20 rounded-[1.6rem] border border-white/15 bg-slate-950/94 p-3 shadow-2xl backdrop-blur-2xl"
+            style={{
+              paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))",
+            }}
+          >
+            <div className="mx-auto mb-2 h-1 w-12 rounded-full bg-white/25" />
+
+            <div className="flex items-start gap-3">
+              <div
+                className={`grid h-11 w-11 shrink-0 place-items-center rounded-full border text-base font-black ${
+                  activeOrder
+                    ? "border-rose-300/60 bg-rose-500/20 text-rose-100"
+                    : "border-sky-300/50 bg-sky-500/15 text-sky-100"
+                }`}
+              >
+                {routeLetter(Math.max(0, fullscreenStopIndex))}
+              </div>
+
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="truncate text-base font-black text-white">
+                    {fullscreenStop.customer.name || `#${fullscreenStop.id}`}
+                  </div>
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-[10px] font-black ${
+                      activeOrder
+                        ? "bg-rose-400 text-slate-950"
+                        : "border border-amber-300/30 bg-amber-500/10 text-amber-100"
+                    }`}
+                  >
+                    {activeOrder ? "AKTIVER STOPP" : "NÄCHSTER STOPP"}
+                  </span>
+                </div>
+
+                <div className="mt-0.5 truncate text-sm text-stone-300">
+                  {getOrderRouteAddress(fullscreenStop) || "Adresse fehlt"}
+                </div>
+
+                <div className="mt-1 text-xs font-semibold text-sky-100">
+                  {fullscreenMetric
+                    ? `${formatDistance(fullscreenMetric.distanceMeters)} · ${formatDuration(fullscreenMetric.durationMillis)}`
+                    : routeSummary
+                      ? `${formatDistance(routeSummary.distanceMeters)} · ${formatDuration(routeSummary.durationMillis)} gesamt`
+                      : "Google-Fahrzeit wird berechnet"}
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => onNavigate(fullscreenStop)}
+                className="rounded-2xl border border-white/15 bg-white/10 px-3 py-3 text-sm font-extrabold text-white"
+              >
+                🧭 Navigation
+              </button>
+
+              {waitingOrders.length > 0 ? (
+                <button
+                  type="button"
+                  disabled={busy || sorting}
+                  onClick={() => void onStart(ordered)}
+                  className="rounded-2xl bg-emerald-300 px-3 py-3 text-sm font-black text-slate-950 disabled:opacity-50"
+                >
+                  {busy
+                    ? "Start…"
+                    : startedOrders.length
+                      ? `+ ${waitingOrders.length} starten`
+                      : "🚗 Fahrt starten"}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setMapFullscreen(false)}
+                  className="rounded-2xl bg-sky-300 px-3 py-3 text-sm font-black text-slate-950"
+                >
+                  Route bearbeiten
+                </button>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setMapFullscreen(false)}
+              className="mt-2 w-full rounded-xl px-3 py-2 text-xs font-bold text-stone-300"
+            >
+              A/B/C/D Reihenfolge bearbeiten
+            </button>
+          </div>
+        ) : null}
       </div>
 
+      {!mapFullscreen ? (
       <div className="space-y-2 border-t border-white/10 p-3 sm:p-4">
         <div className="flex flex-wrap gap-2">
           <button
@@ -1214,6 +1457,7 @@ export function DriverRoutePlanner({
           werden. Vor „Fahrt starten“ wird kein Kunden-Live-Tracking aktiviert.
         </div>
       </div>
+      ) : null}
     </section>
   );
 }
