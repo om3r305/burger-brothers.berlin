@@ -2214,6 +2214,8 @@ export default function CheckoutPage() {
   const [currentLocationBusy, setCurrentLocationBusy] = useState(false);
   const [currentLocationSuggestion, setCurrentLocationSuggestion] =
     useState<CurrentLocationSuggestion | null>(null);
+  const [acceptedDeliveryGeo, setAcceptedDeliveryGeo] =
+    useState<CurrentLocationSuggestion | null>(null);
   const addressValidationCacheRef = useRef<{
     key: string;
     validatedAt: number;
@@ -2949,6 +2951,7 @@ export default function CheckoutPage() {
     }));
     setStreetQuery(suggestion.officialStreet);
     setShowSug(false);
+    setAcceptedDeliveryGeo(suggestion);
     setCurrentLocationSuggestion(null);
 
     showCheckoutToast(
@@ -2958,6 +2961,23 @@ export default function CheckoutPage() {
       suggestion.accuracyMeters > 40 ? "warning" : "success",
     );
   }, [currentLocationSuggestion, setPLZ, showCheckoutToast]);
+
+  useEffect(() => {
+    if (!acceptedDeliveryGeo) return;
+
+    const sameAddress =
+      normalizeCheckoutZip(addr.zip) === acceptedDeliveryGeo.zip &&
+      normalizeStreetChoice(addr.street || streetQuery) ===
+        normalizeStreetChoice(acceptedDeliveryGeo.officialStreet) &&
+      String(addr.house || "").trim().toLowerCase() ===
+        String(acceptedDeliveryGeo.house || "").trim().toLowerCase() &&
+      (String(addr.city || "Berlin").trim() || "Berlin").toLowerCase() ===
+        (String(acceptedDeliveryGeo.city || "Berlin").trim() || "Berlin").toLowerCase();
+
+    if (!sameAddress) {
+      setAcceptedDeliveryGeo(null);
+    }
+  }, [acceptedDeliveryGeo, addr.zip, addr.street, addr.house, addr.city, streetQuery]);
 
   const editCurrentLocationSuggestion = useCallback(() => {
     setCurrentLocationSuggestion(null);
@@ -5271,6 +5291,7 @@ export default function CheckoutPage() {
     let zipFinal = normalizeCheckoutZip(addr.zip);
     let cityFinal = String(addr.city || "").trim() || "Berlin";
     let deliveryValidation: DeliveryAddressValidation | null = null;
+    let deliveryValidationUnavailable = false;
 
     if (orderMode === "delivery" && !officialStreetForOrder) {
       throw new Error("Bitte Straße aus der Liste auswählen.");
@@ -5294,67 +5315,86 @@ export default function CheckoutPage() {
           ts - cachedValidation.validatedAt < 30 * 60_000,
       );
 
-      deliveryValidation = cacheIsFresh
-        ? cachedValidation?.result || null
-        : await validateDeliveryAddress({
+      try {
+        deliveryValidation = cacheIsFresh
+          ? cachedValidation?.result || null
+          : await validateDeliveryAddress({
+              street: streetFinal,
+              house: houseFinal,
+              zip: zipFinal,
+              city: cityFinal,
+            });
+
+        if (!cacheIsFresh && deliveryValidation) {
+          addressValidationCacheRef.current = {
+            key: validationKey,
+            validatedAt: ts,
+            result: deliveryValidation,
+          };
+        }
+      } catch (error: unknown) {
+        /*
+         * Google Address Validation is an additional safety layer, not a
+         * single point of failure for restaurant orders. Our own delivery
+         * rules already require an allowed PLZ, an official street from the
+         * bundled list and a house number. If Google is temporarily
+         * unavailable or misconfigured, keep the order flow alive and simply
+         * omit Google-normalized address data for this attempt.
+         */
+        deliveryValidationUnavailable = true;
+        reportCheckoutError("address-validation-unavailable", error);
+        showCheckoutToast(
+          "Die zusätzliche Google-Adressprüfung ist gerade nicht erreichbar. Ihre Lieferadresse wurde mit unserem Liefergebiet geprüft; die Bestellung wird trotzdem fortgesetzt.",
+          "warning",
+        );
+      }
+
+      if (deliveryValidation) {
+        if (!deliveryValidation.valid) {
+          throw new Error(
+            deliveryValidation.hasUnconfirmedComponents
+              ? "Die Adresse konnte nicht eindeutig bestätigt werden. Bitte Straße und Hausnummer prüfen."
+              : "Die Lieferadresse konnte nicht vollständig bestätigt werden. Bitte Angaben prüfen.",
+          );
+        }
+
+        if (deliveryValidation.zip !== zipFinal) {
+          throw new Error(
+            `Die bestätigte Adresse gehört zur PLZ ${deliveryValidation.zip || "unbekannt"}. Bitte PLZ prüfen.`,
+          );
+        }
+
+        const validatedStreetOptions = getStreets(deliveryValidation.zip);
+        const validatedStreet = findOfficialStreetFromGoogle(
+          validatedStreetOptions,
+          deliveryValidation.street,
+        );
+
+        if (!validatedStreet) {
+          throw new Error(
+            "Die bestätigte Straße ist nicht in unserer Lieferliste hinterlegt. Bitte Straße erneut auswählen.",
+          );
+        }
+
+        streetFinal = validatedStreet;
+        houseFinal = deliveryValidation.house || houseFinal;
+        zipFinal = deliveryValidation.zip || zipFinal;
+        cityFinal = deliveryValidation.city || cityFinal;
+
+        if (
+          streetFinal !== addr.street ||
+          houseFinal !== String(addr.house || "").trim() ||
+          cityFinal !== String(addr.city || "").trim()
+        ) {
+          setStreetQuery(streetFinal);
+          setAddr((current) => ({
+            ...current,
             street: streetFinal,
             house: houseFinal,
             zip: zipFinal,
             city: cityFinal,
-          });
-
-      if (!cacheIsFresh && deliveryValidation) {
-        addressValidationCacheRef.current = {
-          key: validationKey,
-          validatedAt: ts,
-          result: deliveryValidation,
-        };
-      }
-
-      if (!deliveryValidation?.valid) {
-        throw new Error(
-          deliveryValidation?.hasUnconfirmedComponents
-            ? "Die Adresse konnte nicht eindeutig bestätigt werden. Bitte Straße und Hausnummer prüfen."
-            : "Die Lieferadresse konnte nicht vollständig bestätigt werden. Bitte Angaben prüfen.",
-        );
-      }
-
-      if (deliveryValidation.zip !== zipFinal) {
-        throw new Error(
-          `Die bestätigte Adresse gehört zur PLZ ${deliveryValidation.zip || "unbekannt"}. Bitte PLZ prüfen.`,
-        );
-      }
-
-      const validatedStreetOptions = getStreets(deliveryValidation.zip);
-      const validatedStreet = findOfficialStreetFromGoogle(
-        validatedStreetOptions,
-        deliveryValidation.street,
-      );
-
-      if (!validatedStreet) {
-        throw new Error(
-          "Die bestätigte Straße ist nicht in unserer Lieferliste hinterlegt. Bitte Straße erneut auswählen.",
-        );
-      }
-
-      streetFinal = validatedStreet;
-      houseFinal = deliveryValidation.house || houseFinal;
-      zipFinal = deliveryValidation.zip || zipFinal;
-      cityFinal = deliveryValidation.city || cityFinal;
-
-      if (
-        streetFinal !== addr.street ||
-        houseFinal !== String(addr.house || "").trim() ||
-        cityFinal !== String(addr.city || "").trim()
-      ) {
-        setStreetQuery(streetFinal);
-        setAddr((current) => ({
-          ...current,
-          street: streetFinal,
-          house: houseFinal,
-          zip: zipFinal,
-          city: cityFinal,
-        }));
+          }));
+        }
       }
     }
 
@@ -5424,6 +5464,48 @@ export default function CheckoutPage() {
         : null,
     );
 
+    const acceptedGeoMatchesFinalAddress = Boolean(
+      orderMode === "delivery" &&
+        acceptedDeliveryGeo &&
+        normalizeCheckoutZip(zipFinal) === acceptedDeliveryGeo.zip &&
+        normalizeStreetChoice(streetFinal) ===
+          normalizeStreetChoice(acceptedDeliveryGeo.officialStreet) &&
+        houseFinal.trim().toLowerCase() ===
+          String(acceptedDeliveryGeo.house || "").trim().toLowerCase() &&
+        cityFinal.trim().toLowerCase() ===
+          (String(acceptedDeliveryGeo.city || "Berlin").trim() || "Berlin").toLowerCase(),
+    );
+
+    const deliveryGeoResolved =
+      orderMode === "delivery" &&
+      deliveryValidation &&
+      deliveryValidation.lat != null &&
+      deliveryValidation.lng != null
+        ? {
+            lat: deliveryValidation.lat,
+            lng: deliveryValidation.lng,
+            source: "google_address_validation",
+            validatedAt: ts,
+            formattedAddress: deliveryValidation.formattedAddress || null,
+            validationGranularity:
+              deliveryValidation.validationGranularity || null,
+            addressComplete: deliveryValidation.addressComplete,
+            hasInferredComponents: deliveryValidation.hasInferredComponents,
+            hasReplacedComponents: deliveryValidation.hasReplacedComponents,
+          }
+        : acceptedGeoMatchesFinalAddress && acceptedDeliveryGeo
+          ? {
+              lat: acceptedDeliveryGeo.lat,
+              lng: acceptedDeliveryGeo.lng,
+              source: "device_geolocation_confirmed",
+              validatedAt: ts,
+              formattedAddress: acceptedDeliveryGeo.formattedAddress || null,
+              accuracyMeters: acceptedDeliveryGeo.accuracyMeters,
+              addressComplete: Boolean(acceptedDeliveryGeo.house),
+              googleValidationUnavailable: deliveryValidationUnavailable,
+            }
+          : null;
+
     const orderBase: CheckoutOrderDraft = {
       ts,
       mode: orderMode,
@@ -5486,26 +5568,7 @@ export default function CheckoutPage() {
             }
           : null,
         emailOptIn: !!addr.emailOptIn,
-        deliveryGeo:
-          orderMode === "delivery" &&
-          deliveryValidation &&
-          deliveryValidation.lat != null &&
-          deliveryValidation.lng != null
-            ? {
-                lat: deliveryValidation.lat,
-                lng: deliveryValidation.lng,
-                source: "google_address_validation",
-                validatedAt: ts,
-                formattedAddress: deliveryValidation.formattedAddress || null,
-                validationGranularity:
-                  deliveryValidation.validationGranularity || null,
-                addressComplete: deliveryValidation.addressComplete,
-                hasInferredComponents:
-                  deliveryValidation.hasInferredComponents,
-                hasReplacedComponents:
-                  deliveryValidation.hasReplacedComponents,
-              }
-            : null,
+        deliveryGeo: deliveryGeoResolved,
         payment: {
           method: payment.method,
           status: payment.status,
