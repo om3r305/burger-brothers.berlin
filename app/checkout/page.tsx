@@ -164,6 +164,18 @@ type ReverseGeocodedAddress = {
   lng: number;
 };
 
+type CurrentLocationSuggestion = {
+  street: string;
+  house: string;
+  zip: string;
+  city: string;
+  formattedAddress: string;
+  lat: number;
+  lng: number;
+  accuracyMeters: number;
+  officialStreet: string;
+};
+
 type DeliveryAddressValidation = {
   ok: boolean;
   valid: boolean;
@@ -2200,6 +2212,8 @@ export default function CheckoutPage() {
   const [streetQuery, setStreetQuery] = useState("");
   const [showSug, setShowSug] = useState(false);
   const [currentLocationBusy, setCurrentLocationBusy] = useState(false);
+  const [currentLocationSuggestion, setCurrentLocationSuggestion] =
+    useState<CurrentLocationSuggestion | null>(null);
   const addressValidationCacheRef = useRef<{
     key: string;
     validatedAt: number;
@@ -2918,6 +2932,41 @@ export default function CheckoutPage() {
   };
 
 
+  const applyCurrentLocationSuggestion = useCallback(() => {
+    const suggestion = currentLocationSuggestion;
+    if (!suggestion?.officialStreet) return;
+
+    const list = getStreets(suggestion.zip);
+
+    setPLZ(suggestion.zip);
+    setStreetOptions(list);
+    setAddr((current) => ({
+      ...current,
+      zip: suggestion.zip,
+      street: suggestion.officialStreet,
+      house: suggestion.house || "",
+      city: suggestion.city || "Berlin",
+    }));
+    setStreetQuery(suggestion.officialStreet);
+    setShowSug(false);
+    setCurrentLocationSuggestion(null);
+
+    showCheckoutToast(
+      `Adresse übernommen: ${suggestion.officialStreet}${
+        suggestion.house ? ` ${suggestion.house}` : ""
+      }, ${suggestion.zip} ${suggestion.city || "Berlin"}. Bitte kurz prüfen.`,
+      suggestion.accuracyMeters > 40 ? "warning" : "success",
+    );
+  }, [currentLocationSuggestion, setPLZ, showCheckoutToast]);
+
+  const editCurrentLocationSuggestion = useCallback(() => {
+    setCurrentLocationSuggestion(null);
+
+    window.setTimeout(() => {
+      document.getElementById("checkout-zip")?.focus();
+    }, 0);
+  }, []);
+
   const useCurrentDeliveryLocation = useCallback(async () => {
     if (orderMode !== "delivery" || currentLocationBusy) return;
 
@@ -2930,15 +2979,33 @@ export default function CheckoutPage() {
     }
 
     setCurrentLocationBusy(true);
+    setCurrentLocationSuggestion(null);
 
     try {
       const position = await new Promise<GeolocationPosition>((resolve, reject) => {
         navigator.geolocation.getCurrentPosition(resolve, reject, {
           enableHighAccuracy: true,
-          maximumAge: 10_000,
-          timeout: 12_000,
+          maximumAge: 5_000,
+          timeout: 15_000,
         });
       });
+
+      const accuracyMeters = Number.isFinite(Number(position.coords.accuracy))
+        ? Math.max(0, Math.round(Number(position.coords.accuracy)))
+        : 999;
+
+      /*
+        Desktop/LAN/WLAN konumu bazen doğru mahalleyi bulsa bile yanlış bina
+        veya köşe adresi seçebilir. 100 metreden kötü konumu otomatik adres
+        önerisine çevirmiyoruz; müşteri manuel adres girmeye devam eder.
+      */
+      if (accuracyMeters > 100) {
+        showCheckoutToast(
+          `Standort ist zu ungenau (±${accuracyMeters} m). Bitte Adresse manuell eingeben oder am Smartphone mit genauer Standortfreigabe erneut versuchen.`,
+          "warning",
+        );
+        return;
+      }
 
       const found = await reverseGeocodePosition(
         position.coords.latitude,
@@ -2962,9 +3029,6 @@ export default function CheckoutPage() {
 
       let list = getStreets(found.zip);
 
-      // Die Straßen-DB wird normalerweise lazy geladen. Beim Standort-Button
-      // warten wir einmal explizit darauf, damit ein frischer Checkout nicht
-      // fälschlich "Straße nicht gefunden" meldet.
       if (!list.length) {
         await hydrateFromBundledJSON();
         list = getStreets(found.zip);
@@ -2977,67 +3041,35 @@ export default function CheckoutPage() {
       }
 
       const official = findOfficialStreetFromGoogle(list, found.street);
-      const accuracyMeters = Number.isFinite(Number(position.coords.accuracy))
-        ? Math.max(0, Math.round(Number(position.coords.accuracy)))
-        : 0;
 
-      /*
-        Standortdaten sofort sichtbar machen. Früher wurden PLZ/Stadt/Hausnummer
-        erst NACH erfolgreichem Straßen-Match gesetzt. Dadurch sah der Kunde bei
-        einem nicht eindeutigen Match trotz erfolgreicher Ortung nur leere Felder.
-        Die Liefer-PLZ bleibt weiterhin unsere harte Grenze und eine nicht
-        bestätigte Google-Straße wird NICHT als gültige Bestellstraße übernommen.
-      */
-      setPLZ(found.zip);
-      setStreetOptions(list);
-      setAddr((current) => ({
-        ...current,
+      const suggestion: CurrentLocationSuggestion = {
+        street: found.street,
+        house: found.house,
         zip: found.zip,
-        street: official || "",
-        house: found.house || "",
         city: found.city || "Berlin",
-      }));
+        formattedAddress: found.formattedAddress,
+        lat: found.lat,
+        lng: found.lng,
+        accuracyMeters,
+        officialStreet: official || "",
+      };
+
+      setCurrentLocationSuggestion(suggestion);
 
       if (!official) {
-        setStreetQuery(found.street || "");
-        setShowSug(Boolean(found.street));
-
-        const accuracyHint =
-          accuracyMeters >= 120
-            ? ` Der Gerätestandort ist nur ungefähr (±${accuracyMeters} m). Am Smartphone ist GPS meist genauer.`
-            : "";
-
         showCheckoutToast(
-          `Standort erkannt${found.street ? `: ${found.street}` : ""}. PLZ${
-            found.house ? ", Hausnummer" : ""
-          } und Ort wurden übernommen, aber die Straße konnte unserer Lieferliste nicht eindeutig zugeordnet werden. Bitte die Straße kurz aus der Liste wählen.${accuracyHint}`,
+          `Standort erkannt${found.street ? `: ${found.street}` : ""}, aber die Straße konnte unserer Lieferliste nicht eindeutig zugeordnet werden. Bitte Adresse manuell wählen.`,
           "warning",
         );
         return;
       }
 
-      setStreetQuery(official);
-      setShowSug(false);
-
-      if (found.house) {
-        const accuracyHint =
-          accuracyMeters >= 120
-            ? ` · Standort nur ungefähr (±${accuracyMeters} m) – bitte Adresse kurz prüfen.`
-            : "";
-        showCheckoutToast(
-          `Standort erkannt: ${official} ${found.house}, ${found.zip} ${found.city || "Berlin"}${accuracyHint}`,
-          accuracyMeters >= 120 ? "warning" : "success",
-        );
-      } else {
-        const accuracyHint =
-          accuracyMeters >= 120
-            ? ` Der Gerätestandort ist nur ungefähr (±${accuracyMeters} m).`
-            : "";
-        showCheckoutToast(
-          `Standort erkannt. Bitte die Hausnummer noch ergänzen.${accuracyHint}`,
-          "warning",
-        );
-      }
+      showCheckoutToast(
+        accuracyMeters > 40
+          ? `Standort erkannt (±${accuracyMeters} m). Bitte gefundene Adresse besonders sorgfältig prüfen.`
+          : "Standort erkannt. Bitte gefundene Adresse kurz bestätigen.",
+        accuracyMeters > 40 ? "warning" : "success",
+      );
     } catch (error: unknown) {
       const geoError =
         error && typeof error === "object" && "code" in error
@@ -3061,7 +3093,6 @@ export default function CheckoutPage() {
   }, [
     currentLocationBusy,
     orderMode,
-    setPLZ,
     showCheckoutToast,
   ]);
 
@@ -3781,8 +3812,67 @@ export default function CheckoutPage() {
                     : "Meinen Standort verwenden"}
                 </button>
                 <div className="mt-1.5 text-center text-[11px] leading-relaxed text-stone-400">
-                  PLZ, Straße und – wenn verfügbar – Hausnummer werden automatisch übernommen.
+                  PLZ, Straße und – wenn verfügbar – Hausnummer werden als Vorschlag erkannt und vor der Übernahme angezeigt.
                 </div>
+
+                {currentLocationSuggestion && (
+                  <div
+                    className={`mt-3 rounded-xl border p-3 text-left ${
+                      currentLocationSuggestion.accuracyMeters > 40
+                        ? "border-amber-400/35 bg-amber-500/10"
+                        : "border-emerald-400/35 bg-emerald-500/10"
+                    }`}
+                  >
+                    <div className="text-xs font-semibold uppercase tracking-wide text-stone-300">
+                      Gefundene Adresse
+                    </div>
+                    <div className="mt-1 text-base font-bold text-white">
+                      {currentLocationSuggestion.officialStreet ||
+                        currentLocationSuggestion.street ||
+                        "Straße nicht eindeutig"}
+                      {currentLocationSuggestion.house
+                        ? ` ${currentLocationSuggestion.house}`
+                        : ""}
+                      , {currentLocationSuggestion.zip}{" "}
+                      {currentLocationSuggestion.city || "Berlin"}
+                    </div>
+                    <div className="mt-1 text-xs text-stone-300">
+                      Standortgenauigkeit: ±{currentLocationSuggestion.accuracyMeters} m
+                    </div>
+
+                    {currentLocationSuggestion.accuracyMeters > 40 && (
+                      <div className="mt-2 text-xs leading-relaxed text-amber-200">
+                        Der Standort ist nicht ganz exakt. Bitte Straße und Hausnummer
+                        besonders sorgfältig prüfen.
+                      </div>
+                    )}
+
+                    {!currentLocationSuggestion.officialStreet && (
+                      <div className="mt-2 text-xs leading-relaxed text-rose-200">
+                        Die erkannte Straße konnte nicht sicher unserer Lieferliste
+                        zugeordnet werden. Bitte Adresse manuell eingeben.
+                      </div>
+                    )}
+
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={applyCurrentLocationSuggestion}
+                        disabled={!currentLocationSuggestion.officialStreet}
+                        className="rounded-lg bg-emerald-400 px-3 py-2 text-sm font-bold text-stone-950 transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        Adresse übernehmen
+                      </button>
+                      <button
+                        type="button"
+                        onClick={editCurrentLocationSuggestion}
+                        className="rounded-lg border border-white/20 bg-white/5 px-3 py-2 text-sm font-semibold text-stone-100 transition hover:bg-white/10"
+                      >
+                        Ändern
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-3 md:col-span-2">
