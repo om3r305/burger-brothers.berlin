@@ -141,6 +141,34 @@ function sanitizePayment(value: any) {
   ]);
 }
 
+function safeDeliveryGeo(value: any) {
+  const raw = object(value);
+  const lat = Number(raw.lat ?? raw.latitude);
+  const lng = Number(raw.lng ?? raw.lon ?? raw.longitude);
+
+  if (
+    !Number.isFinite(lat) ||
+    !Number.isFinite(lng) ||
+    lat < -90 ||
+    lat > 90 ||
+    lng < -180 ||
+    lng > 180
+  ) {
+    return null;
+  }
+
+  const accuracy = Number(raw.accuracy);
+
+  return {
+    lat: Math.round(lat * 1_000_000) / 1_000_000,
+    lng: Math.round(lng * 1_000_000) / 1_000_000,
+    ...(Number.isFinite(accuracy) && accuracy >= 0
+      ? { accuracy: Math.round(accuracy) }
+      : {}),
+    ...(text(raw.source) ? { source: text(raw.source).slice(0, 80) } : {}),
+  };
+}
+
 function sanitizeMeta(value: any) {
   const meta = object(value);
   const result = pick(meta, [
@@ -182,6 +210,7 @@ function sanitizeMeta(value: any) {
   ]);
 
   result.driver = safeDriver(meta.driver);
+  result.deliveryGeo = safeDeliveryGeo(meta.deliveryGeo ?? meta.delivery_geo);
   result.payment = sanitizePayment(meta.payment);
   result.checkout = sanitizePayment(meta.checkout);
   return result;

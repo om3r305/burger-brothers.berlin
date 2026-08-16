@@ -9,7 +9,7 @@ import { DriverHeader } from "@/components/driver/DriverHeader";
 import { DriverLogin } from "@/components/driver/DriverLogin";
 import { DriverMapChooserDialog } from "@/components/driver/DriverMapChooserDialog";
 import { DriverPullIndicator } from "@/components/driver/DriverPullIndicator";
-import { DriverRouteBar } from "@/components/driver/DriverRouteBar";
+import { DriverRoutePlanner } from "@/components/driver/DriverRoutePlanner";
 import { DriverToastViewport } from "@/components/driver/DriverToastViewport";
 import { OrderWithDetails } from "@/components/driver/OrderWithDetails";
 import { PendingOrderCard } from "@/components/driver/PendingOrderCard";
@@ -18,7 +18,6 @@ import { useDriverClock } from "@/hooks/driver/use-driver-clock";
 import { useDriverFeedback } from "@/hooks/driver/use-driver-feedback";
 import { useDriverMapPreference } from "@/hooks/driver/use-driver-map-preference";
 import { useDriverOrders } from "@/hooks/driver/use-driver-orders";
-import { useDriverRoute } from "@/hooks/driver/use-driver-route";
 import { useDriverSettings } from "@/hooks/driver/use-driver-settings";
 import { usePullToRefresh } from "@/hooks/driver/use-pull-to-refresh";
 import {
@@ -30,7 +29,7 @@ import {
   sanitizePhone,
   tabButtonClass,
 } from "@/lib/driver/domain";
-import type { DriverOrder, DriverTab } from "@/types/driver";
+import type { DriverOrder, DriverPosition, DriverTab, DriverTrackingState } from "@/types/driver";
 
 export default function DriverPage() {
   useEffect(() => {
@@ -46,6 +45,14 @@ export default function DriverPage() {
 
   const [tab, setTab] = useState<DriverTab>("new");
   const [selected, setSelected] = useState<Record<string, boolean>>({});
+  const [liveDriverPosition, setLiveDriverPosition] =
+    useState<DriverPosition | null>(null);
+  const [trackingState, setTrackingState] = useState<DriverTrackingState>({
+    status: "inactive",
+    active: false,
+    lastPublishedAt: null,
+    message: null,
+  });
 
   const feedback = useDriverFeedback();
   const settings = useDriverSettings();
@@ -61,13 +68,6 @@ export default function DriverPage() {
     refreshMs: settings.refreshMs,
     activeUnknownGraceMs: settings.activeUnknownGraceMs,
     notify: feedback.notify,
-  });
-
-  const route = useDriverRoute({
-    orders: driverOrders.mine,
-    routePlzPriority: settings.routePlzPriority,
-    notify: feedback.notify,
-    openRoute: maps.openRoute,
   });
 
   const pull = usePullToRefresh({
@@ -144,10 +144,16 @@ export default function DriverPage() {
 
   const handleLogout = useCallback(async () => {
     await auth.logout(driverOrders.mine);
-    route.clear();
     setSelected({});
     setTab("new");
-  }, [auth, driverOrders.mine, route]);
+    setLiveDriverPosition(null);
+    setTrackingState({
+      status: "inactive",
+      active: false,
+      lastPublishedAt: null,
+      message: null,
+    });
+  }, [auth, driverOrders.mine]);
 
   const claimSelected = useCallback(async () => {
     if (!selectedPendingOrders.length) {
@@ -184,6 +190,75 @@ export default function DriverPage() {
       if (claimed) setTab("mine");
     },
     [confirmPlannedOrders, driverOrders],
+  );
+
+  const startRoute = useCallback(
+    async (routeOrders: DriverOrder[]) => {
+      const waiting = routeOrders.filter((order) =>
+        ["new", "preparing", "ready"].includes(
+          normalizeStatus(order.status),
+        ),
+      );
+
+      if (!waiting.length) {
+        feedback.notify("Alle übernommenen Lieferungen sind bereits unterwegs.", "info");
+        return;
+      }
+
+      const notReady = waiting.filter(
+        (order) => normalizeStatus(order.status) !== "ready",
+      );
+
+      const accepted = await feedback.confirm({
+        title: notReady.length
+          ? "Fahrt trotz nicht bereiter Bestellung starten?"
+          : "Fahrt starten?",
+        message:
+          `${waiting.length} Lieferung(en) werden jetzt auf „Unterwegs“ gesetzt. ` +
+          "Die Kunden erhalten die Unterwegs-Benachrichtigung und das Live-Tracking startet." +
+          (notReady.length
+            ? ` Achtung: ${notReady.length} Bestellung(en) sind noch nicht als „bereit“ markiert.`
+            : ""),
+        details: waiting
+          .slice(0, 6)
+          .map((order) => {
+            const routeIndex = Math.max(
+              0,
+              routeOrders.findIndex(
+                (candidate) => String(candidate.id) === String(order.id),
+              ),
+            );
+            const status = normalizeStatus(order.status);
+            const readyLabel = status === "ready" ? "bereit" : status;
+            return `${String.fromCharCode(65 + Math.min(routeIndex, 25))} · #${order.orderId || order.id} · ${readyLabel} · ${prettyDeliveryLine(order)}`;
+          }),
+        confirmLabel: notReady.length
+          ? "Trotzdem Fahrt starten"
+          : "Ja, Fahrt starten",
+        cancelLabel: "Noch nicht",
+        tone: "warning",
+      });
+
+      if (!accepted) return;
+
+      const alreadyDriving = routeOrders.some(
+        (order) => normalizeStatus(order.status) === "out_for_delivery",
+      );
+
+      if (!alreadyDriving) {
+        setLiveDriverPosition(null);
+        setTrackingState({
+          status: "starting",
+          active: true,
+          lastPublishedAt: null,
+          message: null,
+        });
+      }
+
+      await driverOrders.startMany(routeOrders);
+      setTab("mine");
+    },
+    [driverOrders, feedback],
   );
 
   const finishOne = useCallback(
@@ -293,6 +368,8 @@ export default function DriverPage() {
         active={liveTrackingActive}
         driver={auth.current}
         orderIds={liveOrderIds}
+        onPosition={setLiveDriverPosition}
+        onStateChange={setTrackingState}
       />
 
       <DriverPullIndicator
@@ -356,7 +433,9 @@ export default function DriverPage() {
 
         {!liveTrackingActive ? (
           <div className="rounded-xl border border-sky-400/20 bg-sky-500/10 px-3 py-2 text-[11px] leading-relaxed text-sky-100">
-            📍 Standort nur bei einer übernommenen Lieferung aktiv.
+            {driverOrders.mine.length > 0
+              ? "📍 Live-Standort startet erst mit „Fahrt starten“."
+              : "📍 Live-Standort ist nur während einer laufenden Lieferung aktiv."}
           </div>
         ) : null}
 
@@ -438,11 +517,18 @@ export default function DriverPage() {
             </div>
           ) : (
             <>
-              <DriverRouteBar
-                selectedCount={route.selectedOrders.length}
+              <DriverRoutePlanner
+                driver={auth.current}
+                orders={driverOrders.mine}
+                routePlzPriority={settings.routePlzPriority}
+                storeOrigin={settings.storeOrigin}
+                livePosition={liveDriverPosition}
+                trackingState={trackingState}
+                nowMs={nowMs}
+                busy={driverOrders.batchBusy}
                 mapPreferenceLabel={maps.preferenceLabel}
-                onClear={route.clear}
-                onOpen={route.open}
+                onStart={startRoute}
+                onNavigate={openMaps}
                 onChangeMapPreference={maps.changePreference}
               />
 
@@ -450,9 +536,6 @@ export default function DriverPage() {
                 <OrderWithDetails
                   key={String(order.id)}
                   order={order}
-                  routeSelected={Boolean(
-                    route.selected[String(order.id)],
-                  )}
                   busy={driverOrders.busyOrderIds.has(
                     String(order.id),
                   )}
@@ -460,7 +543,6 @@ export default function DriverPage() {
                   avgDelivery={settings.avgDelivery}
                   timezone={settings.timezone}
                   nowMs={nowMs}
-                  onToggleRouteSelect={route.toggle}
                   onCall={callCustomer}
                   onMap={openMaps}
                   onFinish={(selectedOrder) =>

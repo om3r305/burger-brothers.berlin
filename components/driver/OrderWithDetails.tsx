@@ -19,26 +19,22 @@ import type { DriverOrder } from "@/types/driver";
 
 export function OrderWithDetails({
   order,
-  routeSelected,
   busy,
   avgPickup,
   avgDelivery,
   timezone,
   nowMs,
-  onToggleRouteSelect,
   onCall,
   onMap,
   onFinish,
   onRelease,
 }: {
   order: DriverOrder;
-  routeSelected: boolean;
   busy: boolean;
   avgPickup: number;
   avgDelivery: number;
   timezone: string;
   nowMs: number;
-  onToggleRouteSelect: (id: string | number) => void;
   onCall: (order: DriverOrder) => void;
   onMap: (order: DriverOrder) => void;
   onFinish: (order: DriverOrder) => void;
@@ -67,16 +63,6 @@ export function OrderWithDetails({
             </span>
 
             <div className="ml-auto flex shrink-0 items-center gap-2">
-              <label className="inline-flex items-center gap-1.5 rounded-full border border-sky-300/25 bg-sky-400/10 px-2.5 py-1 text-[11px] font-extrabold uppercase tracking-wide text-sky-100">
-                <input
-                  type="checkbox"
-                  className="h-3.5 w-3.5 accent-sky-400"
-                  checked={routeSelected}
-                  onChange={() => onToggleRouteSelect(order.id)}
-                />
-                Route
-              </label>
-
               <DriverPaymentBadge order={order} />
             </div>
           </div>

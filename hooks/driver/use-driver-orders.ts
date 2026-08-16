@@ -25,6 +25,7 @@ import {
   orderPayableTotal,
   orderTipAmount,
   persistDriverOrderSnapshot,
+  startDeliveryOnServer,
   todayKey,
   updateOrderStatusOnServer,
   withDriverState,
@@ -434,6 +435,85 @@ export function useDriverOrders({
     [current, markBusy, notify, refresh],
   );
 
+  const startMany = useCallback(
+    async (routeOrders: DriverOrder[]) => {
+      if (!current) {
+        notify("Bitte zuerst anmelden.", "warning");
+        return { started: 0, errors: 1 };
+      }
+
+      const candidates = routeOrders.filter((order) => {
+        const status = normalizeStatus(order.status);
+        return (
+          isDriverOrder(order, current) &&
+          ["new", "preparing", "ready"].includes(status)
+        );
+      });
+
+      if (!candidates.length) {
+        notify("Keine wartende Lieferung zum Starten.", "warning");
+        return { started: 0, errors: 0 };
+      }
+
+      setBatchBusy(true);
+
+      try {
+        let startedCount = 0;
+        const errors: string[] = [];
+        const startedById = new Map<string, DriverOrder>();
+
+        for (const order of candidates) {
+          const id = String(order.id);
+          markBusy(id, true);
+
+          try {
+            const started = await startDeliveryOnServer(order, current);
+            startedCount += 1;
+            startedById.set(id, started);
+          } catch (error) {
+            errors.push(
+              `#${id}: ${
+                error instanceof Error
+                  ? error.message
+                  : "konnte nicht gestartet werden"
+              }`,
+            );
+          } finally {
+            markBusy(id, false);
+          }
+        }
+
+        if (startedById.size) {
+          setOrders((existing) =>
+            existing.map(
+              (item) =>
+                startedById.get(String(item.id)) || item,
+            ),
+          );
+        }
+
+        await refresh(true);
+
+        if (startedCount > 0) {
+          notify(
+            `${startedCount} Lieferung(en) gestartet. Kunden wurden über "Unterwegs" informiert.`,
+            "success",
+            6000,
+          );
+        }
+
+        if (errors.length) {
+          notify(errors.join("\n"), "error", 9000);
+        }
+
+        return { started: startedCount, errors: errors.length };
+      } finally {
+        setBatchBusy(false);
+      }
+    },
+    [current, markBusy, notify, refresh],
+  );
+
   const releaseOne = useCallback(
     async (order: DriverOrder) => {
       if (!current) return false;
@@ -449,13 +529,22 @@ export function useDriverOrders({
       try {
         clearPosKey(order.id);
 
+        const currentStatus = normalizeStatus(order.status);
+        const releaseStatus =
+          currentStatus === "out_for_delivery"
+            ? "preparing"
+            : currentStatus;
+
         const updated = withDriverState(
           order,
           null,
-          "preparing",
+          releaseStatus,
           {
             claimedAt: null,
+            claimedBy: null,
             lastPos: null,
+            lastDriverPos: null,
+            lastDriverPosAt: null,
           },
         );
 
@@ -467,7 +556,7 @@ export function useDriverOrders({
 
         await persistDriverOrderSnapshot(
           updated,
-          "preparing",
+          releaseStatus,
           current.name,
         );
         await refresh(true);
@@ -612,6 +701,7 @@ export function useDriverOrders({
     manualRefresh,
     claimOne,
     claimMany,
+    startMany,
     releaseOne,
     finishOne,
   };

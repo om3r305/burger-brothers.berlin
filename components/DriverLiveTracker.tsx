@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { DriverIdentity, DriverPosition } from "@/types/driver";
+import type { DriverIdentity, DriverPosition, DriverTrackingState } from "@/types/driver";
 
 const ASSIGNMENT_RETRY_DELAYS_MS = [800, 1_800, 3_500] as const;
 const ASSIGNMENT_WARNING_AFTER_MS = 18_000;
@@ -120,10 +120,14 @@ export default function DriverLiveTracker({
   active,
   driver,
   orderIds,
+  onPosition,
+  onStateChange,
 }: {
   active: boolean;
   driver: DriverIdentity | null;
   orderIds: string[];
+  onPosition?: (position: DriverPosition) => void;
+  onStateChange?: (state: DriverTrackingState) => void;
 }) {
   const watchIdRef = useRef<number | null>(null);
   const heartbeatRef = useRef<number | null>(null);
@@ -134,11 +138,18 @@ export default function DriverLiveTracker({
   const previousActiveIdsRef = useRef<string[]>([]);
   const driverRef = useRef<DriverIdentity | null>(null);
   const lastPublishRef = useRef<DriverPosition | null>(null);
+  const onPositionRef = useRef(onPosition);
+  const onStateChangeRef = useRef(onStateChange);
   const assignmentFailureStartedRef = useRef<number | null>(null);
   const assignmentFailureCountRef = useRef(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [errorTone, setErrorTone] =
     useState<TrackingErrorTone>("error");
+
+  useEffect(() => {
+    onPositionRef.current = onPosition;
+    onStateChangeRef.current = onStateChange;
+  }, [onPosition, onStateChange]);
 
   const clearRetryTimer = useCallback(() => {
     if (retryTimerRef.current != null) {
@@ -214,6 +225,13 @@ export default function DriverLiveTracker({
         resetAssignmentFailure();
         lastPublishRef.current = payload;
         setErrorMessage(null);
+        onPositionRef.current?.(payload);
+        onStateChangeRef.current?.({
+          status: "live",
+          active: true,
+          lastPublishedAt: payload.ts ?? Date.now(),
+          message: null,
+        });
 
         try {
           localStorage.setItem(
@@ -288,15 +306,29 @@ export default function DriverLiveTracker({
             return;
           }
 
+          const message = publicTrackingErrorMessage(code);
           setErrorTone("warning");
-          setErrorMessage(publicTrackingErrorMessage(code));
+          setErrorMessage(message);
+          onStateChangeRef.current?.({
+            status: "warning",
+            active: true,
+            lastPublishedAt: lastPublishRef.current?.ts ?? null,
+            message,
+          });
           return;
         }
 
         clearRetryTimer();
         resetAssignmentFailure();
+        const message = publicTrackingErrorMessage(code);
         setErrorTone("error");
-        setErrorMessage(publicTrackingErrorMessage(code));
+        setErrorMessage(message);
+        onStateChangeRef.current?.({
+          status: "error",
+          active: true,
+          lastPublishedAt: lastPublishRef.current?.ts ?? null,
+          message,
+        });
       }
     },
     [clearRetryTimer, resetAssignmentFailure],
@@ -316,8 +348,15 @@ export default function DriverLiveTracker({
       (position) => void publish(position),
       (error) => {
         if (!activeRef.current) return;
+        const message = `Standortfehler: ${error.message}`;
         setErrorTone("error");
-        setErrorMessage(`Standortfehler: ${error.message}`);
+        setErrorMessage(message);
+        onStateChangeRef.current?.({
+          status: "error",
+          active: true,
+          lastPublishedAt: lastPublishRef.current?.ts ?? null,
+          message,
+        });
       },
       {
         enableHighAccuracy: true,
@@ -334,6 +373,22 @@ export default function DriverLiveTracker({
     activeRef.current = active;
     driverRef.current = driver;
     clearRetryTimer();
+
+    onStateChangeRef.current?.(
+      active
+        ? {
+            status: "starting",
+            active: true,
+            lastPublishedAt: lastPublishRef.current?.ts ?? null,
+            message: null,
+          }
+        : {
+            status: "inactive",
+            active: false,
+            lastPublishedAt: lastPublishRef.current?.ts ?? null,
+            message: null,
+          },
+    );
     resetAssignmentFailure();
 
     const uniqueIds = Array.from(
@@ -406,8 +461,15 @@ export default function DriverLiveTracker({
     }
 
     if (!("geolocation" in navigator)) {
+      const message = "Geolocation nicht verfügbar.";
       setErrorTone("error");
-      setErrorMessage("Geolocation nicht verfügbar.");
+      setErrorMessage(message);
+      onStateChangeRef.current?.({
+        status: "error",
+        active: true,
+        lastPublishedAt: lastPublishRef.current?.ts ?? null,
+        message,
+      });
       return;
     }
 
@@ -416,8 +478,15 @@ export default function DriverLiveTracker({
         (position) => void publish(position),
         (error) => {
           if (!activeRef.current) return;
+          const message = `Standortfehler: ${error.message}`;
           setErrorTone("error");
-          setErrorMessage(`Standortfehler: ${error.message}`);
+          setErrorMessage(message);
+          onStateChangeRef.current?.({
+            status: "error",
+            active: true,
+            lastPublishedAt: lastPublishRef.current?.ts ?? null,
+            message,
+          });
         },
         {
           enableHighAccuracy: true,

@@ -1,6 +1,5 @@
 // app/api/orders/claim/route.ts
 import { NextResponse } from "next/server";
-import { runAfterResponse } from "@/lib/server/after-response";
 import { prisma, getTenantId } from "@/lib/db";
 import {
   getSessionSubject,
@@ -9,10 +8,6 @@ import {
   securityJson,
 } from "@/lib/server/request-security";
 import { sanitizeOrderForDriver } from "@/lib/server/driver-order";
-import {
-  notifyGeneralOrderStatus,
-  notifyNearbyDelivery,
-} from "@/lib/server/general-push";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -705,6 +700,11 @@ function buildClaimPatch(row: any, driver: any, by: string) {
   const rawMeta = ensureObj(row?.meta);
   const history = normalizeHistory(row?.history ?? rawMeta?.history);
 
+  /*
+    Übernehmen bedeutet ab jetzt nur Fahrer-Zuordnung.
+    Der operative Status bleibt unverändert. Erst "Fahrt starten" setzt
+    out_for_delivery und löst Kunden-Push + Live-Tracking aus.
+  */
   const nextHistory = [
     ...history,
     {
@@ -712,11 +712,6 @@ function buildClaimPatch(row: any, driver: any, by: string) {
       action: "driver:claim",
       by,
       note: `Fahrer: ${driverLabel(driver)}`,
-    },
-    {
-      ts: now,
-      action: "status:out_for_delivery",
-      by,
     },
   ];
 
@@ -728,13 +723,12 @@ function buildClaimPatch(row: any, driver: any, by: string) {
     claimedAt: rawMeta?.claimedAt ?? now,
     claimedBy: by,
     lastPos: null,
-    statusManual: "out_for_delivery",
-    statusUpdatedAt: now,
+    lastDriverPos: null,
+    lastDriverPosAt: null,
     history: nextHistory,
   });
 
   const data: Record<string, any> = {
-    status: "out_for_delivery",
     meta: nextMeta,
   };
 
@@ -806,7 +800,33 @@ export async function POST(req: Request) {
     }
 
     const result = await prisma.$transaction(async (tx: any) => {
-      const row = await findOrder(tx, tenantId, id);
+      const initialRow = await findOrder(tx, tenantId, id);
+
+      if (!initialRow) {
+        return {
+          type: "error",
+          status: 404,
+          error: "not_found",
+          message: "Bestellung wurde nicht gefunden.",
+          order: null,
+        };
+      }
+
+      /*
+        Claim artık status değiştirmediği için eski race-lock (status değişimi)
+        kullanılamaz. Postgres row lock ile iki kurye aynı siparişi aynı anda
+        almaya çalıştığında ikinci transaction ilkini bekler ve sonra güncel
+        Fahrer-Zuordnungunu tekrar okur.
+      */
+      await tx.$queryRaw`
+        SELECT "id"
+        FROM "Order"
+        WHERE "tenantId" = ${tenantId}
+          AND "id" = ${String((initialRow as any).id)}
+        FOR UPDATE
+      `;
+
+      const row = await findOrder(tx, tenantId, String((initialRow as any).id));
 
       if (!row) {
         return {
@@ -892,12 +912,6 @@ export async function POST(req: Request) {
         };
       }
 
-      /*
-        Race-condition kilidi:
-        İki kurye aynı anda aynı siparişe basarsa sadece ilk update başarılı olur.
-        İlk başarılı update status'u out_for_delivery yapar.
-        İkinci istek aynı anda gelse bile bu şartı geçemez ve conflict döner.
-      */
       const updateResult = await tx.order.updateMany({
         where: {
           tenantId,
@@ -949,23 +963,6 @@ export async function POST(req: Request) {
       );
     }
 
-    if (!result.alreadyMine && result.order) {
-      const orderForNotification = result.order;
-      const previousStatus = String(result.previousStatus || "");
-      runAfterResponse(async () => {
-        await notifyGeneralOrderStatus(
-          orderForNotification,
-          previousStatus,
-          "out_for_delivery",
-        ).catch((error) => {
-          console.error("[orders/claim] general push failed", error);
-        });
-        await notifyNearbyDelivery(orderForNotification).catch((error) => {
-          console.error("[orders/claim] nearby push failed", error);
-        });
-      });
-    }
-
     const visibleOrder = driverSubject
       ? sanitizeOrderForDriver(result.order)
       : result.order;
@@ -977,7 +974,7 @@ export async function POST(req: Request) {
       alreadyMine: result.alreadyMine === true,
       id: visibleOrder?.id,
       orderId: visibleOrder?.orderId || visibleOrder?.id,
-      status: visibleOrder?.status || "out_for_delivery",
+      status: visibleOrder?.status || "preparing",
       order: visibleOrder,
       item: visibleOrder,
       data: visibleOrder,

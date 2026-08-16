@@ -31,6 +31,20 @@ export type DriverPosition = {
   ts?: number;
 };
 
+export type DriverDeliveryGeo = {
+  lat: number;
+  lng: number;
+  accuracy?: number | null;
+  source?: string | null;
+};
+
+export type DriverTrackingState = {
+  status: "inactive" | "starting" | "live" | "warning" | "error";
+  active: boolean;
+  lastPublishedAt?: number | null;
+  message?: string | null;
+};
+
 export type DriverAssignment = {
   id?: string;
   name?: string;
@@ -100,6 +114,8 @@ export type DriverOrderMeta = {
   driverId?: string | null;
   driverName?: string | null;
   claimedAt?: number | null;
+  deliveryGeo?: DriverDeliveryGeo | null;
+  delivery_geo?: DriverDeliveryGeo | null;
   deliveredAt?: number | null;
   doneAt?: number | null;
   completedAt?: number | null;

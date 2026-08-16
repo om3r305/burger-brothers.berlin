@@ -1288,19 +1288,27 @@ async function handleStatusUpdate(req: Request) {
         assignedDriver?.name ?? metaObj?.driverName ?? assignedDriverId,
         assignedDriverId,
       );
+      const mayStart =
+        ["new", "preparing", "ready"].includes(currentStatus) &&
+        requestedStatus === "out_for_delivery";
       const mayFinish =
         currentStatus === "out_for_delivery" && requestedStatus === "done";
-      const mayRelease =
+      const mayReleaseAfterStart =
         currentStatus === "out_for_delivery" &&
         requestedStatus === "preparing" &&
         body?.clearDriver === true;
+      const mayReleaseBeforeStart =
+        ["new", "preparing", "ready"].includes(currentStatus) &&
+        requestedStatus === currentStatus &&
+        body?.clearDriver === true;
+      const mayRelease = mayReleaseAfterStart || mayReleaseBeforeStart;
 
       if (
         !statusProvided ||
         etaPatch ||
         etaMinPatch ||
         plannedPatch ||
-        (!mayFinish && !mayRelease)
+        (!mayStart && !mayFinish && !mayRelease)
       ) {
         return securityJson(
           { ok: false, error: "driver_status_transition_not_allowed" },
@@ -1310,17 +1318,22 @@ async function handleStatusUpdate(req: Request) {
 
       // İstemciden gelen Fahrer/by/meta alanları yok sayılır. Kimlik imzalı
       // oturum ve siparişteki mevcut atamadan türetilir.
-      effectiveBody = mayRelease
+      effectiveBody = mayStart
         ? {
-            status: "preparing",
+            status: "out_for_delivery",
             by: driverName,
-            clearDriver: true,
-            driver: null,
           }
-        : {
-            status: "done",
-            by: driverName,
-          };
+        : mayRelease
+          ? {
+              status: mayReleaseBeforeStart ? currentStatus : "preparing",
+              by: driverName,
+              clearDriver: true,
+              driver: null,
+            }
+          : {
+              status: "done",
+              by: driverName,
+            };
     }
     const next = requestedStatus || currentStatus;
 

@@ -749,6 +749,25 @@ export function getOrderRouteAddress(order: DriverOrder) {
   ).trim();
 }
 
+export function orderDeliveryGeo(order: DriverOrder) {
+  const raw = cleanObj(order.meta?.deliveryGeo ?? order.meta?.delivery_geo);
+  const lat = Number(raw.lat ?? raw.latitude);
+  const lng = Number(raw.lng ?? raw.lon ?? raw.longitude);
+
+  if (
+    !Number.isFinite(lat) ||
+    !Number.isFinite(lng) ||
+    lat < -90 ||
+    lat > 90 ||
+    lng < -180 ||
+    lng > 180
+  ) {
+    return null;
+  }
+
+  return { lat, lng };
+}
+
 function routeRankForOrder(order: DriverOrder, priority: string[]) {
   const plz = orderPlzValue(order);
   const index = priority.indexOf(plz);
@@ -1446,6 +1465,50 @@ export async function claimOrderOnServer(
   window.dispatchEvent(new CustomEvent("bb:refresh-orders"));
 
   return claimed;
+}
+
+export async function startDeliveryOnServer(
+  order: DriverOrder,
+  current: DriverIdentity,
+) {
+  const response = await fetch("/api/orders/status", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      accept: "application/json",
+    },
+    body: JSON.stringify({
+      id: order.id,
+      orderId: order.orderId || order.id,
+      status: "out_for_delivery",
+      nextStatus: "out_for_delivery",
+      by: current.name,
+    }),
+  });
+
+  const data: unknown = await response.json().catch(() => ({}));
+  const record = cleanObj(data);
+
+  if (!response.ok || record.ok === false) {
+    throw new Error(
+      stringValue(record.message || record.error) ||
+        "Lieferung konnte nicht gestartet werden.",
+    );
+  }
+
+  const started = normalizeOrdersPayload([
+    record.order || record.item || record.data,
+  ])[0];
+
+  if (!started?.id) {
+    throw new Error(
+      "Lieferung wurde gestartet, aber die Server-Antwort war unvollständig.",
+    );
+  }
+
+  upsertOrder(toStoredOrder(started));
+  window.dispatchEvent(new CustomEvent("bb:refresh-orders"));
+  return started;
 }
 
 export async function updateOrderStatusOnServer(

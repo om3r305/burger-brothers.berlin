@@ -72,9 +72,13 @@ export function decideOrderStatusTransition(params: {
   }
 
   if (role === "driver") {
-    const allowed =
+    const startsDelivery =
+      ["new", "preparing", "ready"].includes(current) &&
+      next === "out_for_delivery";
+    const finishesOrReleases =
       current === "out_for_delivery" &&
       (next === "done" || next === "preparing");
+    const allowed = startsDelivery || finishesOrReleases;
 
     return {
       allowed,
