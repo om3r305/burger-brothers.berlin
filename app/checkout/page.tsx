@@ -3875,6 +3875,8 @@ export default function CheckoutPage() {
                 )}
               </div>
 
+              {!currentLocationSuggestion && (
+                <>
               <div className="grid grid-cols-2 gap-3 md:col-span-2">
                 <Field label="PLZ *" htmlFor="checkout-zip">
                   <input
@@ -4034,6 +4036,8 @@ export default function CheckoutPage() {
                   />
                 </Field>
               </div>
+                </>
+              )}
             </>
           )}
 
