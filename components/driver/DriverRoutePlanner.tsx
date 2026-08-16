@@ -38,7 +38,9 @@ type Props = {
   nowMs: number;
   busy: boolean;
   mapPreferenceLabel: string;
-  onStart: (orders: DriverOrder[]) => Promise<unknown>;
+  onStart: (
+    orders: DriverOrder[],
+  ) => Promise<{ started: number; errors: number } | void>;
   onNavigate: (order: DriverOrder) => void;
   onChangeMapPreference: () => void;
 };
@@ -191,6 +193,89 @@ function formatDistance(meters: number) {
 function formatDuration(ms: number) {
   if (!Number.isFinite(ms) || ms <= 0) return "–";
   return `${Math.max(1, Math.ceil(ms / 60_000))} Min.`;
+}
+
+function safeDriverKey(value: unknown) {
+  return (
+    String(value || "driver")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]/g, "-")
+      .replace(/-+/g, "-")
+      .slice(0, 64) || "driver"
+  );
+}
+
+function berlinDayKey() {
+  try {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Europe/Berlin",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(new Date());
+
+    const year = parts.find((part) => part.type === "year")?.value || "0000";
+    const month = parts.find((part) => part.type === "month")?.value || "00";
+    const day = parts.find((part) => part.type === "day")?.value || "00";
+    return `${year}-${month}-${day}`;
+  } catch {
+    return new Date().toISOString().slice(0, 10);
+  }
+}
+
+function recordDailyRouteKm(
+  driver: DriverIdentity,
+  signature: string,
+  meters: number,
+) {
+  if (
+    typeof window === "undefined" ||
+    !Number.isFinite(meters) ||
+    meters <= 0 ||
+    !signature
+  ) {
+    return;
+  }
+
+  const key = `bb_driver_route_km_v1_${berlinDayKey()}_${safeDriverKey(
+    driver.id || driver.name,
+  )}`;
+
+  try {
+    const raw = JSON.parse(localStorage.getItem(key) || "{}");
+    const signatures = Array.isArray(raw?.signatures)
+      ? raw.signatures.map(String)
+      : [];
+
+    if (signatures.includes(signature)) return;
+
+    const previousMeters = Number(raw?.meters);
+    const nextMeters =
+      (Number.isFinite(previousMeters) && previousMeters > 0
+        ? previousMeters
+        : 0) + meters;
+
+    localStorage.setItem(
+      key,
+      JSON.stringify({
+        meters: nextMeters,
+        signatures: [...signatures, signature].slice(-100),
+        updatedAt: Date.now(),
+      }),
+    );
+
+    window.dispatchEvent(
+      new CustomEvent("bb:driver-km-updated", {
+        detail: {
+          driverId: String(driver.id || driver.name || ""),
+          meters: nextMeters,
+        },
+      }),
+    );
+  } catch {
+    // KM display is secondary and must never block a delivery.
+  }
 }
 
 function driverPositionFromGeolocation(position: GeolocationPosition): DriverPosition {
@@ -1059,6 +1144,33 @@ export function DriverRoutePlanner({
             ? trackingState.message || "GPS-Signal ist unterbrochen."
             : "GPS wird gestartet…";
 
+  const startAndRecord = useCallback(async () => {
+    const firstTourStart = startedOrders.length === 0;
+    const routeSignature = ordered
+      .map((order) => String(order.id))
+      .join("|");
+    const plannedMeters = routeSummary?.distanceMeters ?? 0;
+
+    const result = await onStart(ordered);
+    const started = Number(result?.started || 0);
+    const errors = Number(result?.errors || 0);
+
+    if (
+      firstTourStart &&
+      started > 0 &&
+      errors === 0 &&
+      plannedMeters > 0
+    ) {
+      recordDailyRouteKm(driver, routeSignature, plannedMeters);
+    }
+  }, [
+    driver,
+    onStart,
+    ordered,
+    routeSummary?.distanceMeters,
+    startedOrders.length,
+  ]);
+
   if (!orders.length) return null;
 
   const fullscreenStop = activeOrder || ordered[0] || null;
@@ -1250,7 +1362,7 @@ export function DriverRoutePlanner({
                 <button
                   type="button"
                   disabled={busy || sorting}
-                  onClick={() => void onStart(ordered)}
+                  onClick={() => void startAndRecord()}
                   className="rounded-2xl bg-emerald-300 px-3 py-3 text-sm font-black text-slate-950 disabled:opacity-50"
                 >
                   {busy
@@ -1436,7 +1548,7 @@ export function DriverRoutePlanner({
           <button
             type="button"
             disabled={busy || sorting}
-            onClick={() => void onStart(ordered)}
+            onClick={() => void startAndRecord()}
             className="w-full rounded-xl bg-emerald-300 px-4 py-3 text-sm font-black text-slate-950 shadow-lg hover:bg-emerald-200 disabled:opacity-50"
           >
             {busy

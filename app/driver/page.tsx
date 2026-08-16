@@ -255,8 +255,9 @@ export default function DriverPage() {
         });
       }
 
-      await driverOrders.startMany(routeOrders);
+      const result = await driverOrders.startMany(routeOrders);
       setTab("mine");
+      return result;
     },
     [driverOrders, feedback],
   );
