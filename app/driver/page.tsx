@@ -530,6 +530,7 @@ export default function DriverPage() {
                 mapPreferenceLabel={maps.preferenceLabel}
                 onStart={startRoute}
                 onNavigate={openMaps}
+                onOpenRoute={maps.openOrderedRoute}
                 onChangeMapPreference={maps.changePreference}
               />
 

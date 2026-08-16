@@ -42,6 +42,7 @@ type Props = {
     orders: DriverOrder[],
   ) => Promise<{ started: number; errors: number } | void>;
   onNavigate: (order: DriverOrder) => void;
+  onOpenRoute: (orders: DriverOrder[]) => boolean;
   onChangeMapPreference: () => void;
 };
 
@@ -327,6 +328,7 @@ export function DriverRoutePlanner({
   mapPreferenceLabel,
   onStart,
   onNavigate,
+  onOpenRoute,
   onChangeMapPreference,
 }: Props) {
   const mapNodeRef = useRef<HTMLDivElement | null>(null);
@@ -1163,8 +1165,15 @@ export function DriverRoutePlanner({
     ) {
       recordDailyRouteKm(driver, routeSignature, plannedMeters);
     }
+
+    // Only leave Driver after the server confirmed a clean trip start.
+    // The route opens in the exact A/B/C/D order currently shown above.
+    if (started > 0 && errors === 0) {
+      onOpenRoute(ordered);
+    }
   }, [
     driver,
+    onOpenRoute,
     onStart,
     ordered,
     routeSummary?.distanceMeters,

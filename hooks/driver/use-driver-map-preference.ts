@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   detectDriverMapPlatform,
   DRIVER_MAP_PREFERENCE_KEY,
+  getOrderRouteAddress,
   mapProviderLabel,
   mapProviderOptions,
   openMapPreview,
@@ -26,6 +27,26 @@ type Notify = (
 
 function isDriverMapProvider(value: unknown): value is DriverMapProvider {
   return value === "apple" || value === "google" || value === "system";
+}
+
+function orderedRouteAddresses(orders: DriverOrder[]) {
+  const seen = new Set<string>();
+  const addresses: string[] = [];
+
+  for (const order of orders) {
+    const address = String(getOrderRouteAddress(order) || "").trim();
+    const key = address
+      .toLocaleLowerCase("de-DE")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    if (!address || !key || seen.has(key)) continue;
+
+    seen.add(key);
+    addresses.push(address);
+  }
+
+  return addresses;
 }
 
 function providerSupported(
@@ -166,6 +187,17 @@ export function useDriverMapPreference({
     [requestOpen],
   );
 
+  // DriverRoutePlanner already calculated/selected A/B/C/D.
+  // Do NOT sort again here; pass that exact stop order to the selected maps app.
+  const openOrderedRoute = useCallback(
+    (orders: DriverOrder[]) =>
+      requestOpen({
+        addresses: orderedRouteAddresses(orders),
+        source: "route",
+      }),
+    [requestOpen],
+  );
+
   const selectProvider = useCallback(
     (provider: DriverMapProvider) => {
       const request = pendingRequest;
@@ -227,6 +259,7 @@ export function useDriverMapPreference({
     chooserRequest: pendingRequest,
     openAddress,
     openRoute,
+    openOrderedRoute,
     selectProvider,
     cancelChooser,
     changePreference,
