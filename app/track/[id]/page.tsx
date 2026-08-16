@@ -849,7 +849,9 @@ export default function TrackDetailPage() {
                     <div className="mt-1 text-xs text-emerald-100/80">
                       {routeInfo.etaReliable
                         ? `Noch ca. ${Math.max(1, Math.ceil(routeInfo.durationSeconds / 60))} Min.`
-                        : `${routeInfo.activeOrderCount} aktive Lieferstopps · direkte Route wird angezeigt.`}
+                        : routeInfo.etaReliabilityReason === "multiple_stops"
+                          ? `${routeInfo.activeOrderCount} aktive Lieferstopps · direkte Route wird angezeigt.`
+                          : `Live-Route aktiv · Fahrzeit ca. ${Math.max(1, Math.ceil(routeInfo.durationSeconds / 60))} Min.`}
                       {routeInfo.distanceMeters > 0
                         ? ` · ${(routeInfo.distanceMeters / 1000)
                             .toFixed(routeInfo.distanceMeters >= 10_000 ? 0 : 1)

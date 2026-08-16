@@ -13,6 +13,8 @@ export type TrackingRouteInfo = {
   generatedAt: number;
   activeOrderCount: number;
   etaReliable: boolean;
+  routeSource: "server" | "browser";
+  etaReliabilityReason?: "multiple_stops" | "browser_fallback";
 };
 
 type Props = {
@@ -155,6 +157,15 @@ function haversineMeters(a: TrackingPoint, b: TrackingPoint) {
     Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
 
   return 2 * radius * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+function asTrackingPoint(value: any): TrackingPoint | null {
+  if (!value) return null;
+
+  const lat = Number(typeof value.lat === "function" ? value.lat() : value.lat);
+  const lng = Number(typeof value.lng === "function" ? value.lng() : value.lng);
+
+  return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null;
 }
 
 function formatDistance(meters: number) {
@@ -406,41 +417,7 @@ export default function GoogleDeliveryMap({
 
     routeBusyRef.current = true;
 
-    try {
-      const response = await fetch("/api/track/route", {
-        method: "POST",
-        cache: "no-store",
-        credentials: "same-origin",
-        headers: {
-          "content-type": "application/json",
-          accept: "application/json",
-          "x-order-tracking-token": trackingToken,
-        },
-        body: JSON.stringify({
-          origin: {
-            lat: position.lat,
-            lng: position.lng,
-          },
-        }),
-      });
-
-      const data = await response.json().catch(() => ({}));
-
-      if (!response.ok || data?.ok === false) {
-        if (response.status !== 409 && response.status !== 404) {
-          setRouteError("Route wird gleich erneut berechnet.");
-        }
-        return;
-      }
-
-      const encodedPolyline = String(data?.encodedPolyline || "");
-      const distanceMeters = Number(data?.distanceMeters);
-      const durationSeconds = Number(data?.durationSeconds);
-      const generatedAt = Number(data?.generatedAt || Date.now());
-      const activeOrderCount = Math.max(1, Number(data?.activeOrderCount || 1));
-      const etaReliable = data?.etaReliable !== false;
-      const path = encodedPolyline ? decodePolyline(encodedPolyline) : [];
-
+    const applyRoute = (path: TrackingPoint[], info: TrackingRouteInfo) => {
       const maps = mapsRef.current;
       const map = mapRef.current;
 
@@ -463,20 +440,121 @@ export default function GoogleDeliveryMap({
         fitMap(path);
       }
 
-      const info = {
-        distanceMeters: Number.isFinite(distanceMeters) ? distanceMeters : 0,
-        durationSeconds: Number.isFinite(durationSeconds) ? durationSeconds : 0,
-        generatedAt: Number.isFinite(generatedAt) ? generatedAt : Date.now(),
-        activeOrderCount: Number.isFinite(activeOrderCount) ? activeOrderCount : 1,
-        etaReliable,
-      } satisfies TrackingRouteInfo;
-
       lastRouteAtRef.current = Date.now();
       lastRouteOriginRef.current = { lat: position.lat, lng: position.lng };
       setRouteInfo(info);
       onRouteInfoRef.current?.(info);
       setRouteError("");
+    };
+
+    const tryBrowserRoute = async () => {
+      const maps = mapsRef.current || (await loadGoogleMaps());
+      if (!maps?.importLibrary) return false;
+
+      const routesLibrary = await maps.importLibrary("routes");
+      const Route = routesLibrary?.Route;
+      if (!Route?.computeRoutes) return false;
+
+      const result = await Route.computeRoutes({
+        origin: { lat: position.lat, lng: position.lng },
+        destination: { lat: destination.lat, lng: destination.lng },
+        travelMode: "DRIVING",
+        fields: ["path", "distanceMeters", "durationMillis"],
+      });
+
+      const route = Array.isArray(result?.routes) ? result.routes[0] : null;
+      const path = Array.isArray(route?.path)
+        ? route.path.map(asTrackingPoint).filter(Boolean) as TrackingPoint[]
+        : [];
+      const distanceMeters = Number(route?.distanceMeters);
+      const durationMillis = Number(route?.durationMillis);
+
+      if (
+        !path.length ||
+        !Number.isFinite(distanceMeters) ||
+        !Number.isFinite(durationMillis)
+      ) {
+        return false;
+      }
+
+      applyRoute(path, {
+        distanceMeters: Math.max(0, Math.round(distanceMeters)),
+        durationSeconds: Math.max(0, Math.round(durationMillis / 1000)),
+        generatedAt: Date.now(),
+        activeOrderCount: 0,
+        etaReliable: false,
+        routeSource: "browser",
+        etaReliabilityReason: "browser_fallback",
+      });
+      return true;
+    };
+
+    try {
+      const response = await fetch("/api/track/route", {
+        method: "POST",
+        cache: "no-store",
+        credentials: "same-origin",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json",
+          "x-order-tracking-token": trackingToken,
+        },
+        body: JSON.stringify({
+          origin: {
+            lat: position.lat,
+            lng: position.lng,
+          },
+        }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok || data?.ok === false) {
+        const fallbackEligible =
+          response.status === 429 ||
+          response.status >= 500 ||
+          data?.error === "maps_not_configured" ||
+          data?.error === "google_routes_failed" ||
+          data?.error === "route_unavailable";
+
+        if (fallbackEligible) {
+          try {
+            if (await tryBrowserRoute()) return;
+          } catch {
+            // Server route stays primary; browser route is best-effort only.
+          }
+        }
+
+        if (response.status !== 409 && response.status !== 404) {
+          setRouteError("Route wird gleich erneut berechnet.");
+        }
+        return;
+      }
+
+      const encodedPolyline = String(data?.encodedPolyline || "");
+      const distanceMeters = Number(data?.distanceMeters);
+      const durationSeconds = Number(data?.durationSeconds);
+      const generatedAt = Number(data?.generatedAt || Date.now());
+      const activeOrderCount = Math.max(1, Number(data?.activeOrderCount || 1));
+      const etaReliable = data?.etaReliable !== false;
+      const path = encodedPolyline ? decodePolyline(encodedPolyline) : [];
+
+      applyRoute(path, {
+        distanceMeters: Number.isFinite(distanceMeters) ? distanceMeters : 0,
+        durationSeconds: Number.isFinite(durationSeconds) ? durationSeconds : 0,
+        generatedAt: Number.isFinite(generatedAt) ? generatedAt : Date.now(),
+        activeOrderCount: Number.isFinite(activeOrderCount) ? activeOrderCount : 1,
+        etaReliable,
+        routeSource: "server",
+        etaReliabilityReason: etaReliable ? undefined : "multiple_stops",
+      });
     } catch {
+      try {
+        if (await tryBrowserRoute()) return;
+      } catch {
+        // Keep the existing retry UX if both route providers are unavailable.
+      }
+
       if (mountedRef.current) {
         setRouteError("Route wird gleich erneut berechnet.");
       }
@@ -548,7 +626,9 @@ export default function GoogleDeliveryMap({
 
       {routeInfo && !routeInfo.etaReliable && (
         <div className="border-t border-amber-300/15 bg-amber-500/10 px-3 py-2 text-xs text-amber-100/90">
-          * Der Fahrer hat mehrere aktive Lieferungen. Angezeigt wird die direkte Route zu Ihnen; die tatsächliche Ankunft kann abweichen.
+          {routeInfo.etaReliabilityReason === "multiple_stops"
+            ? "* Der Fahrer hat mehrere aktive Lieferungen. Angezeigt wird die direkte Route zu Ihnen; die tatsächliche Ankunft kann abweichen."
+            : "* Live-Fahrzeit wird direkt über Google Maps berechnet. Die tatsächliche Ankunft kann je nach Lieferreihenfolge abweichen."}
         </div>
       )}
 

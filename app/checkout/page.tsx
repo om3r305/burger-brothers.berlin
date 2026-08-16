@@ -133,9 +133,15 @@ type GoogleGeocoderResult = {
   };
 };
 
+type GoogleGeocoderRequest = {
+  location?: { lat: number; lng: number };
+  address?: string;
+  region?: string;
+};
+
 type GoogleGeocoder = {
   geocode: (
-    request: { location: { lat: number; lng: number } },
+    request: GoogleGeocoderRequest,
     callback: (
       results: GoogleGeocoderResult[] | null,
       status: string,
@@ -326,6 +332,88 @@ async function reverseGeocodePosition(
     city: reverseGeocoderCity(components),
     country: googleComponent(components, "country", true),
     formattedAddress: String(result.formatted_address || "").trim(),
+    lat,
+    lng,
+  };
+}
+
+async function forwardGeocodeDeliveryAddress(params: {
+  street: string;
+  house: string;
+  zip: string;
+  city: string;
+}): Promise<ReverseGeocodedAddress> {
+  const maps = await loadGoogleMapsForGeocoding();
+  const geocoder = new maps.Geocoder();
+  const expectedZip = normalizeCheckoutZip(params.zip);
+  const expectedStreet = normalizeGoogleStreetChoice(params.street);
+  const expectedHouse = String(params.house || "")
+    .replace(/\s+/g, "")
+    .toLocaleLowerCase("de-DE");
+
+  const results = await new Promise<GoogleGeocoderResult[]>((resolve, reject) => {
+    geocoder.geocode(
+      {
+        address: `${params.street} ${params.house}, ${expectedZip} ${params.city || "Berlin"}, Deutschland`,
+        region: "DE",
+      },
+      (items, status) => {
+        if (status === "OK" && Array.isArray(items) && items.length > 0) {
+          resolve(items);
+          return;
+        }
+
+        reject(new Error("Die Lieferadresse konnte nicht geocodiert werden."));
+      },
+    );
+  });
+
+  const exact = results.find((item) => {
+    const components = item.address_components || [];
+    const country = googleComponent(components, "country", true);
+    const zip = googleComponent(components, "postal_code")
+      .replace(/\D/g, "")
+      .slice(0, 5);
+    const street = googleComponent(components, "route");
+    const house = googleComponent(components, "street_number")
+      .replace(/\s+/g, "")
+      .toLocaleLowerCase("de-DE");
+    const location = item.geometry?.location;
+    const lat = Number(location?.lat?.());
+    const lng = Number(location?.lng?.());
+
+    return Boolean(
+      country === "DE" &&
+        zip === expectedZip &&
+        normalizeGoogleStreetChoice(street) === expectedStreet &&
+        house === expectedHouse &&
+        Number.isFinite(lat) &&
+        Number.isFinite(lng),
+    );
+  });
+
+  if (!exact) {
+    throw new Error("Die Lieferadresse konnte nicht eindeutig geocodiert werden.");
+  }
+
+  const components = exact.address_components || [];
+  const location = exact.geometry?.location;
+  const lat = Number(location?.lat?.());
+  const lng = Number(location?.lng?.());
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    throw new Error("Für die Lieferadresse wurden keine Koordinaten gefunden.");
+  }
+
+  return {
+    street: googleComponent(components, "route") || params.street,
+    house: googleComponent(components, "street_number") || params.house,
+    zip: googleComponent(components, "postal_code")
+      .replace(/\D/g, "")
+      .slice(0, 5),
+    city: reverseGeocoderCity(components) || params.city || "Berlin",
+    country: googleComponent(components, "country", true),
+    formattedAddress: String(exact.formatted_address || "").trim(),
     lat,
     lng,
   };
@@ -2220,6 +2308,11 @@ export default function CheckoutPage() {
     key: string;
     validatedAt: number;
     result: DeliveryAddressValidation;
+  } | null>(null);
+  const deliveryGeocodeCacheRef = useRef<{
+    key: string;
+    resolvedAt: number;
+    result: ReverseGeocodedAddress;
   } | null>(null);
 
   useEffect(() => {
@@ -5292,6 +5385,7 @@ export default function CheckoutPage() {
     let cityFinal = String(addr.city || "").trim() || "Berlin";
     let deliveryValidation: DeliveryAddressValidation | null = null;
     let deliveryValidationUnavailable = false;
+    let deliveryForwardGeocode: ReverseGeocodedAddress | null = null;
 
     if (orderMode === "delivery" && !officialStreetForOrder) {
       throw new Error("Bitte Straße aus der Liste auswählen.");
@@ -5398,6 +5492,54 @@ export default function CheckoutPage() {
       }
     }
 
+    if (
+      orderMode === "delivery" &&
+      !(
+        deliveryValidation &&
+        deliveryValidation.lat != null &&
+        deliveryValidation.lng != null
+      )
+    ) {
+      const geocodeKey = [
+        normalizeCheckoutZip(zipFinal),
+        normalizeGoogleStreetChoice(streetFinal),
+        houseFinal.replace(/\s+/g, "").toLocaleLowerCase("de-DE"),
+        cityFinal.toLocaleLowerCase("de-DE"),
+      ].join("|");
+      const cachedGeocode = deliveryGeocodeCacheRef.current;
+      const geocodeCacheIsFresh = Boolean(
+        cachedGeocode &&
+          cachedGeocode.key === geocodeKey &&
+          ts - cachedGeocode.resolvedAt < 30 * 60_000,
+      );
+
+      try {
+        deliveryForwardGeocode = geocodeCacheIsFresh
+          ? cachedGeocode?.result || null
+          : await forwardGeocodeDeliveryAddress({
+              street: streetFinal,
+              house: houseFinal,
+              zip: zipFinal,
+              city: cityFinal,
+            });
+
+        if (!geocodeCacheIsFresh && deliveryForwardGeocode) {
+          deliveryGeocodeCacheRef.current = {
+            key: geocodeKey,
+            resolvedAt: ts,
+            result: deliveryForwardGeocode,
+          };
+        }
+      } catch (error: unknown) {
+        /*
+         * Koordinatlar Track için zenginleştirmedir; geocoding arızası siparişi
+         * engellemez. GPS ile onaylanmış bir hedef varsa aşağıdaki fallback
+         * onu kullanır.
+         */
+        reportCheckoutError("delivery-geocode-unavailable", error);
+      }
+    }
+
     const plannedValue =
       orderMode === "pickup"
         ? plannedEnabledVirtual && normalizePlannedHHMM(planned.timePickup)
@@ -5493,18 +5635,28 @@ export default function CheckoutPage() {
             hasInferredComponents: deliveryValidation.hasInferredComponents,
             hasReplacedComponents: deliveryValidation.hasReplacedComponents,
           }
-        : acceptedGeoMatchesFinalAddress && acceptedDeliveryGeo
+        : deliveryForwardGeocode
           ? {
-              lat: acceptedDeliveryGeo.lat,
-              lng: acceptedDeliveryGeo.lng,
-              source: "device_geolocation_confirmed",
+              lat: deliveryForwardGeocode.lat,
+              lng: deliveryForwardGeocode.lng,
+              source: "google_js_geocoder",
               validatedAt: ts,
-              formattedAddress: acceptedDeliveryGeo.formattedAddress || null,
-              accuracyMeters: acceptedDeliveryGeo.accuracyMeters,
-              addressComplete: Boolean(acceptedDeliveryGeo.house),
+              formattedAddress: deliveryForwardGeocode.formattedAddress || null,
+              addressComplete: Boolean(deliveryForwardGeocode.house),
               googleValidationUnavailable: deliveryValidationUnavailable,
             }
-          : null;
+          : acceptedGeoMatchesFinalAddress && acceptedDeliveryGeo
+            ? {
+                lat: acceptedDeliveryGeo.lat,
+                lng: acceptedDeliveryGeo.lng,
+                source: "device_geolocation_confirmed",
+                validatedAt: ts,
+                formattedAddress: acceptedDeliveryGeo.formattedAddress || null,
+                accuracyMeters: acceptedDeliveryGeo.accuracyMeters,
+                addressComplete: Boolean(acceptedDeliveryGeo.house),
+                googleValidationUnavailable: deliveryValidationUnavailable,
+              }
+            : null;
 
     const orderBase: CheckoutOrderDraft = {
       ts,
