@@ -724,14 +724,26 @@ export default function TrackDetailPage() {
     routeInfo && routeInfo.durationSeconds > 0
       ? Math.max(1, Math.ceil(routeInfo.durationSeconds / 60))
       : null;
+  const positionAgeMs = pos?.ts
+    ? Math.max(0, now - (pos.ts || 0))
+    : Number.POSITIVE_INFINITY;
+  const gpsFreshness =
+    !pos
+      ? "missing"
+      : positionAgeMs <= 20_000
+        ? "live"
+        : positionAgeMs <= 60_000
+          ? "updating"
+          : "stale";
   const displayEtaMin =
     order?.status === "out_for_delivery" &&
+    gpsFreshness !== "stale" &&
     routeEtaMin != null &&
     routeInfo?.etaReliable !== false
       ? routeEtaMin
       : leftMin;
 
-  const lastSeenTxt = pos?.ts ? msAgoText(now - (pos.ts || 0)) : null;
+  const lastSeenTxt = pos?.ts ? msAgoText(positionAgeMs) : null;
   const displayId = order?.id || idStr;
 
   useEffect(() => {
@@ -818,14 +830,43 @@ export default function TrackDetailPage() {
                 </span>
 
                 {order.status !== "done" && order.status !== "cancelled" && (
-                  <span className={`${chip} border-sky-400/60 bg-sky-500/20 text-sky-100`}>
-                    ETA: <b className="ml-1 tabular-nums">{pad2(displayEtaMin)}′</b>
+                  <span
+                    className={`${chip} ${
+                      order.status === "out_for_delivery" && gpsFreshness === "stale"
+                        ? "border-rose-400/60 bg-rose-500/15 text-rose-100"
+                        : gpsFreshness === "updating"
+                          ? "border-amber-400/60 bg-amber-500/15 text-amber-100"
+                          : "border-sky-400/60 bg-sky-500/20 text-sky-100"
+                    }`}
+                  >
+                    {order.status === "out_for_delivery" && gpsFreshness === "stale" ? (
+                      <>
+                        ETA: <b className="ml-1">pausiert</b>
+                      </>
+                    ) : (
+                      <>
+                        ETA: <b className="ml-1 tabular-nums">{pad2(displayEtaMin)}′</b>
+                      </>
+                    )}
                   </span>
                 )}
 
                 {lastSeenTxt && order.status !== "done" && order.status !== "cancelled" && (
-                  <span className={`${chip} border-white/30 bg-white/10 text-white/90`}>
-                    Zuletzt gesehen: <b className="ml-1">{lastSeenTxt}</b>
+                  <span
+                    className={`${chip} ${
+                      gpsFreshness === "live"
+                        ? "border-emerald-400/50 bg-emerald-500/15 text-emerald-100"
+                        : gpsFreshness === "updating"
+                          ? "border-amber-400/50 bg-amber-500/15 text-amber-100"
+                          : "border-rose-400/50 bg-rose-500/15 text-rose-100"
+                    }`}
+                  >
+                    {gpsFreshness === "live"
+                      ? "Live:"
+                      : gpsFreshness === "updating"
+                        ? "Standort wird aktualisiert:"
+                        : "Letzter Standort:"}{" "}
+                    <b>{lastSeenTxt}</b>
                   </span>
                 )}
               </div>
@@ -845,7 +886,13 @@ export default function TrackDetailPage() {
               {order.status === "out_for_delivery" && (
                 <div className="mt-3 rounded-xl border border-emerald-300/20 bg-emerald-500/10 p-3 text-sm text-emerald-100">
                   <div className="font-semibold">🚚 Ihre Bestellung ist unterwegs.</div>
-                  {routeInfo && (
+                  {gpsFreshness === "stale" && (
+                    <div className="mt-1 text-xs text-rose-100/90">
+                      Der Fahrerstandort wurde seit {lastSeenTxt || "über 1 Min."} nicht aktualisiert.
+                      Fahrzeit und ETA werden nach dem nächsten GPS-Signal neu berechnet.
+                    </div>
+                  )}
+                  {gpsFreshness !== "stale" && routeInfo && (
                     <div className="mt-1 text-xs text-emerald-100/80">
                       {routeInfo.etaReliable
                         ? `Noch ca. ${Math.max(1, Math.ceil(routeInfo.durationSeconds / 60))} Min.`
@@ -889,6 +936,7 @@ export default function TrackDetailPage() {
                     trackingToken={idStr}
                     active
                     position={pos}
+                    positionAgeMs={positionAgeMs}
                     destination={deliveryDestination}
                     lastSeenText={lastSeenTxt}
                     onRouteInfo={setRouteInfo}

@@ -21,6 +21,7 @@ type Props = {
   trackingToken: string;
   active: boolean;
   position: (TrackingPoint & { ts?: number }) | null;
+  positionAgeMs?: number;
   destination: TrackingPoint | null;
   lastSeenText?: string | null;
   onRouteInfo?: (info: TrackingRouteInfo | null) => void;
@@ -223,6 +224,7 @@ export default function GoogleDeliveryMap({
   trackingToken,
   active,
   position,
+  positionAgeMs,
   destination,
   lastSeenText,
   onRouteInfo,
@@ -243,6 +245,19 @@ export default function GoogleDeliveryMap({
   const [mapError, setMapError] = useState("");
   const [routeError, setRouteError] = useState("");
   const [routeInfo, setRouteInfo] = useState<TrackingRouteInfo | null>(null);
+
+  const gpsAgeMs =
+    Number.isFinite(Number(positionAgeMs)) && Number(positionAgeMs) >= 0
+      ? Number(positionAgeMs)
+      : Number.POSITIVE_INFINITY;
+  const gpsFreshness =
+    !position
+      ? "missing"
+      : gpsAgeMs <= 20_000
+        ? "live"
+        : gpsAgeMs <= 60_000
+          ? "updating"
+          : "stale";
 
   useEffect(() => {
     onRouteInfoRef.current = onRouteInfo;
@@ -400,6 +415,7 @@ export default function GoogleDeliveryMap({
 
   const fetchRoute = useCallback(async () => {
     if (!active || !trackingToken || !position || !destination) return;
+    if (gpsFreshness === "stale" || gpsFreshness === "missing") return;
     if (routeBusyRef.current) return;
 
     const now = Date.now();
@@ -428,7 +444,7 @@ export default function GoogleDeliveryMap({
             path,
             geodesic: false,
             strokeColor: "#38bdf8",
-            strokeOpacity: 0.95,
+            strokeOpacity: gpsFreshness === "live" ? 0.95 : 0.58,
             strokeWeight: 6,
             clickable: false,
             zIndex: 5,
@@ -561,7 +577,7 @@ export default function GoogleDeliveryMap({
     } finally {
       routeBusyRef.current = false;
     }
-  }, [active, destination, fitMap, position, trackingToken]);
+  }, [active, destination, fitMap, gpsFreshness, position, trackingToken]);
 
   useEffect(() => {
     void fetchRoute();
@@ -594,9 +610,30 @@ export default function GoogleDeliveryMap({
         )}
 
         {position && (
-          <div className="absolute left-3 top-3 rounded-full border border-emerald-300/30 bg-emerald-950/85 px-3 py-1.5 text-xs font-semibold text-emerald-100 shadow-lg backdrop-blur">
-            <span className="mr-1.5 inline-block h-2 w-2 rounded-full bg-emerald-400 align-middle shadow-[0_0_12px_rgba(52,211,153,.9)]" />
-            LIVE{lastSeenText ? ` · vor ${lastSeenText}` : ""}
+          <div
+            className={`absolute left-3 top-3 rounded-full border px-3 py-1.5 text-xs font-semibold shadow-lg backdrop-blur ${
+              gpsFreshness === "live"
+                ? "border-emerald-300/30 bg-emerald-950/85 text-emerald-100"
+                : gpsFreshness === "updating"
+                  ? "border-amber-300/30 bg-amber-950/85 text-amber-100"
+                  : "border-rose-300/30 bg-rose-950/85 text-rose-100"
+            }`}
+          >
+            <span
+              className={`mr-1.5 inline-block h-2 w-2 rounded-full align-middle ${
+                gpsFreshness === "live"
+                  ? "bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,.9)]"
+                  : gpsFreshness === "updating"
+                    ? "bg-amber-400 shadow-[0_0_10px_rgba(251,191,36,.75)]"
+                    : "bg-rose-400 shadow-[0_0_10px_rgba(251,113,133,.75)]"
+              }`}
+            />
+            {gpsFreshness === "live"
+              ? "LIVE"
+              : gpsFreshness === "updating"
+                ? "Standort wird aktualisiert"
+                : "Letzter Standort"}
+            {lastSeenText ? ` · vor ${lastSeenText}` : ""}
           </div>
         )}
       </div>
@@ -611,18 +648,41 @@ export default function GoogleDeliveryMap({
         <div className="px-2 py-3">
           <div className="text-[10px] uppercase tracking-[.14em] text-stone-400">Fahrzeit</div>
           <div className="mt-1 text-sm font-bold text-white">
-            {routeInfo
-              ? `${formatDuration(routeInfo.durationSeconds)}${routeInfo.etaReliable ? "" : "*"}`
-              : "–"}
+            {gpsFreshness === "stale"
+              ? "Pausiert"
+              : routeInfo
+                ? `${formatDuration(routeInfo.durationSeconds)}${routeInfo.etaReliable ? "" : "*"}`
+                : "–"}
           </div>
         </div>
         <div className="px-2 py-3">
           <div className="text-[10px] uppercase tracking-[.14em] text-stone-400">Status</div>
-          <div className="mt-1 text-sm font-bold text-emerald-300">
-            {position ? "Unterwegs" : "Warten"}
+          <div
+            className={`mt-1 text-sm font-bold ${
+              gpsFreshness === "stale"
+                ? "text-rose-300"
+                : gpsFreshness === "updating"
+                  ? "text-amber-300"
+                  : "text-emerald-300"
+            }`}
+          >
+            {!position
+              ? "Warten"
+              : gpsFreshness === "stale"
+                ? "GPS pausiert"
+                : gpsFreshness === "updating"
+                  ? "Aktualisierung"
+                  : "Unterwegs"}
           </div>
         </div>
       </div>
+
+      {position && gpsFreshness === "stale" && (
+        <div className="border-t border-rose-300/15 bg-rose-500/10 px-3 py-2 text-xs text-rose-100/90">
+          Der letzte Fahrerstandort ist{lastSeenText ? ` seit ${lastSeenText}` : ""} nicht aktualisiert worden.
+          Fahrzeit und ETA werden nach dem nächsten GPS-Signal neu berechnet.
+        </div>
+      )}
 
       {routeInfo && !routeInfo.etaReliable && (
         <div className="border-t border-amber-300/15 bg-amber-500/10 px-3 py-2 text-xs text-amber-100/90">
