@@ -75,6 +75,11 @@ export function matchesTrackingToken(order: any, candidateRaw: any) {
 export function publicOrderDto(order: any) {
   const meta = plainObject(order?.meta);
   const payment = plainObject(meta?.payment ?? order?.payment);
+  const deliveryGeo = plainObject(meta?.deliveryGeo ?? meta?.delivery_geo);
+  const deliveryLat = numberOrNull(deliveryGeo?.lat ?? deliveryGeo?.latitude);
+  const deliveryLng = numberOrNull(
+    deliveryGeo?.lng ?? deliveryGeo?.lon ?? deliveryGeo?.longitude,
+  );
   const status = cleanText(meta?.statusManual ?? order?.status ?? "new") || "new";
   const mode = cleanText(order?.mode ?? "delivery") || "delivery";
 
@@ -86,6 +91,13 @@ export function publicOrderDto(order: any) {
     planned: order?.planned ?? null,
     etaMin: numberOrNull(order?.etaMin),
     etaAdjustMin: numberOrNull(order?.etaAdjustMin ?? meta?.etaAdjustMin) ?? 0,
+    deliveryDestination:
+      mode === "delivery" && deliveryLat != null && deliveryLng != null
+        ? {
+            lat: Math.round(deliveryLat * 100_000) / 100_000,
+            lng: Math.round(deliveryLng * 100_000) / 100_000,
+          }
+        : null,
     payment: {
       method: cleanText(
         meta?.paymentMethod ?? payment?.method ?? order?.paymentMethod,

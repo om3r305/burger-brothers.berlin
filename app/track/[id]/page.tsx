@@ -5,6 +5,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { fetchAndApplyRemoteSettings, readSettings } from "@/lib/settings";
 import { bindGeneralPushToOrder } from "@/lib/client/general-push";
+import GoogleDeliveryMap, {
+  type TrackingRouteInfo,
+} from "@/components/tracking/GoogleDeliveryMap";
 
 /* ---- UI helpers ---- */
 
@@ -45,6 +48,10 @@ type TrackedOrder = {
   total?: number;
   meta?: Record<string, any>;
   driver?: any;
+  deliveryDestination?: {
+    lat: number;
+    lng: number;
+  } | null;
   doneAt?: string | null;
   cancelledAt?: string | null;
 };
@@ -293,14 +300,6 @@ function readDriverPos(orderId: string, order?: any): LivePos | null {
   }
 }
 
-function osmEmbedUrl(lat: number, lng: number, zoom = 15, bust?: number) {
-  const d = 0.01;
-  const bbox = `${lng - d},${lat - d},${lng + d},${lat + d}`;
-  const cache = bust ? `&t=${bust}` : "";
-
-  return `https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik&marker=${lat},${lng}&zoom=${zoom}${cache}`;
-}
-
 function msAgoText(ms: number) {
   const seconds = Math.max(0, Math.floor(ms / 1000));
 
@@ -408,6 +407,22 @@ function normalizeOrder(raw: any, fallbackId = ""): TrackedOrder | null {
     total: source.total ?? raw.total,
     meta: sourceMeta,
     driver: source.driver ?? raw.driver ?? sourceMeta.driver ?? null,
+    deliveryDestination:
+      source.deliveryDestination &&
+      Number.isFinite(Number(source.deliveryDestination.lat)) &&
+      Number.isFinite(Number(source.deliveryDestination.lng))
+        ? {
+            lat: Number(source.deliveryDestination.lat),
+            lng: Number(source.deliveryDestination.lng),
+          }
+        : raw.deliveryDestination &&
+            Number.isFinite(Number(raw.deliveryDestination.lat)) &&
+            Number.isFinite(Number(raw.deliveryDestination.lng))
+          ? {
+              lat: Number(raw.deliveryDestination.lat),
+              lng: Number(raw.deliveryDestination.lng),
+            }
+          : null,
     doneAt: source.doneAt ?? raw.doneAt ?? sourceMeta.doneAt ?? null,
     cancelledAt: source.cancelledAt ?? raw.cancelledAt ?? sourceMeta.cancelledAt ?? null,
   };
@@ -556,6 +571,7 @@ export default function TrackDetailPage() {
   const [now, setNow] = useState<number>(Date.now());
   const [loading, setLoading] = useState(true);
   const [notFoundOnce, setNotFoundOnce] = useState(false);
+  const [routeInfo, setRouteInfo] = useState<TrackingRouteInfo | null>(null);
 
   useEffect(() => {
     const footer = document.querySelector("footer") as HTMLElement | null;
@@ -703,18 +719,26 @@ export default function TrackDetailPage() {
     [order, avgPickup, avgDelivery, tz, now],
   );
 
-  const mapUrl = useMemo(() => {
-    if (!order || order.status === "done" || order.status === "cancelled") return "";
-
-    if (pos) {
-      return osmEmbedUrl(pos.lat, pos.lng, 15, pos.ts || now);
-    }
-
-    return "https://www.openstreetmap.org/export/embed.html?bbox=13.35,52.48,13.55,52.57&layer=mapnik&zoom=12";
-  }, [order, pos, now]);
+  const deliveryDestination = order?.deliveryDestination || null;
+  const routeEtaMin =
+    routeInfo && routeInfo.durationSeconds > 0
+      ? Math.max(1, Math.ceil(routeInfo.durationSeconds / 60))
+      : null;
+  const displayEtaMin =
+    order?.status === "out_for_delivery" &&
+    routeEtaMin != null &&
+    routeInfo?.etaReliable !== false
+      ? routeEtaMin
+      : leftMin;
 
   const lastSeenTxt = pos?.ts ? msAgoText(now - (pos.ts || 0)) : null;
   const displayId = order?.id || idStr;
+
+  useEffect(() => {
+    if (order?.status !== "out_for_delivery") {
+      setRouteInfo(null);
+    }
+  }, [order?.status]);
 
   return (
     <main className="relative mx-auto max-w-4xl space-y-6 p-4 text-stone-100 antialiased sm:p-6">
@@ -795,7 +819,7 @@ export default function TrackDetailPage() {
 
                 {order.status !== "done" && order.status !== "cancelled" && (
                   <span className={`${chip} border-sky-400/60 bg-sky-500/20 text-sky-100`}>
-                    ETA: <b className="ml-1 tabular-nums">{pad2(leftMin)}′</b>
+                    ETA: <b className="ml-1 tabular-nums">{pad2(displayEtaMin)}′</b>
                   </span>
                 )}
 
@@ -819,8 +843,20 @@ export default function TrackDetailPage() {
               </div>
 
               {order.status === "out_for_delivery" && (
-                <div className="mt-3 text-sm text-emerald-200/90">
-                  🚚 Ihre Bestellung ist unterwegs.
+                <div className="mt-3 rounded-xl border border-emerald-300/20 bg-emerald-500/10 p-3 text-sm text-emerald-100">
+                  <div className="font-semibold">🚚 Ihre Bestellung ist unterwegs.</div>
+                  {routeInfo && (
+                    <div className="mt-1 text-xs text-emerald-100/80">
+                      {routeInfo.etaReliable
+                        ? `Noch ca. ${Math.max(1, Math.ceil(routeInfo.durationSeconds / 60))} Min.`
+                        : `${routeInfo.activeOrderCount} aktive Lieferstopps · direkte Route wird angezeigt.`}
+                      {routeInfo.distanceMeters > 0
+                        ? ` · ${(routeInfo.distanceMeters / 1000)
+                            .toFixed(routeInfo.distanceMeters >= 10_000 ? 0 : 1)
+                            .replace(".", ",")} km`
+                        : ""}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -843,32 +879,33 @@ export default function TrackDetailPage() {
               )}
             </div>
 
-            {order.status !== "done" && order.status !== "cancelled" && (
-              <div className={`overflow-hidden rounded-2xl ${glass}`}>
-                <div className="aspect-[4/3] w-full">
-                  <iframe
-                    key={pos?.ts || now}
-                    title="Kartenansicht"
-                    src={mapUrl}
-                    className="h-full w-full border-0"
+            {order.mode === "delivery" &&
+              order.status !== "done" &&
+              order.status !== "cancelled" && (
+                order.status === "out_for_delivery" ? (
+                  <GoogleDeliveryMap
+                    trackingToken={idStr}
+                    active
+                    position={pos}
+                    destination={deliveryDestination}
+                    lastSeenText={lastSeenTxt}
+                    onRouteInfo={setRouteInfo}
                   />
-                </div>
-
-                <div className="p-2 text-xs text-stone-300/80">
-                  {pos ? (
-                    <>
-                      Letzte Fahrer-Position{" "}
-                      <b>
-                        {pos.lat.toFixed(5)}, {pos.lng.toFixed(5)}
-                      </b>
-                      {pos.ts ? <> · {new Date(pos.ts).toLocaleTimeString("de-DE")}</> : null}
-                    </>
-                  ) : (
-                    <>Fahrer-Position noch nicht verfügbar.</>
-                  )}
-                </div>
-              </div>
-            )}
+                ) : (
+                  <div className={`grid min-h-[300px] place-items-center rounded-2xl p-6 text-center ${glass}`}>
+                    <div>
+                      <div className="text-4xl">🗺️</div>
+                      <div className="mt-3 font-semibold text-white">
+                        Live-Karte wird vorbereitet
+                      </div>
+                      <div className="mt-1 max-w-sm text-sm text-stone-300/80">
+                        Sobald der Fahrer Ihre Bestellung übernimmt und losfährt,
+                        sehen Sie hier seine Live-Position und die Route zu Ihnen.
+                      </div>
+                    </div>
+                  </div>
+                )
+              )}
           </div>
         </section>
       )}
