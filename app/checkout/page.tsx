@@ -64,6 +64,10 @@ import {
   useEligibleRouteDeal,
 } from "@/lib/client/route-deal";
 import CheckoutToastViewport from "@/components/checkout/CheckoutToastViewport";
+import {
+  OrderModeChoice,
+  OrderModeSummary,
+} from "@/components/order/OrderModeSummary";
 import type {
   ActivePaymentRecovery,
   CheckoutAddress,
@@ -1925,6 +1929,7 @@ export default function CheckoutPage() {
   const clear = useCart((state) => state.clear);
   const orderMode = useCart((state) => state.orderMode);
   const setOrderMode = useCart((state) => state.setOrderMode);
+  const [modeChooserOpen, setModeChooserOpen] = useState(false);
   const plzStore = useCart((state) => state.plz);
   const setPLZ = useCart((state) => state.setPLZ);
 
@@ -3485,6 +3490,31 @@ export default function CheckoutPage() {
         onDismiss={dismissCheckoutToast}
       />
 
+      {modeChooserOpen ? (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/85 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Bestellart ändern">
+          <div className="w-full max-w-xl rounded-3xl border border-amber-400/30 bg-stone-950 p-5 shadow-2xl">
+            <OrderModeChoice
+              title="Bestellart ändern"
+              disabledModes={[
+                ...(pause.delivery ? (["delivery"] as const) : []),
+                ...(pause.pickup ? (["pickup"] as const) : []),
+              ]}
+              onChoose={(mode) => {
+                setOrderMode(mode);
+                setModeChooserOpen(false);
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => setModeChooserOpen(false)}
+              className="mt-3 w-full py-2 text-sm text-stone-400"
+            >
+              Abbrechen
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       {activePaymentRecovery && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/85 p-4 backdrop-blur-md">
           <div className="w-full max-w-lg rounded-3xl border border-amber-400/50 bg-stone-950 p-5 shadow-2xl sm:p-6">
@@ -3548,30 +3578,16 @@ export default function CheckoutPage() {
           <Link href="/menu" className="text-sm text-stone-300 hover:text-stone-100">
             ← Zurück zum Menü
           </Link>
-
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => setOrderMode("pickup")}
-              className={`nav-pill ${orderMode === "pickup" ? "nav-pill--active" : ""}`}
-              title="Im Laden abholen"
-            >
-              Abholen
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setOrderMode("delivery")}
-              className={`nav-pill ${orderMode === "delivery" ? "nav-pill--active" : ""}`}
-              title="Lieferung"
-            >
-              Liefern
-            </button>
-          </div>
         </div>
 
         <h1 className="mt-3 text-2xl font-semibold">Checkout</h1>
       </div>
+
+      <OrderModeSummary
+        mode={orderMode}
+        eyebrow="Deine Bestellung"
+        onChange={() => setModeChooserOpen(true)}
+      />
 
       {modePaused && (
         <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-200">

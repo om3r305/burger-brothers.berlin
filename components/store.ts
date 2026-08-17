@@ -49,6 +49,7 @@ export type CartPricing = {
 export type CartState = {
   items: CartItemFixed[];
   orderMode: OrderMode;
+  orderModeExplicitlyChosen: boolean;
   plz: string | null;
 
   addToCart: (p: AddPayload) => void;
@@ -69,6 +70,7 @@ export type CartState = {
 ========================================= */
 const LS_CART = "bb_cart_items_v1";
 const LS_PREF = "bb_cart_prefs_v1";
+const LS_ORDER_MODE_EXPLICIT = "bb_order_mode_explicit_v1";
 const LS_PRODUCTS = "bb_products_v1";
 
 type UnknownRecord = Record<string, unknown>;
@@ -182,16 +184,27 @@ function saveItems(items: CartItemFixed[]) {
     // Cart persistence is optional; the in-memory cart remains usable.
   }
 }
-function loadPrefs(): { orderMode: OrderMode; plz: string | null } {
+function loadPrefs(): {
+  orderMode: OrderMode;
+  orderModeExplicitlyChosen: boolean;
+  plz: string | null;
+} {
   if (typeof window === "undefined") {
-    return { orderMode: "pickup", plz: null };
+    return { orderMode: "pickup", orderModeExplicitlyChosen: false, plz: null };
   }
 
   const parsed = parseJsonUnknown(localStorage.getItem(LS_PREF));
-  if (!isRecord(parsed)) return { orderMode: "pickup", plz: null };
+  if (!isRecord(parsed)) {
+    return { orderMode: "pickup", orderModeExplicitlyChosen: false, plz: null };
+  }
 
   return {
     orderMode: parsed.orderMode === "delivery" ? "delivery" : "pickup",
+    // A pre-existing persisted mode came from an earlier conscious interaction.
+    orderModeExplicitlyChosen:
+      localStorage.getItem(LS_ORDER_MODE_EXPLICIT) === "1" ||
+      parsed.orderMode === "pickup" ||
+      parsed.orderMode === "delivery",
     plz: typeof parsed.plz === "string" ? parsed.plz : null,
   };
 }
@@ -199,6 +212,15 @@ function savePrefs(orderMode: OrderMode, plz: string | null) {
   try {
     if (typeof window === "undefined") return;
     localStorage.setItem(LS_PREF, JSON.stringify({ orderMode, plz }));
+  } catch {
+    // Preference persistence must never block cart interaction.
+  }
+}
+
+function saveExplicitOrderModeChoice() {
+  try {
+    if (typeof window === "undefined") return;
+    localStorage.setItem(LS_ORDER_MODE_EXPLICIT, "1");
   } catch {
     // Preference persistence must never block cart interaction.
   }
@@ -487,6 +509,7 @@ const initialPrefs = loadPrefs();
 export const useCart = create<CartState>((set, get) => ({
   items: initialItems,
   orderMode: initialPrefs.orderMode,
+  orderModeExplicitlyChosen: initialPrefs.orderModeExplicitlyChosen,
   plz: initialPrefs.plz,
 
   addToCart: ({ category, item, add = [], rm = [], qty = 1, note }) => {
@@ -569,9 +592,10 @@ export const useCart = create<CartState>((set, get) => ({
   },
 
   setOrderMode: (mode) => {
-    set({ orderMode: mode });
+    set({ orderMode: mode, orderModeExplicitlyChosen: true });
     const { plz } = get();
     savePrefs(mode, plz ?? null);
+    saveExplicitOrderModeChoice();
   },
 
   setPLZ: (plz) => {

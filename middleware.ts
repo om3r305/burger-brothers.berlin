@@ -78,6 +78,7 @@ export function apiAccess(path: string, methodRaw: string): Access {
   if (PUBLIC_PATHS.has(path)) return "public";
 
   if (path === "/api/settings" && readOnly) return "public";
+  if (path === "/api/public/eta" && readOnly) return "public";
   if (path === "/api/showcase" && readOnly) return "public";
   if (
     path === "/api/showcase/events" &&

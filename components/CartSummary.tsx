@@ -22,6 +22,11 @@ import { evaluateConditionalCartCampaign } from "@/lib/conditional-campaign";
 import { computePfand } from "@/lib/pfand";
 import { useEligibleRouteDeal } from "@/lib/client/route-deal";
 import type { RouteDealNotice } from "@/lib/client/route-deal";
+import { etaLabelForMode, useSmartEta } from "@/lib/client/smart-eta";
+import {
+  OrderModeChoice,
+  OrderModeSummary,
+} from "@/components/order/OrderModeSummary";
 
 /* LS Keys */
 const LS_CHECKOUT = "bb_checkout_info_v1";
@@ -1406,6 +1411,7 @@ function CheckoutButton({ canCheckout }: { canCheckout: boolean }) {
 export function CartSummaryMobile() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [modeChoiceOpen, setModeChoiceOpen] = useState(false);
 
   const items = useCart((s: any) => s.items);
   const setQty = useCart((s: any) => s.setQty);
@@ -1414,6 +1420,7 @@ export function CartSummaryMobile() {
   const addToCart = useCart((s:any)=> s.addToCart);
 
   const orderMode = useCart((s: any) => s.orderMode);
+  const orderModeExplicitlyChosen = useCart((s: any) => s.orderModeExplicitlyChosen);
   const setOrderMode = useCart((s: any) => s.setOrderMode);
   const plz = useCart((s: any) => s.plz);
   const setPLZ = useCart((s: any) => s.setPLZ);
@@ -1512,6 +1519,11 @@ export function CartSummaryMobile() {
 
   const routeDealDiscount = routeDealBenefit.discountAmount;
   const totalFinal = roundToNearest10Cents(Math.max(0, routeDealBaseTotal - routeDealDiscount) + pfand);
+  const eta = useSmartEta();
+  const unitCount = items.reduce(
+    (sum: number, item: any) => sum + Math.max(1, Number(item?.qty ?? 1) || 1),
+    0,
+  );
 
   const meetsMin =
     orderMode === "pickup"
@@ -1526,6 +1538,15 @@ export function CartSummaryMobile() {
     !isEmpty &&
     (orderMode === "pickup" ? true : (plzKnown && meetsMin)) &&
     !isModePaused;
+  const missingMinimum =
+    orderMode === "delivery" && plzKnown && typeof requiredMin === "number"
+      ? Math.max(0, Number(requiredMin) - Math.max(0, totalFinal - pfand))
+      : null;
+
+  const chooseMode = (mode: "pickup" | "delivery") => {
+    setOrderMode(mode);
+    setModeChoiceOpen(false);
+  };
 
   const onPLZChange = (v: string) => {
     const only = v.replace(/\D/g, "").slice(0, 5);
@@ -1606,14 +1627,65 @@ export function CartSummaryMobile() {
 
   return (
     <>
-      {mounted && !isEmpty && !open && !overlayOpen && (
+      {mounted && (!orderModeExplicitlyChosen || modeChoiceOpen) && (
+        <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/80 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:hidden" role="dialog" aria-modal="true" aria-label="Bestellart wählen">
+          <div className="w-full max-w-md rounded-3xl border border-amber-400/30 bg-stone-950 p-5 shadow-2xl shadow-black">
+            <OrderModeChoice
+              onChoose={chooseMode}
+              disabledModes={[
+                ...(pausedDelivery ? (["delivery"] as const) : []),
+                ...(pausedPickup ? (["pickup"] as const) : []),
+              ]}
+            />
+            {orderModeExplicitlyChosen ? (
+              <button
+                type="button"
+                onClick={() => setModeChoiceOpen(false)}
+                className="mt-3 w-full py-2 text-sm text-stone-400"
+              >
+                Abbrechen
+              </button>
+            ) : null}
+          </div>
+        </div>
+      )}
+
+      {mounted && isEmpty && !overlayOpen && orderModeExplicitlyChosen && !modeChoiceOpen ? (
+        <button
+          type="button"
+          onClick={() => setModeChoiceOpen(true)}
+          style={{ bottom: safeBottom }}
+          className="fixed left-1/2 z-40 -translate-x-1/2 whitespace-nowrap rounded-full border border-amber-400/40 bg-stone-950/95 px-4 py-2 text-xs font-semibold text-amber-100 shadow-xl backdrop-blur sm:hidden"
+        >
+          {orderMode === "delivery" ? "🛵 Lieferung" : "🥡 Abholung"} · {etaLabelForMode(eta, orderMode)} · Ändern
+        </button>
+      ) : null}
+
+      {mounted && !isEmpty && !open && !overlayOpen && orderModeExplicitlyChosen && !modeChoiceOpen && (
         <button
           suppressHydrationWarning
           onClick={() => setOpen(true)}
           style={{ bottom: safeBottom }}
-          className="bb-mobile-cart-trigger fixed left-1/2 z-40 -translate-x-1/2 rounded-full bg-amber-600 px-5 py-3 text-black shadow-xl sm:hidden"
+          className="bb-mobile-cart-trigger fixed left-3 right-3 z-40 rounded-2xl border border-amber-300/50 bg-gradient-to-r from-amber-500 to-amber-600 px-4 py-3 text-left text-black shadow-2xl shadow-black/50 sm:hidden"
         >
-          Warenkorb ansehen {routeDealBenefit.applied ? "🎁" : ""} • {fmt(totalFinal)}
+          <span className="flex items-center justify-between gap-3">
+            <span className="min-w-0">
+              <span className="block truncate text-xs font-semibold">
+                {orderMode === "delivery" ? "🛵 Lieferung" : "🥡 Abholung"} · {etaLabelForMode(eta, orderMode)}
+              </span>
+              <span className="mt-0.5 block text-sm font-black">
+                {unitCount} Artikel&nbsp;&nbsp;{fmt(totalFinal)}
+              </span>
+            </span>
+            <span className="shrink-0 text-xs font-black tracking-wide">WARENKORB ›</span>
+          </span>
+          {orderMode === "delivery" && missingMinimum !== null ? (
+            <span className="mt-1.5 block border-t border-black/15 pt-1.5 text-[11px] font-semibold">
+              {missingMinimum > 0
+                ? `Noch ${fmt(missingMinimum)} bis zum Mindestbestellwert`
+                : "✓ Mindestbestellwert erreicht"}
+            </span>
+          ) : null}
         </button>
       )}
 
@@ -1650,23 +1722,15 @@ export function CartSummaryMobile() {
             {/* Repeat last order (mobile) */}
             {lastOrder && <RepeatLastOrderCard onRepeat={repeatLast} />}
 
-            <div className="mb-3 flex items-center gap-2">
-              <ModeBtn
-                active={orderMode === "pickup"}
-                disabled={pausedPickup}
-                onClick={() => !pausedPickup && setOrderMode("pickup")}
-                title={pausedPickup ? "Abholung derzeit pausiert" : "Abholung"}
-              >
-                Abholung
-              </ModeBtn>
-              <ModeBtn
-                active={orderMode === "delivery"}
-                disabled={pausedDelivery}
-                onClick={() => !pausedDelivery && setOrderMode("delivery")}
-                title={pausedDelivery ? "Lieferung derzeit pausiert" : "Lieferung"}
-              >
-                Lieferung
-              </ModeBtn>
+            <div className="mb-3">
+              <OrderModeSummary
+                mode={orderMode}
+                onChange={() => setModeChoiceOpen(true)}
+                compact
+              />
+              {orderMode === "delivery" && checkoutZip ? (
+                <div className="mt-1.5 px-1 text-xs text-stone-400">PLZ {checkoutZip}</div>
+              ) : null}
             </div>
 
             {orderMode === "delivery" && (
@@ -1819,7 +1883,7 @@ export function CartSummaryMobile() {
                 className={`w-full card-cta card-cta--lg ${!canCheckout ? "opacity-50 cursor-not-allowed" : ""}`}
                 title={!canCheckout ? "Bitte Anforderungen erfüllen" : "Zur Kasse"}
               >
-                Zur Kasse
+                Weiter zur Kasse · {fmt(totalFinal)}
               </button>
             </div>
           </div>
