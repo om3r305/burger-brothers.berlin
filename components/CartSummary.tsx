@@ -1746,7 +1746,10 @@ export function CartSummaryMobile() {
             <div className="mb-3">
               <OrderModeSummary
                 mode={orderMode}
-                onChange={() => setModeChoiceOpen(true)}
+                onChange={() => {
+                  setOpen(false);
+                  setModeChoiceOpen(true);
+                }}
                 compact
               />
               {orderMode === "delivery" && checkoutZip ? (
