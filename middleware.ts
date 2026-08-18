@@ -183,8 +183,6 @@ export function apiAccess(path: string, methodRaw: string): Access {
     return "public";
   }
   if (path === "/api/drivers") return "admin";
-  if (path === "/api/drivers/session" && readOnly) return "driver";
-  if (path === "/api/driver/notifications" && method === "POST") return "driver";
 
   // Server-to-server endpoints validate their own strong tokens in-route.
   if (path === "/api/print/jobs" || path === "/api/print/mark") return "token";

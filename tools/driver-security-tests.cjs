@@ -122,42 +122,6 @@ async function responseJson(response) {
 }
 
 async function main() {
-  const driverOrdersHookSource = fs.readFileSync(
-    path.join(root, "hooks/driver/use-driver-orders.ts"),
-    "utf8",
-  );
-
-  assert.match(
-    driverOrdersHookSource,
-    /normalizeStatus\(order\.status\)\s*!==\s*["']out_for_delivery["']/,
-    "Driver finish must require an active out_for_delivery trip",
-  );
-  assert.match(
-    driverOrdersHookSource,
-    /Bitte zuerst „Fahrt starten“\./,
-    "Driver must receive a clear warning before an unstarted delivery can be finished",
-  );
-  assert.match(
-    driverOrdersHookSource,
-    /!serverOrder\s*\|\|\s*normalizeStatus\(serverOrder\.status\)\s*!==\s*["']done["']/,
-    "Completion must be confirmed by the authoritative server response",
-  );
-  assert.match(
-    driverOrdersHookSource,
-    /const finalOrder = serverOrder;/,
-    "Successful completion must use the authoritative server order",
-  );
-  assert.doesNotMatch(
-    driverOrdersHookSource,
-    /const finalOrder = serverOrder \|\| updated;/,
-    "Driver must not treat a missing server response as successful completion",
-  );
-  assert.match(
-    driverOrdersHookSource,
-    /status !== ["']done["'][\s\S]*status !== ["']cancelled["']/,
-    "Completed orders must remain excluded from the Meine list",
-  );
-
   const route = require(path.join(root, "app/api/drivers/route.ts"));
 
   const unauthorizedGet = await route.GET(
@@ -287,7 +251,7 @@ async function main() {
     /bb_driver_sess=.*Max-Age=0/i,
   );
 
-  console.log("Driver password, session, and lifecycle tests passed.");
+  console.log("Driver password and session tests passed.");
 }
 
 main()

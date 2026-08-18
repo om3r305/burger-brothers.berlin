@@ -14,7 +14,6 @@ import {
   orderDeliveryGeo,
   orderPlzValue,
 } from "@/lib/driver/domain";
-import { DRIVER_NEARBY_DISTANCE_METERS, distanceMeters } from "@/lib/server/driver-communication";
 import type {
   DriverIdentity,
   DriverOrder,
@@ -346,7 +345,6 @@ export function DriverRoutePlanner({
     queueKey: string;
   } | null>(null);
   const autoSortedSetRef = useRef("");
-  const nearbyRequestRef = useRef("");
 
   const [orderedIds, setOrderedIds] = useState<string[]>([]);
   const [localOrigin, setLocalOrigin] = useState<DriverPosition | null>(null);
@@ -538,37 +536,6 @@ export function DriverRoutePlanner({
     },
     [],
   );
-
-  useEffect(() => {
-    if (!activeOrder || !origin) return;
-    const orderId = String(activeOrder.id);
-    if (nearbyRequestRef.current === orderId) return;
-    let cancelled = false;
-
-    void (async () => {
-      let destination = routePoint(activeOrder);
-      if (!destination) {
-        try {
-          destination = await resolvePoint(activeOrder, await loadGoogleMaps());
-        } catch {
-          destination = null;
-        }
-      }
-      if (cancelled || !destination || distanceMeters(origin, destination) > DRIVER_NEARBY_DISTANCE_METERS) return;
-      nearbyRequestRef.current = orderId;
-      const response = await fetch("/api/driver/notifications", {
-        method: "POST",
-        credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ kind: "nearby", orderId, routeOrderIds: startedOrders.map((order) => String(order.id)) }),
-      }).catch(() => null);
-      if (!response?.ok && nearbyRequestRef.current === orderId) {
-        nearbyRequestRef.current = "";
-      }
-    })();
-
-    return () => { cancelled = true; };
-  }, [activeOrder, origin?.lat, origin?.lng, resolvePoint, startedOrders]);
 
   const autoSort = useCallback(
     async (sourceOrders: DriverOrder[] = ordered) => {
