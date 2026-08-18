@@ -6,6 +6,7 @@ const route = fs.readFileSync("app/api/driver/notifications/route.ts", "utf8");
 const planner = fs.readFileSync("components/driver/DriverRoutePlanner.tsx", "utf8");
 const statusRoute = fs.readFileSync("app/api/orders/status/route.ts", "utf8");
 const ordersHook = fs.readFileSync("hooks/driver/use-driver-orders.ts", "utf8");
+const orderDetails = fs.readFileSync("components/driver/OrderWithDetails.tsx", "utf8");
 
 for (const id of [
   "at_door",
@@ -29,6 +30,15 @@ assert.doesNotMatch(
 );
 assert.match(route, /orderAssignedToDriver\(order, driverSubject\)/);
 assert.match(route, /order_assigned_to_other_driver/);
+
+// Legacy/German values must normalize into the same operational model used by
+// the rest of the Driver stack so notification delivery cannot fail on raw DB values.
+assert.match(route, /function normalizeOrderMode/);
+assert.match(route, /"lieferung"/);
+assert.match(route, /function normalizeOrderStatus/);
+assert.match(route, /"on_the_way"/);
+assert.match(route, /"unterwegs"/);
+assert.match(route, /meta\.statusManual/);
 
 // CURRENT A must be derived from server-owned delivery start timestamps, not
 // from the client-maintained A/B/C/D array submitted with the proximity call.
@@ -75,5 +85,13 @@ assert.doesNotMatch(
   /notificationEvent\.findFirst[\s\S]*createdAt:\s*\{\s*gte:/,
   "manual cooldown must not use a non-atomic check-then-send query",
 );
+
+// Failed sends must be diagnosable on the Driver screen and must not leave a
+// dead cooldown reservation behind.
+assert.match(route, /clearCooldownReservation/);
+assert.match(route, /driver_notification_push_failed/);
+assert.match(route, /detailCode: safeInternalCode\(error\)/);
+assert.match(orderDetails, /notificationErrorText/);
+assert.match(orderDetails, /detailCode/);
 
 console.log("driver communication regression tests passed");

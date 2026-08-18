@@ -16,7 +16,34 @@ import {
   shortText,
 } from "@/lib/driver/domain";
 import type { DriverOrder } from "@/types/driver";
-import { DRIVER_MESSAGE_TEMPLATES, type DriverMessageTemplateId } from "@/lib/server/driver-communication";
+import {
+  DRIVER_MESSAGE_TEMPLATES,
+  type DriverMessageTemplateId,
+} from "@/lib/server/driver-communication";
+
+function notificationErrorText(payload: any, status: number) {
+  const code = String(payload?.error || "").trim();
+  const detailCode = String(payload?.detailCode || "").trim();
+
+  if (code === "driver_session_subject_missing") {
+    return "Fahrer-Sitzung ist abgelaufen. Bitte neu anmelden.";
+  }
+  if (code === "order_assigned_to_other_driver") {
+    return "Diese Lieferung ist diesem Fahrer nicht mehr zugeordnet.";
+  }
+  if (code === "delivery_required") {
+    return "Diese Bestellung wurde nicht als Lieferung erkannt.";
+  }
+  if (code === "order_not_operational") {
+    return "Diese Bestellung ist nicht mehr aktiv.";
+  }
+  if (code === "rate_limited") {
+    return "Zu viele Benachrichtigungen. Bitte kurz warten.";
+  }
+
+  const diagnostic = [code, detailCode].filter(Boolean).join("/");
+  return `Benachrichtigung konnte nicht gesendet werden. (${diagnostic || `HTTP ${status}`})`;
+}
 
 export function OrderWithDetails({
   order,
@@ -59,15 +86,23 @@ export function OrderWithDetails({
       });
       const payload = await response.json().catch(() => ({}));
       if (response.status === 429 && payload?.error === "cooldown") {
-        setMessageFeedback("Bitte kurz warten – diese Nachricht wurde gerade gesendet.");
+        setMessageFeedback(
+          "Bitte kurz warten – diese Nachricht wurde gerade gesendet.",
+        );
       } else if (!response.ok) {
-        setMessageFeedback("Benachrichtigung konnte nicht gesendet werden.");
+        setMessageFeedback(notificationErrorText(payload, response.status));
       } else if (!payload?.subscriptions) {
         setMessageFeedback("Kunde hat keine aktiven Push-Benachrichtigungen.");
       } else {
-        const time = new Intl.DateTimeFormat("de-DE", { hour: "2-digit", minute: "2-digit", timeZone: timezone }).format(new Date());
+        const time = new Intl.DateTimeFormat("de-DE", {
+          hour: "2-digit",
+          minute: "2-digit",
+          timeZone: timezone,
+        }).format(new Date());
         setMessageFeedback(`✓ Benachrichtigung gesendet · ${time}`);
       }
+    } catch {
+      setMessageFeedback("Benachrichtigung konnte nicht gesendet werden. (network)");
     } finally {
       setMessageBusy(false);
     }
@@ -272,15 +307,27 @@ export function OrderWithDetails({
 
       {messageOpen ? (
         <div className="mt-3 rounded-xl border border-sky-300/20 bg-sky-500/10 p-3">
-          <div className="mb-2 text-xs font-bold text-sky-100">Kundennachricht auswählen</div>
+          <div className="mb-2 text-xs font-bold text-sky-100">
+            Kundennachricht auswählen
+          </div>
           <div className="grid gap-2 sm:grid-cols-2">
             {Object.entries(DRIVER_MESSAGE_TEMPLATES).map(([id, template]) => (
-              <button key={id} type="button" disabled={messageBusy} onClick={() => void sendMessage(id as DriverMessageTemplateId)} className="rounded-xl border border-white/15 bg-black/20 px-3 py-2 text-left text-sm font-semibold text-white disabled:opacity-50">
+              <button
+                key={id}
+                type="button"
+                disabled={messageBusy}
+                onClick={() => void sendMessage(id as DriverMessageTemplateId)}
+                className="rounded-xl border border-white/15 bg-black/20 px-3 py-2 text-left text-sm font-semibold text-white disabled:opacity-50"
+              >
                 {template.label}
               </button>
             ))}
           </div>
-          {messageFeedback ? <div className="mt-2 text-xs font-semibold text-sky-100">{messageFeedback}</div> : null}
+          {messageFeedback ? (
+            <div className="mt-2 text-xs font-semibold text-sky-100">
+              {messageFeedback}
+            </div>
+          ) : null}
         </div>
       ) : null}
     </div>
