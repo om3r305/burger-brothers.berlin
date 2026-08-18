@@ -6,7 +6,6 @@ import {
   REMEMBER_KEY,
   authenticateDriver,
   clearPosKey,
-  readCurrentDriver,
   writeCurrentDriver,
 } from "@/lib/driver/domain";
 import type { DriverIdentity, DriverOrder, DriverToastTone } from "@/types/driver";
@@ -17,6 +16,26 @@ type Notify = (
   durationMs?: number,
 ) => void;
 
+async function readServerDriverSession(): Promise<DriverIdentity | null> {
+  try {
+    const response = await fetch("/api/drivers/session", {
+      method: "GET",
+      credentials: "same-origin",
+      headers: { accept: "application/json" },
+      cache: "no-store",
+    });
+    const payload = await response.json().catch(() => ({}));
+    const id = String(payload?.driver?.id || "").trim();
+    const name = String(payload?.driver?.name || "").trim();
+
+    return response.ok && payload?.ok !== false && id && name
+      ? { id, name }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 export function useDriverAuth({ notify }: { notify: Notify }) {
   const [current, setCurrent] = useState<DriverIdentity | null>(null);
   const [remember, setRememberState] = useState(true);
@@ -26,17 +45,62 @@ export function useDriverAuth({ notify }: { notify: Notify }) {
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
+
     const remembered = localStorage.getItem(REMEMBER_KEY);
-    if (remembered !== null) {
-      setRememberState(remembered === "1");
-    }
+    const rememberValue = remembered === null ? true : remembered === "1";
+    setRememberState(rememberValue);
 
     const lastName = localStorage.getItem(LASTNAME_KEY);
     if (lastName) setLoginNameState(lastName);
 
-    setCurrent(readCurrentDriver());
-    setHydrated(true);
+    void readServerDriverSession().then((driver) => {
+      if (cancelled) return;
+
+      if (driver) {
+        setCurrent(driver);
+        setLoginNameState(driver.name);
+        localStorage.setItem(LASTNAME_KEY, driver.name);
+
+        if (rememberValue) {
+          writeCurrentDriver(driver);
+        } else {
+          writeCurrentDriver(null);
+        }
+      } else {
+        // Local storage is only a convenience cache. A missing/expired signed
+        // Driver cookie must never leave the UI looking authenticated.
+        setCurrent(null);
+        writeCurrentDriver(null);
+      }
+
+      setHydrated(true);
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
+
+  useEffect(() => {
+    const onSessionExpired = () => {
+      setCurrent(null);
+      writeCurrentDriver(null);
+      notify("Fahrer-Sitzung ist abgelaufen. Bitte neu anmelden.", "warning", 6000);
+    };
+
+    window.addEventListener(
+      "bb:driver-session-expired",
+      onSessionExpired as EventListener,
+    );
+
+    return () => {
+      window.removeEventListener(
+        "bb:driver-session-expired",
+        onSessionExpired as EventListener,
+      );
+    };
+  }, [notify]);
 
   const setRemember = useCallback((value: boolean) => {
     setRememberState(value);
@@ -100,7 +164,10 @@ export function useDriverAuth({ notify }: { notify: Notify }) {
         }
 
         try {
-          await fetch("/api/drivers", { method: "DELETE" });
+          await fetch("/api/drivers", {
+            method: "DELETE",
+            credentials: "same-origin",
+          });
         } catch {
           // Cookie cleanup failure is surfaced by the next protected request.
         }
