@@ -25,7 +25,11 @@ function notificationErrorText(payload: any, status: number) {
   const code = String(payload?.error || "").trim();
   const detailCode = String(payload?.detailCode || "").trim();
 
-  if (code === "driver_session_subject_missing") {
+  if (
+    status === 401 ||
+    code === "unauthorized" ||
+    code === "driver_session_subject_missing"
+  ) {
     return "Fahrer-Sitzung ist abgelaufen. Bitte neu anmelden.";
   }
   if (code === "order_assigned_to_other_driver") {
@@ -85,6 +89,11 @@ export function OrderWithDetails({
         body: JSON.stringify({ orderId: String(order.id), templateId }),
       });
       const payload = await response.json().catch(() => ({}));
+
+      if (response.status === 401) {
+        window.dispatchEvent(new CustomEvent("bb:driver-session-expired"));
+      }
+
       if (response.status === 429 && payload?.error === "cooldown") {
         setMessageFeedback(
           "Bitte kurz warten – diese Nachricht wurde gerade gesendet.",
