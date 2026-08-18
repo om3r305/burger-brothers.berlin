@@ -16,6 +16,7 @@ import {
   shortText,
 } from "@/lib/driver/domain";
 import type { DriverOrder } from "@/types/driver";
+import { DRIVER_MESSAGE_TEMPLATES, type DriverMessageTemplateId } from "@/lib/server/driver-communication";
 
 export function OrderWithDetails({
   order,
@@ -42,6 +43,35 @@ export function OrderWithDetails({
 }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [noteOpen, setNoteOpen] = useState(false);
+  const [messageOpen, setMessageOpen] = useState(false);
+  const [messageBusy, setMessageBusy] = useState(false);
+  const [messageFeedback, setMessageFeedback] = useState("");
+
+  async function sendMessage(templateId: DriverMessageTemplateId) {
+    setMessageBusy(true);
+    setMessageFeedback("");
+    try {
+      const response = await fetch("/api/driver/notifications", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderId: String(order.id), templateId }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (response.status === 429 && payload?.error === "cooldown") {
+        setMessageFeedback("Bitte kurz warten – diese Nachricht wurde gerade gesendet.");
+      } else if (!response.ok) {
+        setMessageFeedback("Benachrichtigung konnte nicht gesendet werden.");
+      } else if (!payload?.subscriptions) {
+        setMessageFeedback("Kunde hat keine aktiven Push-Benachrichtigungen.");
+      } else {
+        const time = new Intl.DateTimeFormat("de-DE", { hour: "2-digit", minute: "2-digit", timeZone: timezone }).format(new Date());
+        setMessageFeedback(`✓ Benachrichtigung gesendet · ${time}`);
+      }
+    } finally {
+      setMessageBusy(false);
+    }
+  }
 
   const items = order.items;
   const sum = orderItemsTotal(order);
@@ -213,6 +243,14 @@ export function OrderWithDetails({
           </button>
 
           <button
+            className={actionButtonClass("ghost")}
+            type="button"
+            onClick={() => setMessageOpen((open) => !open)}
+          >
+            🔔 Nachricht
+          </button>
+
+          <button
             className={actionButtonClass("finish")}
             type="button"
             disabled={busy}
@@ -231,6 +269,20 @@ export function OrderWithDetails({
           </button>
         </div>
       </div>
+
+      {messageOpen ? (
+        <div className="mt-3 rounded-xl border border-sky-300/20 bg-sky-500/10 p-3">
+          <div className="mb-2 text-xs font-bold text-sky-100">Kundennachricht auswählen</div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {Object.entries(DRIVER_MESSAGE_TEMPLATES).map(([id, template]) => (
+              <button key={id} type="button" disabled={messageBusy} onClick={() => void sendMessage(id as DriverMessageTemplateId)} className="rounded-xl border border-white/15 bg-black/20 px-3 py-2 text-left text-sm font-semibold text-white disabled:opacity-50">
+                {template.label}
+              </button>
+            ))}
+          </div>
+          {messageFeedback ? <div className="mt-2 text-xs font-semibold text-sky-100">{messageFeedback}</div> : null}
+        </div>
+      ) : null}
     </div>
   );
 }
