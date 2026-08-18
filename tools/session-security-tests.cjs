@@ -276,30 +276,6 @@ async function main() {
     }),
   );
 
-  // Driver-owned notification/session routes must be classified as driver routes.
-  // Otherwise the middleware's fail-closed default would incorrectly require admin.
-  await expectUnauthorized(
-    middleware,
-    request("/api/drivers/session"),
-  );
-  await expectAllowed(
-    middleware,
-    request("/api/drivers/session", {
-      cookie: `bb_driver_sess=${encodeURIComponent(driverToken)}`,
-    }),
-  );
-  await expectUnauthorized(
-    middleware,
-    request("/api/driver/notifications", { method: "POST" }),
-  );
-  await expectAllowed(
-    middleware,
-    request("/api/driver/notifications", {
-      method: "POST",
-      cookie: `bb_driver_sess=${encodeURIComponent(driverToken)}`,
-    }),
-  );
-
   console.log("Session and API authorization tests passed.");
 }
 

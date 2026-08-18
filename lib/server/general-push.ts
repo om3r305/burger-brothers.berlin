@@ -687,7 +687,7 @@ function statusNotificationText(order: any, status: string) {
   }
 }
 
-export async function subscriptionsForOrder(order: any) {
+async function subscriptionsForOrder(order: any) {
   const tenantId = order.tenantId || (await getTenantId());
   const meta = orderMeta(order);
   const customer = orderCustomer(order);
@@ -719,36 +719,6 @@ export async function subscriptionsForOrder(order: any) {
     include: { preference: true },
     take: 5,
   });
-}
-
-export async function notifyGeneralOrderMessage(input: {
-  order: any;
-  type: string;
-  title: string;
-  body: string;
-  dedupeKey: (subscriptionId: string) => string;
-  payload?: Record<string, unknown>;
-}) {
-  const subscriptions = await subscriptionsForOrder(input.order);
-  let queued = 0;
-  let deduped = 0;
-
-  for (const subscription of subscriptions) {
-    const result = await queueAndSendGeneralNotification({
-      subscriptionId: subscription.id,
-      type: input.type,
-      title: input.title,
-      body: input.body,
-      url: trackingUrl(input.order),
-      orderId: input.order.id,
-      dedupeKey: input.dedupeKey(subscription.id),
-      payload: { orderId: input.order.id, ...input.payload },
-    });
-    if ((result as any)?.deduped) deduped += 1;
-    else if (!(result as any)?.skipped) queued += 1;
-  }
-
-  return { queued, deduped, subscriptions: subscriptions.length };
 }
 
 export async function notifyGeneralOrderStatus(

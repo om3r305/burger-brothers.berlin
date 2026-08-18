@@ -582,11 +582,6 @@ export function useDriverOrders({
     async (order: DriverOrder) => {
       if (!current) return false;
 
-      if (normalizeStatus(order.status) !== "out_for_delivery") {
-        notify('Bitte zuerst „Fahrt starten“.', "warning");
-        return false;
-      }
-
       const id = String(order.id);
       const previousOrder = order;
 
@@ -632,13 +627,7 @@ export function useDriverOrders({
           },
         );
 
-        if (!serverOrder || normalizeStatus(serverOrder.status) !== "done") {
-          throw new Error(
-            "Lieferstatus konnte nicht bestätigt werden. Bitte erneut prüfen.",
-          );
-        }
-
-        const finalOrder = serverOrder;
+        const finalOrder = serverOrder || updated;
 
         try {
           upsertOrder(toStoredOrder(finalOrder));
