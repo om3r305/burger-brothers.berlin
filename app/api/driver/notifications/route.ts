@@ -44,16 +44,19 @@ function toTimestamp(value: unknown) {
 
 function outForDeliveryStartedAt(order: any) {
   const meta = plainObject(order?.meta);
-  return Math.min(
-    toTimestamp(meta.outForDeliveryAt),
-    toTimestamp(
-      String(meta.statusManual || order?.status || "").toLowerCase() ===
-        "out_for_delivery"
-        ? meta.statusUpdatedAt
-        : null,
-    ),
-    toTimestamp(order?.updatedAt),
-  );
+  const currentStatus = String(meta.statusManual || order?.status || "").toLowerCase();
+
+  // statusUpdatedAt is the latest server-owned transition into the current
+  // out_for_delivery state. It correctly handles release -> restart flows.
+  if (currentStatus === "out_for_delivery") {
+    const latestTransition = toTimestamp(meta.statusUpdatedAt);
+    if (Number.isFinite(latestTransition)) return latestTransition;
+  }
+
+  const firstDeparture = toTimestamp(meta.outForDeliveryAt);
+  if (Number.isFinite(firstDeparture)) return firstDeparture;
+
+  return toTimestamp(order?.updatedAt);
 }
 
 function serverCurrentStopId(orders: any[], driverSubject: string) {
@@ -116,9 +119,9 @@ export async function POST(req: Request) {
     /*
      * CURRENT A is determined from server-owned delivery-start timestamps.
      * `startMany` starts A -> B -> C sequentially and the status API persists
-     * `meta.outForDeliveryAt` on each transition. The browser may still send
-     * routeOrderIds for backwards compatibility, but this endpoint never uses
-     * that client-maintained order as authority.
+     * the status transition time. The browser may still send routeOrderIds for
+     * backwards compatibility, but this endpoint never uses that client state
+     * as authority.
      */
     const activeOrders = await prisma.order.findMany({
       where: {
