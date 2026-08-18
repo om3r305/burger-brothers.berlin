@@ -2,7 +2,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import { useCart } from "@/components/store";
 
 import { loadNormalizedCampaigns } from "@/lib/campaigns-compat";
@@ -1412,6 +1412,8 @@ export function CartSummaryMobile() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [modeChoiceOpen, setModeChoiceOpen] = useState(false);
+  const [plzCheckoutError, setPlzCheckoutError] = useState(false);
+  const plzInputRef = useRef<HTMLInputElement>(null);
 
   const items = useCart((s: any) => s.items);
   const setQty = useCart((s: any) => s.setQty);
@@ -1544,15 +1546,30 @@ export function CartSummaryMobile() {
       : null;
 
   const chooseMode = (mode: "pickup" | "delivery") => {
+    setPlzCheckoutError(false);
     setOrderMode(mode);
     setModeChoiceOpen(false);
   };
 
   const onPLZChange = (v: string) => {
     const only = v.replace(/\D/g, "").slice(0, 5);
+    setPlzCheckoutError(false);
     setPLZ(only || null);
     updateCheckoutZipFromCart(only);
     setLsTick((t) => t + 1);
+  };
+
+  const continueToCheckout = () => {
+    if (orderMode === "delivery" && !plzKnown) {
+      setPlzCheckoutError(true);
+      window.requestAnimationFrame(() => {
+        plzInputRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+        plzInputRef.current?.focus({ preventScroll: true });
+      });
+      return;
+    }
+
+    router.push("/checkout");
   };
 
   const clearCoupon = () => {
@@ -1679,7 +1696,11 @@ export function CartSummaryMobile() {
             </span>
             <span className="shrink-0 text-xs font-black tracking-wide">WARENKORB ›</span>
           </span>
-          {orderMode === "delivery" && missingMinimum !== null ? (
+          {orderMode === "delivery" && !plzKnown ? (
+            <span className="mt-1.5 block border-t border-black/15 pt-1.5 text-[11px] font-semibold">
+              📍 PLZ für Lieferung noch eingeben
+            </span>
+          ) : orderMode === "delivery" && missingMinimum !== null ? (
             <span className="mt-1.5 block border-t border-black/15 pt-1.5 text-[11px] font-semibold">
               {missingMinimum > 0
                 ? `Noch ${fmt(missingMinimum)} bis zum Mindestbestellwert`
@@ -1738,17 +1759,22 @@ export function CartSummaryMobile() {
                 <label className="mb-1 block text-xs opacity-80" htmlFor="m-plz">Postleitzahl (5-stellig)</label>
                 <input
                   id="m-plz"
+                  ref={plzInputRef}
                   inputMode="numeric"
                   value={plz ?? ""}
                   onChange={(e) => onPLZChange(e.target.value)}
-                  className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2 outline-none"
+                  className={`w-full rounded-md border bg-stone-950 px-3 py-2 outline-none ${
+                    !plzKnown
+                      ? "border-amber-400/70 ring-1 ring-amber-400/20 focus:border-amber-300"
+                      : "border-stone-700/60"
+                  }`}
                   placeholder="z. B. 13507"
                   maxLength={5}
                   disabled={pausedDelivery}
                   title={pausedDelivery ? "Lieferung pausiert" : "PLZ eingeben"}
                 />
-                {!plzEffective && !pausedDelivery && (
-                  <div className="mt-1 text-xs text-amber-400">Bitte PLZ eingeben, um Mindestbestellwert zu prüfen.</div>
+                {!plzKnown && !pausedDelivery && (
+                  <div className="mt-1 text-xs text-amber-400">PLZ eingeben, um Liefergebiet und Mindestbestellwert zu prüfen.</div>
                 )}
                 {plzEffective && !plzKnown && !pausedDelivery && (
                   <div className="mt-1 text-xs text-red-400">Diese PLZ liegt außerhalb unseres Liefergebiets.</div>
@@ -1760,6 +1786,11 @@ export function CartSummaryMobile() {
                 )}
                 {pausedDelivery && (
                   <div className="mt-1 text-xs text-amber-400">Lieferung ist derzeit pausiert.</div>
+                )}
+                {plzCheckoutError && !pausedDelivery && (
+                  <div className="mt-1 text-xs font-semibold text-red-400" role="alert">
+                    Bitte zuerst deine PLZ eingeben.
+                  </div>
                 )}
               </div>
             )}
@@ -1878,9 +1909,13 @@ export function CartSummaryMobile() {
 
               <button
                 type="button"
-                onClick={() => router.push("/checkout")}
-                disabled={!canCheckout}
-                className={`w-full card-cta card-cta--lg ${!canCheckout ? "opacity-50 cursor-not-allowed" : ""}`}
+                onClick={continueToCheckout}
+                disabled={!canCheckout && !(orderMode === "delivery" && !plzKnown && !isEmpty && !isModePaused)}
+                className={`w-full card-cta card-cta--lg ${
+                  !canCheckout && !(orderMode === "delivery" && !plzKnown && !isEmpty && !isModePaused)
+                    ? "opacity-50 cursor-not-allowed"
+                    : ""
+                }`}
                 title={!canCheckout ? "Bitte Anforderungen erfüllen" : "Zur Kasse"}
               >
                 Weiter zur Kasse · {fmt(totalFinal)}
