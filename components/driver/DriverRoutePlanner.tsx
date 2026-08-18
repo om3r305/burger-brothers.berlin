@@ -345,6 +345,9 @@ export function DriverRoutePlanner({
     queueKey: string;
   } | null>(null);
   const autoSortedSetRef = useRef("");
+  const nearbyNotifiedRef = useRef<Set<string>>(new Set());
+  const nearbyInFlightRef = useRef<Set<string>>(new Set());
+  const nearbyRetryAtRef = useRef<Map<string, number>>(new Map());
 
   const [orderedIds, setOrderedIds] = useState<string[]>([]);
   const [localOrigin, setLocalOrigin] = useState<DriverPosition | null>(null);
@@ -536,6 +539,98 @@ export function DriverRoutePlanner({
     },
     [],
   );
+
+  // Customer "Fahrer gleich da" notification:
+  // - only the CURRENT A stop is eligible,
+  // - only after Fahrt starten (activeOrder is out_for_delivery),
+  // - distance is calculated locally from the existing GPS position,
+  // - destination geocoding is cached and never requested on every GPS heartbeat,
+  // - the server keeps the notification durable and deduplicated once per order.
+  useEffect(() => {
+    if (!activeOrder || !livePosition) return;
+    if (normalizeStatus(activeOrder.status) !== "out_for_delivery") return;
+
+    const orderId = String(activeOrder.id);
+    if (!orderId || nearbyNotifiedRef.current.has(orderId)) return;
+    if (nearbyInFlightRef.current.has(orderId)) return;
+
+    const retryAt = nearbyRetryAtRef.current.get(orderId) || 0;
+    if (Date.now() < retryAt) return;
+
+    let cancelled = false;
+
+    const checkNearby = async () => {
+      let target =
+        routePoint(activeOrder) ||
+        geocodeCacheRef.current.get(orderId) ||
+        null;
+
+      if (!target) {
+        const maps =
+          mapsRef.current ||
+          (await loadGoogleMaps().catch(() => null));
+
+        if (!maps || cancelled) return;
+        target = await resolvePoint(activeOrder, maps);
+      }
+
+      if (!target || cancelled) return;
+
+      const distance = haversineMeters(livePosition, target);
+      if (!Number.isFinite(distance) || distance > 650) return;
+
+      nearbyInFlightRef.current.add(orderId);
+
+      try {
+        const response = await fetch("/api/orders/notification", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: {
+            "content-type": "application/json",
+            accept: "application/json",
+          },
+          body: JSON.stringify({
+            orderId,
+            templateId: "nearby",
+          }),
+        });
+
+        const payload = await response.json().catch(() => ({}));
+
+        if (
+          response.ok &&
+          payload?.ok !== false &&
+          (Number(payload?.subscriptions || 0) > 0 ||
+            Number(payload?.deduped || 0) > 0)
+        ) {
+          nearbyNotifiedRef.current.add(orderId);
+          nearbyRetryAtRef.current.delete(orderId);
+          return;
+        }
+
+        // No customer subscription or a temporary server/push problem:
+        // retry later while the same order is still CURRENT A.
+        nearbyRetryAtRef.current.set(orderId, Date.now() + 30_000);
+      } catch {
+        nearbyRetryAtRef.current.set(orderId, Date.now() + 30_000);
+      } finally {
+        nearbyInFlightRef.current.delete(orderId);
+      }
+    };
+
+    void checkNearby();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeOrder?.id,
+    activeOrder?.status,
+    livePosition?.lat,
+    livePosition?.lng,
+    livePosition?.ts,
+    resolvePoint,
+  ]);
 
   const autoSort = useCallback(
     async (sourceOrders: DriverOrder[] = ordered) => {

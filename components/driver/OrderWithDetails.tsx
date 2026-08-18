@@ -17,6 +17,41 @@ import {
 } from "@/lib/driver/domain";
 import type { DriverOrder } from "@/types/driver";
 
+
+const CUSTOMER_MESSAGE_TEMPLATES = [
+  { id: "at_door", label: "Ich bin vor der Tür" },
+  { id: "phone_unreachable", label: "Telefon nicht erreichbar" },
+  { id: "no_answer", label: "Klingel / keine Antwort" },
+  { id: "address_unclear", label: "Adresse nicht eindeutig" },
+  { id: "come_to_entrance", label: "Bitte zum Hauseingang kommen" },
+] as const;
+
+function customerMessageFeedback(payload: any, status: number) {
+  const code = String(payload?.error || "").trim();
+
+  if (status === 401 || code === "unauthorized" || code === "driver_identity_missing") {
+    return "Fahrer-Anmeldung ist nicht mehr gültig. Bitte neu anmelden.";
+  }
+  if (code === "order_assigned_to_other_driver") {
+    return "Dieser Auftrag gehört einem anderen Fahrer.";
+  }
+  if (code === "order_not_operational") {
+    return "Diese Bestellung ist nicht mehr aktiv.";
+  }
+  if (code === "delivery_required") {
+    return "Diese Nachricht ist nur für Lieferungen verfügbar.";
+  }
+  if (code === "cooldown") {
+    const seconds = Math.max(1, Math.ceil(Number(payload?.retryAfterMs || 0) / 1000));
+    return `Bitte ${seconds} Sek. warten, bevor dieselbe Nachricht erneut gesendet wird.`;
+  }
+  if (code === "notification_send_failed") {
+    return "Benachrichtigung konnte technisch nicht gesendet werden.";
+  }
+
+  return `Benachrichtigung konnte nicht gesendet werden${status ? ` (HTTP ${status})` : ""}.`;
+}
+
 export function OrderWithDetails({
   order,
   busy,
@@ -42,12 +77,73 @@ export function OrderWithDetails({
 }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [noteOpen, setNoteOpen] = useState(false);
+  const [messageOpen, setMessageOpen] = useState(false);
+  const [messageBusy, setMessageBusy] = useState("");
+  const [messageFeedback, setMessageFeedback] = useState("");
 
   const items = order.items;
   const sum = orderItemsTotal(order);
   const noteText = orderNote(order);
   const notePreview = shortText(noteText);
   const noteLong = noteText.trim().length > NOTE_PREVIEW_MAX;
+
+  const sendCustomerMessage = async (templateId: string) => {
+    if (messageBusy) return;
+
+    setMessageBusy(templateId);
+    setMessageFeedback("");
+
+    try {
+      const response = await fetch("/api/orders/notification", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json",
+        },
+        body: JSON.stringify({
+          orderId: String(order.id),
+          templateId,
+        }),
+      });
+
+      const payload = await response.json().catch(() => ({}));
+
+      if (!response.ok || payload?.ok === false) {
+        setMessageFeedback(customerMessageFeedback(payload, response.status));
+        return;
+      }
+
+      const subscriptions = Number(payload?.subscriptions || 0);
+      const accepted = Number(payload?.accepted || 0);
+      const queued = Number(payload?.queued || 0);
+
+      if (subscriptions <= 0) {
+        setMessageFeedback(
+          "Für diesen Kunden ist keine aktive Bestell-Benachrichtigung registriert.",
+        );
+        return;
+      }
+
+      if (accepted > 0) {
+        setMessageFeedback("✓ Benachrichtigung gesendet.");
+        return;
+      }
+
+      if (queued > 0) {
+        setMessageFeedback(
+          "Benachrichtigung vorgemerkt – die Zustellung wird erneut versucht.",
+        );
+        return;
+      }
+
+      setMessageFeedback("✓ Benachrichtigung bereits gesendet.");
+    } catch {
+      setMessageFeedback("Benachrichtigung konnte nicht gesendet werden.");
+    } finally {
+      setMessageBusy("");
+    }
+  };
 
   return (
     <div className={`rounded-2xl p-3 sm:p-4 ${glass}`}>
@@ -211,6 +307,41 @@ export function OrderWithDetails({
           >
             🗺️ Karte
           </button>
+
+          <button
+            className={`${actionButtonClass("ghost")} col-span-2`}
+            type="button"
+            onClick={() => {
+              setMessageOpen((current) => !current);
+              setMessageFeedback("");
+            }}
+          >
+            🔔 Nachricht
+          </button>
+
+          {messageOpen ? (
+            <div className="col-span-2 rounded-xl border border-sky-300/20 bg-sky-400/[0.06] p-2">
+              <div className="grid gap-1.5">
+                {CUSTOMER_MESSAGE_TEMPLATES.map((template) => (
+                  <button
+                    key={template.id}
+                    type="button"
+                    disabled={Boolean(messageBusy)}
+                    className="rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-2 text-left text-xs font-semibold text-stone-100 transition hover:bg-white/[0.08] disabled:opacity-50"
+                    onClick={() => void sendCustomerMessage(template.id)}
+                  >
+                    {messageBusy === template.id ? "Sendet…" : template.label}
+                  </button>
+                ))}
+              </div>
+
+              {messageFeedback ? (
+                <div className="mt-2 text-[11px] leading-relaxed text-stone-300">
+                  {messageFeedback}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
 
           <button
             className={actionButtonClass("finish")}

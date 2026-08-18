@@ -78,7 +78,6 @@ export function apiAccess(path: string, methodRaw: string): Access {
   if (PUBLIC_PATHS.has(path)) return "public";
 
   if (path === "/api/settings" && readOnly) return "public";
-  if (path === "/api/public/eta" && readOnly) return "public";
   if (path === "/api/showcase" && readOnly) return "public";
   if (
     path === "/api/showcase/events" &&
@@ -203,7 +202,7 @@ export function apiAccess(path: string, methodRaw: string): Access {
   if (path === "/api/orders/claim") return "driver";
   if (child(path, "/api/qr-image")) return "operational";
   if (child(path, "/api/telegram")) return "admin";
-  if (path === "/api/orders/list" || path === "/api/orders/status") return "operational";
+  if (path === "/api/orders/list" || path === "/api/orders/status" || path === "/api/orders/notification") return "operational";
 
   // Legacy multi-purpose endpoint is never public.
   if (path === "/api/orders") return "operational";

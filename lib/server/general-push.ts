@@ -756,6 +756,122 @@ export async function notifyGeneralOrderStatus(
   return { queued };
 }
 
+
+export type DriverCustomerNotificationTemplateId =
+  | "nearby"
+  | "at_door"
+  | "phone_unreachable"
+  | "no_answer"
+  | "address_unclear"
+  | "come_to_entrance";
+
+function driverCustomerNotificationText(
+  templateId: DriverCustomerNotificationTemplateId,
+) {
+  switch (templateId) {
+    case "nearby":
+      return {
+        title: "🚗 Fahrer gleich da!",
+        body:
+          "Unser Fahrer ist nur noch wenige Minuten entfernt. Bitte halten Sie sich für die Übergabe bereit.",
+      };
+    case "at_door":
+      return {
+        title: "🚗 Fahrer wartet vor Ort",
+        body:
+          "Unser Fahrer ist bei Ihnen angekommen. Bitte prüfen Sie den Hauseingang.",
+      };
+    case "phone_unreachable":
+      return {
+        title: "📞 Telefon nicht erreichbar",
+        body:
+          "Unser Fahrer versucht Sie zu erreichen. Bitte prüfen Sie Ihr Telefon und kommen Sie wenn möglich zum Hauseingang.",
+      };
+    case "no_answer":
+      return {
+        title: "🔔 Keine Antwort an der Klingel",
+        body:
+          "Unser Fahrer ist vor Ort, erhält aber keine Antwort. Bitte kommen Sie zum Hauseingang.",
+      };
+    case "address_unclear":
+      return {
+        title: "📍 Adresse nicht eindeutig",
+        body:
+          "Unser Fahrer ist in Ihrer Nähe, kann den Eingang aber nicht eindeutig finden. Bitte prüfen Sie Ihr Telefon.",
+      };
+    case "come_to_entrance":
+      return {
+        title: "🚪 Bitte zum Hauseingang kommen",
+        body:
+          "Unser Fahrer wartet am Hauseingang. Bitte kommen Sie zur Übergabe nach unten.",
+      };
+    default:
+      return null;
+  }
+}
+
+export function driverCustomerNotificationEventType(
+  templateId: DriverCustomerNotificationTemplateId,
+) {
+  return templateId === "nearby"
+    ? "order_driver_nearby"
+    : `order_driver_manual_${templateId}`;
+}
+
+export async function notifyGeneralDriverMessage(
+  order: any,
+  templateId: DriverCustomerNotificationTemplateId,
+) {
+  const text = driverCustomerNotificationText(templateId);
+  if (!text) {
+    return {
+      subscriptions: 0,
+      accepted: 0,
+      queued: 0,
+      deduped: 0,
+    };
+  }
+
+  const subscriptions = await subscriptionsForOrder(order);
+  let accepted = 0;
+  let queued = 0;
+  let deduped = 0;
+
+  for (const subscription of subscriptions) {
+    const result = await queueAndSendGeneralNotification({
+      subscriptionId: subscription.id,
+      type: driverCustomerNotificationEventType(templateId),
+      title: text.title,
+      body: text.body,
+      url: trackingUrl(order),
+      orderId: order.id,
+      dedupeKey:
+        templateId === "nearby"
+          ? `driver:nearby:${order.id}:${subscription.id}`
+          : null,
+      payload: {
+        orderId: order.id,
+        templateId,
+      },
+    });
+
+    if ((result as any)?.deduped) {
+      deduped += 1;
+    } else if ((result as any)?.ok) {
+      accepted += 1;
+    } else {
+      queued += 1;
+    }
+  }
+
+  return {
+    subscriptions: subscriptions.length,
+    accepted,
+    queued,
+    deduped,
+  };
+}
+
 export async function notifyOrderRefundExecuted(order: any, refundResult?: any) {
   if (cleanText(order?.channel, 60).toLowerCase() === "schnellbestellung") {
     return { queued: 0 };
