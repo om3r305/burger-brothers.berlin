@@ -122,6 +122,9 @@ MENU SOURCE OF TRUTH
 - Common customer synonyms are expected: Pommes / normale Pommes / Fries / Fritten / patates; Cola Zero / Coca-Cola Zero / Coke Zero / Kola Zero; Curly Fries; Süßkartoffel-Pommes; Bubble Tea.
 - If search_menu returns several plausible variants (for example sizes), ask one short clarification instead of guessing.
 
+DELIVERY AREA
+- For every PLZ, delivery-area, or delivery-minimum question, call check_delivery_area. Never guess whether a PLZ is served or its minimum order.
+
 ORDER ACTIONS
 - If the customer clearly asks for several products, resolve each requested product and keep working until every unambiguous item is added. Do not stop after the first one.
 - add_to_cart is only for a NEW product after search_menu has identified its canonical productId.
@@ -231,6 +234,18 @@ const GO_CHECKOUT_TOOL = {
     type: "object",
     additionalProperties: false,
     properties: {},
+  },
+} as const;
+
+const CHECK_DELIVERY_AREA_TOOL = {
+  type: "function",
+  name: "check_delivery_area",
+  description: "Check one 5-digit German postal code against authoritative Burger Brothers delivery settings.",
+  parameters: {
+    type: "object",
+    additionalProperties: false,
+    required: ["postalCode"],
+    properties: { postalCode: { type: "string", pattern: "^[0-9]{5}$" } },
   },
 } as const;
 
@@ -348,6 +363,7 @@ export async function POST(req: Request) {
       ADD_TO_CART_TOOL,
       UPDATE_CART_ITEM_TOOL,
       GO_CHECKOUT_TOOL,
+      CHECK_DELIVERY_AREA_TOOL,
     ],
     tool_choice: "auto",
     parallel_tool_calls: false,

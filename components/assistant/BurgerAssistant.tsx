@@ -915,6 +915,9 @@ export default function BurgerAssistant() {
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const pendingVoiceCheckoutRef = useRef(false);
   const voiceIdleTimerRef = useRef<number | null>(null);
+  const voiceOrbRef = useRef<HTMLDivElement | null>(null);
+  const meterFrameRef = useRef<number | null>(null);
+  const meterContextRef = useRef<AudioContext | null>(null);
 
   const normalizedPathname =
     pathname && pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;
@@ -926,6 +929,12 @@ export default function BurgerAssistant() {
 
   const stopVoice = useCallback(() => {
     pendingVoiceCheckoutRef.current = false;
+
+    if (meterFrameRef.current != null) cancelAnimationFrame(meterFrameRef.current);
+    meterFrameRef.current = null;
+    void meterContextRef.current?.close().catch(() => {});
+    meterContextRef.current = null;
+    voiceOrbRef.current?.style.setProperty("--voice-level", "0");
 
     if (voiceIdleTimerRef.current != null) {
       window.clearTimeout(voiceIdleTimerRef.current);
@@ -1455,6 +1464,27 @@ export default function BurgerAssistant() {
       });
       mediaStreamRef.current = stream;
 
+      // Keep microphone-frame updates out of React: only one DOM custom
+      // property changes, so the full assistant does not rerender on iPhone.
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioContextClass) {
+        const audioContext: AudioContext = new AudioContextClass();
+        meterContextRef.current = audioContext;
+        const analyser = audioContext.createAnalyser();
+        analyser.fftSize = 256;
+        audioContext.createMediaStreamSource(stream).connect(analyser);
+        const samples = new Uint8Array(analyser.frequencyBinCount);
+        const drawMeter = () => {
+          analyser.getByteFrequencyData(samples);
+          let sum = 0;
+          for (const sample of samples) sum += sample;
+          const level = Math.min(1, sum / Math.max(1, samples.length) / 96);
+          voiceOrbRef.current?.style.setProperty("--voice-level", level.toFixed(3));
+          meterFrameRef.current = requestAnimationFrame(drawMeter);
+        };
+        drawMeter();
+      }
+
       const peer = new RTCPeerConnection();
       peerRef.current = peer;
 
@@ -1618,6 +1648,33 @@ export default function BurgerAssistant() {
               },
             });
             sendRealtimeEvent({ type: "response.create" });
+            return;
+          }
+
+          if (event?.name === "check_delivery_area") {
+            void fetch(`/api/assistant/delivery-area?plz=${encodeURIComponent(cleanString(args?.postalCode))}`, {
+              credentials: "same-origin",
+              cache: "no-store",
+            })
+              .then((response) => response.json())
+              .then((payload) => {
+                sendRealtimeEvent({
+                  type: "conversation.item.create",
+                  item: {
+                    type: "function_call_output",
+                    call_id: event.call_id,
+                    output: JSON.stringify(payload?.ok ? payload.result : { error: "lookup_failed" }),
+                  },
+                });
+                sendRealtimeEvent({ type: "response.create" });
+              })
+              .catch(() => {
+                sendRealtimeEvent({
+                  type: "conversation.item.create",
+                  item: { type: "function_call_output", call_id: event.call_id, output: JSON.stringify({ error: "lookup_failed" }) },
+                });
+                sendRealtimeEvent({ type: "response.create" });
+              });
             return;
           }
 
@@ -2060,10 +2117,10 @@ export default function BurgerAssistant() {
             ) : (
               <div className="flex min-h-0 flex-1 flex-col">
                 <div className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-5 py-6 text-center">
-                  <div className="relative grid h-44 w-44 place-items-center sm:h-52 sm:w-52">
+                  <div ref={voiceOrbRef} className="relative grid h-44 w-44 place-items-center sm:h-52 sm:w-52" style={{ "--voice-level": 0 } as React.CSSProperties}>
                     <span className={`absolute inset-0 rounded-full border border-amber-300/10 ${voiceActive ? "animate-ping" : ""}`} />
                     <span className={`absolute inset-5 rounded-full border border-amber-300/15 ${voiceState === "speaking" ? "animate-pulse" : ""}`} />
-                    <span className="absolute inset-10 rounded-full bg-[radial-gradient(circle_at_38%_32%,rgba(255,229,151,.92),rgba(245,158,11,.48)_30%,rgba(120,53,15,.16)_62%,rgba(0,0,0,.8)_75%)] shadow-[0_0_65px_rgba(245,158,11,.22)]" />
+                    <span className="absolute inset-10 rounded-full bg-[radial-gradient(circle_at_38%_32%,rgba(255,229,151,.92),rgba(245,158,11,.48)_30%,rgba(120,53,15,.16)_62%,rgba(0,0,0,.8)_75%)] shadow-[0_0_65px_rgba(245,158,11,.22)] will-change-transform" style={{ transform: "scale(calc(1 + var(--voice-level) * .16))" }} />
                     <div className="relative flex items-end gap-1">
                       {[16, 28, 40, 30, 18].map((height, index) => (
                         <span

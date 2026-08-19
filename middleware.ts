@@ -95,6 +95,7 @@ export function apiAccess(path: string, methodRaw: string): Access {
   // Customer AI assistant routes apply trusted-origin + rate-limit checks in-route.
   if (path === "/api/assistant/chat" && method === "POST") return "public";
   if (path === "/api/assistant/realtime" && method === "POST") return "public";
+  if (path === "/api/assistant/delivery-area" && readOnly) return "public";
 
   // Genel PWA/Web-Push uÃ§larÄ± kendi origin, rate-limit, cihaz Ã§erezi ve
   // tracking-token kontrollerini route iÃ§inde uygular.
