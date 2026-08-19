@@ -55,12 +55,13 @@ assert(
     route.includes('name: "get_cart"') &&
     route.includes('name: "add_to_cart"') &&
     route.includes('name: "update_cart_item"') &&
+    route.includes('name: "check_delivery_area"') &&
     route.includes('name: "go_checkout"') &&
     route.includes("SEARCH_MENU_TOOL") &&
     route.includes("LIST_CATEGORY_TOOL") &&
     route.includes("GET_CART_TOOL") &&
     route.includes("parallel_tool_calls: false"),
-  "Realtime exposes only live menu/cart preparation tools",
+  "Realtime exposes only bounded live menu/cart/delivery preparation tools",
 );
 
 assert(
@@ -125,6 +126,15 @@ assert(
   component.includes('event?.type === "response.output_audio_transcript.done"') &&
     component.includes('event?.type === "conversation.item.input_audio_transcription.completed"'),
   "UI still handles assistant transcript and optional input-caption events",
+);
+
+assert(
+  component.includes("bb-voice-orb") &&
+    component.includes("prefers-reduced-motion") &&
+    component.includes("Warenkorb") &&
+    component.includes("Beenden") &&
+    !component.includes("emergency-looking STOP"),
+  "Immersive voice UI has an animated reduced-motion orb and minimal controls",
 );
 
 assert(

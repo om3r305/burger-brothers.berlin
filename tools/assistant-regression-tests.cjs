@@ -123,6 +123,7 @@ assert(
     realtime.includes('name: "get_cart"') &&
     realtime.includes('name: "add_to_cart"') &&
     realtime.includes('name: "update_cart_item"') &&
+    realtime.includes('name: "check_delivery_area"') &&
     realtime.includes('name: "go_checkout"') &&
     component.includes('event?.name === "search_menu"') &&
     component.includes('event?.name === "list_category"') &&
