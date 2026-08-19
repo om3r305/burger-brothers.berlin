@@ -117,9 +117,21 @@ assert(
   component.includes('event?.name === "update_cart_item"') &&
     component.includes("updateExistingCartLine") &&
     component.includes("removeFromCart(currentLine.id)") &&
-    component.includes("note: undefined") &&
-    !route.includes('note: { type: "string"'),
-  "Existing-line extras remain structured and AI prose cannot enter Hinweis",
+    component.includes("note === undefined") &&
+    route.includes('note: { type: "string", maxLength: 200 }') &&
+    route.includes('required: ["lineId", "productId", "extraIds", "remove", "note"]'),
+  "Existing-line extras remain structured and realtime tools carry a bounded replaceable Hinweis",
+);
+
+assert(
+  route.includes("Put removals in BOTH remove and note") &&
+    route.includes('"Fleisch gut durch."') &&
+    route.includes('"Ohne Salz."') &&
+    route.includes("Scope doneness to its burger") &&
+    route.includes("doch mit Salz") &&
+    component.includes("note: sanitizeKitchenNote(line?.note) || undefined") &&
+    component.includes("note: sanitizeKitchenNote(args?.note)"),
+  "Realtime understands multilingual kitchen requests, scopes multi-item notes, handles reversals and exposes notes in cart context",
 );
 
 assert(

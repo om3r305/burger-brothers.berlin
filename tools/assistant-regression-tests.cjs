@@ -20,12 +20,24 @@ const component = read("components/assistant/BurgerAssistant.tsx");
 const route = read("app/api/assistant/chat/route.ts");
 const realtime = read("app/api/assistant/realtime/route.ts");
 const local = read("lib/assistant/local-engine.ts");
+const checkout = read("app/checkout/page.tsx");
+const orderCreate = read("app/api/orders/create/route.ts");
+const printJobs = read("app/api/print/jobs/route.ts");
 
 assert(
   layout.includes('import BurgerAssistant from "@/components/assistant/BurgerAssistant";') &&
     layout.includes("<BurgerAssistant />") &&
     !nav.includes("BurgerAssistant"),
   "Assistant is mounted once in the global app shell",
+);
+
+assert(
+  checkout.includes("note: cartItem.note != null ? String(cartItem.note) : undefined") &&
+    orderCreate.includes("note: cleanText(item?.note) || undefined") &&
+    printJobs.includes("note: text(item?.note) || undefined") &&
+    checkout.includes("deliveryHint") &&
+    !component.includes("deliveryHint"),
+  "Per-item kitchen notes remain distinct from Lieferhinweis and survive checkout, stored-order and print mappings",
 );
 
 assert(
@@ -89,9 +101,29 @@ assert(
   component.includes("addToCart({") &&
     component.includes("updateExistingCartLine") &&
     component.includes("removeFromCart(currentLine.id)") &&
-    component.includes("note: undefined") &&
+    component.includes("note: sanitizeKitchenNote(action.note) || undefined") &&
     component.includes('router.push("/checkout")'),
-  "Assistant only prepares the existing cart, updates structured extras and can navigate to checkout",
+  "Assistant carries a bounded kitchen note while retaining structured extras and checkout navigation",
+);
+
+assert(
+  route.includes('note: cleanKitchenNote(action?.note)') &&
+    route.includes('belongs BOTH in remove') &&
+    route.includes('"Fleisch gut durch."') &&
+    route.includes('"Ohne Salz."') &&
+    route.includes("Scope each note to its product") &&
+    component.includes("note: sanitizeKitchenNote(line?.note) || undefined"),
+  "Text assistant supports structured removals plus scoped, sanitized kitchen notes and current-note context",
+);
+
+assert(
+  component.includes("note === undefined") &&
+    component.includes("sanitizeKitchenNote(currentLine.note)") &&
+    component.includes("Object.prototype.hasOwnProperty.call(args || {}, \"note\")") &&
+    route.includes("Never put assistant acknowledgements") &&
+    route.includes("\.slice(0, 200)") &&
+    route.includes("der kunde|die kundin|the customer"),
+  "Existing notes survive unrelated updates, explicit empty replacements can clear reversals, and prose is rejected",
 );
 
 for (const marker of ["OPENAI_API_KEY", ["s", "k", "-"].join(""), "Bearer ${process.env"]) {

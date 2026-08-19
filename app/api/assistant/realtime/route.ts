@@ -52,7 +52,7 @@ function assistantMutationOriginAllowed(req: Request) {
 }
 
 function cleanText(value: unknown, max = 160) {
-  return String(value ?? "").trim().slice(0, max);
+  return String(value ?? "").replace(/[\u0000-\u001f\u007f-\u009f]/g, " ").replace(/\s+/g, " ").trim().slice(0, max);
 }
 
 function cleanNumber(value: unknown) {
@@ -87,6 +87,7 @@ function cleanCart(value: unknown) {
               .filter(Boolean)
               .slice(0, 8)
           : [],
+        note: cleanText(item?.note, 200) || undefined,
       },
     ];
   });
@@ -132,7 +133,11 @@ ORDER ACTIONS
 - add_to_cart is only for a NEW product after search_menu has identified its canonical productId.
 - If the customer modifies something already in the cart, use get_cart when you need the current lineId, search_menu when you need valid extra IDs, then call update_cart_item.
 - Extras must use exact extra IDs returned by search_menu for that exact product.
-- Never turn product names, extras, removals, or the customer's sentence into a cart note / Hinweis.
+- Decompose each requested item into product, quantity, canonical paid extraIds, structured removals, and a concise item-specific kitchen note.
+- Put removals in BOTH remove and note: "ohne Tomate" means remove=["Tomate"] and note="Ohne Tomate." Paid extras remain canonical extraIds.
+- note is only customer-requested preparation for that exact item, in concise kitchen German. Understand equivalent German, Turkish and English ("eti iyi pişsin"/"well done" => "Fleisch gut durch."; "patates tuzsuz"/"fries no salt" => "Ohne Salz."). Never copy the whole utterance or assistant prose into note.
+- Scope doneness to its burger and salt instructions to its fries. If the target product is unclear, ask one short clarification and do not mutate the cart.
+- Before updating, read existing extras, removals and note. Preserve the existing note when only extras/removals change. On an explicit reversal such as "doch mit Salz", replace/remove the relevant old instruction rather than appending a contradiction. Send the complete desired note in update_cart_item.
 - A recommendation does not add anything unless the customer says to add/buy it.
 - go_checkout only navigates to the existing Burger Brothers checkout. Never place an order and never perform payment.
 - After a tool result says ok=true, confirm briefly and continue taking the order.
@@ -199,12 +204,13 @@ const ADD_TO_CART_TOOL = {
   parameters: {
     type: "object",
     additionalProperties: false,
-    required: ["productId", "quantity", "extraIds", "remove"],
+    required: ["productId", "quantity", "extraIds", "remove", "note"],
     properties: {
       productId: { type: "string" },
       quantity: { type: "integer", minimum: 1, maximum: 10 },
       extraIds: { type: "array", maxItems: 12, items: { type: "string" } },
       remove: { type: "array", maxItems: 8, items: { type: "string" } },
+      note: { type: "string", maxLength: 200 },
     },
   },
 } as const;
@@ -213,16 +219,17 @@ const UPDATE_CART_ITEM_TOOL = {
   type: "function",
   name: "update_cart_item",
   description:
-    "Add extras/removals to one existing cart line. Use the exact lineId/productId from get_cart and exact extra IDs returned by search_menu.",
+    "Update extras, removals and/or the complete kitchen note on one existing cart line. Preserve fields the customer did not change; use exact IDs from get_cart/search_menu.",
   parameters: {
     type: "object",
     additionalProperties: false,
-    required: ["lineId", "productId", "extraIds", "remove"],
+    required: ["lineId", "productId", "extraIds", "remove", "note"],
     properties: {
       lineId: { type: "string" },
       productId: { type: "string" },
       extraIds: { type: "array", maxItems: 12, items: { type: "string" } },
       remove: { type: "array", maxItems: 8, items: { type: "string" } },
+      note: { type: "string", maxLength: 200 },
     },
   },
 } as const;

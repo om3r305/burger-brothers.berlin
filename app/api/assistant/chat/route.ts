@@ -138,7 +138,7 @@ const RESPONSE_SCHEMA = {
           },
           note: {
             type: "string",
-            maxLength: 180,
+            maxLength: 200,
           },
           requiresConfirmation: {
             type: "boolean",
@@ -151,6 +151,16 @@ const RESPONSE_SCHEMA = {
 
 function cleanText(value: unknown, max: number) {
   return String(value ?? "").trim().slice(0, max);
+}
+
+function cleanKitchenNote(value: unknown) {
+  const note = String(value ?? "")
+    .replace(/[\u0000-\u001f\u007f-\u009f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 200);
+  if (/^(alles klar|okay[,!]|gerne[,!]|der kunde|die kundin|the customer|müşteri)\b/i.test(note)) return "";
+  return note;
 }
 
 function cleanNumber(value: unknown) {
@@ -251,12 +261,20 @@ function cleanCart(value: unknown) {
 
     return [
       {
+        lineId: cleanText((item as any).lineId, 120) || undefined,
         productId,
         name,
         quantity: Math.max(
           1,
           Math.min(20, Math.round(cleanNumber((item as any).quantity) || 1)),
         ),
+        extraIds: Array.isArray((item as any).extraIds)
+          ? (item as any).extraIds.map((entry: unknown) => cleanText(entry, 120)).filter(Boolean).slice(0, 12)
+          : [],
+        remove: Array.isArray((item as any).remove)
+          ? (item as any).remove.map((entry: unknown) => cleanText(entry, 60)).filter(Boolean).slice(0, 8)
+          : [],
+        note: cleanKitchenNote((item as any).note) || undefined,
       },
     ];
   });
@@ -313,7 +331,7 @@ function normalizeAction(
           .filter(Boolean)
           .slice(0, 8)
       : [],
-    note: "",
+    note: cleanKitchenNote(action?.note),
     requiresConfirmation: action?.requiresConfirmation === true,
   };
 }
@@ -428,9 +446,13 @@ VALUE / BUDGET
 - Do not claim an exact final checkout total unless it was supplied in currentCart; say checkout will confirm final total when fees/discounts may apply.
 
 CUSTOMIZATION
-- A removal request like "ohne Zwiebeln" / "soğansız" can be put in remove as a short kitchen instruction.
+- Decompose every item into product, quantity, canonical paid extraIds, structured remove values, and an item-specific kitchen note.
+- A removal such as "ohne Tomate" belongs BOTH in remove and, concisely, in note (for example "Ohne Tomate."). Paid extras always remain canonical extraIds and are never note-only.
+- note contains only short customer-requested preparation instructions for that exact item, never conversational prose, product/quantity/payment/delivery text, or the whole utterance. Normalize equivalent German, Turkish, and English instructions into concise kitchen German (for example "eti iyi pişsin"/"well done" => "Fleisch gut durch."; "patates tuzsuz"/"fries no salt" => "Ohne Salz.").
+- Scope each note to its product. In a burger-plus-fries request, doneness belongs only to the burger and salt instructions only to the fries. If the target item is genuinely unclear, ask one short clarification and create no risky action.
+- Structured fields and note intentionally coexist. Combine multiple instructions tersely, for example "Ohne Tomate, ohne Zwiebel. Fleisch gut durch."
+- Never invent a preparation request. Never put assistant acknowledgements such as "Alles klar" or framing such as "Der Kunde möchte" in note.
 - Do not claim a removed ingredient changes the price.
-- Keep action.note as an empty string. Never copy product names, extras, removals, or the customer's sentence into a cart note / Hinweis.
 `.trim();
 
 async function callOpenAI(

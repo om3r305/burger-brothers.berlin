@@ -532,7 +532,18 @@ function cartLinesToContext(lines: any[]) {
     remove: Array.isArray(line?.rm)
       ? line.rm.map((entry: unknown) => cleanString(entry)).filter(Boolean)
       : [],
+    note: sanitizeKitchenNote(line?.note) || undefined,
   }));
+}
+
+function sanitizeKitchenNote(value: unknown) {
+  const note = String(value ?? "")
+    .replace(/[\u0000-\u001f\u007f-\u009f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 200);
+  if (/^(alles klar|okay[,!]|gerne[,!]|der kunde|die kundin|the customer|müşteri)\b/i.test(note)) return "";
+  return note;
 }
 
 function readLiveCartContext() {
@@ -1186,7 +1197,7 @@ export default function BurgerAssistant() {
         add: extras,
         rm: action.remove,
         qty: action.quantity,
-        note: undefined,
+        note: sanitizeKitchenNote(action.note) || undefined,
       });
 
       return true;
@@ -1200,6 +1211,7 @@ export default function BurgerAssistant() {
       productId: string,
       extraIds: string[],
       remove: string[],
+      note: string | undefined,
       currentCatalog: AssistantCatalogProductRuntime[],
     ) => {
       const currentLine = items.find((line) => cleanString(line.id) === cleanString(lineId));
@@ -1282,7 +1294,9 @@ export default function BurgerAssistant() {
         add: Array.from(mergedExtras.values()),
         rm: mergedRemove,
         qty: Math.max(1, Number(currentLine.qty || 1)),
-        note: cleanString(currentLine.note) || undefined,
+        note: note === undefined
+          ? sanitizeKitchenNote(currentLine.note) || undefined
+          : sanitizeKitchenNote(note) || undefined,
       });
 
       return true;
@@ -1659,7 +1673,7 @@ export default function BurgerAssistant() {
               remove: Array.isArray(args?.remove)
                 ? args.remove.map((entry: unknown) => cleanString(entry)).filter(Boolean).slice(0, 8)
                 : [],
-              note: "",
+              note: sanitizeKitchenNote(args?.note),
               requiresConfirmation: false,
             };
 
@@ -1702,12 +1716,16 @@ export default function BurgerAssistant() {
                   .filter(Boolean)
                   .slice(0, 8)
               : [];
+            const note = Object.prototype.hasOwnProperty.call(args || {}, "note")
+              ? sanitizeKitchenNote(args?.note)
+              : undefined;
 
             const ok = updateExistingCartLine(
               lineId,
               productId,
               extraIds,
               remove,
+              note,
               currentCatalog,
             );
             const product = currentCatalog.find((entry) => entry.id === productId);
