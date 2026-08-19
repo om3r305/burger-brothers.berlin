@@ -3,6 +3,7 @@ import {
   hasTrustedMutationOrigin,
   securityJson,
 } from "@/lib/server/request-security";
+import { sanitizeKitchenNote } from "@/lib/assistant/kitchen-note";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -87,6 +88,7 @@ function cleanCart(value: unknown) {
               .filter(Boolean)
               .slice(0, 8)
           : [],
+        note: sanitizeKitchenNote(item?.note),
       },
     ];
   });
@@ -132,7 +134,10 @@ ORDER ACTIONS
 - add_to_cart is only for a NEW product after search_menu has identified its canonical productId.
 - If the customer modifies something already in the cart, use get_cart when you need the current lineId, search_menu when you need valid extra IDs, then call update_cart_item.
 - Extras must use exact extra IDs returned by search_menu for that exact product.
-- Never turn product names, extras, removals, or the customer's sentence into a cart note / Hinweis.
+- Keep paid extras in extraIds and removals in remove. Important removals must ALSO appear as concise kitchen instructions in the item note (for example remove=["Tomate"] and note="Ohne Tomate.").
+- Use note only for short, customer-requested, item-specific kitchen instructions, normalized into concise kitchen German (for example "Fleisch gut durch.", "Fleisch medium.", "Ohne Salz.", "Sauce separat."). Understand equivalent German, Turkish and English wording; never include product/order prose or assistant conversation.
+- Scope every instruction to its intended item. Doneness belongs to the burger and salt instructions to fries. If the target is ambiguous, ask one short clarification instead of mutating the cart.
+- On update_cart_item, OMIT note when only unrelated extras/removals change, so the existing note is preserved exactly. Send note="" only for an explicit reversal/clear; send a non-empty note as the complete replacement when preparation instructions change. Do not reconstruct an unchanged note.
 - A recommendation does not add anything unless the customer says to add/buy it.
 - go_checkout only navigates to the existing Burger Brothers checkout. Never place an order and never perform payment.
 - After a tool result says ok=true, confirm briefly and continue taking the order.
@@ -205,6 +210,7 @@ const ADD_TO_CART_TOOL = {
       quantity: { type: "integer", minimum: 1, maximum: 10 },
       extraIds: { type: "array", maxItems: 12, items: { type: "string" } },
       remove: { type: "array", maxItems: 8, items: { type: "string" } },
+      note: { type: "string", maxLength: 200 },
     },
   },
 } as const;
@@ -223,6 +229,7 @@ const UPDATE_CART_ITEM_TOOL = {
       productId: { type: "string" },
       extraIds: { type: "array", maxItems: 12, items: { type: "string" } },
       remove: { type: "array", maxItems: 8, items: { type: "string" } },
+      note: { type: "string", maxLength: 200 },
     },
   },
 } as const;

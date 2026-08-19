@@ -6,6 +6,7 @@ const read = (rel) => fs.readFileSync(path.join(root, rel), "utf8");
 const component = read("components/assistant/BurgerAssistant.tsx");
 const route = read("app/api/assistant/realtime/route.ts");
 const middleware = read("middleware.ts");
+const kitchenNote = read("lib/assistant/kitchen-note.ts");
 
 function assert(condition, message) {
   if (!condition) {
@@ -117,9 +118,21 @@ assert(
   component.includes('event?.name === "update_cart_item"') &&
     component.includes("updateExistingCartLine") &&
     component.includes("removeFromCart(currentLine.id)") &&
-    component.includes("note: undefined") &&
-    !route.includes('note: { type: "string"'),
-  "Existing-line extras remain structured and AI prose cannot enter Hinweis",
+    component.includes("resolveKitchenNote(currentLine.note, note)") &&
+    component.includes('hasOwnProperty.call(args || {}, "note")') &&
+    route.includes('note: { type: "string", maxLength: 200 }') &&
+    !route.includes('required: ["lineId", "productId", "extraIds", "remove", "note"]'),
+  "Item notes are bounded and optional updates preserve existing kitchen notes",
+);
+
+assert(
+  kitchenNote.includes("if (requestedNote === undefined)") &&
+    kitchenNote.includes("sanitizeKitchenNote(currentNote)") &&
+    kitchenNote.includes("sanitizeKitchenNote(requestedNote)") &&
+    component.includes("note: resolveKitchenNote(currentLine.note, note)") &&
+    route.includes('Send note="" only for an explicit reversal/clear') &&
+    route.includes("Important removals must ALSO appear"),
+  "Omitted note preserves Fleisch gut durch while explicit empty/replacement remains intentional",
 );
 
 assert(
