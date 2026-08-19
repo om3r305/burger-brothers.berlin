@@ -879,7 +879,7 @@ function AssistantOrbIcon({ active = false }: { active?: boolean }) {
   );
 }
 
-type VoiceState = "idle" | "connecting" | "listening" | "thinking" | "speaking" | "error";
+type VoiceState = "idle" | "connecting" | "listening" | "thinking" | "tool" | "speaking" | "error";
 export default function BurgerAssistant() {
   const pathname = usePathname();
   const router = useRouter();
@@ -899,6 +899,8 @@ export default function BurgerAssistant() {
   const [lastSuggestedProductIds, setLastSuggestedProductIds] = useState<string[]>([]);
   const [voiceState, setVoiceState] = useState<VoiceState>("idle");
   const [voiceError, setVoiceError] = useState("");
+  const [voiceLevel, setVoiceLevel] = useState(0);
+  const [voiceConfirmation, setVoiceConfirmation] = useState("");
   const [messages, setMessages] = useState<DisplayMessage[]>([
     {
       id: "assistant-welcome",
@@ -915,17 +917,25 @@ export default function BurgerAssistant() {
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const pendingVoiceCheckoutRef = useRef(false);
   const voiceIdleTimerRef = useRef<number | null>(null);
+  const meterFrameRef = useRef<number | null>(null);
+  const meterContextRef = useRef<AudioContext | null>(null);
 
   const normalizedPathname =
     pathname && pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;
   const visible = CUSTOMER_ASSISTANT_PATHS.has(normalizedPathname);
 
-  const voiceActive = ["connecting", "listening", "thinking", "speaking"].includes(
+  const voiceActive = ["connecting", "listening", "thinking", "tool", "speaking"].includes(
     voiceState,
   );
 
   const stopVoice = useCallback(() => {
     pendingVoiceCheckoutRef.current = false;
+
+    if (meterFrameRef.current != null) cancelAnimationFrame(meterFrameRef.current);
+    meterFrameRef.current = null;
+    void meterContextRef.current?.close();
+    meterContextRef.current = null;
+    setVoiceLevel(0);
 
     if (voiceIdleTimerRef.current != null) {
       window.clearTimeout(voiceIdleTimerRef.current);
@@ -1455,6 +1465,21 @@ export default function BurgerAssistant() {
       });
       mediaStreamRef.current = stream;
 
+      const AudioContextClass = window.AudioContext;
+      const meterContext = new AudioContextClass();
+      meterContextRef.current = meterContext;
+      const analyser = meterContext.createAnalyser();
+      analyser.fftSize = 256;
+      meterContext.createMediaStreamSource(stream).connect(analyser);
+      const samples = new Uint8Array(analyser.frequencyBinCount);
+      const updateMeter = () => {
+        analyser.getByteFrequencyData(samples);
+        const average = samples.reduce((sum, sample) => sum + sample, 0) / samples.length;
+        setVoiceLevel(Math.min(1, average / 72));
+        meterFrameRef.current = requestAnimationFrame(updateMeter);
+      };
+      updateMeter();
+
       const peer = new RTCPeerConnection();
       peerRef.current = peer;
 
@@ -1568,6 +1593,7 @@ export default function BurgerAssistant() {
           } catch {}
 
           if (event?.name === "search_menu") {
+            setVoiceState("tool");
             let matches = searchMenuCatalog(
               currentCatalog,
               args?.query,
@@ -1595,6 +1621,7 @@ export default function BurgerAssistant() {
           }
 
           if (event?.name === "list_category") {
+            setVoiceState("tool");
             const listing = listMenuCategory(currentCatalog, args?.category);
             sendRealtimeEvent({
               type: "conversation.item.create",
@@ -1638,6 +1665,10 @@ export default function BurgerAssistant() {
 
             const product = actionProduct(action, currentCatalog);
             const ok = Boolean(product && executeAction(action, currentCatalog));
+            if (ok && product) {
+              setVoiceConfirmation(`✓ ${product.name} hinzugefügt · ${euro(product.displayPrice)}`);
+              window.setTimeout(() => setVoiceConfirmation(""), 2600);
+            }
 
             sendRealtimeEvent({
               type: "conversation.item.create",
@@ -1697,6 +1728,34 @@ export default function BurgerAssistant() {
               },
             });
             sendRealtimeEvent({ type: "response.create" });
+            return;
+          }
+
+          if (event?.name === "check_delivery_area") {
+            setVoiceState("tool");
+            void fetch("/api/assistant/delivery-area", {
+              method: "POST",
+              credentials: "same-origin",
+              cache: "no-store",
+              headers: { "content-type": "application/json", accept: "application/json" },
+              body: JSON.stringify({ postalCode: cleanString(args?.postalCode) }),
+            })
+              .then(async (response) => {
+                const result = await response.json().catch(() => ({ ok: false }));
+                return response.ok ? result : { ok: false, error: "delivery_lookup_failed" };
+              })
+              .catch(() => ({ ok: false, error: "delivery_lookup_failed" }))
+              .then((result) => {
+                sendRealtimeEvent({
+                  type: "conversation.item.create",
+                  item: {
+                    type: "function_call_output",
+                    call_id: event.call_id,
+                    output: JSON.stringify(result),
+                  },
+                });
+                sendRealtimeEvent({ type: "response.create" });
+              });
             return;
           }
 
@@ -1816,13 +1875,19 @@ export default function BurgerAssistant() {
       ? "Verbindung wird aufgebaut …"
       : voiceState === "listening"
         ? "Ich höre dir zu"
-        : voiceState === "thinking"
+      : voiceState === "thinking"
           ? "Einen Moment …"
+          : voiceState === "tool"
+            ? "Ich prüfe die Karte …"
           : voiceState === "speaking"
             ? "Burger Brothers AI spricht"
             : voiceState === "error"
               ? "Sprachchat pausiert"
-              : "Tippe auf das Mikrofon und sprich ganz normal";
+              : "Bereit, wenn du es bist";
+  const latestVoiceReply = [...messages]
+    .reverse()
+    .find((message) => message.role === "assistant" && message.id !== "assistant-welcome")
+    ?.content;
 
   if (!visible) return null;
 
@@ -1887,7 +1952,7 @@ export default function BurgerAssistant() {
               </button>
             </header>
 
-            <div className="shrink-0 px-4 pt-3 sm:px-6">
+            <div className={`shrink-0 px-4 pt-3 sm:px-6 ${mode === "voice" ? "hidden" : ""}`}>
               <div className="mx-auto flex w-full max-w-md rounded-2xl border border-white/[0.08] bg-white/[0.035] p-1">
                 <button
                   type="button"
@@ -2058,25 +2123,30 @@ export default function BurgerAssistant() {
                 </div>
               </>
             ) : (
-              <div className="flex min-h-0 flex-1 flex-col">
-                <div className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-5 py-6 text-center">
-                  <div className="relative grid h-44 w-44 place-items-center sm:h-52 sm:w-52">
-                    <span className={`absolute inset-0 rounded-full border border-amber-300/10 ${voiceActive ? "animate-ping" : ""}`} />
-                    <span className={`absolute inset-5 rounded-full border border-amber-300/15 ${voiceState === "speaking" ? "animate-pulse" : ""}`} />
-                    <span className="absolute inset-10 rounded-full bg-[radial-gradient(circle_at_38%_32%,rgba(255,229,151,.92),rgba(245,158,11,.48)_30%,rgba(120,53,15,.16)_62%,rgba(0,0,0,.8)_75%)] shadow-[0_0_65px_rgba(245,158,11,.22)]" />
-                    <div className="relative flex items-end gap-1">
-                      {[16, 28, 40, 30, 18].map((height, index) => (
-                        <span
-                          key={height}
-                          className={`w-1.5 rounded-full bg-white/90 ${voiceActive ? "animate-pulse" : ""}`}
-                          style={{ height, animationDelay: `${index * 90}ms` }}
-                        />
-                      ))}
-                    </div>
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-5 text-center">
+                  <div
+                    className={`bb-voice-orb bb-voice-orb--${voiceState} ${voiceConfirmation ? "bb-voice-orb--success" : ""}`}
+                    style={{ "--voice-level": voiceLevel } as React.CSSProperties}
+                    aria-hidden="true"
+                  >
+                    <span className="bb-voice-orb__halo" />
+                    <span className="bb-voice-orb__body" />
+                    <span className="bb-voice-orb__light" />
+                    <span className="bb-voice-orb__core" />
                   </div>
 
-                  <div className="mt-5 text-2xl font-bold tracking-tight">Sprich einfach los</div>
-                  <div className="mt-2 max-w-md text-sm leading-relaxed text-stone-400">{voiceStatus}</div>
+                  <div className="mt-8 text-lg font-semibold tracking-tight" aria-live="polite">{voiceStatus}</div>
+                  {latestVoiceReply ? (
+                    <div className="mt-3 max-w-lg line-clamp-2 text-sm leading-relaxed text-stone-400" aria-live="polite">
+                      {latestVoiceReply}
+                    </div>
+                  ) : null}
+                  {voiceConfirmation ? (
+                    <div className="mt-4 rounded-full border border-amber-300/25 bg-amber-400/10 px-4 py-2 text-sm font-medium text-amber-100" aria-live="polite">
+                      {voiceConfirmation}
+                    </div>
+                  ) : null}
 
                   {voiceError ? (
                     <div className="mt-5 max-w-lg rounded-2xl border border-amber-300/20 bg-amber-400/[0.08] px-4 py-3 text-sm leading-relaxed text-amber-100">
@@ -2084,49 +2154,32 @@ export default function BurgerAssistant() {
                     </div>
                   ) : null}
 
-                  <div className="mt-7 flex items-center justify-center gap-3">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (voiceActive) stopVoice();
-                        else void startVoice();
-                      }}
-                      className={`grid h-16 w-16 place-items-center rounded-full border text-2xl shadow-[0_12px_36px_rgba(0,0,0,.35)] active:scale-95 ${
-                        voiceActive
-                          ? "border-red-300/30 bg-red-500 text-white"
-                          : "border-amber-300/30 bg-amber-500 text-black"
-                      }`}
-                      aria-label={voiceActive ? "Sprachchat beenden" : "Sprachchat starten"}
-                    >
-                      {voiceActive ? "■" : "🎙"}
-                    </button>
-                  </div>
-
-                  <div className="mt-4 text-xs text-stone-500">
-                    {voiceActive ? "Tippe auf ■, um das Gespräch zu beenden." : "Du kannst Deutsch, Türkçe, English und weitere Sprachen sprechen."}
-                  </div>
-
-                  {messages.length > 1 ? (
-                    <div className="mt-8 w-full max-w-xl space-y-2 text-left">
-                      {messages.slice(-4).map((message) => (
-                        <div
-                          key={`voice-${message.id}`}
-                          className={`rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
-                            message.role === "user"
-                              ? "ml-auto max-w-[88%] bg-amber-500 text-black"
-                              : "mr-auto max-w-[92%] border border-white/[0.08] bg-white/[0.05] text-stone-200"
-                          }`}
-                        >
-                          {message.content}
-                        </div>
-                      ))}
-                    </div>
-                  ) : null}
                 </div>
 
-                <div className="shrink-0 border-t border-white/[0.07] bg-black/35 px-4 pb-[calc(env(safe-area-inset-bottom)+14px)] pt-3 text-center text-[11px] text-stone-500 backdrop-blur-xl">
-                  AI kann den Warenkorb vorbereiten, aber keine Bestellung absenden und keine Zahlung auslösen.
+                <div className="shrink-0 px-4 pb-[calc(env(safe-area-inset-bottom)+16px)] pt-3 backdrop-blur-xl">
+                  <div className="mx-auto grid max-w-md grid-cols-3 gap-3">
+                    <button type="button" onClick={() => switchMode("chat")} aria-label="Zum Schreiben wechseln" className="rounded-2xl border border-white/10 bg-white/[.055] px-3 py-3 text-sm font-semibold">Schreiben</button>
+                    <button type="button" onClick={() => { stopVoice(); setOpen(false); router.push("/checkout"); }} aria-label="Warenkorb öffnen" className="rounded-2xl border border-amber-300/20 bg-amber-400/10 px-3 py-3 text-sm font-semibold text-amber-100">Warenkorb</button>
+                    <button type="button" onClick={closeAssistant} aria-label="Sprachsession beenden" className="rounded-2xl border border-white/10 bg-white/[.055] px-3 py-3 text-sm font-semibold">Beenden</button>
+                  </div>
                 </div>
+                <style jsx>{`
+                  .bb-voice-orb { --voice-level: 0; position: relative; width: min(64vw, 19rem); aspect-ratio: 1; animation: bb-breathe 5.5s ease-in-out infinite; filter: drop-shadow(0 0 42px rgba(245,158,11,.18)); }
+                  .bb-voice-orb span { position: absolute; inset: 0; border-radius: 46% 54% 51% 49% / 52% 43% 57% 48%; }
+                  .bb-voice-orb__halo { inset: -8% !important; background: radial-gradient(circle,rgba(245,158,11,.16),transparent 66%); filter: blur(16px); }
+                  .bb-voice-orb__body { border: 1px solid rgba(252,211,77,.22); background: radial-gradient(circle at 42% 38%,#241706 0,#090704 43%,#020202 72%); box-shadow: inset -22px -24px 55px #000,inset 15px 12px 38px rgba(251,191,36,.12); }
+                  .bb-voice-orb__light { inset: 7% !important; opacity: .75; background: conic-gradient(from 30deg,transparent,rgba(245,158,11,.58),transparent 38%,rgba(120,53,15,.28),transparent 74%); filter: blur(18px); animation: bb-turn 8s linear infinite; }
+                  .bb-voice-orb__core { inset: 25% !important; background: radial-gradient(circle at 48% 52%,rgba(255,225,138,.48),rgba(245,158,11,.14) 36%,transparent 70%); filter: blur(10px); }
+                  .bb-voice-orb--listening { transform: scale(calc(1 + var(--voice-level) * .045)); }
+                  .bb-voice-orb--speaking { animation: bb-speak 1.15s ease-in-out infinite; }
+                  .bb-voice-orb--thinking .bb-voice-orb__light,.bb-voice-orb--tool .bb-voice-orb__light { animation-duration: 2.2s; opacity: 1; }
+                  .bb-voice-orb--success { animation: bb-success .7s ease-out; }
+                  @keyframes bb-breathe { 50% { transform: scale(1.025) rotate(.6deg); } }
+                  @keyframes bb-turn { to { transform: rotate(360deg); } }
+                  @keyframes bb-speak { 35% { transform: scale(1.035) rotate(-1deg); } 70% { transform: scale(.99) rotate(1deg); } }
+                  @keyframes bb-success { 45% { transform: scale(1.08); filter: drop-shadow(0 0 60px rgba(251,191,36,.55)); } }
+                  @media (prefers-reduced-motion: reduce) { .bb-voice-orb,.bb-voice-orb span { animation: none !important; transition: none !important; } }
+                `}</style>
               </div>
             )}
           </div>
