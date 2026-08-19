@@ -7,6 +7,11 @@ import type {
 } from "@/lib/assistant/types";
 import { runLocalAssistant } from "@/lib/assistant/local-engine";
 import {
+  buildCustomerDeliveryAreaResult,
+  extractDeliveryPostalCode,
+} from "@/lib/assistant/delivery-area";
+import { getServerSettings } from "@/lib/server/settings";
+import {
   enforceRateLimit,
   hasTrustedMutationOrigin,
   securityJson,
@@ -376,6 +381,9 @@ function buildPrompt(request: AssistantRequest) {
     conversation: request.history || [],
     customerMessage: request.message,
     catalog: request.catalog || [],
+    ...(request.customerDeliveryArea
+      ? { customerDeliveryArea: request.customerDeliveryArea }
+      : {}),
   };
 
   return JSON.stringify(context);
@@ -395,6 +403,7 @@ ORDER-FIRST SCOPE
 
 STRICT COMMERCE RULES
 - Never invent a product, product ID, price, discount, ingredient, allergen, availability, campaign, delivery area, order state, or payment state.
+- Answer PLZ, delivery-area and delivery-minimum questions only when customerDeliveryArea is present. It is the complete customer-safe truth for that requested PLZ. If absent, do not guess.
 - Product IDs in actions MUST come exactly from the provided catalog.
 - Extras in actions MUST use exact extra IDs from that product's provided extras.
 - displayPrice is only the current menu display price supplied by Burger Brothers. Checkout remains authoritative for final totals, discounts, fees, Pfand, coupons and minimum order.
@@ -515,6 +524,16 @@ export async function POST(req: Request) {
 
   if (!(request.catalog || []).length) {
     return securityJson({ ok: false, error: "catalog_required" }, 400);
+  }
+
+  // Cost-safe and secret-safe: read server settings only for an actual PLZ
+  // lookup, then retain only the explicitly allowlisted customer result.
+  const deliveryPostalCode = extractDeliveryPostalCode(request.message);
+  if (deliveryPostalCode) {
+    request.customerDeliveryArea = buildCustomerDeliveryAreaResult(
+      await getServerSettings(),
+      deliveryPostalCode,
+    );
   }
 
   const apiKey = String(process.env.OPENAI_API_KEY || "").trim();

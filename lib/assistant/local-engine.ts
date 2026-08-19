@@ -455,6 +455,23 @@ export function runLocalAssistant(request: AssistantRequest): AssistantResult {
   const language = detectLanguage(rawMessage);
   const catalog = Array.isArray(request.catalog) ? request.catalog : [];
 
+  if (request.customerDeliveryArea) {
+    const area = request.customerDeliveryArea;
+    const minimum = area.minimumOrderAfterDiscount;
+    const reply = area.deliverable
+      ? language === "tr"
+        ? `${area.postalCode} posta koduna teslimat yapıyoruz. İndirim sonrası minimum sipariş ${Number(minimum).toFixed(2)} €.`
+        : language === "en"
+          ? `We deliver to ${area.postalCode}. The minimum order after discounts is €${Number(minimum).toFixed(2)}.`
+          : `Wir liefern nach ${area.postalCode}. Der Mindestbestellwert nach Rabatten beträgt ${Number(minimum).toFixed(2).replace(".", ",")} €.`
+      : language === "tr"
+        ? `${area.postalCode} şu anda teslimat bölgemizin dışında.`
+        : language === "en"
+          ? `${area.postalCode} is currently outside our delivery area.`
+          : `${area.postalCode} liegt derzeit außerhalb unseres Liefergebiets.`;
+    return { reply, language, actions: [], provider: "local" };
+  }
+
   if (!text || isBareGreeting(text)) {
     return {
       reply: copyFor(language, "hello"),

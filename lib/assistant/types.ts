@@ -60,4 +60,5 @@ export type AssistantRequest = {
   cart?: AssistantCartLine[];
   orderMode?: "pickup" | "delivery";
   lastSuggestedProductIds?: string[];
+  customerDeliveryArea?: import("@/lib/assistant/delivery-area").CustomerDeliveryAreaResult;
 };
