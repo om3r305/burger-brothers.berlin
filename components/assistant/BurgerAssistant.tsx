@@ -35,7 +35,7 @@ function isIOSWebKit() {
     (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 }
 
-function isVoiceTrigger(button: Element | null) {
+function isVoiceTrigger(button: Element | null | undefined) {
   if (!button) return false;
   return (
     button.textContent?.trim() === "Sprechen" ||
