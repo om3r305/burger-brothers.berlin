@@ -1,7 +1,32 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
+import { readSettings } from "@/lib/settings";
 import BurgerAssistantCore from "./BurgerAssistantCore";
+
+type AiControls = {
+  assistantEnabled: boolean;
+  voiceEnabled: boolean;
+};
+
+const DEFAULT_CONTROLS: AiControls = {
+  assistantEnabled: true,
+  voiceEnabled: true,
+};
+
+function readAiControls(value: any): AiControls {
+  const ai = value?.features?.ai;
+  return {
+    assistantEnabled:
+      typeof ai?.assistantEnabled === "boolean"
+        ? ai.assistantEnabled
+        : DEFAULT_CONTROLS.assistantEnabled,
+    voiceEnabled:
+      typeof ai?.voiceEnabled === "boolean"
+        ? ai.voiceEnabled
+        : DEFAULT_CONTROLS.voiceEnabled,
+  };
+}
 
 function isIOSWebKit() {
   if (typeof navigator === "undefined") return false;
@@ -45,18 +70,103 @@ function createMeterlessContext(): MeterlessContext {
 }
 
 /**
- * iOS WebKit compatibility shell around the existing assistant.
+ * Customer-side feature gate around the assistant.
  *
- * The core voice component previously created both a detached `new Audio()`
- * element and a second AudioContext only for the decorative microphone meter.
- * On iPhone, that combination can disturb the WebRTC audio session even while
- * the Realtime transcript continues normally. This shell keeps the generated
- * remote audio element attached to the DOM and avoids opening the decorative
- * meter AudioContext while the Burger Brothers voice dialog is active.
+ * Admin settings can independently disable the complete assistant or only the
+ * Realtime voice entry. Missing legacy settings intentionally default to ON so
+ * existing deployments keep their current behavior until the admin changes it.
  */
 export default function BurgerAssistant() {
+  const hostRef = useRef<HTMLDivElement | null>(null);
+  const [controls, setControls] = useState<AiControls | null>(null);
+
   useEffect(() => {
-    if (!isIOSWebKit()) return;
+    let stopped = false;
+
+    const apply = (value: any) => {
+      if (!stopped) setControls(readAiControls(value));
+    };
+
+    const sync = async () => {
+      try {
+        const response = await fetch(`/api/settings?fresh=1&ts=${Date.now()}`, {
+          method: "GET",
+          credentials: "same-origin",
+          cache: "no-store",
+          headers: { accept: "application/json" },
+        });
+        const json = await response.json().catch(() => ({}));
+        if (!response.ok || json?.ok === false) throw new Error("SETTINGS_FETCH_FAILED");
+        apply(json);
+      } catch {
+        apply(readSettings());
+      }
+    };
+
+    const onSettingsChanged = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      apply(detail || readSettings());
+    };
+
+    const onStorage = (event: StorageEvent) => {
+      if (event.key && event.key !== "bb_settings_v6") return;
+      if (event.newValue) {
+        try {
+          apply(JSON.parse(event.newValue));
+          return;
+        } catch {}
+      }
+      apply(readSettings());
+    };
+
+    const onFocus = () => void sync();
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") void sync();
+    };
+
+    void sync();
+    window.addEventListener("bb_settings_changed", onSettingsChanged as EventListener);
+    window.addEventListener("bb:settings-sync", onSettingsChanged as EventListener);
+    window.addEventListener("storage", onStorage);
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      stopped = true;
+      window.removeEventListener("bb_settings_changed", onSettingsChanged as EventListener);
+      window.removeEventListener("bb:settings-sync", onSettingsChanged as EventListener);
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, []);
+
+  const assistantEnabled = controls?.assistantEnabled === true;
+  const voiceEnabled = controls?.voiceEnabled === true;
+
+  useEffect(() => {
+    if (!assistantEnabled) return;
+
+    const root = hostRef.current;
+    if (!root) return;
+
+    const applyVoiceVisibility = () => {
+      for (const button of Array.from(root.querySelectorAll("button"))) {
+        if (button.textContent?.trim() !== "Sprechen") continue;
+        button.hidden = !voiceEnabled;
+        button.setAttribute("aria-hidden", voiceEnabled ? "false" : "true");
+        button.tabIndex = voiceEnabled ? 0 : -1;
+      }
+    };
+
+    applyVoiceVisibility();
+    const observer = new MutationObserver(applyVoiceVisibility);
+    observer.observe(root, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [assistantEnabled, voiceEnabled]);
+
+  useEffect(() => {
+    if (!assistantEnabled || !voiceEnabled || !isIOSWebKit()) return;
 
     const NativeAudio = window.Audio;
     const NativeAudioContext = window.AudioContext;
@@ -145,7 +255,26 @@ export default function BurgerAssistant() {
       }
       attached.clear();
     };
-  }, []);
+  }, [assistantEnabled, voiceEnabled]);
 
-  return <BurgerAssistantCore />;
+  // Do not flash the floating LED while the authoritative public setting is
+  // still loading. Master OFF means the complete customer assistant disappears.
+  if (!controls || !assistantEnabled) return null;
+
+  return (
+    <div
+      ref={hostRef}
+      data-bb-assistant="1"
+      data-bb-assistant-voice={voiceEnabled ? "on" : "off"}
+      onClickCapture={(event) => {
+        if (voiceEnabled) return;
+        const button = (event.target as HTMLElement | null)?.closest("button");
+        if (button?.textContent?.trim() !== "Sprechen") return;
+        event.preventDefault();
+        event.stopPropagation();
+      }}
+    >
+      <BurgerAssistantCore key={voiceEnabled ? "voice-on" : "voice-off"} />
+    </div>
+  );
 }
