@@ -28,6 +28,9 @@ export type AssistantCartLine = {
   productId: string;
   name: string;
   quantity: number;
+  extraIds?: string[];
+  remove?: string[];
+  note?: string;
 };
 
 export type AssistantActionType =

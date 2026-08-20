@@ -20,12 +20,23 @@ const component = read("components/assistant/BurgerAssistant.tsx");
 const route = read("app/api/assistant/chat/route.ts");
 const realtime = read("app/api/assistant/realtime/route.ts");
 const local = read("lib/assistant/local-engine.ts");
+const kitchenNote = read("lib/assistant/kitchen-note.ts");
 
 assert(
   layout.includes('import BurgerAssistant from "@/components/assistant/BurgerAssistant";') &&
     layout.includes("<BurgerAssistant />") &&
     !nav.includes("BurgerAssistant"),
   "Assistant is mounted once in the global app shell",
+);
+
+assert(
+  route.includes("mirror important removals") &&
+    route.includes("Fleisch gut durch") &&
+    route.includes("Ohne Salz") &&
+    realtime.includes("Scope every instruction") &&
+    component.includes("note: sanitizeKitchenNote(action.note) || undefined") &&
+    kitchenNote.includes("MAX_KITCHEN_NOTE_LENGTH = 200"),
+  "Text and Realtime preserve structured commerce plus scoped, bounded kitchen notes",
 );
 
 assert(
@@ -89,7 +100,7 @@ assert(
   component.includes("addToCart({") &&
     component.includes("updateExistingCartLine") &&
     component.includes("removeFromCart(currentLine.id)") &&
-    component.includes("note: undefined") &&
+    component.includes("resolveKitchenNote(currentLine.note, note)") &&
     component.includes('router.push("/checkout")'),
   "Assistant only prepares the existing cart, updates structured extras and can navigate to checkout",
 );

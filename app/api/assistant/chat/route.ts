@@ -257,6 +257,16 @@ function cleanCart(value: unknown) {
           1,
           Math.min(20, Math.round(cleanNumber((item as any).quantity) || 1)),
         ),
+        extraIds: Array.isArray((item as any).extraIds)
+          ? (item as any).extraIds.map((entry: unknown) => cleanText(entry, 120)).filter(Boolean).slice(0, 12)
+          : [],
+        remove: Array.isArray((item as any).remove)
+          ? (item as any).remove.map((entry: unknown) => cleanText(entry, 60)).filter(Boolean).slice(0, 8)
+          : [],
+        note: cleanText((item as any).note, 200)
+          .replace(/[\u0000-\u001f\u007f-\u009f]/g, " ")
+          .replace(/\s+/g, " ")
+          .trim(),
       },
     ];
   });
@@ -313,7 +323,10 @@ function normalizeAction(
           .filter(Boolean)
           .slice(0, 8)
       : [],
-    note: "",
+    note: cleanText(action?.note, 200)
+      .replace(/[\u0000-\u001f\u007f-\u009f]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim(),
     requiresConfirmation: action?.requiresConfirmation === true,
   };
 }
@@ -428,9 +441,11 @@ VALUE / BUDGET
 - Do not claim an exact final checkout total unless it was supplied in currentCart; say checkout will confirm final total when fees/discounts may apply.
 
 CUSTOMIZATION
-- A removal request like "ohne Zwiebeln" / "soğansız" can be put in remove as a short kitchen instruction.
+- Keep paid extras as canonical extraIds. Keep removals in remove AND mirror important removals into a concise item-specific kitchen note/Hinweis.
+- Put only customer-requested preparation instructions in note, scoped to the correct product: "Fleisch gut durch.", "Fleisch medium.", "Ohne Salz.", "Sauce separat." Normalize equivalent German, Turkish, and English requests into concise kitchen German.
+- In multi-item orders, burger doneness belongs only to the burger and "ohne Salz" only to the fries. If the intended item is unclear, ask one short clarification and do not guess.
+- Never put assistant prose, the whole customer sentence, unrelated order text, product names, prices, or delivery instructions into note. Item note/Hinweis is distinct from Lieferhinweis.
 - Do not claim a removed ingredient changes the price.
-- Keep action.note as an empty string. Never copy product names, extras, removals, or the customer's sentence into a cart note / Hinweis.
 `.trim();
 
 async function callOpenAI(
