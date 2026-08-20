@@ -35,6 +35,14 @@ function isIOSWebKit() {
     (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 }
 
+function isVoiceTrigger(button: Element | null | undefined) {
+  if (!button) return false;
+  return (
+    button.textContent?.trim() === "Sprechen" ||
+    button.getAttribute("aria-label") === "Sprachchat starten"
+  );
+}
+
 type MeterlessContext = {
   createAnalyser: () => {
     fftSize: number;
@@ -152,10 +160,14 @@ export default function BurgerAssistant() {
 
     const applyVoiceVisibility = () => {
       for (const button of Array.from(root.querySelectorAll("button"))) {
-        if (button.textContent?.trim() !== "Sprechen") continue;
+        if (!isVoiceTrigger(button)) continue;
+
         button.hidden = !voiceEnabled;
+        button.disabled = !voiceEnabled;
         button.setAttribute("aria-hidden", voiceEnabled ? "false" : "true");
+        button.setAttribute("aria-disabled", voiceEnabled ? "false" : "true");
         button.tabIndex = voiceEnabled ? 0 : -1;
+        button.style.display = voiceEnabled ? "" : "none";
       }
     };
 
@@ -269,7 +281,7 @@ export default function BurgerAssistant() {
       onClickCapture={(event) => {
         if (voiceEnabled) return;
         const button = (event.target as HTMLElement | null)?.closest("button");
-        if (button?.textContent?.trim() !== "Sprechen") return;
+        if (!isVoiceTrigger(button)) return;
         event.preventDefault();
         event.stopPropagation();
       }}
