@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
+import AiSettingsPanel from "@/components/admin/AiSettingsPanel";
 import AdminShell from "./AdminShell";
 
 export const metadata: Metadata = {
@@ -55,5 +56,10 @@ export const viewport: Viewport = {
 };
 
 export default function AdminLayout({ children }: { children: ReactNode }) {
-  return <AdminShell>{children}</AdminShell>;
+  return (
+    <AdminShell>
+      <AiSettingsPanel />
+      {children}
+    </AdminShell>
+  );
 }
