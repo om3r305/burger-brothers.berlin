@@ -14,6 +14,21 @@ const DEFAULT_CONTROLS: AiControls = {
   voiceEnabled: true,
 };
 
+const SETTINGS_RESPONSE_META_KEYS = new Set([
+  "ok",
+  "source",
+  "fallbackSaved",
+  "memoryCached",
+  "dbError",
+  "saved",
+  "keys",
+  "tenant",
+  "count",
+  "counts",
+  "updatedAt",
+  "createdAt",
+]);
+
 function readAiControls(value: any): AiControls {
   const ai = value?.features?.ai;
   return {
@@ -25,6 +40,36 @@ function readAiControls(value: any): AiControls {
       typeof ai?.voiceEnabled === "boolean"
         ? ai.voiceEnabled
         : DEFAULT_CONTROLS.voiceEnabled,
+  };
+}
+
+function extractSettingsPayload(value: any) {
+  const out: Record<string, any> = {};
+  if (!value || typeof value !== "object" || Array.isArray(value)) return out;
+
+  for (const [key, item] of Object.entries(value)) {
+    if (SETTINGS_RESPONSE_META_KEYS.has(key)) continue;
+    out[key] = item;
+  }
+
+  return out;
+}
+
+async function fetchFreshSettings() {
+  const response = await fetch(`/api/settings?fresh=1&ts=${Date.now()}`, {
+    method: "GET",
+    credentials: "same-origin",
+    cache: "no-store",
+    headers: { accept: "application/json" },
+  });
+  const json = await response.json().catch(() => ({}));
+  if (!response.ok || json?.ok === false) {
+    throw new Error(json?.error || `HTTP ${response.status}`);
+  }
+
+  return {
+    raw: json,
+    settings: extractSettingsPayload(json),
   };
 }
 
@@ -93,18 +138,8 @@ export default function AiSettingsPanel() {
     setLoading(true);
     setStatus("");
     try {
-      const response = await fetch(`/api/settings?fresh=1&ts=${Date.now()}`, {
-        method: "GET",
-        credentials: "same-origin",
-        cache: "no-store",
-        headers: { accept: "application/json" },
-      });
-      const json = await response.json().catch(() => ({}));
-      if (!response.ok || json?.ok === false) {
-        throw new Error(json?.error || `HTTP ${response.status}`);
-      }
-
-      const next = readAiControls(json);
+      const { raw } = await fetchFreshSettings();
+      const next = readAiControls(raw);
       setControls(next);
       mirrorControlsLocally(next);
     } catch (error) {
@@ -127,6 +162,23 @@ export default function AiSettingsPanel() {
       setStatus("");
 
       try {
+        // bb_settings_v6 is the canonical settings record. A partial `features`
+        // POST can be shadowed by that canonical record, so read the latest
+        // authoritative settings and save the updated AI controls back as one
+        // whole admin settings payload. This also avoids overwriting unrelated
+        // settings with an old browser snapshot.
+        const { settings: currentSettings } = await fetchFreshSettings();
+        const nextSettings = {
+          ...currentSettings,
+          features: {
+            ...(currentSettings?.features || {}),
+            ai: {
+              assistantEnabled: next.assistantEnabled,
+              voiceEnabled: next.voiceEnabled,
+            },
+          },
+        };
+
         const response = await fetch("/api/settings", {
           method: "POST",
           credentials: "same-origin",
@@ -135,14 +187,7 @@ export default function AiSettingsPanel() {
             "content-type": "application/json",
             accept: "application/json",
           },
-          body: JSON.stringify({
-            features: {
-              ai: {
-                assistantEnabled: next.assistantEnabled,
-                voiceEnabled: next.voiceEnabled,
-              },
-            },
-          }),
+          body: JSON.stringify({ settings: nextSettings }),
         });
         const json = await response.json().catch(() => ({}));
         if (!response.ok || json?.ok === false) {
