@@ -38,7 +38,7 @@ function isIOSWebKit() {
 function isVoiceTrigger(button: Element | null | undefined) {
   if (!button) return false;
   return (
-    button.textContent?.trim() === "Sprechen" ||
+    button.textContent?.includes("Sprechen") ||
     button.getAttribute("aria-label") === "Sprachchat starten"
   );
 }
