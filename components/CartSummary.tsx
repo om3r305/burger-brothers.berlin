@@ -35,6 +35,21 @@ const LS_ACTIVE_COUPON = "bb_active_coupon_code";
 const LS_ORDERS = "bb_orders_v1"; // önceki siparişler (son siparişi bulmak için)
 const CHECKOUT_PROFILE_KEY = "bb_checkout_profile_v2";
 
+const GROUPED_VARIANT_CATEGORIES = new Set(["extras", "drinks"]);
+
+export function cartItemDisplayName(ci: any): string {
+  const name = String(ci?.item?.name ?? "");
+  const category = String(ci?.category ?? ci?.item?.category ?? "").toLowerCase();
+
+  if (!GROUPED_VARIANT_CATEGORIES.has(category)) return name;
+
+  const separatorIndex = name.indexOf(" – ");
+  if (separatorIndex <= 0) return name;
+
+  const variantName = name.slice(separatorIndex + 3).trim();
+  return variantName || name;
+}
+
 /* ───────── Pause (global) ───────── */
 const LS_PAUSE = "bb_pause_v1";
 type PauseState = { delivery: boolean; pickup: boolean };
@@ -1262,7 +1277,7 @@ export default function CartSummary() {
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="text-sm font-medium">
-                          {ci?.item?.name} {ci?.qty > 1 ? <span className="text-stone-400">× {ci.qty}</span> : null}
+                          {cartItemDisplayName(ci)} {ci?.qty > 1 ? <span className="text-stone-400">× {ci.qty}</span> : null}
                         </div>
                         {ci?.item?.description && (
                           <div className="truncate text-xs text-stone-400">{ci.item.description}</div>
@@ -1711,7 +1726,13 @@ export function CartSummaryMobile() {
       )}
 
       {open && (
-        <div className="fixed inset-0 z-50 sm:hidden">
+        <div
+          className="fixed inset-0 z-50 sm:hidden"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Bestellübersicht"
+          data-bb-swipe-ignore
+        >
           <div className="absolute inset-0 bg-black/60" onClick={() => setOpen(false)} />
           <div className="absolute bottom-0 left-0 right-0 max-h-[56vh] overflow-y-auto overflow-x-hidden rounded-t-2xl bg-stone-900 p-4">
             <div className="mb-3 flex items-center justify-between">
@@ -1823,7 +1844,7 @@ export function CartSummaryMobile() {
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <div className="text-sm font-medium">
-                            {ci?.item?.name} {ci?.qty > 1 ? <span className="text-stone-400">× {ci.qty}</span> : null}
+                            {cartItemDisplayName(ci)} {ci?.qty > 1 ? <span className="text-stone-400">× {ci.qty}</span> : null}
                           </div>
                           {ci?.item?.description && (
                             <div className="truncate text-xs text-stone-400">{ci.item.description}</div>
