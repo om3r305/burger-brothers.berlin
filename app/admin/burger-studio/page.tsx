@@ -354,8 +354,8 @@ export default function BurgerStudioAdminPage() {
             🧪 Burger Studio
           </h1>
           <p className="mt-2 max-w-3xl text-sm text-stone-400">
-            Studio’yu aç/kapat, Beef–Crispy gibi değişimleri fiyatlandır ve
-            Farmas/Italian gibi gerçek ürünleri güvenli baz fiyat olarak bağla.
+            Studio’yu aç/kapat, Beef–Crispy gibi özel kombinasyonları fiyatlandır
+            ve Farmas/Italian gibi gerçek ürünleri güvenli baz fiyat olarak bağla.
             Studio siparişleri mevcut sipariş fiyat motorundan geçer.
           </p>
         </div>
@@ -474,11 +474,10 @@ export default function BurgerStudioAdminPage() {
               Malzemeler & Fiyat Motoru
             </h2>
             <p className="mt-1 max-w-4xl text-sm text-stone-500">
-              “Ekleme fiyatı” ekstra adet için alınır. “Değiştirme kredisi” ise
-              yalnızca aynı grupta başka bir malzemeyle değişim yapılırsa yeni
-              malzemenin fiyatından düşer. Tek başına malzeme çıkarmak fiyat
-              iadesi oluşturmaz. Örn. Beef kredi 3,00 €, Crispy ekleme 3,50 € →
-              Beef yerine Crispy farkı 0,50 €.
+              “Ekleme fiyatı”, normal reçetenin üstüne eklenen her ekstra adet
+              için alınır. v1’de malzeme çıkarmak veya başka bir malzemeyle
+              değiştirmek fiyat iadesi oluşturmaz; yeni eklenen malzeme kendi tam
+              ekstra fiyatıyla ücretlendirilir.
             </p>
           </div>
           <button
@@ -494,7 +493,7 @@ export default function BurgerStudioAdminPage() {
           {config.ingredients.map((ingredient) => (
             <div
               key={ingredient.id}
-              className="grid gap-3 rounded-2xl border border-white/10 bg-black/20 p-3 md:grid-cols-[auto_minmax(150px,1.3fr)_150px_130px_130px_100px_auto] md:items-end"
+              className="grid gap-3 rounded-2xl border border-white/10 bg-black/20 p-3 md:grid-cols-[auto_minmax(150px,1.3fr)_150px_130px_100px_auto] md:items-end"
             >
               <label className="flex items-center gap-2 pb-2 text-xs font-bold text-stone-400 md:flex-col md:items-start">
                 <span>Aktif</span>
@@ -544,16 +543,6 @@ export default function BurgerStudioAdminPage() {
                 }
               />
               <NumberField
-                label="Değişim kredi €"
-                value={ingredient.removeCredit}
-                step="0.1"
-                onChange={(value) =>
-                  updateIngredient(ingredient.id, {
-                    removeCredit: money(value),
-                  })
-                }
-              />
-              <NumberField
                 label="Maks."
                 value={ingredient.max}
                 min={1}
@@ -583,7 +572,7 @@ export default function BurgerStudioAdminPage() {
             <p className="mt-1 max-w-4xl text-sm text-stone-500">
               Farmas, Italian, Hit Burger gibi gerçek menü ürününü seç. Studio
               başlangıç fiyatını o ürünün güncel katalog fiyatından alır ve
-              sadece değişiklik farklarını canonical extra olarak ekler.
+              reçeteye sonradan eklenen adetleri canonical extra olarak ekler.
             </p>
           </div>
           <button
