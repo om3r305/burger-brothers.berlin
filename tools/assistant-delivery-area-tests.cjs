@@ -31,7 +31,7 @@ assert(!JSON.stringify(served).includes("adminPin") && !JSON.stringify(served).i
 assert(source.includes("settings.delivery?.plzMin") && source.includes("settings.pricingOverrides?.plzMin"), "lookup follows checkout's authoritative delivery minimum compatibility chain");
 assert(route.includes("getServerSettings()") && route.includes("buildCustomerDeliveryAreaResult(settings, postalCode)"), "server route reads authoritative server settings and returns the safe projection");
 assert(realtime.includes('name: "check_delivery_area"') && realtime.includes("Never answer these facts from memory"), "Realtime requires PLZ lookup instead of model memory");
-assert(wrapper.includes("BurgerAssistantCore") && wrapper.includes("dynamic("), "assistant shell lazily loads the heavy core");
+assert(wrapper.includes('import BurgerAssistantCore from "./BurgerAssistantCore";') && wrapper.includes("<BurgerAssistantCore />"), "assistant shell delegates customer behavior to the guarded core");
 assert(component.includes('fetch("/api/assistant/delivery-area"') && component.includes('event?.name === "check_delivery_area"'), "voice core executes the local/server delivery tool on demand");
 
 console.log("\nBurger Assistant delivery-area checks PASSED.");
