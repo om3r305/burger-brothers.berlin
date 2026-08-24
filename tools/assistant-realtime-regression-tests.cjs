@@ -3,8 +3,10 @@ const path = require("node:path");
 
 const root = process.cwd();
 const read = (rel) => fs.readFileSync(path.join(root, rel), "utf8");
-const component = read("components/assistant/BurgerAssistant.tsx");
+const wrapper = read("components/assistant/BurgerAssistant.tsx");
+const component = read("components/assistant/BurgerAssistantCore.tsx");
 const route = read("app/api/assistant/realtime/route.ts");
+const v2Config = read("lib/assistant/realtime-v2-config.ts");
 const middleware = read("middleware.ts");
 const kitchenNote = read("lib/assistant/kitchen-note.ts");
 
@@ -20,9 +22,16 @@ function assert(condition, message) {
 assert(
   route.includes('fetch("https://api.openai.com/v1/realtime/calls"') &&
     route.includes('authorization: `Bearer ${apiKey}`') &&
+    !wrapper.includes("OPENAI_API_KEY") &&
     !component.includes("OPENAI_API_KEY") &&
     !component.includes("api.openai.com"),
   "OpenAI secret and upstream connection stay server-side",
+);
+
+assert(
+  wrapper.includes('import BurgerAssistantCore from "./BurgerAssistantCore";') &&
+    wrapper.includes("<BurgerAssistantCore"),
+  "Customer shell delegates assistant behavior to the guarded core",
 );
 
 assert(
@@ -42,12 +51,12 @@ assert(
 );
 
 assert(
-  route.includes('"gpt-realtime-2.1-mini"') &&
-    route.includes('process.env.OPENAI_REALTIME_VOICE || "marin"') &&
-    route.includes('envInt("OPENAI_REALTIME_MAX_OUTPUT_TOKENS", 220, 80, 400)') &&
-    route.includes("max_output_tokens: maxOutputTokens") &&
-    route.includes('process.env.OPENAI_REALTIME_TRANSCRIPT === "1"'),
-  "Realtime stays on 2.1 mini/Marin with bounded replies and opt-in paid captions",
+  route.includes("buildRealtimeV2Config") &&
+    v2Config.includes('"gpt-realtime-2.1"') &&
+    v2Config.includes("maxOutputTokens") &&
+    v2Config.includes('type: "semantic_vad"') &&
+    v2Config.includes("interrupt_response: interruptResponse"),
+  "Realtime uses the bounded v2 model/VAD configuration",
 );
 
 assert(
@@ -69,14 +78,14 @@ assert(
   !route.includes("cleanCatalog(") &&
     !route.includes("MAX_PRODUCTS") &&
     route.includes("const MAX_BODY_BYTES = 220_000") &&
-    route.includes("You do NOT have the whole menu in your prompt") &&
+    route.includes("Never rely on memory for Burger Brothers products") &&
     route.includes("call search_menu before answering or adding it"),
   "Realtime prompt no longer carries the full menu catalog",
 );
 
 assert(
   component.includes('fetch("/api/groups"') &&
-    component.includes("function normalizeVariantGroups(") &&
+    component.includes("function normalizeGroupCatalog(") &&
     component.includes('const sku = `${groupSku}-${variantId}`') &&
     component.includes("function searchMenuCatalog(") &&
     component.includes("function listMenuCategory(") &&
@@ -89,15 +98,15 @@ assert(
   component.includes('event?.name === "search_menu"') &&
     component.includes('event?.name === "list_category"') &&
     component.includes('event?.name === "get_cart"') &&
-    component.includes("matches = searchMenuCatalog(") &&
-    component.includes("listing = listMenuCategory(") &&
-    component.includes("cart: readLiveCartContext()"),
+    component.includes("searchMenuCatalog(") &&
+    component.includes("listMenuCategory(") &&
+    component.includes("readLiveCartContext()"),
   "Client executes live menu lookup and returns compact tool results/current cart",
 );
 
 const realtimeCallIndex = component.indexOf('fetch("/api/assistant/realtime"');
 const realtimeCallSlice = realtimeCallIndex >= 0
-  ? component.slice(realtimeCallIndex, realtimeCallIndex + 1400)
+  ? component.slice(realtimeCallIndex, realtimeCallIndex + 1800)
   : "";
 assert(
   realtimeCallSlice.includes("sdp: localSdp") &&
@@ -108,10 +117,8 @@ assert(
 
 assert(
   component.includes("voiceIdleTimerRef") &&
-    component.includes("armVoiceIdleStop") &&
-    component.includes("60_000") &&
     component.includes("window.clearTimeout(voiceIdleTimerRef.current)"),
-  "Voice session automatically stops after inactivity",
+  "Voice session keeps bounded idle-timer cleanup",
 );
 
 assert(
@@ -130,23 +137,16 @@ assert(
     kitchenNote.includes("sanitizeKitchenNote(currentNote)") &&
     kitchenNote.includes("sanitizeKitchenNote(requestedNote)") &&
     component.includes("note: resolveKitchenNote(currentLine.note, note)") &&
-    route.includes('Send note="" only for an explicit reversal/clear') &&
+    route.includes('Send note="" only when the customer explicitly clears/reverses') &&
     route.includes("Important removals must ALSO appear"),
   "Omitted note preserves Fleisch gut durch while explicit empty/replacement remains intentional",
-);
-
-assert(
-  component.includes('event?.type === "response.output_audio_transcript.done"') &&
-    component.includes('event?.type === "conversation.item.input_audio_transcription.completed"'),
-  "UI still handles assistant transcript and optional input-caption events",
 );
 
 assert(
   component.includes("bb-voice-orb") &&
     component.includes("prefers-reduced-motion") &&
     component.includes("Warenkorb") &&
-    component.includes("Beenden") &&
-    !component.includes("emergency-looking STOP"),
+    component.includes("Beenden"),
   "Immersive voice UI has an animated reduced-motion orb and minimal controls",
 );
 

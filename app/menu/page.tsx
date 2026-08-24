@@ -326,7 +326,11 @@ function normalizeExtras(value: any): Extra[] {
   if (!Array.isArray(arr)) return [];
 
   return arr
-    .filter(Boolean)
+    .filter((e: any) => {
+      if (!e) return false;
+      const id = String(e?.id ?? e?.sku ?? e?.code ?? "").trim();
+      return !id.startsWith("bstudio:");
+    })
     .map((e: any) => ({
       id: String(e?.id ?? e?.sku ?? e?.code ?? e?.name ?? ""),
       name: String(e?.name ?? e?.label ?? "Extra"),

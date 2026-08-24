@@ -224,12 +224,16 @@ const claimRoute = read("app/api/orders/claim/route.ts");
 assertContains(
   claimRoute,
   [
-    "notifyGeneralOrderStatus",
-    "notifyNearbyDelivery",
-    '"out_for_delivery"',
-    "!result.alreadyMine",
+    'action: "driver:claim"',
+    "Der operative Status bleibt unverändert",
+    'Erst "Fahrt starten" setzt',
   ],
   "Driver claim route",
+);
+assert(
+  !claimRoute.includes("notifyGeneralOrderStatus") &&
+    !claimRoute.includes("notifyNearbyDelivery"),
+  "Driver claim must only assign the driver; customer push starts with the explicit out_for_delivery status transition",
 );
 const adminOrdersRoute = read("app/api/admin/orders/route.ts");
 assertContains(
@@ -503,7 +507,6 @@ assertContains(
   ],
   "Silent customer-app registration repair",
 );
-
 
 assertContains(
   generalServer,

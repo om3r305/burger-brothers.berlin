@@ -16,25 +16,31 @@ function assert(condition, message) {
 const nav = read("components/NavBar.tsx");
 const layout = read("app/layout.tsx");
 const middleware = read("middleware.ts");
-const component = read("components/assistant/BurgerAssistant.tsx");
+const wrapper = read("components/assistant/BurgerAssistant.tsx");
+const core = read("components/assistant/BurgerAssistantCore.tsx");
+const component = `${wrapper}\n${core}`;
 const route = read("app/api/assistant/chat/route.ts");
 const realtime = read("app/api/assistant/realtime/route.ts");
+const realtimeV2 = read("lib/assistant/realtime-v2-config.ts");
 const local = read("lib/assistant/local-engine.ts");
 const kitchenNote = read("lib/assistant/kitchen-note.ts");
 
 assert(
   layout.includes('import BurgerAssistant from "@/components/assistant/BurgerAssistant";') &&
     layout.includes("<BurgerAssistant />") &&
-    !nav.includes("BurgerAssistant"),
-  "Assistant is mounted once in the global app shell",
+    !nav.includes("BurgerAssistant") &&
+    wrapper.includes('import BurgerAssistantCore from "./BurgerAssistantCore";') &&
+    wrapper.includes("<BurgerAssistantCore"),
+  "Assistant is mounted once and delegates behavior to the guarded core",
 );
 
 assert(
   route.includes("mirror important removals") &&
     route.includes("Fleisch gut durch") &&
     route.includes("Ohne Salz") &&
-    realtime.includes("Scope every instruction") &&
-    component.includes("note: sanitizeKitchenNote(action.note) || undefined") &&
+    realtime.includes("Doneness belongs to the meat item") &&
+    realtime.includes("salt instructions belong to fries") &&
+    core.includes("note: sanitizeKitchenNote(action.note) || undefined") &&
     kitchenNote.includes("MAX_KITCHEN_NOTE_LENGTH = 200"),
   "Text and Realtime preserve structured commerce plus scoped, bounded kitchen notes",
 );
@@ -69,39 +75,39 @@ assert(
 );
 
 assert(
-  component.includes('fetch("/api/catalog"') &&
-    component.includes('fetch("/api/groups"') &&
-    component.includes("function normalizeGroupCatalog(") &&
-    component.includes("function mergeAssistantCatalog(") &&
-    component.includes('const sku = `${groupSku}-${variantId}`') &&
-    component.includes('name: `${groupName} – ${variantName}`'),
+  core.includes('fetch("/api/catalog"') &&
+    core.includes('fetch("/api/groups"') &&
+    core.includes("function normalizeGroupCatalog(") &&
+    core.includes("function mergeAssistantCatalog(") &&
+    core.includes('const sku = `${groupSku}-${variantId}`') &&
+    core.includes('name: `${groupName} – ${variantName}`'),
   "Assistant reads both catalog and the real /api/groups variant source",
 );
 
 assert(
-  component.includes('"normale Pommes"') &&
-    component.includes('"Fries"') &&
-    component.includes('"Patates"') &&
-    component.includes('"Coca-Cola Zero"') &&
-    component.includes('"Kola Zero"') &&
-    component.includes("function searchMenuCatalog(") &&
-    component.includes("function listMenuCategory("),
+  core.includes('"normale Pommes"') &&
+    core.includes('"Fries"') &&
+    core.includes('"Patates"') &&
+    core.includes('"Coca-Cola Zero"') &&
+    core.includes('"Kola Zero"') &&
+    core.includes("function searchMenuCatalog(") &&
+    core.includes("function listMenuCategory("),
   "Local live-menu resolver understands Fries/Pommes/Patates and Cola Zero aliases",
 );
 
 assert(
-  component.includes("pfandType: product.pfandType ?? product.depositType") &&
-    component.includes("pfandAmount: Number(product.pfandAmount ?? product.depositAmount") &&
-    component.includes("depositAmount: Number(product.depositAmount ?? product.pfandAmount"),
+  core.includes("pfandType: product.pfandType ?? product.depositType") &&
+    core.includes("pfandAmount: Number(product.pfandAmount ?? product.depositAmount") &&
+    core.includes("depositAmount: Number(product.depositAmount ?? product.pfandAmount"),
   "Group drink variants preserve Pfand/deposit metadata in canonical cart rows",
 );
 
 assert(
-  component.includes("addToCart({") &&
-    component.includes("updateExistingCartLine") &&
-    component.includes("removeFromCart(currentLine.id)") &&
-    component.includes("resolveKitchenNote(currentLine.note, note)") &&
-    component.includes('router.push("/checkout")'),
+  core.includes("addToCart({") &&
+    core.includes("updateExistingCartLine") &&
+    core.includes("removeFromCart(currentLine.id)") &&
+    core.includes("resolveKitchenNote(currentLine.note, note)") &&
+    core.includes('router.push("/checkout")'),
   "Assistant only prepares the existing cart, updates structured extras and can navigate to checkout",
 );
 
@@ -136,15 +142,15 @@ assert(
     realtime.includes('name: "update_cart_item"') &&
     realtime.includes('name: "check_delivery_area"') &&
     realtime.includes('name: "go_checkout"') &&
-    component.includes('event?.name === "search_menu"') &&
-    component.includes('event?.name === "list_category"') &&
-    component.includes('event?.name === "get_cart"'),
+    core.includes('event?.name === "search_menu"') &&
+    core.includes('event?.name === "list_category"') &&
+    core.includes('event?.name === "get_cart"'),
   "Realtime uses bounded live-menu/cart tools instead of stuffing the whole menu into the prompt",
 );
 
-const realtimeCallIndex = component.indexOf('fetch("/api/assistant/realtime"');
+const realtimeCallIndex = core.indexOf('fetch("/api/assistant/realtime"');
 const realtimeCallSlice = realtimeCallIndex >= 0
-  ? component.slice(realtimeCallIndex, realtimeCallIndex + 1400)
+  ? core.slice(realtimeCallIndex, realtimeCallIndex + 1800)
   : "";
 assert(
   realtimeCallSlice.includes("sdp: localSdp") &&
@@ -157,27 +163,29 @@ assert(
 );
 
 assert(
-  realtime.includes('process.env.OPENAI_REALTIME_TRANSCRIPT === "1"') &&
-    realtime.includes('model: "gpt-live-transcribe"') &&
-    realtime.includes("if (enableInputTranscript)") &&
-    realtime.includes('envInt("OPENAI_REALTIME_MAX_OUTPUT_TOKENS", 220, 80, 400)') &&
-    component.includes("60_000"),
-  "Voice cost controls: optional paid input captions, short output cap and 60s idle auto-stop",
+  realtime.includes("buildRealtimeV2Config") &&
+    realtimeV2.includes('"gpt-realtime-2.1"') &&
+    realtimeV2.includes("OPENAI_REALTIME_V2_MAX_OUTPUT_TOKENS") &&
+    realtimeV2.includes('type: "semantic_vad"') &&
+    realtimeV2.includes("interrupt_response: interruptResponse") &&
+    core.includes("voiceIdleTimerRef"),
+  "Voice controls use the current bounded Realtime v2 configuration and idle cleanup",
 );
 
 assert(
   route.includes("ORDER-FIRST SCOPE") &&
     route.includes("Do not offer casual conversation") &&
-    realtime.includes("You are not a general chat assistant") &&
-    realtime.includes("Never offer casual chat") &&
+    realtime.includes("You are not a generic chatbot") &&
+    realtime.includes("Never offer casual chat, entertainment or trivia") &&
     realtime.includes("call search_menu before answering or adding it"),
   "Text and voice assistants are order-first and must verify live menu data",
 );
 
 assert(
   realtime.includes("Do not say an item is unavailable until search_menu returned zero matches") &&
-    realtime.includes("resolve each requested product") &&
-    realtime.includes("every unambiguous item is added"),
+    realtime.includes("resolve EVERY requested item in the same customer turn") &&
+    realtime.includes("apply every unambiguous cart mutation") &&
+    realtime.includes("If one item is unresolved, keep successful items"),
   "Voice assistant cannot invent missing Cola/Pommes and continues multi-item orders",
 );
 

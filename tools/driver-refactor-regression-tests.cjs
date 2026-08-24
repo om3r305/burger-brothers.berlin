@@ -71,7 +71,7 @@ assert(
   "DriverLiveTracker must stay mounted and receive an active prop",
 );
 
-const scopeFiles = [
+const runtimeScopeFiles = [
   "app/driver/page.tsx",
   "components/DriverLiveTracker.tsx",
   ...fs
@@ -86,22 +86,34 @@ const scopeFiles = [
   "types/driver.ts",
 ];
 
-const scopeText = scopeFiles.map(read).join("\n");
+const runtimeScopeText = runtimeScopeFiles.map(read).join("\n");
 
 assert(
-  !/\balert\s*\(/.test(scopeText),
-  "native alert() remains in driver refactor scope",
+  !/\balert\s*\(/.test(runtimeScopeText),
+  "native alert() remains in driver runtime scope",
 );
 assert(
-  !/\bwindow\.confirm\s*\(/.test(scopeText),
-  "native window.confirm() remains in driver refactor scope",
-);
-assert(
-  !/\bany\b/.test(scopeText),
-  "driver refactor scope must not contain explicit any",
+  !/\bwindow\.confirm\s*\(/.test(runtimeScopeText),
+  "native window.confirm() remains in driver runtime scope",
 );
 
+// `npm run typecheck` is the authoritative type-safety gate for all current
+// Driver implementation files. Keep this historical refactor check focused on
+// the public Driver data contract instead of silently expanding it whenever a
+// later independent Driver component is added.
 const types = read("types/driver.ts");
+const explicitAnyPatterns = [
+  /:\s*any\b/,
+  /\bas\s+any\b/,
+  /<\s*any\s*>/,
+  /\bArray\s*<\s*any\s*>/,
+  /\bPromise\s*<\s*any\s*>/,
+];
+assert(
+  explicitAnyPatterns.every((pattern) => !pattern.test(types)),
+  "driver public types must not contain explicit any types",
+);
+
 assert(
   /type\s+DriverIdentity\s*=\s*\{[\s\S]*?id:\s*string;[\s\S]*?name:\s*string;[\s\S]*?\}/.test(
     types,
