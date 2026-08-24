@@ -6,6 +6,8 @@ import {
 } from "@/lib/freebies";
 import { prisma } from "@/lib/db";
 import { findEligibleRouteDealForCustomer } from "@/lib/server/route-deal-eligibility";
+import { BURGER_STUDIO_SCRATCH_SKU } from "@/lib/burger-studio-v2";
+import { validateBurgerStudioCanonicalSelection } from "@/lib/server/burger-studio-order-guard";
 
 type OrderMode = "pickup" | "delivery";
 
@@ -714,6 +716,21 @@ function canonicalizeItems(params: {
     }
 
     const extras = resolveSelectedExtras(rawItem, catalogItem);
+    const studioGuard = validateBurgerStudioCanonicalSelection({
+      rawItem,
+      catalogSku: catalogItem.sku,
+      resolvedExtras: extras,
+      settings: params.settings,
+      mode: params.mode,
+    });
+    if (!studioGuard.ok) {
+      throw new OrderPricingError(
+        studioGuard.code,
+        studioGuard.message,
+        409,
+      );
+    }
+
     const campaignResult = campaignPriceCents(
       catalogItem,
       params.campaigns,
@@ -745,7 +762,10 @@ function canonicalizeItems(params: {
     const canonical: CanonicalOrderItem = {
       id: catalogItem.id,
       sku: catalogItem.sku,
-      name: catalogItem.name,
+      name:
+        catalogItem.sku === BURGER_STUDIO_SCRATCH_SKU && rawItem?.name
+          ? String(rawItem.name).slice(0, 120)
+          : catalogItem.name,
       description: rawItem?.description
         ? String(rawItem.description).slice(0, 500)
         : undefined,
