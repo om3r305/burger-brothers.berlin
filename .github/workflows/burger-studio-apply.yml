@@ -1,5 +1,6 @@
 name: Burger Studio Integration
 
+# One-shot branch integration workflow.
 on:
   push:
     branches: [codex/burger-studio-v1]
