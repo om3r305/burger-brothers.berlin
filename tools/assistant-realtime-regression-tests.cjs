@@ -29,8 +29,9 @@ assert(
 );
 
 assert(
-  wrapper.includes("BurgerAssistantCore") && wrapper.includes("dynamic("),
-  "Customer shell lazy-loads the heavy assistant core",
+  wrapper.includes('import BurgerAssistantCore from "./BurgerAssistantCore";') &&
+    wrapper.includes("<BurgerAssistantCore />"),
+  "Customer shell delegates assistant behavior to the guarded core",
 );
 
 assert(
@@ -136,7 +137,7 @@ assert(
     kitchenNote.includes("sanitizeKitchenNote(currentNote)") &&
     kitchenNote.includes("sanitizeKitchenNote(requestedNote)") &&
     component.includes("note: resolveKitchenNote(currentLine.note, note)") &&
-    route.includes('Send note="" only for an explicit reversal/clear') &&
+    route.includes('Send note="" only when the customer explicitly clears/reverses') &&
     route.includes("Important removals must ALSO appear"),
   "Omitted note preserves Fleisch gut durch while explicit empty/replacement remains intentional",
 );
