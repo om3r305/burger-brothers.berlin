@@ -207,7 +207,7 @@ assert(enterPage.includes("Fertig-Benachrichtigung aktivieren"));
 assert(enterPage.includes("Zum Home-Bildschirm"));
 assert(enterPage.includes("homeScreen: true"));
 assert(enterPage.includes("session?.iosHomeScreenFlowEnabled"));
-assert(schnellLayout.includes('manifest: "/manifest-schnellbestellung.webmanifest"'));
+assert(schnellLayout.includes('manifest: "/api/schnellbestellung/manifest?v=4"'));
 assert(schnellLayout.includes('url: "/schnell-icon-180.png?v=1"'));
 assert(schnellManifestRoute.includes('const START_URL = "/schnellbestellung/enter?homescreen=1"'));
 assert(schnellManifestRoute.includes('Cache-Control'));
