@@ -5,6 +5,8 @@ export type BurgerStudioIngredient = {
   name: string;
   group: BurgerStudioGroup;
   addPrice: number;
+  // Kept in the v1 config shape for backward compatibility only.
+  // v1 always normalizes this to 0 and never grants removal credit.
   removeCredit: number;
   max: number;
   active: boolean;
@@ -89,9 +91,9 @@ function safeId(value: unknown, fallback: string) {
 
 export const DEFAULT_BURGER_STUDIO_INGREDIENTS: BurgerStudioIngredient[] = [
   { id: "brioche", name: "Brioche Bun", group: "bun", addPrice: 0, removeCredit: 0, max: 1, active: true, vegan: false, visual: "bun" },
-  { id: "beef", name: "Beef Patty", group: "protein", addPrice: 3.5, removeCredit: 3, max: 3, active: true, visual: "beef" },
-  { id: "crispy", name: "Crispy Chicken", group: "protein", addPrice: 3.5, removeCredit: 3, max: 3, active: true, visual: "crispy" },
-  { id: "vegan-patty", name: "Vegan Patty", group: "protein", addPrice: 3.5, removeCredit: 3, max: 3, active: true, vegan: true, visual: "vegan" },
+  { id: "beef", name: "Beef Patty", group: "protein", addPrice: 3.5, removeCredit: 0, max: 3, active: true, visual: "beef" },
+  { id: "crispy", name: "Crispy Chicken", group: "protein", addPrice: 3.5, removeCredit: 0, max: 3, active: true, visual: "crispy" },
+  { id: "vegan-patty", name: "Vegan Patty", group: "protein", addPrice: 3.5, removeCredit: 0, max: 3, active: true, vegan: true, visual: "vegan" },
   { id: "cheddar", name: "Cheddar", group: "cheese", addPrice: 1, removeCredit: 0, max: 3, active: true, visual: "cheddar" },
   { id: "gouda", name: "Gouda", group: "cheese", addPrice: 1, removeCredit: 0, max: 3, active: true, visual: "gouda" },
   { id: "mozzarella", name: "Mozzarella", group: "cheese", addPrice: 1.2, removeCredit: 0, max: 3, active: true, visual: "mozzarella" },
@@ -138,7 +140,9 @@ function normalizeIngredient(value: any, index: number): BurgerStudioIngredient 
     name: name || id,
     group,
     addPrice: money(value.addPrice ?? value.price, 0),
-    removeCredit: money(value.removeCredit, 0),
+    // v1 intentionally ignores old stored credits. A removed base ingredient
+    // never reduces the price; every added ingredient uses its full addPrice.
+    removeCredit: 0,
     max: Math.min(6, Math.max(1, Math.round(finiteNumber(value.max, 1)))),
     active: value.active !== false,
     vegan: value.vegan === true,
@@ -318,17 +322,12 @@ export function calculateBurgerStudioQuote(params: {
       Math.round(finiteNumber(recipe.ingredients[id], 0)),
     );
     const deltaQty = qty - baseQty;
-    let amount = 0;
-    if (validation.template) {
-      amount =
-        deltaQty > 0
-          ? deltaQty * ingredient.addPrice
-          : deltaQty < 0
-            ? -Math.abs(deltaQty) * ingredient.removeCredit
-            : 0;
-    } else {
-      amount = qty * ingredient.addPrice;
-    }
+    const amount = validation.template
+      ? deltaQty > 0
+        ? deltaQty * ingredient.addPrice
+        : 0
+      : qty * ingredient.addPrice;
+
     delta += amount;
     lines.push({
       ingredient,
