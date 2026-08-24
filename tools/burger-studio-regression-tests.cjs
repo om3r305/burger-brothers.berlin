@@ -181,6 +181,19 @@ assert(stack.includes('"--bsv2-stage-height"'));
 assert(stack.includes("height:var(--bsv2-stage-height)"));
 assert(stack.includes("overflow:hidden"));
 
+// Sauce ordering must use the authoritative ingredient group so BBQ, Italian,
+// avocado and any future sauce visual stay in bun-adjacent sauce slots.
+assert(stack.includes('if (group === "sauce") return sauceUnit === 0 ? 5 : 90;'));
+assert(stack.includes("foodPriority(kind, ingredient.group, unit)"));
+assert(stack.includes('if (key.includes("bbq")) return "bbq"'));
+assert(stack.includes('if (key.includes("italian")) return "italian"'));
+
+// Floating build mode must preserve the same bottom-to-top food direction as the
+// assembled burger instead of reversing low-priority layers toward the top bun.
+assert(stack.includes('"--bsv2-r": count - index'));
+assert(stack.includes("top:calc(82px + (var(--bsv2-r) * var(--bsv2-gap)))"));
+assert(stack.includes("top:calc(78px + (var(--bsv2-r) * var(--bsv2-gap)))"));
+
 // Only the Classic top bun receives sesame. Smash and gluten-free selectors
 // explicitly suppress seeds, including both bottom bun variants.
 assert(stack.includes(".bsv2-bun--classic.bsv2-bun-top:before"));
@@ -196,7 +209,7 @@ for (const kind of [
 }
 assert(stack.includes("clip-path:polygon"));
 assert(stack.includes("radial-gradient"));
-assert(stack.includes("foodPriority(kind, unit)"));
+assert(stack.includes("foodPriority(kind, ingredient.group, unit)"));
 
 // Fertig is a quick flash and staggered bottom-up snap, with the top bun on its
 // own last-close animation. Reduced motion receives the settled final state.
