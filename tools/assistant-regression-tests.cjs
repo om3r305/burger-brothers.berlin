@@ -29,16 +29,17 @@ assert(
   layout.includes('import BurgerAssistant from "@/components/assistant/BurgerAssistant";') &&
     layout.includes("<BurgerAssistant />") &&
     !nav.includes("BurgerAssistant") &&
-    wrapper.includes("BurgerAssistantCore") &&
-    wrapper.includes("dynamic("),
-  "Assistant is mounted once and lazy-loads its heavy core",
+    wrapper.includes('import BurgerAssistantCore from "./BurgerAssistantCore";') &&
+    wrapper.includes("<BurgerAssistantCore />"),
+  "Assistant is mounted once and delegates behavior to the guarded core",
 );
 
 assert(
   route.includes("mirror important removals") &&
     route.includes("Fleisch gut durch") &&
     route.includes("Ohne Salz") &&
-    realtime.includes("Scope every instruction") &&
+    realtime.includes("Doneness belongs to the meat item") &&
+    realtime.includes("salt instructions belong to fries") &&
     core.includes("note: sanitizeKitchenNote(action.note) || undefined") &&
     kitchenNote.includes("MAX_KITCHEN_NOTE_LENGTH = 200"),
   "Text and Realtime preserve structured commerce plus scoped, bounded kitchen notes",
@@ -174,16 +175,17 @@ assert(
 assert(
   route.includes("ORDER-FIRST SCOPE") &&
     route.includes("Do not offer casual conversation") &&
-    realtime.includes("You are not a general chat assistant") &&
-    realtime.includes("Never offer casual chat") &&
+    realtime.includes("You are not a generic chatbot") &&
+    realtime.includes("Never offer casual chat, entertainment or trivia") &&
     realtime.includes("call search_menu before answering or adding it"),
   "Text and voice assistants are order-first and must verify live menu data",
 );
 
 assert(
   realtime.includes("Do not say an item is unavailable until search_menu returned zero matches") &&
-    realtime.includes("resolve each requested product") &&
-    realtime.includes("every unambiguous item is added"),
+    realtime.includes("resolve EVERY requested item in the same customer turn") &&
+    realtime.includes("apply every unambiguous cart mutation") &&
+    realtime.includes("If one item is unresolved, keep successful items"),
   "Voice assistant cannot invent missing Cola/Pommes and continues multi-item orders",
 );
 
