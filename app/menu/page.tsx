@@ -1052,8 +1052,7 @@ export default function MenuPage() {
       </div>
 
       {/* Produkt-Grid + Warenkorb */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_380px]
-      ">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_380px]">
         <div>
           {showBlurb && (
             <CategoryBlurb category={tab as "burger" | "vegan" | "hotdogs"} />
