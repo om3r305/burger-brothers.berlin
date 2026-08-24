@@ -30,15 +30,18 @@ export default function BurgerStudioEntry() {
 
   useEffect(() => {
     const sync = (value?: any) => setEnabled(enabledFromSettings(value));
-    sync();
-
     const onSettings = (event: Event) => {
       sync((event as CustomEvent).detail);
     };
+    const onStorage = (event: StorageEvent) => {
+      if (!event.key || event.key === "bb_settings_v6") sync();
+    };
+
+    sync();
 
     window.addEventListener("bb_settings_changed", onSettings as EventListener);
     window.addEventListener("bb:settings-sync", onSettings as EventListener);
-    window.addEventListener("storage", () => sync());
+    window.addEventListener("storage", onStorage);
 
     void fetchAndApplyRemoteSettings()
       .then((next) => sync(next))
@@ -53,6 +56,7 @@ export default function BurgerStudioEntry() {
         "bb:settings-sync",
         onSettings as EventListener,
       );
+      window.removeEventListener("storage", onStorage);
     };
   }, []);
 
@@ -65,7 +69,11 @@ export default function BurgerStudioEntry() {
       aria-label="Burger Studio öffnen"
       onClick={() => {
         const href = "/burger-studio";
-        if (!startAppNavigation(href)) return;
+        startAppNavigation({
+          href,
+          source: "burger-studio-entry",
+          scrollToTop: true,
+        });
         router.push(href, { scroll: false });
       }}
       className="group fixed right-3 top-[calc(env(safe-area-inset-top)+78px)] z-[45] flex items-center gap-2 rounded-full border border-amber-300/35 bg-black/90 px-3 py-2 text-xs font-black text-white shadow-[0_12px_38px_rgba(0,0,0,.45),0_0_28px_rgba(245,158,11,.13)] backdrop-blur-xl transition hover:border-amber-300/65 sm:right-5 sm:top-[calc(env(safe-area-inset-top)+86px)] sm:px-4 sm:text-sm"
