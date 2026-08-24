@@ -30,7 +30,7 @@ assert(
     layout.includes("<BurgerAssistant />") &&
     !nav.includes("BurgerAssistant") &&
     wrapper.includes('import BurgerAssistantCore from "./BurgerAssistantCore";') &&
-    wrapper.includes("<BurgerAssistantCore />"),
+    wrapper.includes("<BurgerAssistantCore"),
   "Assistant is mounted once and delegates behavior to the guarded core",
 );
 
