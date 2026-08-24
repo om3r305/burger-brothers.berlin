@@ -1,0 +1,88 @@
+const fs = require("fs");
+const path = require("path");
+const assert = require("assert");
+
+const root = process.cwd();
+const read = (relativePath) =>
+  fs.readFileSync(path.join(root, relativePath), "utf8");
+
+const requiredFiles = [
+  "lib/burger-studio.ts",
+  "lib/burger-studio-order-plan.ts",
+  "components/burger-studio/BurgerStack.tsx",
+  "components/burger-studio/BurgerStudioEntry.tsx",
+  "app/burger-studio/page.tsx",
+  "app/admin/burger-studio/page.tsx",
+  "app/api/admin/burger-studio/sync/route.ts",
+  "app/admin/AdminShell.tsx",
+  "app/layout.tsx",
+];
+
+for (const relativePath of requiredFiles) {
+  assert(
+    fs.existsSync(path.join(root, relativePath)),
+    `Burger Studio required file missing: ${relativePath}`,
+  );
+}
+
+const model = read("lib/burger-studio.ts");
+const orderPlan = read("lib/burger-studio-order-plan.ts");
+const stack = read("components/burger-studio/BurgerStack.tsx");
+const entry = read("components/burger-studio/BurgerStudioEntry.tsx");
+const customer = read("app/burger-studio/page.tsx");
+const admin = read("app/admin/burger-studio/page.tsx");
+const syncRoute = read("app/api/admin/burger-studio/sync/route.ts");
+const adminShell = read("app/admin/AdminShell.tsx");
+const rootLayout = read("app/layout.tsx");
+
+// Public feature must remain opt-in and disabled until Admin finishes canonical sync.
+assert(model.includes("enabled: false"));
+assert(customer.includes("if (!config.enabled && !preview)"));
+assert(entry.includes("settings?.menu?.burgerStudio?.enabled === true"));
+
+// v1 intentionally orders from a real menu product so the existing server-authoritative
+// order-pricing pipeline remains the source of truth.
+assert(admin.includes("scratchEnabled: false"));
+assert(customer.includes("planBurgerStudioTemplateOrder"));
+assert(customer.includes("linkedProduct"));
+assert(customer.includes("addToCart({"));
+assert(customer.includes("linkedProduct.sku"));
+assert(customer.includes("🔥 BURGER STUDIO:"));
+
+// Canonical extras must be synchronized before public settings can be saved/activated.
+const syncIndex = admin.indexOf('fetch("/api/admin/burger-studio/sync"');
+const settingsIndex = admin.indexOf('fetch("/api/settings"', syncIndex + 1);
+assert(syncIndex >= 0, "Admin must call canonical Burger Studio sync");
+assert(
+  settingsIndex > syncIndex,
+  "Canonical Burger Studio extras must sync before saving public activation settings",
+);
+assert(syncRoute.includes('requireMutationRole(req, ["admin"])'));
+assert(syncRoute.includes('const STUDIO_PREFIX = "bstudio:"'));
+assert(syncRoute.includes('id: "bstudio:marker"'));
+assert(syncRoute.includes("tx.product.update"));
+assert(syncRoute.includes("extrasJson"));
+assert(syncRoute.includes("Prisma.JsonNull"));
+
+// Replacement pricing must be represented as canonical extras, not a client-only refund.
+assert(orderPlan.includes("removeCredit"));
+assert(orderPlan.includes("replacementPools"));
+assert(orderPlan.includes("bstudio:replace:"));
+assert(orderPlan.includes("bstudio:add:"));
+assert(orderPlan.includes('id: "bstudio:marker"'));
+
+// Studio should be discoverable in customer and Admin shells without joining the normal
+// category swipe sequence.
+assert(entry.includes('const href = "/burger-studio"'));
+assert(rootLayout.includes("<BurgerStudioEntry />"));
+assert(adminShell.includes('href: "/admin/burger-studio"'));
+assert(adminShell.includes('label: "Burger Studio"'));
+
+// The visual is deliberately lightweight 2.5D DOM/CSS. Do not introduce a WebGL runtime
+// into this interaction without an explicit performance decision.
+assert(!stack.includes("@react-three/fiber"));
+assert(!stack.includes("@react-three/drei"));
+assert(!stack.includes("THREE."));
+assert(!stack.includes("<Canvas"));
+
+console.log("Burger Studio regression tests: OK");
