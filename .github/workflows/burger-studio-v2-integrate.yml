@@ -1,0 +1,41 @@
+name: Burger Studio V2 Integrator
+
+on:
+  push:
+    branches:
+      - codex/burger-studio-v2-freestyle-stack
+    paths:
+      - tools/apply-burger-studio-v2-patch.mjs
+      - .github/workflows/burger-studio-v2-integrate.yml
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/burger-studio-v2-freestyle-stack
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Apply Burger Studio V2 core patch
+        run: node tools/apply-burger-studio-v2-patch.mjs
+      - name: Remove one-shot integration files
+        run: |
+          rm -f tools/apply-burger-studio-v2-patch.mjs
+          rm -f .github/workflows/burger-studio-v2-integrate.yml
+      - name: Commit integrated core changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git commit -m "feat(burger-studio): wire freestyle into canonical catalog and pricing"
+          git push origin HEAD:codex/burger-studio-v2-freestyle-stack
