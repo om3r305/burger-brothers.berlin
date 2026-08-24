@@ -1,5 +1,7 @@
 "use client";
 
+import { BURGER_STUDIO_SCRATCH_SKU } from "@/lib/burger-studio-v2";
+
 type CatalogEnvelope<T> = {
   ok: boolean;
   status: number;
@@ -32,6 +34,12 @@ function isBurgerStudioExtra(value: unknown) {
   return identity.startsWith(BURGER_STUDIO_EXTRA_PREFIX);
 }
 
+function isBurgerStudioInternalProduct(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return String(record.sku ?? record.code ?? "").trim() === BURGER_STUDIO_SCRATCH_SKU;
+}
+
 function hideBurgerStudioCanonicalExtras<T>(data: T): T {
   if (!data || typeof data !== "object" || Array.isArray(data)) return data;
 
@@ -40,21 +48,23 @@ function hideBurgerStudioCanonicalExtras<T>(data: T): T {
 
   return {
     ...source,
-    products: source.products.map((value) => {
-      if (!value || typeof value !== "object" || Array.isArray(value)) {
-        return value;
-      }
+    products: source.products
+      .filter((value) => !isBurgerStudioInternalProduct(value))
+      .map((value) => {
+        if (!value || typeof value !== "object" || Array.isArray(value)) {
+          return value;
+        }
 
-      const product = value as Record<string, unknown>;
-      const extras = Array.isArray(product.extrasJson)
-        ? product.extrasJson.filter((extra) => !isBurgerStudioExtra(extra))
-        : product.extrasJson;
+        const product = value as Record<string, unknown>;
+        const extras = Array.isArray(product.extrasJson)
+          ? product.extrasJson.filter((extra) => !isBurgerStudioExtra(extra))
+          : product.extrasJson;
 
-      return {
-        ...product,
-        extrasJson: extras,
-      };
-    }),
+        return {
+          ...product,
+          extrasJson: extras,
+        };
+      }),
   } as T;
 }
 

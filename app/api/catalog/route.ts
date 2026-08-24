@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 import { prisma, getTenantId } from "@/lib/db";
 import { readFallbackSnapshot, writeFallbackSnapshot } from "@/lib/server/fallback-snapshot";
 import { requireMutationRole } from "@/lib/server/request-security";
+import { BURGER_STUDIO_SCRATCH_SKU } from "@/lib/burger-studio-v2";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -862,6 +863,9 @@ async function persistCatalog(
           sku: {
             notIn: Array.from(seenSkus),
           },
+          NOT: {
+            sku: BURGER_STUDIO_SCRATCH_SKU,
+          },
         },
       });
     }
@@ -942,7 +946,12 @@ async function listCatalog(tenantId: string) {
   ]);
 
   return {
-    products: products.map(serializeProduct),
+    products: products
+      .filter(
+        (row: any) =>
+          String(row?.sku ?? "").trim() !== BURGER_STUDIO_SCRATCH_SKU,
+      )
+      .map(serializeProduct),
     campaigns: campaigns.map(serializeCampaign),
   };
 }
