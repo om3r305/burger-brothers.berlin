@@ -7,7 +7,8 @@ const root = process.cwd();
 const source = fs.readFileSync(path.join(root, "lib/assistant/delivery-area.ts"), "utf8");
 const route = fs.readFileSync(path.join(root, "app/api/assistant/delivery-area/route.ts"), "utf8");
 const realtime = fs.readFileSync(path.join(root, "app/api/assistant/realtime/route.ts"), "utf8");
-const component = fs.readFileSync(path.join(root, "components/assistant/BurgerAssistant.tsx"), "utf8");
+const wrapper = fs.readFileSync(path.join(root, "components/assistant/BurgerAssistant.tsx"), "utf8");
+const component = fs.readFileSync(path.join(root, "components/assistant/BurgerAssistantCore.tsx"), "utf8");
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText;
 const sandbox = { exports: {} };
 vm.runInNewContext(compiled, sandbox);
@@ -30,6 +31,7 @@ assert(!JSON.stringify(served).includes("adminPin") && !JSON.stringify(served).i
 assert(source.includes("settings.delivery?.plzMin") && source.includes("settings.pricingOverrides?.plzMin"), "lookup follows checkout's authoritative delivery minimum compatibility chain");
 assert(route.includes("getServerSettings()") && route.includes("buildCustomerDeliveryAreaResult(settings, postalCode)"), "server route reads authoritative server settings and returns the safe projection");
 assert(realtime.includes('name: "check_delivery_area"') && realtime.includes("Never answer these facts from memory"), "Realtime requires PLZ lookup instead of model memory");
-assert(component.includes('fetch("/api/assistant/delivery-area"') && component.includes('event?.name === "check_delivery_area"'), "voice client executes the local/server delivery tool on demand");
+assert(wrapper.includes("BurgerAssistantCore") && wrapper.includes("dynamic("), "assistant shell lazily loads the heavy core");
+assert(component.includes('fetch("/api/assistant/delivery-area"') && component.includes('event?.name === "check_delivery_area"'), "voice core executes the local/server delivery tool on demand");
 
 console.log("\nBurger Assistant delivery-area checks PASSED.");
