@@ -161,7 +161,7 @@ assert(entry.includes("bb_settings_changed"));
 // physical assembly on Fertig, and no WebGL/Three runtime.
 assert(stack.includes("is-building"));
 assert(stack.includes("is-assembled"));
-assert(stack.includes("transition-delay"));
+assert(stack.includes("animation-delay"));
 assert(stack.includes("cubic-bezier"));
 assert(stack.includes("bsv2-layer--beef"));
 assert(stack.includes("bsv2-layer--crispy"));
@@ -171,5 +171,56 @@ assert(!stack.includes("@react-three/fiber"));
 assert(!stack.includes("@react-three/drei"));
 assert(!stack.includes("THREE."));
 assert(!stack.includes("<Canvas"));
+
+// V2 polish keeps the food stack deterministic and lets the DOM stage grow with
+// the recipe instead of compressing ingredients into a fixed-height viewport.
+assert(stack.includes("function foodPriority"));
+assert(stack.includes("layers.sort((a, b) => a.order - b.order"));
+assert(stack.includes("218 + count * buildGap"));
+assert(stack.includes('"--bsv2-stage-height"'));
+assert(stack.includes("height:var(--bsv2-stage-height)"));
+assert(stack.includes("overflow:hidden"));
+
+// Sauce ordering must use the authoritative ingredient group so BBQ, Italian,
+// avocado and any future sauce visual stay in bun-adjacent sauce slots.
+assert(stack.includes('if (group === "sauce") return sauceUnit === 0 ? 5 : 90;'));
+assert(stack.includes("foodPriority(kind, ingredient.group, unit)"));
+assert(stack.includes('if (key.includes("bbq")) return "bbq"'));
+assert(stack.includes('if (key.includes("italian")) return "italian"'));
+
+// Floating build mode must preserve the same bottom-to-top food direction as the
+// assembled burger instead of reversing low-priority layers toward the top bun.
+assert(stack.includes('"--bsv2-r": count - index'));
+assert(stack.includes("top:calc(82px + (var(--bsv2-r) * var(--bsv2-gap)))"));
+assert(stack.includes("top:calc(78px + (var(--bsv2-r) * var(--bsv2-gap)))"));
+
+// Only the Classic top bun receives sesame. Smash and gluten-free selectors
+// explicitly suppress seeds, including both bottom bun variants.
+assert(stack.includes(".bsv2-bun--classic.bsv2-bun-top:before"));
+assert(stack.includes(".bsv2-bun--smash:before,.bsv2-bun--gluten-free:before,.bsv2-bun-bottom:before{content:none}"));
+
+// Ingredient-specific silhouettes/textures and sauce drizzle geometry must not
+// regress to a generic colored stripe.
+for (const kind of [
+  "beef", "crispy", "bacon", "lettuce", "tomato", "pickle", "onion",
+  "jalapeno", "cheddar", "gouda", "mozzarella", "gorgonzola",
+]) {
+  assert(stack.includes(`.bsv2-layer--${kind}`), `Missing visual for ${kind}`);
+}
+assert(stack.includes("clip-path:polygon"));
+assert(stack.includes("radial-gradient"));
+assert(stack.includes("foodPriority(kind, ingredient.group, unit)"));
+
+// Fertig is a quick flash and staggered bottom-up snap, with the top bun on its
+// own last-close animation. Reduced motion receives the settled final state.
+assert(stack.includes("bsv2-assembly-flash"));
+assert(stack.includes("@keyframes bsv2-flash"));
+assert(stack.includes("@keyframes bsv2-drop"));
+assert(stack.includes("@keyframes bsv2-top-close"));
+assert(stack.includes("animation-delay:calc(45ms + (var(--bsv2-i) * 48ms))"));
+assert(stack.includes("animation-delay:calc(110ms + (var(--bsv2-count) * 48ms))"));
+assert(stack.includes("@media(prefers-reduced-motion:reduce)"));
+assert(customer.includes("resetAssembly"));
+assert(customer.includes("if (assembled) setAssembled(false)"));
 
 console.log("Burger Studio V2 regression tests: OK");
