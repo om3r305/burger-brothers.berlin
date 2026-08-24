@@ -316,7 +316,8 @@ assert(client.includes("doneness: line.doneness"));
 assert(catalog.includes("requiresDoneness"));
 assert(core.includes("DONENESS_REQUIRED"));
 assert(core.includes("schnellProductRequiresDoneness"));
-assert(printProxy.includes("GARSTUFE"));
+assert(printProxy.includes("SCHNELL_DONENESS_LABELS"));
 assert(printProxy.includes("receiptDonenessLabel"));
+assert(printProxy.includes("upperReceipt(doneness)"));
 
 console.log("schnellbestellung regression tests: OK");
