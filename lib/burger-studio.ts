@@ -176,15 +176,35 @@ function normalizeTemplate(value: any, index: number): BurgerStudioTemplate | nu
 
 export function normalizeBurgerStudioConfig(value: any): BurgerStudioConfig {
   const defaults = createDefaultBurgerStudioConfig();
-  const root = value && typeof value === "object" && !Array.isArray(value) ? value : {};
-  const ingredientsRaw = Array.isArray(root.ingredients) ? root.ingredients : defaults.ingredients;
-  const ingredients = ingredientsRaw
-    .map(normalizeIngredient)
-    .filter((item: BurgerStudioIngredient | null): item is BurgerStudioIngredient => Boolean(item));
-  const uniqueIngredients = Array.from(new Map(ingredients.map((item) => [item.id, item])).values());
-  const templates = (Array.isArray(root.templates) ? root.templates : [])
-    .map(normalizeTemplate)
-    .filter((item: BurgerStudioTemplate | null): item is BurgerStudioTemplate => Boolean(item));
+  const root: Record<string, any> =
+    value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const ingredientsRaw: any[] = Array.isArray(root.ingredients)
+    ? root.ingredients
+    : defaults.ingredients;
+  const ingredients: BurgerStudioIngredient[] = ingredientsRaw
+    .map((item: any, index: number) => normalizeIngredient(item, index))
+    .filter(
+      (item: BurgerStudioIngredient | null): item is BurgerStudioIngredient =>
+        item !== null,
+    );
+  const uniqueIngredientsMap = new Map<string, BurgerStudioIngredient>();
+  for (const item of ingredients) uniqueIngredientsMap.set(item.id, item);
+  const uniqueIngredients: BurgerStudioIngredient[] = Array.from(
+    uniqueIngredientsMap.values(),
+  );
+
+  const templatesRaw: any[] = Array.isArray(root.templates) ? root.templates : [];
+  const templates: BurgerStudioTemplate[] = templatesRaw
+    .map((item: any, index: number) => normalizeTemplate(item, index))
+    .filter(
+      (item: BurgerStudioTemplate | null): item is BurgerStudioTemplate =>
+        item !== null,
+    );
+  const uniqueTemplatesMap = new Map<string, BurgerStudioTemplate>();
+  for (const item of templates) uniqueTemplatesMap.set(item.id, item);
+  const uniqueTemplates: BurgerStudioTemplate[] = Array.from(
+    uniqueTemplatesMap.values(),
+  );
 
   return {
     version: 1,
@@ -194,15 +214,30 @@ export function normalizeBurgerStudioConfig(value: any): BurgerStudioConfig {
     scratchEnabled: root.scratchEnabled !== false,
     savedBurgersEnabled: root.savedBurgersEnabled !== false,
     scratchBasePrice: money(root.scratchBasePrice, defaults.scratchBasePrice),
-    maxIngredients: Math.min(40, Math.max(1, Math.round(finiteNumber(root.maxIngredients, defaults.maxIngredients)))),
-    maxSavedBurgers: Math.min(30, Math.max(1, Math.round(finiteNumber(root.maxSavedBurgers, defaults.maxSavedBurgers)))),
-    ingredients: uniqueIngredients.length ? uniqueIngredients : defaults.ingredients,
-    templates: Array.from(new Map(templates.map((item) => [item.id, item])).values()),
+    maxIngredients: Math.min(
+      40,
+      Math.max(
+        1,
+        Math.round(finiteNumber(root.maxIngredients, defaults.maxIngredients)),
+      ),
+    ),
+    maxSavedBurgers: Math.min(
+      30,
+      Math.max(
+        1,
+        Math.round(finiteNumber(root.maxSavedBurgers, defaults.maxSavedBurgers)),
+      ),
+    ),
+    ingredients: uniqueIngredients.length
+      ? uniqueIngredients
+      : defaults.ingredients,
+    templates: uniqueTemplates,
   };
 }
 
 export function normalizeBurgerStudioRecipe(value: any): BurgerStudioRecipe {
-  const root = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const root: Record<string, any> =
+    value && typeof value === "object" && !Array.isArray(value) ? value : {};
   return {
     version: 1,
     templateId: root.templateId ? safeId(root.templateId, "") || null : null,
@@ -210,23 +245,44 @@ export function normalizeBurgerStudioRecipe(value: any): BurgerStudioRecipe {
   };
 }
 
-export function validateBurgerStudioRecipe(config: BurgerStudioConfig, recipe: BurgerStudioRecipe) {
+export function validateBurgerStudioRecipe(
+  config: BurgerStudioConfig,
+  recipe: BurgerStudioRecipe,
+) {
   const ingredientMap = new Map(config.ingredients.map((item) => [item.id, item]));
   const template = recipe.templateId
     ? config.templates.find((item) => item.id === recipe.templateId && item.active)
     : null;
 
-  if (recipe.templateId && !template) return { ok: false as const, error: "BURGER_STUDIO_TEMPLATE_INVALID" };
-  if (!recipe.templateId && !config.scratchEnabled) return { ok: false as const, error: "BURGER_STUDIO_SCRATCH_DISABLED" };
+  if (recipe.templateId && !template) {
+    return { ok: false as const, error: "BURGER_STUDIO_TEMPLATE_INVALID" };
+  }
+  if (!recipe.templateId && !config.scratchEnabled) {
+    return { ok: false as const, error: "BURGER_STUDIO_SCRATCH_DISABLED" };
+  }
 
   let total = 0;
   for (const [id, qty] of Object.entries(recipe.ingredients)) {
     const ingredient = ingredientMap.get(id);
-    if (!ingredient || !ingredient.active) return { ok: false as const, error: "BURGER_STUDIO_INGREDIENT_INVALID", ingredientId: id };
-    if (qty < 0 || qty > ingredient.max) return { ok: false as const, error: "BURGER_STUDIO_INGREDIENT_QTY_INVALID", ingredientId: id };
+    if (!ingredient || !ingredient.active) {
+      return {
+        ok: false as const,
+        error: "BURGER_STUDIO_INGREDIENT_INVALID",
+        ingredientId: id,
+      };
+    }
+    if (qty < 0 || qty > ingredient.max) {
+      return {
+        ok: false as const,
+        error: "BURGER_STUDIO_INGREDIENT_QTY_INVALID",
+        ingredientId: id,
+      };
+    }
     total += qty;
   }
-  if (total > config.maxIngredients) return { ok: false as const, error: "BURGER_STUDIO_TOO_MANY_INGREDIENTS" };
+  if (total > config.maxIngredients) {
+    return { ok: false as const, error: "BURGER_STUDIO_TOO_MANY_INGREDIENTS" };
+  }
   return { ok: true as const, template };
 }
 
@@ -241,8 +297,13 @@ export function calculateBurgerStudioQuote(params: {
 
   const ingredientMap = new Map(config.ingredients.map((item) => [item.id, item]));
   const baseRecipe = validation.template?.recipe ?? {};
-  const basePrice = validation.template ? money(params.templateBasePrice, 0) : config.scratchBasePrice;
-  const ids = new Set([...Object.keys(baseRecipe), ...Object.keys(recipe.ingredients)]);
+  const basePrice = validation.template
+    ? money(params.templateBasePrice, 0)
+    : config.scratchBasePrice;
+  const ids = new Set([
+    ...Object.keys(baseRecipe),
+    ...Object.keys(recipe.ingredients),
+  ]);
   const lines: BurgerStudioQuoteLine[] = [];
   const selected: BurgerStudioQuote["selected"] = [];
   const removed: BurgerStudioQuote["removed"] = [];
@@ -252,20 +313,30 @@ export function calculateBurgerStudioQuote(params: {
     const ingredient = ingredientMap.get(id);
     if (!ingredient) continue;
     const baseQty = Math.max(0, Math.round(finiteNumber(baseRecipe[id], 0)));
-    const qty = Math.max(0, Math.round(finiteNumber(recipe.ingredients[id], 0)));
+    const qty = Math.max(
+      0,
+      Math.round(finiteNumber(recipe.ingredients[id], 0)),
+    );
     const deltaQty = qty - baseQty;
     let amount = 0;
     if (validation.template) {
-      amount = deltaQty > 0
-        ? deltaQty * ingredient.addPrice
-        : deltaQty < 0
-          ? -Math.abs(deltaQty) * ingredient.removeCredit
-          : 0;
+      amount =
+        deltaQty > 0
+          ? deltaQty * ingredient.addPrice
+          : deltaQty < 0
+            ? -Math.abs(deltaQty) * ingredient.removeCredit
+            : 0;
     } else {
       amount = qty * ingredient.addPrice;
     }
     delta += amount;
-    lines.push({ ingredient, qty, baseQty, deltaQty, amount: Math.round(amount * 100) / 100 });
+    lines.push({
+      ingredient,
+      qty,
+      baseQty,
+      deltaQty,
+      amount: Math.round(amount * 100) / 100,
+    });
     if (qty > 0) selected.push({ ingredient, qty });
     if (baseQty > qty) removed.push({ ingredient, qty: baseQty - qty });
   }
@@ -281,9 +352,19 @@ export function calculateBurgerStudioQuote(params: {
   };
 }
 
-export function burgerStudioRecipeLabel(config: BurgerStudioConfig, recipe: BurgerStudioRecipe) {
-  const quote = calculateBurgerStudioQuote({ config, recipe, templateBasePrice: 0 });
+export function burgerStudioRecipeLabel(
+  config: BurgerStudioConfig,
+  recipe: BurgerStudioRecipe,
+) {
+  const quote = calculateBurgerStudioQuote({
+    config,
+    recipe,
+    templateBasePrice: 0,
+  });
   return quote.selected
-    .map(({ ingredient, qty }) => `${ingredient.name}${qty > 1 ? ` ×${qty}` : ""}`)
+    .map(
+      ({ ingredient, qty }) =>
+        `${ingredient.name}${qty > 1 ? ` ×${qty}` : ""}`,
+    )
     .join(", ");
 }
