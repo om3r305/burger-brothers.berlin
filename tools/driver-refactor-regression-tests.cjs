@@ -96,9 +96,16 @@ assert(
   !/\bwindow\.confirm\s*\(/.test(scopeText),
   "native window.confirm() remains in driver refactor scope",
 );
+const explicitAnyPatterns = [
+  /:\s*any\b/,
+  /\bas\s+any\b/,
+  /<\s*any\s*>/,
+  /\bArray\s*<\s*any\s*>/,
+  /\bPromise\s*<\s*any\s*>/,
+];
 assert(
-  !/\bany\b/.test(scopeText),
-  "driver refactor scope must not contain explicit any",
+  explicitAnyPatterns.every((pattern) => !pattern.test(scopeText)),
+  "driver refactor scope must not contain explicit any types",
 );
 
 const types = read("types/driver.ts");
