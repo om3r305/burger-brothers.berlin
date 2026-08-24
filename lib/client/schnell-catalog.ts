@@ -19,9 +19,43 @@ const CATALOG_URL = "/api/schnellbestellung/catalog";
 const CATALOG_CACHE_KEY = "bb_schnell_catalog_v8";
 const IN_MEMORY_RESULT_MAX_AGE_MS = 15_000;
 const REQUEST_TIMEOUT_MS = 10_000;
+const BURGER_STUDIO_EXTRA_PREFIX = "bstudio:";
 
 function catalogWindow() {
   return window as CatalogWindow;
+}
+
+function isBurgerStudioExtra(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  const identity = String(record.id ?? record.sku ?? record.code ?? "").trim();
+  return identity.startsWith(BURGER_STUDIO_EXTRA_PREFIX);
+}
+
+function hideBurgerStudioCanonicalExtras<T>(data: T): T {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return data;
+
+  const source = data as Record<string, unknown>;
+  if (!Array.isArray(source.products)) return data;
+
+  return {
+    ...source,
+    products: source.products.map((value) => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        return value;
+      }
+
+      const product = value as Record<string, unknown>;
+      const extras = Array.isArray(product.extrasJson)
+        ? product.extrasJson.filter((extra) => !isBurgerStudioExtra(extra))
+        : product.extrasJson;
+
+      return {
+        ...product,
+        extrasJson: extras,
+      };
+    }),
+  } as T;
 }
 
 function saveBrowserCache(data: unknown) {
@@ -65,7 +99,8 @@ async function requestCatalog<T>(
       signal: controller.signal,
       headers: { accept: "application/json" },
     });
-    const data = (await response.json().catch(() => ({}))) as T;
+    const rawData = (await response.json().catch(() => ({}))) as T;
+    const data = hideBurgerStudioCanonicalExtras(rawData);
 
     if (response.ok) saveBrowserCache(data);
 
