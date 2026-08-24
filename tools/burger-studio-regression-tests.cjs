@@ -68,12 +68,15 @@ assert(syncRoute.includes("tx.product.update"));
 assert(syncRoute.includes("extrasJson"));
 assert(syncRoute.includes("Prisma.JsonNull"));
 
-// Replacement pricing must be represented as canonical extras, not a client-only refund.
-assert(orderPlan.includes("removeCredit"));
-assert(orderPlan.includes("replacementPools"));
-assert(orderPlan.includes("bstudio:replace:"));
+// v1 never grants a removal/replacement credit. Every added ingredient uses its
+// full canonical addPrice so a client cannot replay a discounted replacement extra.
 assert(orderPlan.includes("bstudio:add:"));
 assert(orderPlan.includes('id: "bstudio:marker"'));
+assert(!orderPlan.includes("replacementPools"));
+assert(!orderPlan.includes("bstudio:replace:"));
+assert(!syncRoute.includes("bstudio:replace:"));
+assert(model.includes("removeCredit: 0"));
+assert(!model.includes("-Math.abs(deltaQty) * ingredient.removeCredit"));
 
 // Server-only canonical Studio extras must never appear as regular customer modifiers.
 assert(menuPage.includes('return !id.startsWith("bstudio:")'));
