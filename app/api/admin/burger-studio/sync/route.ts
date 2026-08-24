@@ -111,8 +111,11 @@ export async function POST(req: Request) {
 
     const extrasByProductId = new Map<string, Array<Record<string, unknown>>>();
     const missingTemplates: string[] = [];
+    const activeTemplates = config.enabled
+      ? config.templates.filter((item) => item.active)
+      : [];
 
-    for (const template of config.templates.filter((item) => item.active)) {
+    for (const template of activeTemplates) {
       const product = productByRef.get(key(template.productRef));
       if (!product) {
         missingTemplates.push(template.name);
@@ -168,7 +171,7 @@ export async function POST(req: Request) {
     return NextResponse.json({
       ok: true,
       updated,
-      templateCount: config.templates.filter((item) => item.active).length,
+      templateCount: activeTemplates.length,
     });
   } catch (error) {
     console.error("[burger-studio/sync]", error);
