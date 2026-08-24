@@ -16,6 +16,8 @@ const requiredFiles = [
   "app/api/admin/burger-studio/sync/route.ts",
   "app/admin/AdminShell.tsx",
   "app/layout.tsx",
+  "app/menu/page.tsx",
+  "lib/client/schnell-catalog.ts",
 ];
 
 for (const relativePath of requiredFiles) {
@@ -34,6 +36,8 @@ const admin = read("app/admin/burger-studio/page.tsx");
 const syncRoute = read("app/api/admin/burger-studio/sync/route.ts");
 const adminShell = read("app/admin/AdminShell.tsx");
 const rootLayout = read("app/layout.tsx");
+const menuPage = read("app/menu/page.tsx");
+const schnellCatalogClient = read("lib/client/schnell-catalog.ts");
 
 // Public feature must remain opt-in and disabled until Admin finishes canonical sync.
 assert(model.includes("enabled: false"));
@@ -71,12 +75,23 @@ assert(orderPlan.includes("bstudio:replace:"));
 assert(orderPlan.includes("bstudio:add:"));
 assert(orderPlan.includes('id: "bstudio:marker"'));
 
+// Server-only canonical Studio extras must never appear as regular customer modifiers.
+assert(menuPage.includes('return !id.startsWith("bstudio:")'));
+assert(schnellCatalogClient.includes('const BURGER_STUDIO_EXTRA_PREFIX = "bstudio:"'));
+assert(schnellCatalogClient.includes("hideBurgerStudioCanonicalExtras"));
+
 // Studio should be discoverable in customer and Admin shells without joining the normal
 // category swipe sequence.
 assert(entry.includes('const href = "/burger-studio"'));
 assert(rootLayout.includes("<BurgerStudioEntry />"));
 assert(adminShell.includes('href: "/admin/burger-studio"'));
 assert(adminShell.includes('label: "Burger Studio"'));
+
+// Reuse the existing central public settings cache. The entry must not create another
+// settings network request/polling loop merely because it is mounted in the root layout.
+assert(!entry.includes("fetchAndApplyRemoteSettings"));
+assert(!entry.includes('fetch("/api/settings"'));
+assert(entry.includes("bb_settings_changed"));
 
 // The visual is deliberately lightweight 2.5D DOM/CSS. Do not introduce a WebGL runtime
 // into this interaction without an explicit performance decision.
