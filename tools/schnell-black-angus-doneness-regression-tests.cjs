@@ -68,9 +68,9 @@ assert(orderRoute.includes("createCashSchnellOrder"));
 
 assert(printJobs.includes("doneness: normalizeDoneness(item?.doneness)"));
 assert(printAgent.includes("doneness: normalizeDoneness(item.doneness)"));
-assert(printProxy.includes("function receiptDonenessLabel(item)"));
-assert(printProxy.includes("text('GARSTUFE')"));
-assert(printProxy.includes("text(doneness.toUpperCase())"));
+assert(printProxy.includes("function receiptDonenessLabel(item={})"));
+assert(printProxy.includes("const doneness = receiptDonenessLabel(item);"));
+assert(printProxy.includes("upperReceipt(doneness)"));
 
 const allowedFiles = new Set([
   files.client,
