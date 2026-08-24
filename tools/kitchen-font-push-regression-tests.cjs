@@ -10,6 +10,7 @@ const statusRoute = read('app/api/orders/status/route.ts');
 const pushServer = read('lib/server/schnell-push.ts');
 const pushClient = read('lib/client/schnell-push.ts');
 const successPage = read('app/schnellbestellung/success/page.tsx');
+const readyAlarm = read('lib/client/schnell-ready-alarm.ts');
 const serviceWorker = read('public/sw.js');
 
 const kitchenStart = proxy.indexOf('function buildSchnellKitchenTicket');
@@ -58,25 +59,18 @@ assert.match(
 );
 assert.match(pushServer, /timeoutMs = 4_000/, 'bounded push timeout missing');
 
-assert.match(successPage, /retryDelays = \[0, 1_500, 5_000\]/, 'order push binding retries missing');
-assert.match(successPage, /bindWithRetry/, 'push binding retry function missing');
-assert.match(successPage, /primeReadyAudioChannel/, 'foreground audio unlock helper missing');
-assert.match(successPage, /pointerdown[\s\S]*touchend[\s\S]*keydown/, 'audio must retry on a real user gesture');
-assert.match(
-  successPage,
-  /const isNewReadyEvent =[\s\S]*lastReadyEventRef\.current !== readyEventId/,
-  'new ready events must be detected independently of status=ready',
-);
-assert.match(
-  successPage,
-  /if \(isNewReadyEvent\)[\s\S]*tryStartReadyAlert/,
-  'Fertig or direct Ausgegeben must trigger foreground sound once',
-);
+assert.match(successPage, /prewarmSchnellPush\(\)/, 'push channel must be prewarmed on the success page');
+assert.match(successPage, /bindSchnellPushToOrder\(orderId\)/, 'order push binding must be repaired on the success page');
+assert.match(successPage, /readyOpenedFromNotification/, 'notification-open state must remain explicit');
+assert.match(successPage, /BB_SCHNELL_NOTIFICATION_OPEN/, 'service-worker notification open message must be handled');
+assert.match(successPage, /startSchnellReadyAlarm\(\)/, 'foreground ready alarm must start from the current alarm helper');
+assert.match(successPage, /stopSchnellReadyAlarm\(\)/, 'foreground ready alarm cleanup must remain explicit');
+assert.match(readyAlarm, /new Audio\("\/sounds\/dine-in\.wav"\)/, 'ready alarm must use the configured Schnell sound');
 
 assert.match(pushClient, /subscriptionUsesPublicKey/, 'VAPID subscription key validation missing');
 assert.match(pushClient, /existing\.unsubscribe\(\)/, 'stale VAPID subscription must be replaced');
 
-assert.match(serviceWorker, /bb-push-state-v4/, 'service worker push state version was not refreshed');
+assert.match(serviceWorker, /bb-push-state-v5/, 'service worker push state version was not refreshed');
 assert.match(serviceWorker, /fetchJsonWithTimeout/, 'service worker pending fetch timeout missing');
 assert.match(serviceWorker, /const schnellTask =[\s\S]*showSchnellReadyEvent/, 'Schnell notification task missing');
 assert.match(serviceWorker, /const generalTask =/, 'general notification task missing');
