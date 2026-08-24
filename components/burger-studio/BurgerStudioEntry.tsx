@@ -3,10 +3,7 @@
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { startAppNavigation } from "@/components/AppRouteTransition";
-import {
-  fetchAndApplyRemoteSettings,
-  readSettings,
-} from "@/lib/settings";
+import { readSettings } from "@/lib/settings";
 
 const CUSTOMER_MENU_PATHS = new Set([
   "/menu",
@@ -37,15 +34,14 @@ export default function BurgerStudioEntry() {
       if (!event.key || event.key === "bb_settings_v6") sync();
     };
 
+    // CatalogProvider already warms /api/settings for customer catalog routes
+    // and emits bb_settings_changed when the payload changes. Reuse that
+    // central cache instead of adding a second Burger Studio network request.
     sync();
 
     window.addEventListener("bb_settings_changed", onSettings as EventListener);
     window.addEventListener("bb:settings-sync", onSettings as EventListener);
     window.addEventListener("storage", onStorage);
-
-    void fetchAndApplyRemoteSettings()
-      .then((next) => sync(next))
-      .catch(() => undefined);
 
     return () => {
       window.removeEventListener(
