@@ -35,9 +35,10 @@ function existingExtras(value: unknown) {
   });
 }
 
-function studioExtrasForTemplate(config: ReturnType<typeof normalizeBurgerStudioConfig>, template: any) {
+function studioExtrasForTemplate(
+  config: ReturnType<typeof normalizeBurgerStudioConfig>,
+) {
   const ingredients = config.ingredients.filter((ingredient) => ingredient.active);
-  const ingredientMap = new Map(ingredients.map((ingredient) => [ingredient.id, ingredient]));
   const extras: Array<Record<string, unknown>> = [
     {
       id: "bstudio:marker",
@@ -57,23 +58,6 @@ function studioExtrasForTemplate(config: ReturnType<typeof normalizeBurgerStudio
       label: ingredient.name,
       price: money(ingredient.addPrice),
     });
-  }
-
-  for (const [sourceId, rawQty] of Object.entries(template.recipe || {})) {
-    const source = ingredientMap.get(sourceId);
-    const sourceQty = Math.max(0, Math.round(Number(rawQty) || 0));
-    if (!source || sourceQty <= 0 || source.removeCredit <= 0) continue;
-
-    for (const target of ingredients) {
-      if (target.id === source.id || target.group !== source.group) continue;
-      extras.push({
-        id: `bstudio:replace:${source.id}:${target.id}`,
-        sku: `bstudio:replace:${source.id}:${target.id}`,
-        name: target.name,
-        label: `${target.name} statt ${source.name}`,
-        price: money(Math.max(0, target.addPrice - source.removeCredit)),
-      });
-    }
   }
 
   return Array.from(
@@ -121,12 +105,14 @@ export async function POST(req: Request) {
         missingTemplates.push(template.name);
         continue;
       }
-      const generated = studioExtrasForTemplate(config, template);
+      const generated = studioExtrasForTemplate(config);
       const previous = extrasByProductId.get(product.id) || [];
       extrasByProductId.set(
         product.id,
         Array.from(
-          new Map([...previous, ...generated].map((extra) => [String(extra.id), extra])).values(),
+          new Map(
+            [...previous, ...generated].map((extra) => [String(extra.id), extra]),
+          ).values(),
         ),
       );
     }
