@@ -65,7 +65,10 @@ assert.match(successPage, /readyOpenedFromNotification/, 'notification-open stat
 assert.match(successPage, /BB_SCHNELL_NOTIFICATION_OPEN/, 'service-worker notification open message must be handled');
 assert.match(successPage, /startSchnellReadyAlarm\(\)/, 'foreground ready alarm must start from the current alarm helper');
 assert.match(successPage, /stopSchnellReadyAlarm\(\)/, 'foreground ready alarm cleanup must remain explicit');
-assert.match(readyAlarm, /new Audio\("\/sounds\/dine-in\.wav"\)/, 'ready alarm must use the configured Schnell sound');
+assert.match(readyAlarm, /createOscillator\(\)/, 'ready alarm Web Audio tone generator missing');
+assert.match(readyAlarm, /navigator\.vibrate\?\.\(/, 'ready alarm vibration fallback missing');
+assert.match(readyAlarm, /window\.setInterval\([\s\S]*4_200/, 'ready alarm must repeat while active');
+assert.match(readyAlarm, /pointerdown[\s\S]*touchstart[\s\S]*keydown/, 'ready alarm must retry suspended audio after a real user gesture');
 
 assert.match(pushClient, /subscriptionUsesPublicKey/, 'VAPID subscription key validation missing');
 assert.match(pushClient, /existing\.unsubscribe\(\)/, 'stale VAPID subscription must be replaced');
