@@ -60,19 +60,23 @@ function foodPriority(kind: string, group: string, sauceUnit = 0) {
   return 35;
 }
 
+// Distance from the visible bottom of one layer to the next layer's bottom in
+// the finished burger. These are intentionally tighter than DOM element heights:
+// radial/clip-path ingredients contain transparent pixels that otherwise read as
+// black gaps on phone screens.
 function assembledStep(kind: string) {
-  if (["sauce", "italian", "bbq", "avocado-sauce"].includes(kind)) return 8;
-  if (kind === "lettuce") return 16;
-  if (kind === "tomato") return 12;
-  if (["onion", "fried-onion", "pickle"].includes(kind)) return 11;
-  if (kind === "beef") return 32;
-  if (kind === "crispy") return 34;
-  if (kind === "vegan") return 30;
-  if (kind === "bacon") return 14;
-  if (kind === "jalapeno") return 10;
-  if (["cheddar", "gouda", "mozzarella", "gorgonzola"].includes(kind)) return 13;
-  if (kind === "guacamole") return 11;
-  return 11;
+  if (["sauce", "italian", "bbq", "avocado-sauce"].includes(kind)) return 4;
+  if (kind === "lettuce") return 10;
+  if (kind === "tomato") return 7;
+  if (["onion", "fried-onion", "pickle"].includes(kind)) return 6;
+  if (kind === "beef") return 29;
+  if (kind === "crispy") return 31;
+  if (kind === "vegan") return 27;
+  if (kind === "bacon") return 10;
+  if (kind === "jalapeno") return 6;
+  if (["cheddar", "gouda", "mozzarella", "gorgonzola"].includes(kind)) return 8;
+  if (kind === "guacamole") return 7;
+  return 8;
 }
 
 function bunClass(visual?: string) {
@@ -114,15 +118,16 @@ export default function BurgerStackV2({ config, recipe, assembled }: {
   const buildGap = count > 14 ? 38 : 44;
   const buildHeight = Math.max(430, 218 + count * buildGap);
 
-  // Final burger uses physical ingredient-aware stacking instead of a fixed 24px
-  // index gap, so thin vegetables/sauces stay attached while proteins keep depth.
-  let finalCursor = 82;
+  // The bottom bun ends around 86px in the stack. Starting at 80px gives the
+  // first visible ingredient a small natural overlap with the bread instead of
+  // leaving a detached lower cluster.
+  let finalCursor = 80;
   const finalBottoms = layers.map((layer) => {
     const bottom = finalCursor;
     finalCursor += assembledStep(layer.kind);
     return bottom;
   });
-  const finalTopBottom = Math.max(92, finalCursor + 2);
+  const finalTopBottom = Math.max(90, finalCursor + 1);
   const finalHeight = Math.max(430, finalTopBottom + 118);
 
   const stageHeight = assembled ? finalHeight : buildHeight;
@@ -178,7 +183,7 @@ export default function BurgerStackV2({ config, recipe, assembled }: {
         .bsv2-stack{position:relative;width:min(88vw,390px);height:calc(var(--bsv2-stage-height) - 48px);transform:perspective(950px) rotateX(4deg);transform-style:preserve-3d}
         .bsv2-piece{position:absolute;left:50%;transform:translateX(-50%);will-change:bottom,top,transform}.is-building .bsv2-piece{transition:top .26s ease,bottom .26s ease,transform .26s ease}
         .is-building .bsv2-layer{top:calc(82px + (var(--bsv2-r) * var(--bsv2-gap)));bottom:auto;transform:translateX(-50%) rotate(calc((var(--bsv2-i) - 4) * .55deg)) scale(.97);filter:drop-shadow(0 16px 12px rgba(0,0,0,.4))}
-        .is-assembled .bsv2-layer{top:auto;bottom:var(--bsv2-final-bottom);transform:translateX(-50%);filter:drop-shadow(0 7px 6px rgba(0,0,0,.28));animation:bsv2-drop .23s cubic-bezier(.2,.86,.32,1.18) both;animation-delay:calc(45ms + (var(--bsv2-i) * 48ms))}
+        .is-assembled .bsv2-layer{top:auto;bottom:var(--bsv2-final-bottom);transform:translateX(-50%);filter:drop-shadow(0 5px 5px rgba(0,0,0,.24));animation:bsv2-drop .23s cubic-bezier(.2,.86,.32,1.18) both;animation-delay:calc(45ms + (var(--bsv2-i) * 48ms))}
         .bsv2-layer{width:76%;height:28px;border-radius:999px;z-index:calc(10 + var(--bsv2-i));box-shadow:inset 0 2px 2px rgba(255,255,255,.16),inset 0 -4px 8px rgba(0,0,0,.22)}
         .bsv2-piece-label{position:absolute;left:calc(100% + 14px);top:50%;transform:translateY(-50%);white-space:nowrap;border:1px solid rgba(255,255,255,.08);border-radius:999px;background:rgba(8,8,8,.84);padding:5px 8px;font-size:9px;font-weight:850;color:#aaa49b;opacity:.82}.is-assembled .bsv2-piece-label{opacity:0}
         .bsv2-food-detail{position:absolute;inset:0;pointer-events:none}
@@ -203,6 +208,15 @@ export default function BurgerStackV2({ config, recipe, assembled }: {
         .bsv2-layer--onion{height:19px;width:65%;background:radial-gradient(ellipse at 20% 50%,transparent 0 7px,#d6b2d6 8px 11px,transparent 12px),radial-gradient(ellipse at 50% 50%,transparent 0 8px,#9c659c 9px 12px,transparent 13px),radial-gradient(ellipse at 80% 50%,transparent 0 7px,#e3c5df 8px 11px,transparent 12px);box-shadow:none}.bsv2-layer--fried-onion{height:21px;width:66%;background:radial-gradient(ellipse at 12% 45%,#d99d45 0 6px,transparent 7px),radial-gradient(ellipse at 28% 65%,#a96722 0 7px,transparent 8px),radial-gradient(ellipse at 48% 38%,#e1aa55 0 7px,transparent 8px),radial-gradient(ellipse at 68% 65%,#a96722 0 6px,transparent 7px),radial-gradient(ellipse at 86% 40%,#d99d45 0 7px,transparent 8px);box-shadow:none}
         .bsv2-layer--guacamole{height:20px;width:68%;background:radial-gradient(circle at 30% 50%,#b5d369 0 4px,transparent 5px),linear-gradient(#7fa53d,#4c7423);border-radius:50% 42% 48% 40%}
         .bsv2-layer--sauce,.bsv2-layer--italian,.bsv2-layer--bbq,.bsv2-layer--avocado-sauce{height:11px;width:68%;border-radius:48% 54% 42% 56%;box-shadow:none;clip-path:polygon(0 38%,9% 21%,18% 43%,29% 14%,41% 39%,52% 17%,64% 42%,76% 18%,88% 39%,100% 24%,98% 70%,88% 57%,76% 78%,64% 56%,52% 79%,40% 58%,28% 77%,16% 55%,5% 72%)}.bsv2-layer--sauce{background:linear-gradient(#f4da91,#ceaa50)}.bsv2-layer--italian{background:linear-gradient(#efc77e,#bf8841)}.bsv2-layer--bbq{background:linear-gradient(#8a3928,#42160f)}.bsv2-layer--avocado-sauce{background:linear-gradient(#b2d36b,#6f9635)}.bsv2-layer--topping{height:18px;background:linear-gradient(#b97745,#80502f)}
+
+        /* In the assembled burger, thin radial/clip-path ingredients get a slightly
+           larger visible footprint while their physical spacing stays tight. */
+        .is-assembled .bsv2-layer--sauce,.is-assembled .bsv2-layer--italian,.is-assembled .bsv2-layer--bbq,.is-assembled .bsv2-layer--avocado-sauce{height:13px;width:72%}
+        .is-assembled .bsv2-layer--lettuce{height:31px;width:82%}
+        .is-assembled .bsv2-layer--tomato{height:24px;width:72%}
+        .is-assembled .bsv2-layer--pickle,.is-assembled .bsv2-layer--onion,.is-assembled .bsv2-layer--fried-onion,.is-assembled .bsv2-layer--jalapeno{height:21px}
+        .is-assembled .bsv2-layer--guacamole{height:22px}
+
         .bsv2-empty{position:absolute;display:flex;flex-direction:column;align-items:center;gap:8px;color:#aaa39a;text-align:center}.bsv2-empty div{font-size:54px;filter:grayscale(.35);opacity:.45}.bsv2-empty strong{font-size:16px;color:#ded8cf}.bsv2-empty span{font-size:12px;color:#706b64}
         @keyframes bsv2-flash{0%{opacity:0}25%{opacity:1}100%{opacity:0}}@keyframes bsv2-drop{0%{transform:translate(-50%,-90px) scale(1.04);opacity:.55}72%{transform:translate(-50%,3px) scale(.99)}100%{transform:translateX(-50%);opacity:1}}@keyframes bsv2-top-close{0%{transform:translate(-50%,-125px) rotate(-2deg)}70%{transform:translate(-50%,5px) scaleY(.96)}100%{transform:translateX(-50%)}}
         @media(max-width:720px){.bsv2-stage{border-radius:24px}.bsv2-stack{width:min(91vw,345px)}.bsv2-piece-label{display:none}.is-building .bsv2-layer{top:calc(78px + (var(--bsv2-r) * var(--bsv2-gap)))}}
