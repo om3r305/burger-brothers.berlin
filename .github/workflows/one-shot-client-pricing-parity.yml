@@ -1,5 +1,6 @@
 name: One-shot client pricing parity
 
+# Retry 2: disambiguate checkout return/destructuring patch targets.
 on:
   push:
     branches:

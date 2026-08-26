@@ -133,16 +133,16 @@ function patchCheckout() {
 
   source = replaceExact(
     source,
-    `    merchandise,\n    discount,\n    afterDiscount,\n    surcharges,\n    pfand,`,
-    `    merchandise,\n    discount,\n    afterDiscount,\n    surcharges,\n    netSurcharges,\n    surchargeDiscount,\n    pfand,`,
+    `  return {\n    merchandise,\n    discount,\n    afterDiscount,\n    surcharges,\n    pfand,\n    pfandLines: pfandSummary.lines,`,
+    `  return {\n    merchandise,\n    discount,\n    afterDiscount,\n    surcharges,\n    netSurcharges,\n    surchargeDiscount,\n    pfand,\n    pfandLines: pfandSummary.lines,`,
     1,
     "Checkout pricing return fields",
   );
 
   source = replaceExact(
     source,
-    `    merchandise,\n    discount,\n    afterDiscount,\n    surcharges,\n    pfand,\n    requiredMin,`,
-    `    merchandise,\n    discount,\n    afterDiscount,\n    surcharges,\n    netSurcharges,\n    pfand,\n    requiredMin,`,
+    `  const {\n    merchandise,\n    discount,\n    afterDiscount,\n    surcharges,\n    pfand,\n    requiredMin,\n    plzKnown,\n  } = base;`,
+    `  const {\n    merchandise,\n    discount,\n    afterDiscount,\n    surcharges,\n    netSurcharges,\n    pfand,\n    requiredMin,\n    plzKnown,\n  } = base;`,
     1,
     "Checkout pricing destructuring",
   );
