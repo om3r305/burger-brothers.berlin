@@ -49,4 +49,20 @@ assert(!stack.includes('@react-three/drei'));
 assert(!stack.includes('THREE.'));
 assert(!stack.includes('<Canvas'));
 
+// Mobile live polish: ingredient labels remain visible and bounded instead of
+// being removed at <=720px. The finished burger still fades them away.
+assert(!stack.includes('.bsv2-piece-label{display:none}'));
+assert(stack.includes('.bsv2-piece-label{display:block;left:auto;right:6px;max-width:46%;overflow:hidden;text-overflow:ellipsis'));
+assert(stack.includes('.is-assembled .bsv2-piece-label{opacity:0}'));
+
+// Cheese begins only after the top-bun close window and then melts slowly.
+assert(stack.includes('animation:bsv2-cheese-drip 3.2s'));
+assert(stack.includes('animation-delay:calc(520ms + (var(--bsv2-count) * 48ms))'));
+assert(stack.includes('animation:bsv2-cheese-settle 2.8s ease-in-out both'));
+assert(stack.includes('animation-delay:calc(500ms + (var(--bsv2-count) * 48ms))'));
+
+// Preserve the smoke/steam finish and reduced-motion protection.
+assert(stack.includes('animation:bsv2-steam-rise 1.55s ease-out both'));
+assert(stack.includes('.is-assembled .bsv2-layer:after,.is-assembled .bsv2-food-detail{animation:none!important}'));
+
 console.log("Burger Studio mobile assembly regression tests: OK");
