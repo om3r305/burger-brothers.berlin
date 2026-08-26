@@ -30,6 +30,7 @@ import {
 } from "@/lib/freebies";
 import type { FreebieEvaluation, FreebieUnit } from "@/lib/freebies";
 import { evaluateConditionalCartCampaign } from "@/lib/conditional-campaign";
+import { roundCurrencyCents, standardSurchargeDiscount } from "@/lib/pricing/client-order-pricing";
 import {
   planFromSettings,
   isOpenAt,
@@ -481,10 +482,8 @@ function reportCheckoutError(scope: string, error: unknown) {
 }
 
 function roundToNearest10Cents(value: unknown) {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return 0;
-
-  return +(Math.round((n + Number.EPSILON) * 10) / 10).toFixed(2);
+  // Legacy function name kept to minimize surface change; values now stay exact to cents.
+  return roundCurrencyCents(value);
 }
 
 type Mode = OrderMode;
@@ -1805,14 +1804,6 @@ function computePricingV6(
     units: collectFreebieUnitsCheckout(items),
   });
 
-  const discount = +(
-    deliveryDiscount + freebie.discountedAmount
-  ).toFixed(2);
-
-  const afterDiscount = +Math.max(0, merchandise - discount).toFixed(2);
-  const pfandSummary = computePfand(items);
-  const pfand = pfandSummary.amount;
-
   const plzMap = overrides.plzMin || {};
   const code = (plz || "").replace(/[^\d]/g, "").slice(0, 5);
   const requiredMin =
@@ -1832,15 +1823,36 @@ function computePricingV6(
     }
   }
 
-  surcharges = +surcharges.toFixed(2);
+  surcharges = roundCurrencyCents(surcharges);
 
-  const totalPreCoupon = +(afterDiscount + surcharges + pfand).toFixed(2);
+  // Keep cart-offer thresholds merchandise-only, but apply the resolved
+  // percentage to the delivery category surcharge as the POS does.
+  const surchargeDiscount = standardSurchargeDiscount(
+    surcharges,
+    conditionalCampaign.effectiveRate,
+  );
+  const discount = roundCurrencyCents(
+    deliveryDiscount + surchargeDiscount + freebie.discountedAmount,
+  );
+  const afterDiscount = roundCurrencyCents(
+    Math.max(0, merchandise - deliveryDiscount - freebie.discountedAmount),
+  );
+  const netSurcharges = roundCurrencyCents(
+    Math.max(0, surcharges - surchargeDiscount),
+  );
+  const pfandSummary = computePfand(items);
+  const pfand = pfandSummary.amount;
+  const totalPreCoupon = roundCurrencyCents(
+    afterDiscount + netSurcharges + pfand,
+  );
 
   return {
     merchandise,
     discount,
     afterDiscount,
     surcharges,
+    netSurcharges,
+    surchargeDiscount,
     pfand,
     pfandLines: pfandSummary.lines,
     totalPreCoupon,
@@ -2389,6 +2401,7 @@ export default function CheckoutPage() {
     discount,
     afterDiscount,
     surcharges,
+    netSurcharges,
     pfand,
     requiredMin,
     plzKnown,
@@ -2809,14 +2822,14 @@ export default function CheckoutPage() {
     return () => window.clearInterval(id);
   }, [activeRouteDeal?.id, activeRouteDeal?.expiresAt]);
 
-  const routeDealBaseTotal = +((afterDiscount - couponAmount) + surcharges).toFixed(2);
+  const routeDealBaseTotal = roundCurrencyCents((afterDiscount - couponAmount) + netSurcharges);
   const routeDealBenefit = useMemo(
     () =>
       computeRouteDealBenefit({
         deal: activeRouteDeal,
         baseTotal: routeDealBaseTotal,
         netMerchandise: +(afterDiscount - couponAmount).toFixed(2),
-        deliverySurcharges: surcharges,
+        deliverySurcharges: netSurcharges,
         nowMs: routeDealNowMs,
       }),
     [
@@ -5600,12 +5613,12 @@ export default function CheckoutPage() {
     });
     const latestRouteDeal = latestRouteDealRaw as ActiveRouteDeal | null;
 
-    const latestRouteDealBaseTotal = +((afterDiscount - latestCouponAmount) + surcharges).toFixed(2);
+    const latestRouteDealBaseTotal = roundCurrencyCents((afterDiscount - latestCouponAmount) + netSurcharges);
     const latestRouteDealBenefit = computeRouteDealBenefit({
       deal: latestRouteDeal,
       baseTotal: latestRouteDealBaseTotal,
       netMerchandise: +(afterDiscount - latestCouponAmount).toFixed(2),
-      deliverySurcharges: surcharges,
+      deliverySurcharges: netSurcharges,
       nowMs: ts,
     });
     const latestRouteDealDiscount = latestRouteDealBenefit.discountAmount;

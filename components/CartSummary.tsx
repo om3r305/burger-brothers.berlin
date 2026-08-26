@@ -19,6 +19,7 @@ import {
 } from "@/lib/freebies";
 import type { FreebieEvaluation, FreebieUnit } from "@/lib/freebies";
 import { evaluateConditionalCartCampaign } from "@/lib/conditional-campaign";
+import { roundCurrencyCents, standardSurchargeDiscount } from "@/lib/pricing/client-order-pricing";
 import { computePfand } from "@/lib/pfand";
 import { useEligibleRouteDeal } from "@/lib/client/route-deal";
 import type { RouteDealNotice } from "@/lib/client/route-deal";
@@ -422,10 +423,8 @@ const fmt = (n: number) =>
   new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" }).format(n);
 
 function roundToNearest10Cents(value: any) {
-  const number = Number(value);
-  if (!Number.isFinite(number)) return 0;
-
-  return +(Math.round((number + Number.EPSILON) * 10) / 10).toFixed(2);
+  // Legacy function name kept to minimize surface change; values now stay exact to cents.
+  return roundCurrencyCents(value);
 }
 
 const titleMap: Record<string, string> = {
@@ -749,10 +748,6 @@ function computePricingFromSettings_CS(
     units: collectFreebieUnitsCS(items, mode, campaigns, catalog),
   });
 
-  const discount = +(
-    deliveryDiscount + freebie.discountedAmount
-  ).toFixed(2);
-
   let surcharges = 0;
 
   if (mode === "delivery" && overrides.surcharges) {
@@ -768,12 +763,29 @@ function computePricingFromSettings_CS(
     }
   }
 
-  surcharges = +surcharges.toFixed(2);
+  surcharges = roundCurrencyCents(surcharges);
 
-  const afterDiscount = +Math.max(0, merchandise - discount).toFixed(2);
+  // Campaign eligibility remains merchandise-only. Once its effective rate is
+  // known, the same percentage also applies to the delivery category surcharge.
+  // Pfand and tips stay outside this discount base, matching canonical server pricing.
+  const surchargeDiscount = standardSurchargeDiscount(
+    surcharges,
+    conditionalCampaign.effectiveRate,
+  );
+  const discount = roundCurrencyCents(
+    deliveryDiscount + surchargeDiscount + freebie.discountedAmount,
+  );
+  const afterDiscount = roundCurrencyCents(
+    Math.max(0, merchandise - deliveryDiscount - freebie.discountedAmount),
+  );
+  const netSurcharges = roundCurrencyCents(
+    Math.max(0, surcharges - surchargeDiscount),
+  );
   const pfandSummary = computePfand(items);
   const pfand = pfandSummary.amount;
-  const totalPreCoupon = +(afterDiscount + surcharges + pfand).toFixed(2);
+  const totalPreCoupon = roundCurrencyCents(
+    afterDiscount + netSurcharges + pfand,
+  );
 
   const minMap = (overrides.plzMin || {}) as Record<string, number>;
   const record = plz ? minMap[String(plz)] : undefined;
@@ -783,6 +795,8 @@ function computePricingFromSettings_CS(
     merchandise,
     discount,
     surcharges,
+    netSurcharges,
+    surchargeDiscount,
     afterDiscount,
     totalPreCoupon,
     pfand,
@@ -1076,7 +1090,7 @@ export default function CartSummary() {
     () => computePricingFromSettings_CS(items, orderMode, plzEffective, campaigns, catalog),
     [items, orderMode, plzEffective, campaigns, catalog]
   );
-  const { merchandise, discount, surcharges, afterDiscount, pfand, requiredMin, plzKnown, conditionalCampaign } = base;
+  const { merchandise, discount, surcharges, netSurcharges, afterDiscount, pfand, requiredMin, plzKnown, conditionalCampaign } = base;
 
   const activeCode = useMemo(() => {
     try { return localStorage.getItem(LS_ACTIVE_COUPON) || ""; } catch { return ""; }
@@ -1087,7 +1101,7 @@ export default function CartSummary() {
     [activeCode, items, afterDiscount, checkoutPhone]
   );
   const couponAmount = Math.min(afterDiscount, Math.max(0, coupon.amount || 0));
-  const routeDealBaseTotal = +((afterDiscount - couponAmount) + surcharges).toFixed(2);
+  const routeDealBaseTotal = roundCurrencyCents((afterDiscount - couponAmount) + netSurcharges);
 
   const { deal: activeRouteDeal, notice: routeDealNotice } = useEligibleRouteDeal({
     enabled: settingsRaw?.routeDeals?.enabled === true,
@@ -1104,7 +1118,7 @@ export default function CartSummary() {
         deal: activeRouteDeal,
         baseTotal: routeDealBaseTotal,
         netMerchandise: +(afterDiscount - couponAmount).toFixed(2),
-        deliverySurcharges: surcharges,
+        deliverySurcharges: netSurcharges,
         nowMs: routeDealNowMs,
       }),
     [
@@ -1493,7 +1507,7 @@ export function CartSummaryMobile() {
     () => computePricingFromSettings_CS(items, orderMode, plzEffective, campaigns, catalog),
     [items, orderMode, plzEffective, campaigns, catalog]
   );
-  const { merchandise, discount, surcharges, afterDiscount, pfand, requiredMin, plzKnown, conditionalCampaign } = base;
+  const { merchandise, discount, surcharges, netSurcharges, afterDiscount, pfand, requiredMin, plzKnown, conditionalCampaign } = base;
 
   const activeCode = useMemo(() => {
     try { return localStorage.getItem(LS_ACTIVE_COUPON) || ""; } catch { return ""; }
@@ -1504,7 +1518,7 @@ export function CartSummaryMobile() {
     [activeCode, items, afterDiscount, checkoutPhone]
   );
   const couponAmount = Math.min(afterDiscount, Math.max(0, coupon.amount || 0));
-  const routeDealBaseTotal = +((afterDiscount - couponAmount) + surcharges).toFixed(2);
+  const routeDealBaseTotal = roundCurrencyCents((afterDiscount - couponAmount) + netSurcharges);
 
   const { deal: activeRouteDeal, notice: routeDealNotice } = useEligibleRouteDeal({
     enabled: settingsRaw?.routeDeals?.enabled === true,
@@ -1521,7 +1535,7 @@ export function CartSummaryMobile() {
         deal: activeRouteDeal,
         baseTotal: routeDealBaseTotal,
         netMerchandise: +(afterDiscount - couponAmount).toFixed(2),
-        deliverySurcharges: surcharges,
+        deliverySurcharges: netSurcharges,
         nowMs: routeDealNowMs,
       }),
     [
