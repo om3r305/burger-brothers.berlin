@@ -1414,6 +1414,9 @@ export async function rebuildOrderPricingFromDatabase(params: {
 
   const standardRate = standardDiscountRate(params.settings, mode);
 
+  // Campaign eligibility/thresholds stay merchandise-only. Once the effective
+  // percentage is resolved, the same rate also applies to the delivery
+  // category surcharge so online totals match the POS gross item price.
   const conditional = evaluateConditionalCartCampaign({
     cartOffers: ensureArr(params.settings?.cartOffers),
     mode,
@@ -1421,7 +1424,19 @@ export async function rebuildOrderPricingFromDatabase(params: {
     standardRate,
     now,
   });
-  const standardDiscountCents = toCents(conditional.discountAmount);
+  const standardMerchandiseDiscountCents = toCents(conditional.discountAmount);
+  const standardSurchargeDiscountCents = Math.min(
+    itemResult.deliverySurchargeCents,
+    Math.max(
+      0,
+      Math.round(
+        itemResult.deliverySurchargeCents *
+          Math.max(0, toNumber(conditional.effectiveRate, 0)),
+      ),
+    ),
+  );
+  const standardDiscountCents =
+    standardMerchandiseDiscountCents + standardSurchargeDiscountCents;
 
   const freebies = evaluateFreebieRules({
     config: params.settings?.freebies,
@@ -1432,7 +1447,7 @@ export async function rebuildOrderPricingFromDatabase(params: {
   const freebieDiscountCents = toCents(freebies.discountedAmount);
   const merchandiseDiscountCents = Math.min(
     itemResult.merchandiseCents,
-    standardDiscountCents + freebieDiscountCents,
+    standardMerchandiseDiscountCents + freebieDiscountCents,
   );
   const afterDiscountCents = Math.max(
     0,
@@ -1451,6 +1466,10 @@ export async function rebuildOrderPricingFromDatabase(params: {
     0,
     afterDiscountCents - coupon.discountCents,
   );
+  const netDeliverySurchargeCents = Math.max(
+    0,
+    itemResult.deliverySurchargeCents - standardSurchargeDiscountCents,
+  );
 
   const plz = normalizePlz(customer?.plz ?? customer?.zip ?? order?.plz);
   const street = String(customer?.street ?? "").trim();
@@ -1467,23 +1486,27 @@ export async function rebuildOrderPricingFromDatabase(params: {
     now,
   });
   const routeBaseCents =
-    netMerchandiseCents + itemResult.deliverySurchargeCents;
+    netMerchandiseCents + netDeliverySurchargeCents;
   const routeBenefit = calculateRouteDeal({
     deal: routeDeal,
     baseTotalCents: routeBaseCents,
     netMerchandiseCents,
-    deliverySurchargeCents: itemResult.deliverySurchargeCents,
+    deliverySurchargeCents: netDeliverySurchargeCents,
   });
 
-  const orderBeforeTipCents = roundToTenCents(
+  // All canonical order/payment amounts remain integer cents. Do not round the
+  // final payable amount to 0.10 EUR; only percentage fractions round to cents.
+  const orderBeforeTipCents =
     Math.max(0, routeBaseCents - routeBenefit.discountCents) +
-      itemResult.pfandCents,
-  );
+    itemResult.pfandCents;
   const paymentMeta = ensureObj(ensureObj(order?.meta)?.payment ?? order?.payment);
   const tipCents = Math.min(50_000, toCents(paymentMeta?.tip ?? order?.tip));
-  const payableCents = roundToTenCents(orderBeforeTipCents + tipCents);
+  const payableCents = Math.max(0, orderBeforeTipCents + tipCents);
 
-  const discountCents = merchandiseDiscountCents + routeBenefit.discountCents;
+  const discountCents =
+    merchandiseDiscountCents +
+    standardSurchargeDiscountCents +
+    routeBenefit.discountCents;
   const surchargeCents =
     itemResult.deliverySurchargeCents + itemResult.pfandCents;
 
