@@ -330,7 +330,9 @@ function deepMerge<T = any>(base: T, override: any): T {
 }
 
 function num(value: any, fallback = 0) {
-  const n = Number(value);
+  const normalized =
+    typeof value === "string" ? value.trim().replace(",", ".") : value;
+  const n = Number(normalized);
   return Number.isFinite(n) ? n : fallback;
 }
 
@@ -1804,14 +1806,16 @@ export default function AdminSettingsPage() {
         <section className="card">
           <div className="mb-3 text-lg font-medium">Preise & Rabatte</div>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <Field label="Rabatt Lifa / Lieferung (0.10 = 10%)">
+            <Field label="Rabatt Lifa / Lieferung (0,10 = 10%)">
               <input
-                type="number"
-                step="0.01"
+                type="text"
+                inputMode="decimal"
+                autoComplete="off"
                 className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2 outline-none"
-                value={String(m.delivery?.discountRate ?? 0)}
+                value={String(m.delivery?.discountRate ?? 0).replace(".", ",")}
                 onChange={(event) => {
-                  const value = Number(event.target.value || 0);
+                  const value = event.target.value.replace(".", ",");
+                  if (!/^\d*(?:,\d*)?$/.test(value)) return;
                   setNested(["delivery", "discountRate"], value);
                   setNested(["discount", "lifaRate"], value);
                   setNested(["discounts", "deliveryPercent"], value);
@@ -1820,14 +1824,16 @@ export default function AdminSettingsPage() {
               />
             </Field>
 
-            <Field label="Rabatt Apollon / Abholung (0.10 = 10%)">
+            <Field label="Rabatt Apollon / Abholung (0,10 = 10%)">
               <input
-                type="number"
-                step="0.01"
+                type="text"
+                inputMode="decimal"
+                autoComplete="off"
                 className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2 outline-none"
-                value={String(m.pickup?.discountRate ?? 0)}
+                value={String(m.pickup?.discountRate ?? 0).replace(".", ",")}
                 onChange={(event) => {
-                  const value = Number(event.target.value || 0);
+                  const value = event.target.value.replace(".", ",");
+                  if (!/^\d*(?:,\d*)?$/.test(value)) return;
                   setNested(["pickup", "discountRate"], value);
                   setNested(["discount", "apollonRate"], value);
                   setNested(["discounts", "pickupPercent"], value);
