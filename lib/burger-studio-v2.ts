@@ -38,6 +38,42 @@ const V2_BUNS: BurgerStudioIngredient[] = [
   },
 ];
 
+const APPETITE_PRO_INGREDIENTS: BurgerStudioIngredient[] = [
+  {
+    id: "black-angus",
+    name: "Black Angus Patty",
+    group: "protein",
+    addPrice: 6,
+    removeCredit: 0,
+    max: 3,
+    active: true,
+    vegan: false,
+    visual: "black-angus",
+  },
+  {
+    id: "chicken-breast",
+    name: "Chicken Breast",
+    group: "protein",
+    addPrice: 4.5,
+    removeCredit: 0,
+    max: 3,
+    active: true,
+    vegan: false,
+    visual: "chicken-breast",
+  },
+  {
+    id: "farmers-market",
+    name: "Farmers Market Gemüse",
+    group: "topping",
+    addPrice: 3,
+    removeCredit: 0,
+    max: 2,
+    active: true,
+    vegan: true,
+    visual: "farmers-market",
+  },
+];
+
 function finiteNumber(value: unknown, fallback = 0) {
   const number = Number(value);
   return Number.isFinite(number) ? number : fallback;
@@ -87,6 +123,14 @@ function migrateIngredients(
     for (const bun of V2_BUNS) {
       if (!map.has(bun.id)) map.set(bun.id, { ...bun });
     }
+  }
+
+  // Additive live migration: production already stores a V2 Burger Studio config.
+  // Missing premium ingredients are appended without touching existing prices,
+  // active flags, quantities or templates. If an admin already created an item
+  // with one of these ids, their saved version wins.
+  for (const ingredient of APPETITE_PRO_INGREDIENTS) {
+    if (!map.has(ingredient.id)) map.set(ingredient.id, { ...ingredient });
   }
 
   return Array.from(map.values());
