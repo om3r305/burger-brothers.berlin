@@ -198,20 +198,20 @@ async function main() {
         },
       ],
       merchandise: 22,
-      discount: 4.4,
+      discount: 4.8,
       surcharges: 2,
       couponDiscount: 0,
-      total: 20.6,
+      total: 20.2,
       customer: { phone: "03012345678", zip: "13505" },
       meta: { payment: { tip: 1 } },
     },
   });
 
   assert.equal(normal.merchandiseCents, 2200);
-  assert.equal(normal.discountCents, 440);
+  assert.equal(normal.discountCents, 480);
   assert.equal(normal.surchargesCents, 200);
   assert.equal(normal.tipCents, 100);
-  assert.equal(normal.payableCents, 2060);
+  assert.equal(normal.payableCents, 2020);
   assert.equal(normal.items[0].canonicalBasePrice, 9);
   assert.equal(normal.items[0].canonicalExtrasTotal, 2);
   assert.equal(normal.items[0].price, 11);
@@ -237,20 +237,57 @@ async function main() {
       // Client muhasebesi kampanyayı indirim satırında gösterebilir.
       // Canonical server ise kampanyalı ürün fiyatını merchandise'a yazar.
       merchandise: 24,
-      discount: 6.4,
+      discount: 6.8,
       surcharges: 2,
       couponDiscount: 0,
-      total: 20.6,
+      total: 20.2,
       customer: { phone: "03012345678", zip: "13505" },
       meta: { payment: { tip: 1 } },
     },
   });
 
-  assert.equal(breakdownOnly.payableCents, 2060);
+  assert.equal(breakdownOnly.payableCents, 2020);
   assert.equal(breakdownOnly.pricingAdjustment.changed, true);
   assert.equal(breakdownOnly.pricingAdjustment.payableChanged, false);
   assert.equal(breakdownOnly.pricingAdjustment.breakdownChanged, true);
   assert.equal(breakdownOnly.pricingAdjustment.reason, "breakdown_only");
+
+  state.products.push(
+    product({
+      id: "product-cent",
+      tenantId: "tenant-cent",
+      sku: "CENT-1",
+      price: 20.5,
+    }),
+  );
+  const exactCentPricing = await rebuildOrderPricingFromDatabase({
+    tenantId: "tenant-cent",
+    settings: {
+      lifa: { active: true, discountRate: 0.1 },
+      delivery: { surcharges: { burger: 2 } },
+      freebies: { enabled: false, rules: [] },
+      routeDeals: { enabled: false, active: [] },
+      pfand: { enabled: true },
+    },
+    order: {
+      mode: "delivery",
+      items: [{ id: "product-cent", sku: "CENT-1", qty: 1 }],
+      merchandise: 20.5,
+      discount: 2.25,
+      surcharges: 2,
+      couponDiscount: 0,
+      total: 20.25,
+      customer: { phone: "03012345678", zip: "13505" },
+    },
+  });
+
+  assert.equal(exactCentPricing.merchandiseCents, 2050);
+  assert.equal(exactCentPricing.discountCents, 225);
+  assert.equal(exactCentPricing.surchargesCents, 200);
+  assert.equal(exactCentPricing.orderBeforeTipCents, 2025);
+  assert.equal(exactCentPricing.payableCents, 2025);
+  assert.equal(exactCentPricing.pricingMeta.discounts.standardOrCartOffer, 2.25);
+  assert.equal(exactCentPricing.pricingAdjustment.changed, false);
 
   await expectPricingError(
     rebuildOrderPricingFromDatabase({
@@ -398,14 +435,14 @@ async function main() {
       discount: 0,
       surcharges: 0.25,
       couponDiscount: 0,
-      total: 2.8,
+      total: 2.75,
       customer: { phone: "03012345678" },
     },
   });
 
   assert.equal(drink.merchandiseCents, 250);
   assert.equal(drink.surchargesCents, 25);
-  assert.equal(drink.payableCents, 280);
+  assert.equal(drink.payableCents, 275);
   assert.equal(drink.items[0].pfandAmount, 0.25);
 
   const manipulatedSubmittedPrice = await rebuildOrderPricingFromDatabase({
@@ -423,7 +460,7 @@ async function main() {
 
   // Client fiyatı hiçbir zaman ödeme yetkisi değildir. Düşük gönderilen
   // fiyat reddedilmek yerine DB canonical toplamıyla güvenli şekilde ezilir.
-  assert.equal(manipulatedSubmittedPrice.payableCents, 280);
+  assert.equal(manipulatedSubmittedPrice.payableCents, 275);
   assert.equal(manipulatedSubmittedPrice.pricingAdjustment.changed, true);
   assert.equal(
     manipulatedSubmittedPrice.pricingAdjustment.payableChanged,
@@ -435,7 +472,7 @@ async function main() {
   );
   assert.equal(
     manipulatedSubmittedPrice.pricingAdjustment.canonical.total,
-    2.8,
+    2.75,
   );
 
   const paymentLocked = rebuildOrderPricingFromVerifiedPayment({
@@ -445,11 +482,11 @@ async function main() {
     discount: 0,
     surcharges: 0.25,
     couponDiscount: 0,
-    total: 2.8,
+    total: 2.75,
     meta: {
       payment: {
         status: "paid",
-        orderTotal: 2.8,
+        orderTotal: 2.75,
         tip: 0,
         pricing: manipulatedSubmittedPrice.pricingMeta,
         pricingAdjustment: manipulatedSubmittedPrice.pricingAdjustment,
@@ -457,7 +494,7 @@ async function main() {
     },
   });
 
-  assert.equal(paymentLocked.payableCents, 280);
+  assert.equal(paymentLocked.payableCents, 275);
   assert.equal(paymentLocked.pricingMeta.source, "payment_locked");
   assert.equal(paymentLocked.pricingMeta.pricingLocked, true);
 
@@ -468,7 +505,7 @@ async function main() {
         items: [{ id: "product-1", qty: 1 }],
         merchandise: 2.5,
         surcharges: 0.25,
-        total: 2.8,
+        total: 2.75,
         meta: { payment: { orderTotal: 2.7 } },
       }),
     (error) => error && error.code === "PAYMENT_TOTAL_MISMATCH",
