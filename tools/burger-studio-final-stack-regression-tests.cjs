@@ -14,12 +14,16 @@ assert(stack.includes('layers.sort((a, b) => a.order - b.order'));
 assert(stack.includes('foodPriority(kind, ingredient.group, unit)'));
 
 // Final stack uses visible-footprint spacing rather than DOM box height.
+// Premium proteins are intentionally thicker now, while thin vegetables/sauces
+// remain tightly compacted so the finished burger still reads as one stack.
 assert(stack.includes('function assembledStep(kind: string)'));
 assert(stack.includes('return 4;'));
 assert(stack.includes('if (kind === "lettuce") return 10;'));
 assert(stack.includes('if (kind === "tomato") return 7;'));
 assert(stack.includes('if (["onion", "fried-onion", "pickle"].includes(kind)) return 6;'));
-assert(stack.includes('if (kind === "beef") return 29;'));
+assert(stack.includes('if (kind === "beef") return 33;'));
+assert(stack.includes('if (kind === "black-angus") return 39;'));
+assert(stack.includes('if (kind === "chicken-breast") return 31;'));
 assert(stack.includes('if (kind === "crispy") return 31;'));
 assert(stack.includes('let finalCursor = 80;'));
 assert(stack.includes('const finalTopBottom = Math.max(90, finalCursor + 1);'));
