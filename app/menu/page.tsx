@@ -63,6 +63,8 @@ type FeatureFlags = {
   productAvailability: ProductAvailabilityMap;
 };
 
+type PopularityRankMap = Record<string, 1 | 2 | 3>;
+
 /* === Sekmeler / başlıklar === */
 type TabKey =
   | "burger"
@@ -585,6 +587,33 @@ async function dbLoadCatalog(): Promise<{
   }
 }
 
+async function dbLoadPopularity(): Promise<PopularityRankMap> {
+  try {
+    const res = await fetch("/api/catalog/popularity", {
+      method: "GET",
+      cache: "no-store",
+      headers: { accept: "application/json" },
+    });
+
+    if (!res.ok) throw new Error(`popularity_${res.status}`);
+
+    const json = await res.json();
+    const raw = json?.ranks && typeof json.ranks === "object" ? json.ranks : {};
+    const out: PopularityRankMap = {};
+
+    for (const [productId, rank] of Object.entries(raw)) {
+      const numericRank = Number(rank);
+      if (numericRank === 1 || numericRank === 2 || numericRank === 3) {
+        out[String(productId)] = numericRank;
+      }
+    }
+
+    return out;
+  } catch {
+    return {};
+  }
+}
+
 function readProductsFromLS(): Product[] {
   try {
     const raw = localStorage.getItem(LS_PRODUCTS);
@@ -667,21 +696,24 @@ export default function MenuPage() {
   });
   const [products, setProducts] = useState<Product[]>([]);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [popularityRanks, setPopularityRanks] = useState<PopularityRankMap>({});
 
   const loadSeq = useRef(0);
 
   const reloadDbFirst = async () => {
     const seq = ++loadSeq.current;
 
-    const [catalog, flags] = await Promise.all([
+    const [catalog, flags, ranks] = await Promise.all([
       dbLoadCatalog(),
       dbLoadFeatureFlags(),
+      dbLoadPopularity(),
     ]);
 
     if (seq !== loadSeq.current) return;
 
     setProducts(catalog.products);
     setCampaigns(catalog.campaigns);
+    setPopularityRanks(ranks);
 
     if (flags) {
       setFeatures(flags);
@@ -936,15 +968,21 @@ export default function MenuPage() {
         let topSellerRank: 1 | 2 | 3 | undefined;
 
         if (isBurgerOrVegan) {
-          const badge = popularityBadgeFor(plike.id, baseListForTab);
-          topSellerRank =
-            badge === "gold"
-              ? 1
-              : badge === "silver"
-                ? 2
-                : badge === "bronze"
-                  ? 3
-                  : undefined;
+          // DB aggregate is device-independent, so desktop and mobile share one rank.
+          // The old localStorage calculation stays only as an offline fallback.
+          topSellerRank = popularityRanks[plike.id];
+
+          if (!topSellerRank) {
+            const badge = popularityBadgeFor(plike.id, baseListForTab);
+            topSellerRank =
+              badge === "gold"
+                ? 1
+                : badge === "silver"
+                  ? 2
+                  : badge === "bronze"
+                    ? 3
+                    : undefined;
+          }
         }
 
         return {
@@ -975,6 +1013,7 @@ export default function MenuPage() {
     tab,
     baseListForTab,
     features.productAvailability,
+    popularityRanks,
   ]);
 
   const emptyMsgMap: Record<TabKey, string> = {
