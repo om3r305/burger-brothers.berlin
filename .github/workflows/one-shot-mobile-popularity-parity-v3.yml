@@ -1,0 +1,58 @@
+name: One-shot mobile popularity parity v3
+
+on:
+  push:
+    branches:
+      - fix/mobile-top-seller-rankings
+    paths:
+      - .github/workflows/one-shot-mobile-popularity-parity-v3.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/mobile-top-seller-rankings
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Apply patch
+        run: python .github/scripts/mobile-popularity-patch.py
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npm run prisma:generate
+
+      - name: Focused regression
+        run: |
+          node tools/menu-popularity-parity-regression-tests.cjs
+          node tools/menu-media-theme-durstloescher-regression-tests.cjs
+          node tools/image-navigation-regression-tests.cjs
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Verify and commit final branch
+        shell: bash
+        run: |
+          git diff --check
+          rm .github/workflows/one-shot-mobile-popularity-parity.yml
+          rm .github/workflows/one-shot-mobile-popularity-parity-v2.yml
+          rm .github/workflows/one-shot-mobile-popularity-parity-v3.yml
+          rm .github/scripts/mobile-popularity-patch.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/menu/page.tsx app/api/catalog/popularity/route.ts tools/menu-popularity-parity-regression-tests.cjs .github/workflows/one-shot-mobile-popularity-parity.yml .github/workflows/one-shot-mobile-popularity-parity-v2.yml .github/workflows/one-shot-mobile-popularity-parity-v3.yml .github/scripts/mobile-popularity-patch.py
+          git commit -m "fix(menu): sync top-seller ranks across devices"
+          git push origin HEAD:fix/mobile-top-seller-rankings
