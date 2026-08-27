@@ -1,0 +1,141 @@
+name: One-shot mobile popularity parity
+
+on:
+  push:
+    branches:
+      - fix/mobile-top-seller-rankings
+    paths:
+      - .github/workflows/one-shot-mobile-popularity-parity.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/mobile-top-seller-rankings
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Apply mobile popularity parity patch
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          page_path = Path("app/menu/page.tsx")
+          page = page_path.read_text(encoding="utf-8")
+
+          def replace_once(old, new, label):
+              global page
+              count = page.count(old)
+              if count != 1:
+                  raise SystemExit(f"Expected exactly one {label}, found {count}")
+              page = page.replace(old, new, 1)
+
+          replace_once(
+              '''type FeatureFlags = {\n  donuts: boolean;\n  bubbleTea: boolean;\n  productAvailability: ProductAvailabilityMap;\n};''',
+              '''type FeatureFlags = {\n  donuts: boolean;\n  bubbleTea: boolean;\n  productAvailability: ProductAvailabilityMap;\n};\n\ntype PopularityRankMap = Record<string, 1 | 2 | 3>;''',
+              "PopularityRankMap type marker",
+          )
+
+          marker = '''function readProductsFromLS(): Product[] {'''
+          loader = '''async function dbLoadPopularity(): Promise<PopularityRankMap> {\n  try {\n    const res = await fetch("/api/catalog/popularity", {\n      method: "GET",\n      cache: "no-store",\n      headers: { accept: "application/json" },\n    });\n\n    if (!res.ok) throw new Error(`popularity_${res.status}`);\n\n    const json = await res.json();\n    const raw = json?.ranks && typeof json.ranks === "object" ? json.ranks : {};\n    const out: PopularityRankMap = {};\n\n    for (const [productId, rank] of Object.entries(raw)) {\n      const numericRank = Number(rank);\n      if (numericRank === 1 || numericRank === 2 || numericRank === 3) {\n        out[String(productId)] = numericRank;\n      }\n    }\n\n    return out;\n  } catch {\n    return {};\n  }\n}\n\n'''
+          if page.count(marker) != 1:
+              raise SystemExit("Could not find unique readProductsFromLS marker")
+          page = page.replace(marker, loader + marker, 1)
+
+          replace_once(
+              '''  const [products, setProducts] = useState<Product[]>([]);\n  const [campaigns, setCampaigns] = useState<Campaign[]>([]);''',
+              '''  const [products, setProducts] = useState<Product[]>([]);\n  const [campaigns, setCampaigns] = useState<Campaign[]>([]);\n  const [popularityRanks, setPopularityRanks] = useState<PopularityRankMap>({});''',
+              "popularity state marker",
+          )
+
+          replace_once(
+              '''    const [catalog, flags] = await Promise.all([\n      dbLoadCatalog(),\n      dbLoadFeatureFlags(),\n    ]);''',
+              '''    const [catalog, flags, ranks] = await Promise.all([\n      dbLoadCatalog(),\n      dbLoadFeatureFlags(),\n      dbLoadPopularity(),\n    ]);''',
+              "reload Promise.all marker",
+          )
+
+          replace_once(
+              '''    setProducts(catalog.products);\n    setCampaigns(catalog.campaigns);\n\n    if (flags) {''',
+              '''    setProducts(catalog.products);\n    setCampaigns(catalog.campaigns);\n    setPopularityRanks(ranks);\n\n    if (flags) {''',
+              "popularity state update marker",
+          )
+
+          replace_once(
+              '''        if (isBurgerOrVegan) {\n          const badge = popularityBadgeFor(plike.id, baseListForTab);\n          topSellerRank =\n            badge === "gold"\n              ? 1\n              : badge === "silver"\n                ? 2\n                : badge === "bronze"\n                  ? 3\n                  : undefined;\n        }''',
+              '''        if (isBurgerOrVegan) {\n          // Public aggregate DB rank keeps desktop and mobile in sync.\n          // Device-local order history remains an offline/legacy fallback only.\n          topSellerRank = popularityRanks[plike.id];\n\n          if (!topSellerRank) {\n            const badge = popularityBadgeFor(plike.id, baseListForTab);\n            topSellerRank =\n              badge === "gold"\n                ? 1\n                : badge === "silver"\n                  ? 2\n                  : badge === "bronze"\n                    ? 3\n                    : undefined;\n          }\n        }''',
+              "top seller rank marker",
+          )
+
+          replace_once(
+              '''    baseListForTab,\n    features.productAvailability,\n  ]);''',
+              '''    baseListForTab,\n    features.productAvailability,\n    popularityRanks,\n  ]);''',
+              "list dependencies marker",
+          )
+
+          page_path.write_text(page, encoding="utf-8")
+
+          test_path = Path("tools/menu-popularity-parity-regression-tests.cjs")
+          test_path.write_text(r'''const fs = require("fs");
+          const assert = require("assert");
+
+          const page = fs.readFileSync("app/menu/page.tsx", "utf8");
+          const route = fs.readFileSync("app/api/catalog/popularity/route.ts", "utf8");
+          const card = fs.readFileSync("components/menu/ProductCard.tsx", "utf8");
+
+          assert(page.includes('fetch("/api/catalog/popularity"'));
+          assert(page.includes('const [popularityRanks, setPopularityRanks] = useState<PopularityRankMap>({});'));
+          assert(page.includes('topSellerRank = popularityRanks[plike.id];'));
+          assert(page.includes('if (!topSellerRank) {'));
+          assert(page.includes('popularityBadgeFor(plike.id, baseListForTab)'));
+          assert(page.includes('topSellerRank={topSellerRank}'));
+
+          assert(route.includes('prisma.order.findMany'));
+          assert(route.includes('prisma.product.findMany'));
+          assert(route.includes('ranks[product.id] = (index + 1) as 1 | 2 | 3'));
+          assert(route.includes('cancelledAt'));
+          assert(!route.includes('customer: true'));
+          assert(!route.includes('select: { customer'));
+
+          assert(card.includes('function MedalBadgeImage'));
+          assert(card.includes('<MedalBadgeImage rank={topSellerRank} offsetTop={medalOffset} />'));
+
+          console.log("Menu desktop/mobile popularity parity regression tests: OK");
+          '''.replace(/^          /gm, ""), encoding="utf-8")
+          PY
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npm run prisma:generate
+
+      - name: Focused regression
+        run: |
+          node tools/menu-popularity-parity-regression-tests.cjs
+          node tools/menu-media-theme-durstloescher-regression-tests.cjs
+          node tools/image-navigation-regression-tests.cjs
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Verify and commit final branch
+        shell: bash
+        run: |
+          git diff --check
+          rm .github/workflows/one-shot-mobile-popularity-parity.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/menu/page.tsx app/api/catalog/popularity/route.ts tools/menu-popularity-parity-regression-tests.cjs .github/workflows/one-shot-mobile-popularity-parity.yml
+          git commit -m "fix(menu): sync top-seller ranks across devices"
+          git push origin HEAD:fix/mobile-top-seller-rankings
