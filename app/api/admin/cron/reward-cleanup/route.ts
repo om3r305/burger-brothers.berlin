@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cleanupExpiredRewardPhotos } from "@/lib/server/reward-cleanup";
+import { runChefReminders } from "@/lib/server/chef";
 import { secretMatches } from "@/lib/server/request-security";
 
 export const runtime = "nodejs";
@@ -24,9 +25,16 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const result = await cleanupExpiredRewardPhotos();
+    const [rewardCleanup, chefReminders] = await Promise.all([
+      cleanupExpiredRewardPhotos(),
+      runChefReminders().catch((error) => {
+        console.error("[cron/reward-cleanup] chef reminders failed", error);
+        return { checked: 0, sent: 0, error: "CHEF_REMINDER_FAILED" };
+      }),
+    ]);
+
     return NextResponse.json(
-      { ok: true, ...result },
+      { ok: true, ...rewardCleanup, chefReminders },
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {
