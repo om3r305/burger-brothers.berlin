@@ -86,6 +86,7 @@ type State = {
   }>;
   users: Array<Me & { active: boolean }>;
   push: { configured: boolean; publicKey: string };
+  voiceAI?: { configured: boolean; engine: string; model: string };
   pinRequired?: boolean;
 };
 
@@ -102,6 +103,8 @@ type VoiceHit = {
   category: string;
   label: string;
   patch: Draft;
+  confidence?: number;
+  heardAs?: string;
 };
 
 const CATEGORY_OPTIONS = [
@@ -355,13 +358,19 @@ export default function ChefPage() {
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [voice, setVoice] = useState("");
   const [voiceHits, setVoiceHits] = useState<string[]>([]);
+  const [voiceEngine, setVoiceEngine] = useState("");
+  const [voiceBusy, setVoiceBusy] = useState(false);
+  const [recordingUrl, setRecordingUrl] = useState("");
   const [listening, setListening] = useState(false);
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [openCategories, setOpenCategories] = useState<Record<string, boolean>>({});
   const [toast, setToast] = useState("");
   const [busy, setBusy] = useState(false);
   const rec = useRef<any>(null);
-  const lastAppliedVoice = useRef("");
+  const mediaRecorder = useRef<MediaRecorder | null>(null);
+  const mediaStream = useRef<MediaStream | null>(null);
+  const recordingChunks = useRef<BlobPart[]>([]);
+  const keepRecording = useRef(true);
 
   async function load() {
     try {
@@ -397,6 +406,19 @@ export default function ChefPage() {
   useEffect(() => {
     if (state && state.me.role !== "ADMIN" && tab === "admin") setTab("stock");
   }, [state, tab]);
+
+  useEffect(
+    () => () => {
+      try {
+        rec.current?.abort?.();
+      } catch {}
+      try {
+        if (mediaRecorder.current?.state !== "inactive") mediaRecorder.current?.stop();
+      } catch {}
+      mediaStream.current?.getTracks().forEach((track) => track.stop());
+    },
+    [],
+  );
 
   const itemMap = useMemo(
     () => new Map((state?.items || []).map((item) => [item.id, item] as const)),
@@ -496,20 +518,18 @@ export default function ChefPage() {
     return hits;
   }
 
-  function applyVoice(text: string) {
-    const normalized = normalizeVoice(text);
-    if (!normalized || normalized === lastAppliedVoice.current) return;
-    const hits = parseVoice(text);
-    lastAppliedVoice.current = normalized;
+  function commitVoiceHits(hits: VoiceHit[], engine: string) {
     if (!hits.length) {
       setVoiceHits([]);
-      setToast("Kein eindeutiger Artikel erkannt. Bitte den Produktnamen wie in der Liste sagen.");
+      setVoiceEngine("");
+      setToast("Kein eindeutiger Artikel erkannt. Aufnahme bitte prüfen oder neu aufnehmen.");
       return;
     }
 
     setDrafts((current) => {
       const next = { ...current };
       for (const hit of hits) {
+        if (!itemMap.has(hit.itemId)) continue;
         next[hit.itemId] = {
           ...(next[hit.itemId] || {}),
           ...hit.patch,
@@ -525,7 +545,8 @@ export default function ChefPage() {
       return next;
     });
     setVoiceHits(hits.map((hit) => hit.label));
-    setToast(`${hits.length} Position${hits.length === 1 ? "" : "en"} automatisch übernommen.`);
+    setVoiceEngine(engine);
+    setToast(`${hits.length} Position${hits.length === 1 ? "" : "en"} übernommen.`);
 
     window.setTimeout(() => {
       document.getElementById(`chef-item-${hits[0].itemId}`)?.scrollIntoView({
@@ -535,18 +556,113 @@ export default function ChefPage() {
     }, 180);
   }
 
-  function toggleMic() {
-    if (listening) {
-      rec.current?.stop();
-      setListening(false);
-      return;
-    }
+  async function applyVoice(text: string) {
+    if (!state || !text.trim() || listening || voiceBusy) return;
+    setVoiceBusy(true);
+    try {
+      let hits: VoiceHit[] = [];
+      let engine = "Regel-Erkennung";
 
+      if (state.voiceAI?.configured) {
+        try {
+          const payload = await api({ action: "interpretVoice", transcript: text });
+          if (Array.isArray(payload?.hits)) {
+            hits = payload.hits.filter(
+              (hit: VoiceHit) =>
+                !!hit && typeof hit.itemId === "string" && itemMap.has(hit.itemId) && !!hit.patch,
+            );
+          }
+          if (hits.length) engine = "Ollama KI";
+        } catch {
+          hits = [];
+        }
+      }
+
+      if (!hits.length) hits = parseVoice(text);
+      commitVoiceHits(hits, engine);
+    } finally {
+      setVoiceBusy(false);
+    }
+  }
+
+  function releaseRecordingUrl() {
+    setRecordingUrl((current) => {
+      if (current) URL.revokeObjectURL(current);
+      return "";
+    });
+  }
+
+  function finishMediaCapture(saveRecording: boolean) {
+    keepRecording.current = saveRecording;
+    const recorder = mediaRecorder.current;
+    if (recorder && recorder.state !== "inactive") {
+      try {
+        recorder.stop();
+        return;
+      } catch {}
+    }
+    mediaStream.current?.getTracks().forEach((track) => track.stop());
+    mediaStream.current = null;
+  }
+
+  function stopVoiceCapture(saveRecording = true) {
+    keepRecording.current = saveRecording;
+    try {
+      rec.current?.stop?.();
+    } catch {}
+    rec.current = null;
+    finishMediaCapture(saveRecording);
+    setListening(false);
+  }
+
+  function clearVoiceDraft() {
+    stopVoiceCapture(false);
+    releaseRecordingUrl();
+    setVoice("");
+    setVoiceHits([]);
+    setVoiceEngine("");
+  }
+
+  async function startVoiceCapture() {
     const SpeechRecognition =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
       setToast("Dieser Browser unterstützt die Spracherkennung nicht.");
       return;
+    }
+
+    clearVoiceDraft();
+    keepRecording.current = true;
+    recordingChunks.current = [];
+
+    try {
+      if (navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== "undefined") {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaStream.current = stream;
+        const recorder = new MediaRecorder(stream);
+        mediaRecorder.current = recorder;
+        recorder.ondataavailable = (event) => {
+          if (event.data?.size) recordingChunks.current.push(event.data);
+        };
+        recorder.onstop = () => {
+          const chunks = recordingChunks.current;
+          if (keepRecording.current && chunks.length) {
+            const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
+            setRecordingUrl((current) => {
+              if (current) URL.revokeObjectURL(current);
+              return URL.createObjectURL(blob);
+            });
+          }
+          recordingChunks.current = [];
+          stream.getTracks().forEach((track) => track.stop());
+          mediaStream.current = null;
+          mediaRecorder.current = null;
+        };
+        recorder.start();
+      }
+    } catch {
+      mediaStream.current = null;
+      mediaRecorder.current = null;
     }
 
     const recognition = new SpeechRecognition();
@@ -555,27 +671,48 @@ export default function ChefPage() {
     recognition.interimResults = true;
     recognition.onresult = (event: any) => {
       let fullText = "";
-      let finalText = "";
       for (let index = 0; index < event.results.length; index += 1) {
         const transcript = String(event.results[index][0]?.transcript || "").trim();
-        if (!transcript) continue;
-        fullText += `${transcript} `;
-        if (event.results[index].isFinal) finalText += `${transcript} `;
+        if (transcript) fullText += `${transcript} `;
       }
-      const clean = fullText.trim();
-      setVoice(clean);
-      if (finalText.trim()) applyVoice(clean);
+      setVoice(fullText.trim());
     };
-    recognition.onend = () => setListening(false);
+    recognition.onend = () => {
+      setListening(false);
+      finishMediaCapture(true);
+    };
     recognition.onerror = () => {
       setListening(false);
-      setToast("Spracherkennung wurde beendet. Bitte erneut auf das Mikrofon tippen.");
+      finishMediaCapture(true);
+      setToast("Spracherkennung wurde beendet. Aufnahme kann geprüft oder neu aufgenommen werden.");
     };
     rec.current = recognition;
     recognition.start();
     setListening(true);
-    setVoiceHits([]);
-    lastAppliedVoice.current = "";
+  }
+
+  function toggleMic() {
+    if (listening) {
+      stopVoiceCapture(true);
+      return;
+    }
+    void startVoiceCapture();
+  }
+
+  async function restartVoice() {
+    clearVoiceDraft();
+    await new Promise((resolve) => window.setTimeout(resolve, 120));
+    await startVoiceCapture();
+  }
+
+  function replayVoice() {
+    const audio = document.getElementById("chef-voice-audio") as HTMLAudioElement | null;
+    if (!audio) {
+      setToast("Für diese Aufnahme ist keine Wiedergabe verfügbar.");
+      return;
+    }
+    audio.currentTime = 0;
+    void audio.play().catch(() => setToast("Aufnahme konnte nicht abgespielt werden."));
   }
 
   async function save() {
@@ -599,9 +736,7 @@ export default function ChefPage() {
     try {
       await api({ action: "saveReport", entries, voiceTranscript: voice });
       setDrafts({});
-      setVoice("");
-      setVoiceHits([]);
-      lastAppliedVoice.current = "";
+      clearVoiceDraft();
       setToast("Bestandskontrolle gespeichert.");
       await load();
     } catch (reason) {
@@ -681,6 +816,7 @@ export default function ChefPage() {
   }
 
   async function logout() {
+    clearVoiceDraft();
     await api({ action: "logout" }).catch(() => null);
     setState(null);
   }
@@ -742,14 +878,25 @@ export default function ChefPage() {
             <div className={`rounded-[26px] p-4 ${glass}`}>
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <h2 className="font-black">Abendliche Bestandskontrolle</h2>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2 className="font-black">Abendliche Bestandskontrolle</h2>
+                    <span
+                      className={`rounded-full px-2 py-1 text-[9px] font-black ${
+                        state.voiceAI?.configured
+                          ? "bg-violet-400/15 text-violet-200"
+                          : "bg-white/7 text-white/45"
+                      }`}
+                    >
+                      {state.voiceAI?.configured ? "KI · OLLAMA" : "SMART FALLBACK"}
+                    </span>
+                  </div>
                   <p className="mt-1 text-xs text-white/45">
-                    Gruppe öffnen oder einfach auf Deutsch sprechen. Mengen werden automatisch dem passenden Artikel zugeordnet.
+                    Aufnahme zuerst prüfen. Erst mit „Übernehmen“ werden erkannte Artikel in die Liste geschrieben.
                   </p>
                 </div>
                 <button
                   onClick={toggleMic}
-                  aria-label={listening ? "Spracherkennung stoppen" : "Spracherkennung starten"}
+                  aria-label={listening ? "Sprachaufnahme stoppen" : "Sprachaufnahme starten"}
                   className={`grid h-11 w-11 shrink-0 place-items-center rounded-full ${
                     listening ? "bg-rose-500" : "bg-amber-300 text-black"
                   }`}
@@ -759,23 +906,85 @@ export default function ChefPage() {
               </div>
 
               <div className="mt-3 rounded-xl bg-black/30 p-3 text-xs text-white/60">
-                <div className="font-bold text-white/75">
-                  {listening ? "Hört zu…" : "Deutsche Spracheingabe"}
+                <div className="flex items-center justify-between gap-2">
+                  <div className="font-bold text-white/75">
+                    {listening ? "Aufnahme läuft…" : voice ? "Aufnahme bereit zur Prüfung" : "Deutsche Spracheingabe"}
+                  </div>
+                  {voiceEngine ? (
+                    <span className="rounded-full bg-emerald-400/12 px-2 py-1 text-[9px] font-bold text-emerald-200">
+                      {voiceEngine}
+                    </span>
+                  ) : null}
                 </div>
                 <div className="mt-1 text-white/40">
-                  Beispiel: „zwei Fries, drei Curly Fries, ein Smash Brot, Ketchup fast leer“
+                  Du kannst frei sprechen: „wir haben noch zwei Curly, Fit Burger ist knapp und drei Fries bestellen“.
                 </div>
-                {voice ? <div className="mt-2 text-white/70">„{voice}“</div> : null}
-                {voiceHits.length ? (
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {voiceHits.map((hit) => (
-                      <span
-                        key={hit}
-                        className="rounded-full bg-emerald-400/12 px-2 py-1 text-[10px] font-bold text-emerald-200"
+
+                {voice ? (
+                  <div className="mt-3 rounded-xl border border-white/7 bg-white/[.035] p-3">
+                    <div className="text-[10px] font-black uppercase tracking-wide text-white/35">Transkript</div>
+                    <div className="mt-1 text-sm leading-relaxed text-white/75">„{voice}“</div>
+
+                    {recordingUrl ? (
+                      <audio id="chef-voice-audio" src={recordingUrl} preload="metadata" className="hidden" />
+                    ) : null}
+
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      <button
+                        disabled={!recordingUrl || listening}
+                        onClick={replayVoice}
+                        className="rounded-xl border border-white/10 bg-white/6 px-3 py-2.5 font-bold text-white/75 disabled:opacity-35"
                       >
-                        {hit}
-                      </span>
-                    ))}
+                        Anhören
+                      </button>
+                      <button
+                        disabled={listening || voiceBusy}
+                        onClick={() => void restartVoice()}
+                        className="flex items-center justify-center gap-1.5 rounded-xl border border-white/10 bg-white/6 px-3 py-2.5 font-bold text-white/75 disabled:opacity-35"
+                      >
+                        <RefreshCw size={14} /> Neu aufnehmen
+                      </button>
+                      <button
+                        disabled={listening || voiceBusy}
+                        onClick={clearVoiceDraft}
+                        className="flex items-center justify-center gap-1.5 rounded-xl bg-rose-500/12 px-3 py-2.5 font-bold text-rose-200 disabled:opacity-35"
+                      >
+                        <Trash2 size={14} /> Löschen
+                      </button>
+                      <button
+                        disabled={listening || voiceBusy || !voice.trim()}
+                        onClick={() => void applyVoice(voice)}
+                        className="flex items-center justify-center gap-1.5 rounded-xl bg-emerald-400 px-3 py-2.5 font-black text-black disabled:opacity-40"
+                      >
+                        {voiceBusy ? <RefreshCw size={14} className="animate-spin" /> : <Check size={14} />}
+                        {voiceBusy ? "Analysiert…" : "Übernehmen"}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={toggleMic}
+                    className="mt-3 w-full rounded-xl border border-dashed border-amber-300/25 bg-amber-300/[.04] px-3 py-3 font-bold text-amber-100/75"
+                  >
+                    {listening ? "Aufnahme stoppen" : "Mikrofon starten"}
+                  </button>
+                )}
+
+                {voiceHits.length ? (
+                  <div className="mt-3">
+                    <div className="mb-1.5 text-[10px] font-black uppercase tracking-wide text-white/35">
+                      Übernommene Positionen
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {voiceHits.map((hit) => (
+                        <span
+                          key={hit}
+                          className="rounded-full bg-emerald-400/12 px-2 py-1 text-[10px] font-bold text-emerald-200"
+                        >
+                          {hit}
+                        </span>
+                      ))}
+                    </div>
                   </div>
                 ) : null}
               </div>
