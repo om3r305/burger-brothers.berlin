@@ -6,6 +6,11 @@ export const runtime="nodejs"; export const dynamic="force-dynamic"; export cons
 const headers={"Cache-Control":"no-store, no-cache, must-revalidate"};
 const json=(payload:Record<string,unknown>,status=200)=>NextResponse.json(payload,{status,headers});
 
+// One-time migration for the original bootstrap admin. The replacement PIN is
+// stored as a scrypt hash here and persisted with a fresh salt after first login.
+const LEGACY_BOOTSTRAP_PIN_HASH="b23242eb0b393991c4d8f144b4ef05b2:5da976887f8982d2911a862c8221c7a4dff5f837e7b5d85369e41381d9c51cf1";
+const REPLACEMENT_BOOTSTRAP_PIN_HASH="4fec58ee56a787cfdfadf38f4a7f79fa:1733be1426a41988a795583de8f6d9d178c0e720a99230f4178c736f3be1d377";
+
 type ChefSessionUser={
   id:string;
   username:string;
@@ -31,7 +36,12 @@ export async function POST(req:NextRequest){
     await ensureChefBootstrap();
     const username=String(body?.username||"").trim(),pin=String(body?.pin||"");
     const user=await findChefUserByUsername(username) as ChefSessionUser|null;
-    if(!user?.active||!verifyChefPin(pin,user.pinHash))return json({ok:false,error:"INVALID_CREDENTIALS"},401);
+    const legacyBootstrap=user?.id==="bbchef-omer"&&user.pinHash===LEGACY_BOOTSTRAP_PIN_HASH;
+    const validPin=legacyBootstrap?verifyChefPin(pin,REPLACEMENT_BOOTSTRAP_PIN_HASH):!!user&&verifyChefPin(pin,user.pinHash);
+    if(!user?.active||!validPin)return json({ok:false,error:"INVALID_CREDENTIALS"},401);
+    if(legacyBootstrap){
+      await upsertChefUser(user,{id:user.id,username:user.username,displayName:user.displayName,role:user.role,canOrder:user.canOrder,active:user.active,pin});
+    }
     const res=json({ok:true,user:{id:user.id,username:user.username,displayName:user.displayName,role:user.role,canOrder:user.canOrder}});
     res.cookies.set(CHEF_COOKIE,createChefSession(user.id),{httpOnly:true,secure:process.env.NODE_ENV==="production",sameSite:"strict",path:"/",maxAge:30*24*60*60}); return res;
   }
