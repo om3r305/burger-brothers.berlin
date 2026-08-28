@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { getTenantId, prisma } from "@/lib/db";
 import { ensureChefCatalog } from "@/lib/server/chef-catalog";
+import { getChefVoiceAIConfig, interpretChefVoiceWithAI } from "@/lib/server/chef-voice-ai";
 import { enforceRateLimit, hasTrustedMutationOrigin } from "@/lib/server/request-security";
 import {
   CHEF_COOKIE,
@@ -96,6 +97,7 @@ export async function GET(req: NextRequest) {
     ok: true,
     ...(await getChefState(user)),
     pinRequired: CHEF_PIN_REQUIRED,
+    voiceAI: getChefVoiceAIConfig(),
   });
 }
 
@@ -155,6 +157,16 @@ export async function POST(req: NextRequest) {
   if (!user) return json({ ok: false, error: "UNAUTHORIZED" }, 401);
 
   try {
+    if (action === "interpretVoice") {
+      const limited = await enforceRateLimit(req, "voice:chef", 90, 15 * 60_000);
+      if (limited) return limited;
+      await ensureChefCatalog();
+      const state = await getChefState(user);
+      return json({
+        ok: true,
+        ...(await interpretChefVoiceWithAI(body?.transcript, state.items)),
+      });
+    }
     if (action === "saveReport") {
       return json({ ok: true, ...(await saveChefReport(user, body)) });
     }
