@@ -97,8 +97,12 @@ export function apiAccess(path: string, methodRaw: string): Access {
   if (path === "/api/assistant/realtime" && method === "POST") return "public";
   if (path === "/api/assistant/delivery-area" && method === "POST") return "public";
 
-  // Genel PWA/Web-Push uÃ§larÄ± kendi origin, rate-limit, cihaz Ã§erezi ve
-  // tracking-token kontrollerini route iÃ§inde uygular.
+  // BB Chef owns its login, signed Chef session, origin checks and role checks
+  // inside the route. Middleware only keeps the endpoint reachable.
+  if (path === "/api/chef" && (readOnly || method === "POST")) return "public";
+
+  // Genel PWA/Web-Push uçları kendi origin, rate-limit, cihaz çerezi ve
+  // tracking-token kontrollerini route içinde uygular.
   if (path === "/api/push" && ["GET", "POST", "PATCH", "DELETE"].includes(method)) {
     return "public";
   }
@@ -130,10 +134,10 @@ export function apiAccess(path: string, methodRaw: string): Access {
   if (path === "/api/schnellbestellung/orders" && method === "POST") {
     return "public";
   }
-  // Kazanan isim/fotoÄŸraf paylaÅŸÄ±mÄ± mÃ¼ÅŸteri Schnell oturumu ile Ã§alÄ±ÅŸÄ±r.
-  // Middleware yalnÄ±z rotayÄ± eriÅŸilebilir kÄ±lar; route iÃ§inde imzalÄ± Schnell
-  // session, trusted origin, rate limit, order sahipliÄŸi ve consent yeniden
-  // doÄŸrulanÄ±r.
+  // Kazanan isim/fotoğraf paylaşımı müşteri Schnell oturumu ile çalışır.
+  // Middleware yalnız rotayı erişilebilir kılar; route içinde imzalı Schnell
+  // session, trusted origin, rate limit, order sahipliği ve consent yeniden
+  // doğrulanır.
   if (
     path === "/api/schnellbestellung/reward/submission" &&
     method === "POST"
@@ -298,9 +302,9 @@ export async function middleware(req: NextRequest) {
   const path = req.nextUrl.pathname;
 
   /*
-    Eski ana ekran kÄ±sayollarÄ± /install?app=1 URL'sini aÃ§abilir. KullanÄ±cÄ± daha
-    Ã¶nce karar verdiyse yÃ¼kleme ekranÄ±nÄ± hiÃ§ render etmeden ana sayfaya gÃ¶nder.
-    /install?settings=1 bildirim ayarlarÄ± iÃ§in aÃ§Ä±k kalÄ±r.
+    Eski ana ekran kısayolları /install?app=1 URL'sini açabilir. Kullanıcı daha
+    önce karar verdiyse yükleme ekranını hiç render etmeden ana sayfaya gönder.
+    /install?settings=1 bildirim ayarları için açık kalır.
   */
   if (
     path === "/install" &&
