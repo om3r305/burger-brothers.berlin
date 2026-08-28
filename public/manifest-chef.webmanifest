@@ -1,0 +1,11 @@
+{
+  "name": "BB Chef",
+  "short_name": "BB Chef",
+  "description": "Burger Brothers chef stock, supplier and prep control",
+  "start_url": "/chef",
+  "scope": "/chef/",
+  "display": "standalone",
+  "background_color": "#090909",
+  "theme_color": "#090909",
+  "icons": [{ "src": "/chef-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}
