@@ -62,6 +62,8 @@ try {
     ["/api/payments/share", "GET", "public"],
     ["/api/payments/share", "POST", "public"],
     ["/api/payments/session", "GET", "public"],
+    ["/api/chef", "GET", "public"],
+    ["/api/chef", "POST", "public"],
     ["/api/tv/logout", "GET", "public"],
     ["/api/tv/logout", "POST", "public"],
     ["/api/drivers", "GET", "admin"],
