@@ -1,0 +1,5 @@
+const HOME="/chef",ICON="/chef-icon.svg";
+self.addEventListener("install",()=>self.skipWaiting());
+self.addEventListener("activate",e=>e.waitUntil(self.clients.claim()));
+self.addEventListener("push",e=>e.waitUntil((async()=>{let n={title:"BB Chef",body:"BB Chef'te yeni bir güncelleme var.",url:HOME};try{const r=await fetch("/api/chef?view=push",{credentials:"include",cache:"no-store"});if(r.ok){const p=await r.json();if(p?.notification)n=p.notification}}catch{}await self.registration.showNotification(n.title||"BB Chef",{body:n.body||"Yeni bir güncelleme var.",icon:ICON,badge:ICON,tag:"bb-chef-latest",renotify:true,data:{url:n.url||HOME}})})()));
+self.addEventListener("notificationclick",e=>{e.notification.close();const target=e.notification?.data?.url||HOME;e.waitUntil((async()=>{const wins=await self.clients.matchAll({type:"window",includeUncontrolled:true});for(const c of wins){if("focus" in c){if("navigate" in c)await c.navigate(target);return c.focus()}}return self.clients.openWindow(target)})())});

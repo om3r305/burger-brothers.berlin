@@ -1,0 +1,5 @@
+import type { Metadata,Viewport } from "next";
+import type { ReactNode } from "react";
+export const metadata:Metadata={title:"BB Chef",description:"Burger Brothers – Chef stok, sipariş ve hazırlık paneli",manifest:"/manifest-chef.webmanifest?v=1",icons:{icon:"/chef-icon.svg",apple:"/chef-icon.svg"},appleWebApp:{capable:true,statusBarStyle:"black-translucent",title:"BB Chef"}};
+export const viewport:Viewport={themeColor:"#090909",viewportFit:"cover"};
+export default function Layout({children}:{children:ReactNode}){return <div className="bb-operational-route bb-operational-route--chef" suppressHydrationWarning><style dangerouslySetInnerHTML={{__html:`footer{display:none!important}.bb-route-view{opacity:1!important;visibility:visible!important;animation:none!important;transition:none!important;pointer-events:auto!important}.bb-operational-route--chef{position:relative;min-height:100svh;width:100%;opacity:1!important;visibility:visible!important}`}}/><link rel="manifest" href="/manifest-chef.webmanifest?v=1"/>{children}</div>}
