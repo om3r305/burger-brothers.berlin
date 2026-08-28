@@ -47,6 +47,8 @@ type Item = {
   supplierName: string;
   supplierWhatsapp: string;
   sortOrder: number;
+  voiceAliases?: string[];
+  source?: string;
 };
 
 type Need = {
@@ -95,29 +97,93 @@ type Draft = {
   note?: string;
 };
 
+type VoiceHit = {
+  itemId: string;
+  category: string;
+  label: string;
+  patch: Draft;
+};
+
 const CATEGORY_OPTIONS = [
   "Fleisch & Protein",
-  "Chicken & Snacks",
-  "Fries & Beilagen",
+  "Hähnchen & Snacks",
+  "Pommes & Beilagen",
   "Brot",
-  "Käse & Special",
+  "Käse & Spezial",
   "Gemüse & Frische",
-  "Saucen",
+  "Soßen",
   "Boxen & Verpackung",
   "Verbrauch & Hygiene",
-  "Diğer",
+  "Sonstiges",
 ];
 
 const glass =
   "border border-white/10 bg-white/[.055] shadow-[0_18px_50px_rgba(0,0,0,.28)] backdrop-blur-xl";
 
+const ERROR_MESSAGES: Record<string, string> = {
+  INVALID_USER: "Benutzer nicht gefunden.",
+  UNAUTHORIZED: "Bitte erneut anmelden.",
+  unauthorized: "Bitte erneut anmelden.",
+  ORIGIN_NOT_ALLOWED: "Diese Anfrage wurde aus Sicherheitsgründen blockiert.",
+  ADMIN_REQUIRED: "Diese Funktion ist nur für Administratoren verfügbar.",
+  ORDER_PERMISSION_REQUIRED: "Dieser Benutzer darf keine Bestellung auslösen.",
+  NO_ORDER_ITEMS: "Bitte zuerst Bestellpositionen auswählen.",
+  NO_OPEN_ORDER_ITEMS: "Es gibt keine offenen Positionen in dieser Auswahl.",
+  MULTIPLE_SUPPLIERS: "Bitte pro Lieferant eine eigene Bestellung senden.",
+  ITEM_NAME_REQUIRED: "Bitte einen Artikelnamen eingeben.",
+  USER_FIELDS_REQUIRED: "Name und Benutzername sind erforderlich.",
+  USERNAME_EXISTS: "Dieser Benutzername ist bereits vergeben.",
+  PLAN_FIELDS_REQUIRED: "Bezeichnung und Datum sind erforderlich.",
+  PLAN_NOT_FOUND: "Dieser Plan wurde nicht gefunden.",
+  PUSH_NOT_CONFIGURED: "Push-Benachrichtigungen sind noch nicht konfiguriert.",
+  INVALID_SUBSCRIPTION: "Die Push-Anmeldung konnte nicht gespeichert werden.",
+};
+
+const NUMBER_WORDS: Record<string, number> = {
+  null: 0,
+  ein: 1,
+  eins: 1,
+  eine: 1,
+  einen: 1,
+  einer: 1,
+  einem: 1,
+  zwei: 2,
+  zwo: 2,
+  drei: 3,
+  vier: 4,
+  funf: 5,
+  fuenf: 5,
+  sechs: 6,
+  sieben: 7,
+  acht: 8,
+  neun: 9,
+  zehn: 10,
+  elf: 11,
+  zwolf: 12,
+  zwoelf: 12,
+  dreizehn: 13,
+  vierzehn: 14,
+  funfzehn: 15,
+  fuenfzehn: 15,
+  sechzehn: 16,
+  siebzehn: 17,
+  achtzehn: 18,
+  neunzehn: 19,
+  zwanzig: 20,
+};
+
 const fmt = (value?: string) =>
   value
-    ? new Intl.DateTimeFormat("tr-TR", {
+    ? new Intl.DateTimeFormat("de-DE", {
         dateStyle: "short",
         timeStyle: "short",
       }).format(new Date(value))
     : "—";
+
+function errorText(value: unknown, fallback: string) {
+  const code = value instanceof Error ? value.message : String(value || "");
+  return ERROR_MESSAGES[code] || code || fallback;
+}
 
 async function api(body: Record<string, unknown>) {
   const response = await fetch("/api/chef", {
@@ -128,7 +194,7 @@ async function api(body: Record<string, unknown>) {
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok || payload?.ok === false) {
-    throw new Error(String(payload?.error || "İşlem başarısız"));
+    throw new Error(String(payload?.error || "SERVER_ERROR"));
   }
   return payload;
 }
@@ -137,6 +203,89 @@ function b64Key(value: string) {
   const pad = "=".repeat((4 - (value.length % 4)) % 4);
   const raw = atob((value + pad).replace(/-/g, "+").replace(/_/g, "/"));
   return Uint8Array.from([...raw].map((char) => char.charCodeAt(0)));
+}
+
+function normalizeVoice(value: unknown) {
+  return String(value || "")
+    .toLocaleLowerCase("de-DE")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/ß/g, "ss")
+    .replace(/[’'`´]/g, "")
+    .replace(/[^a-z0-9,.]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function voiceAliases(item: Item) {
+  const names = [item.name, ...(item.voiceAliases || [])];
+  const simplified = item.name.replace(/\([^)]*\)/g, " ").trim();
+  if (simplified && simplified !== item.name) names.push(simplified);
+
+  const n = normalizeVoice(item.name);
+  if (n === "fries" || n === "pommes") names.push("Pommes", "Fries", "normale Pommes");
+  if (n.includes("curly fries")) names.push("Curly", "Curly Pommes");
+  if (n.includes("country potatoes")) names.push("Country", "Kartoffelecken");
+  if (n.includes("chicken fingers")) names.push("Chicken Finger");
+  if (n.includes("chicken wings")) names.push("Chicken Wing");
+  if (n.includes("mozzarella sticks")) names.push("Mozzarella Stick");
+  if (n.includes("smash brot")) names.push("Smashbrot", "Smash Brötchen", "Smash Broetchen");
+  if (n.includes("burger brot")) names.push("Burgerbrötchen", "Burgerbroetchen", "normales Brot");
+  if (n.includes("kinder brot")) names.push("Kinderbrötchen", "Kinderbroetchen");
+  if (n.includes("hotdog brot")) names.push("Hot Dog Brot", "Hotdogbrötchen", "Hotdogbroetchen");
+  if (n.includes("black angus")) names.push("Angus");
+  if (n.includes("chikn bites") || n.includes("chik n bites")) names.push("Chicken Bites", "Chikn Bites");
+
+  const seen = new Set<string>();
+  return names
+    .map((name) => normalizeVoice(name))
+    .filter((name) => {
+      if (!name || seen.has(name)) return false;
+      seen.add(name);
+      return true;
+    });
+}
+
+function numberFromText(segment: string, last = false) {
+  const normalized = normalizeVoice(segment);
+  const tokens = normalized.split(" ").filter(Boolean);
+  const found: number[] = [];
+  for (const token of tokens) {
+    const numeric = Number(token.replace(",", "."));
+    if (Number.isFinite(numeric) && numeric >= 0) {
+      found.push(numeric);
+      continue;
+    }
+    if (Object.prototype.hasOwnProperty.call(NUMBER_WORDS, token)) {
+      found.push(NUMBER_WORDS[token]);
+    }
+  }
+  if (!found.length) return null;
+  return last ? found[found.length - 1] : found[0];
+}
+
+function statusFromText(text: string): Draft["status"] | null {
+  const n = normalizeVoice(text);
+  if (/\b(leer|aus|nichts mehr|keine mehr|kein mehr|nicht mehr da)\b/.test(n)) return "OUT";
+  if (/\b(kritisch|fast leer|sehr wenig|extrem wenig)\b/.test(n)) return "CRITICAL";
+  if (/\b(wenig|knapp|wird knapp|geht zur neige|bald leer)\b/.test(n)) return "LOW";
+  if (/\b(genug|ausreichend|voll|alles da)\b/.test(n)) return "";
+  return null;
+}
+
+function statusLabel(status: Need["status"] | Draft["status"]) {
+  if (status === "OUT") return "LEER";
+  if (status === "CRITICAL") return "KRITISCH";
+  if (status === "LOW") return "WENIG";
+  return "AUSREICHEND";
+}
+
+function germanActivity(detail: string) {
+  return String(detail || "")
+    .replace(/(\d+) ürün kontrol edildi/g, "$1 Produkte geprüft")
+    .replace(/(\d+) yeni eksik/g, "$1 neue offene Positionen")
+    .replace(/(\d+) kalem geldi/g, "$1 Positionen eingegangen")
+    .replace(/(\d+) kalem/g, "$1 Positionen");
 }
 
 function Login({ done }: { done: () => void }) {
@@ -152,7 +301,7 @@ function Login({ done }: { done: () => void }) {
       await api({ action: "login", username });
       done();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Giriş başarısız");
+      setError(errorText(reason, "Anmeldung fehlgeschlagen."));
     } finally {
       setBusy(false);
     }
@@ -166,12 +315,12 @@ function Login({ done }: { done: () => void }) {
             <img src="/chef-icon.svg" alt="BB Chef" className="h-16 w-16 rounded-2xl" />
             <div>
               <div className="text-2xl font-black text-amber-200">BB Chef</div>
-              <div className="text-xs text-white/45">Burger Brothers · Chef Operations</div>
+              <div className="text-xs text-white/45">Burger Brothers · Küchenorganisation</div>
             </div>
           </div>
 
           <label className="text-xs text-white/50">
-            Kullanıcı adı
+            Benutzername
             <input
               value={username}
               onChange={(event) => setUsername(event.target.value)}
@@ -182,7 +331,7 @@ function Login({ done }: { done: () => void }) {
           </label>
 
           <div className="mt-3 rounded-xl border border-amber-300/15 bg-amber-300/[.06] px-3 py-2.5 text-xs text-amber-100/70">
-            PIN doğrulaması test süresince geçici olarak kapalı. Kullanıcı yetkileri yine hesaba göre uygulanır.
+            Die PIN-Prüfung ist während des Tests vorübergehend deaktiviert. Rechte werden weiterhin pro Benutzer angewendet.
           </div>
 
           {error ? <p className="mt-3 text-sm text-rose-300">{error}</p> : null}
@@ -191,7 +340,7 @@ function Login({ done }: { done: () => void }) {
             disabled={busy || !username.trim()}
             className="mt-5 w-full rounded-xl bg-amber-300 py-3.5 font-black text-black disabled:opacity-50"
           >
-            {busy ? "Giriş yapılıyor…" : "Giriş yap"}
+            {busy ? "Anmeldung läuft…" : "Anmelden"}
           </button>
         </form>
       </div>
@@ -205,12 +354,14 @@ export default function ChefPage() {
   const [tab, setTab] = useState<"stock" | "orders" | "plans" | "admin">("stock");
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [voice, setVoice] = useState("");
+  const [voiceHits, setVoiceHits] = useState<string[]>([]);
   const [listening, setListening] = useState(false);
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [openCategories, setOpenCategories] = useState<Record<string, boolean>>({});
   const [toast, setToast] = useState("");
   const [busy, setBusy] = useState(false);
   const rec = useRef<any>(null);
+  const lastAppliedVoice = useRef("");
 
   async function load() {
     try {
@@ -224,11 +375,11 @@ export default function ChefPage() {
         return;
       }
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload?.error || "Yüklenemedi");
+      if (!response.ok) throw new Error(payload?.error || "SERVER_ERROR");
       setState(payload);
       setChecked(true);
     } catch (reason) {
-      setToast(reason instanceof Error ? reason.message : "Bağlantı hatası");
+      setToast(errorText(reason, "Verbindung fehlgeschlagen."));
       setChecked(true);
     }
   }
@@ -239,7 +390,7 @@ export default function ChefPage() {
 
   useEffect(() => {
     if (!toast) return;
-    const timer = setTimeout(() => setToast(""), 3200);
+    const timer = setTimeout(() => setToast(""), 3600);
     return () => clearTimeout(timer);
   }, [toast]);
 
@@ -266,55 +417,122 @@ export default function ChefPage() {
     const map = new Map<string, Need[]>();
     for (const need of state?.needs || []) {
       const item = itemMap.get(need.itemId);
-      const key = item?.supplierName || "Lieferant seçilmedi";
+      const key = item?.supplierName || "Lieferant nicht zugeordnet";
       map.set(key, [...(map.get(key) || []), need]);
     }
     return [...map.entries()];
   }, [state?.needs, itemMap]);
 
-  const patch = (id: string, next: Draft) =>
-    setDrafts((current) => ({
-      ...current,
-      [id]: { ...(current[id] || {}), ...next, checked: true },
-    }));
+  function parseVoice(text: string): VoiceHit[] {
+    if (!state) return [];
+    const normalized = normalizeVoice(text);
+    if (!normalized) return [];
 
-  function voiceApply(text: string) {
-    if (!state) return;
-    const normalized = text.toLocaleLowerCase("tr-TR");
-    let found = 0;
+    const candidates = state.items
+      .flatMap((item) => voiceAliases(item).map((alias) => ({ item, alias })))
+      .sort((a, b) => b.alias.length - a.alias.length);
 
-    for (const item of state.items) {
-      const name = item.name.toLocaleLowerCase("tr-TR");
-      const at = normalized.indexOf(name);
-      if (at < 0) continue;
-      const tail = normalized.slice(at + name.length, at + name.length + 70);
+    const occupied: Array<[number, number]> = [];
+    const hitItems = new Set<string>();
+    const hits: VoiceHit[] = [];
+    const padded = ` ${normalized} `;
 
-      if (item.mode === "QUANTITY") {
-        const match = tail.match(/\b(\d+(?:[,.]\d+)?)\b/);
-        if (match) {
-          patch(item.id, { neededQty: match[1].replace(",", ".") });
-          found += 1;
+    for (const candidate of candidates) {
+      if (hitItems.has(candidate.item.id)) continue;
+      const needle = ` ${candidate.alias} `;
+      let from = 0;
+      let index = padded.indexOf(needle, from);
+      while (index >= 0) {
+        const start = Math.max(0, index);
+        const end = start + needle.length;
+        const overlaps = occupied.some(([a, b]) => start < b && end > a);
+        if (!overlaps) {
+          const before = padded.slice(Math.max(0, start - 42), start);
+          const after = padded.slice(end, Math.min(padded.length, end + 42));
+          const around = `${before} ${candidate.alias} ${after}`;
+          const beforeNumber = numberFromText(before, true);
+          const afterNumber = numberFromText(after, false);
+          const amount = beforeNumber ?? afterNumber;
+          const status = statusFromText(around);
+          const stockContext = /\b(noch|bestand|lager|vorhanden|haben wir|ist da|sind da)\b/.test(
+            normalizeVoice(around),
+          );
+
+          let patch: Draft | null = null;
+          let label = "";
+          if (candidate.item.mode === "QUANTITY" && amount != null) {
+            if (stockContext) {
+              patch = { currentQty: String(amount) };
+              label = `${candidate.item.name}: Bestand ${amount} ${candidate.item.unit}`.trim();
+            } else {
+              patch = { neededQty: String(amount) };
+              label = `${candidate.item.name}: bestellen ${amount} ${candidate.item.unit}`.trim();
+            }
+          } else if (candidate.item.mode === "STATUS" && amount != null) {
+            patch = { neededQty: String(amount), status: status || "LOW" };
+            label = `${candidate.item.name}: bestellen ${amount} ${candidate.item.unit}`.trim();
+          } else if (status !== null) {
+            patch = { status };
+            label = `${candidate.item.name}: ${statusLabel(status)}`;
+          }
+
+          if (patch) {
+            occupied.push([start, end]);
+            hitItems.add(candidate.item.id);
+            hits.push({
+              itemId: candidate.item.id,
+              category: candidate.item.category,
+              label,
+              patch,
+            });
+          }
+          break;
         }
-      } else {
-        const status = /\b(yok|bitti|leer|aus)\b/.test(tail)
-          ? "OUT"
-          : /kritik|çok az|cok az/.test(tail)
-            ? "CRITICAL"
-            : /\b(az|wenig|knapp)\b/.test(tail)
-              ? "LOW"
-              : null;
-        if (status) {
-          patch(item.id, { status });
-          found += 1;
-        }
+        from = index + needle.length;
+        index = padded.indexOf(needle, from);
       }
     }
 
-    setToast(
-      found
-        ? `${found} malzeme sesten listeye işlendi.`
-        : "Ürün adı yakalanamadı; elle kontrol edebilirsin.",
-    );
+    return hits;
+  }
+
+  function applyVoice(text: string) {
+    const normalized = normalizeVoice(text);
+    if (!normalized || normalized === lastAppliedVoice.current) return;
+    const hits = parseVoice(text);
+    lastAppliedVoice.current = normalized;
+    if (!hits.length) {
+      setVoiceHits([]);
+      setToast("Kein eindeutiger Artikel erkannt. Bitte den Produktnamen wie in der Liste sagen.");
+      return;
+    }
+
+    setDrafts((current) => {
+      const next = { ...current };
+      for (const hit of hits) {
+        next[hit.itemId] = {
+          ...(next[hit.itemId] || {}),
+          ...hit.patch,
+          checked: true,
+        };
+      }
+      return next;
+    });
+
+    setOpenCategories((current) => {
+      const next = { ...current };
+      for (const hit of hits) next[hit.category] = true;
+      return next;
+    });
+    setVoiceHits(hits.map((hit) => hit.label));
+    setToast(`${hits.length} Position${hits.length === 1 ? "" : "en"} automatisch übernommen.`);
+
+    window.setTimeout(() => {
+      document.getElementById(`chef-item-${hits[0].itemId}`)?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+    }, 180);
   }
 
   function toggleMic() {
@@ -327,26 +545,37 @@ export default function ChefPage() {
     const SpeechRecognition =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      setToast("Bu tarayıcı konuşma tanımayı desteklemiyor.");
+      setToast("Dieser Browser unterstützt die Spracherkennung nicht.");
       return;
     }
 
     const recognition = new SpeechRecognition();
-    recognition.lang = "tr-TR";
+    recognition.lang = "de-DE";
     recognition.continuous = true;
     recognition.interimResults = true;
     recognition.onresult = (event: any) => {
-      let text = "";
+      let fullText = "";
+      let finalText = "";
       for (let index = 0; index < event.results.length; index += 1) {
-        text += `${event.results[index][0]?.transcript || ""} `;
+        const transcript = String(event.results[index][0]?.transcript || "").trim();
+        if (!transcript) continue;
+        fullText += `${transcript} `;
+        if (event.results[index].isFinal) finalText += `${transcript} `;
       }
-      setVoice(text.trim());
+      const clean = fullText.trim();
+      setVoice(clean);
+      if (finalText.trim()) applyVoice(clean);
     };
     recognition.onend = () => setListening(false);
-    recognition.onerror = () => setListening(false);
+    recognition.onerror = () => {
+      setListening(false);
+      setToast("Spracherkennung wurde beendet. Bitte erneut auf das Mikrofon tippen.");
+    };
     rec.current = recognition;
     recognition.start();
     setListening(true);
+    setVoiceHits([]);
+    lastAppliedVoice.current = "";
   }
 
   async function save() {
@@ -361,8 +590,8 @@ export default function ChefPage() {
       }),
     );
 
-    if (!entries.length && !voice.trim()) {
-      setToast("Önce en az bir malzeme güncelle.");
+    if (!entries.length) {
+      setToast("Bitte zuerst mindestens einen Artikel aktualisieren.");
       return;
     }
 
@@ -371,10 +600,12 @@ export default function ChefPage() {
       await api({ action: "saveReport", entries, voiceTranscript: voice });
       setDrafts({});
       setVoice("");
-      setToast("Kontrol kaydedildi; şef bildirimleri tetiklendi.");
+      setVoiceHits([]);
+      lastAppliedVoice.current = "";
+      setToast("Bestandskontrolle gespeichert.");
       await load();
     } catch (reason) {
-      setToast(reason instanceof Error ? reason.message : "Kaydedilemedi");
+      setToast(errorText(reason, "Bestandskontrolle konnte nicht gespeichert werden."));
     } finally {
       setBusy(false);
     }
@@ -386,19 +617,19 @@ export default function ChefPage() {
       .map((need) => need.id);
 
     if (!ids.length) {
-      setToast("Önce sipariş kalemlerini işaretle.");
+      setToast("Bitte zuerst Bestellpositionen markieren.");
       return;
     }
 
     setBusy(true);
     try {
       const payload = await api({ action: "placeOrder", needIds: ids });
-      setToast(`${name}: sipariş ${state?.me.displayName} adına kaydedildi.`);
+      setToast(`${name}: Bestellung wurde von ${state?.me.displayName} erfasst.`);
       window.open(String(payload.whatsappUrl), "_blank", "noopener,noreferrer");
       setSelected({});
       await load();
     } catch (reason) {
-      setToast(reason instanceof Error ? reason.message : "Sipariş oluşturulamadı");
+      setToast(errorText(reason, "Bestellung konnte nicht erstellt werden."));
     } finally {
       setBusy(false);
     }
@@ -408,10 +639,10 @@ export default function ChefPage() {
     setBusy(true);
     try {
       await api({ action: "receiveNeeds", needIds: ids });
-      setToast("Gelen ürünler kapatıldı.");
+      setToast("Wareneingang bestätigt.");
       await load();
     } catch (reason) {
-      setToast(reason instanceof Error ? reason.message : "Güncellenemedi");
+      setToast(errorText(reason, "Wareneingang konnte nicht aktualisiert werden."));
     } finally {
       setBusy(false);
     }
@@ -419,7 +650,7 @@ export default function ChefPage() {
 
   async function push() {
     if (!state?.push.configured) {
-      setToast("Push anahtarları canlı ortamda yapılandırılmamış.");
+      setToast("Push-Benachrichtigungen sind auf dem Server noch nicht konfiguriert.");
       return;
     }
 
@@ -428,7 +659,7 @@ export default function ChefPage() {
         Notification.permission !== "granted" &&
         (await Notification.requestPermission()) !== "granted"
       ) {
-        setToast("Bildirim izni verilmedi.");
+        setToast("Benachrichtigungen wurden nicht erlaubt.");
         return;
       }
 
@@ -443,9 +674,9 @@ export default function ChefPage() {
         }));
 
       await api({ action: "subscribePush", subscription: subscription.toJSON() });
-      setToast("BB Chef bildirimleri bu cihazda açık.");
+      setToast("BB-Chef-Benachrichtigungen sind auf diesem Gerät aktiviert.");
     } catch (reason) {
-      setToast(reason instanceof Error ? reason.message : "Bildirim açılamadı");
+      setToast(errorText(reason, "Benachrichtigungen konnten nicht aktiviert werden."));
     }
   }
 
@@ -484,14 +715,14 @@ export default function ChefPage() {
             <button
               onClick={() => void push()}
               className="rounded-xl border border-white/10 bg-white/5 p-2.5"
-              aria-label="Bildirim"
+              aria-label="Benachrichtigungen aktivieren"
             >
               <Bell size={18} />
             </button>
             <button
               onClick={() => void logout()}
               className="rounded-xl border border-white/10 bg-white/5 p-2.5"
-              aria-label="Çıkış"
+              aria-label="Abmelden"
             >
               <LogOut size={18} />
             </button>
@@ -501,9 +732,9 @@ export default function ChefPage() {
 
       <div className="mx-auto max-w-xl space-y-4 px-3 py-4">
         <div className="grid grid-cols-3 gap-2">
-          <Stat n={open} t="Sipariş gerekli" />
-          <Stat n={ordered} t="Sipariş verildi" />
-          <Stat n={state.plans.length} t="Plan" />
+          <Stat n={open} t="Bestellung nötig" />
+          <Stat n={ordered} t="Bestellt" />
+          <Stat n={state.plans.length} t="Geplant" />
         </div>
 
         {tab === "stock" ? (
@@ -511,13 +742,14 @@ export default function ChefPage() {
             <div className={`rounded-[26px] p-4 ${glass}`}>
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <h2 className="font-black">Akşam stok kontrolü</h2>
+                  <h2 className="font-black">Abendliche Bestandskontrolle</h2>
                   <p className="mt-1 text-xs text-white/45">
-                    Gruba dokun, ürünü aç. Miktarlı üründe mevcut + gereken; diğerlerinde durum seç.
+                    Gruppe öffnen oder einfach auf Deutsch sprechen. Mengen werden automatisch dem passenden Artikel zugeordnet.
                   </p>
                 </div>
                 <button
                   onClick={toggleMic}
+                  aria-label={listening ? "Spracherkennung stoppen" : "Spracherkennung starten"}
                   className={`grid h-11 w-11 shrink-0 place-items-center rounded-full ${
                     listening ? "bg-rose-500" : "bg-amber-300 text-black"
                   }`}
@@ -526,17 +758,27 @@ export default function ChefPage() {
                 </button>
               </div>
 
-              {voice ? (
-                <div className="mt-3 rounded-xl bg-black/30 p-3 text-xs text-white/60">
-                  <div>{voice}</div>
-                  <button
-                    onClick={() => voiceApply(voice)}
-                    className="mt-2 rounded-lg bg-white/10 px-3 py-2 font-bold text-white"
-                  >
-                    Sesi listeye uygula
-                  </button>
+              <div className="mt-3 rounded-xl bg-black/30 p-3 text-xs text-white/60">
+                <div className="font-bold text-white/75">
+                  {listening ? "Hört zu…" : "Deutsche Spracheingabe"}
                 </div>
-              ) : null}
+                <div className="mt-1 text-white/40">
+                  Beispiel: „zwei Fries, drei Curly Fries, ein Smash Brot, Ketchup fast leer“
+                </div>
+                {voice ? <div className="mt-2 text-white/70">„{voice}“</div> : null}
+                {voiceHits.length ? (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {voiceHits.map((hit) => (
+                      <span
+                        key={hit}
+                        className="rounded-full bg-emerald-400/12 px-2 py-1 text-[10px] font-bold text-emerald-200"
+                      >
+                        {hit}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
             </div>
 
             {categories.map(([category, items]) => {
@@ -566,7 +808,8 @@ export default function ChefPage() {
                     <div className="min-w-0">
                       <div className="font-black text-amber-200">{category}</div>
                       <div className="mt-0.5 text-[11px] text-white/40">
-                        {items.length} ürün{categoryOpenNeeds ? ` · ${categoryOpenNeeds} açık eksik` : ""}
+                        {items.length} Artikel
+                        {categoryOpenNeeds ? ` · ${categoryOpenNeeds} offen` : ""}
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
@@ -591,18 +834,18 @@ export default function ChefPage() {
                           Number(draft.currentQty) <= item.minStock;
 
                         return (
-                          <div key={item.id} className="p-4">
+                          <div key={item.id} id={`chef-item-${item.id}`} className="scroll-mt-36 p-4">
                             <div className="mb-3 flex items-start justify-between gap-2">
                               <div>
                                 <div className="font-bold">{item.name}</div>
                                 <div className="text-[11px] text-white/40">
                                   {need
-                                    ? `Açık kayıt: ${need.createdByName} · ${fmt(need.createdAt)}`
-                                    : "Açık eksik yok"}
+                                    ? `Offen seit ${fmt(need.createdAt)} · ${need.createdByName}`
+                                    : "Keine offene Meldung"}
                                 </div>
                                 {low ? (
                                   <div className="mt-1 text-[11px] font-bold text-orange-300">
-                                    Stok limiti {item.minStock} {item.unit} altında
+                                    Mindestbestand: {item.minStock} {item.unit}
                                   </div>
                                 ) : null}
                               </div>
@@ -614,7 +857,7 @@ export default function ChefPage() {
                                       : "bg-rose-400/15 text-rose-300"
                                   }`}
                                 >
-                                  {need.state === "ORDERED" ? "SİPARİŞ VERİLDİ" : "AÇIK"}
+                                  {need.state === "ORDERED" ? "BESTELLT" : "OFFEN"}
                                 </span>
                               ) : null}
                             </div>
@@ -622,33 +865,58 @@ export default function ChefPage() {
                             {item.mode === "QUANTITY" ? (
                               <div className="grid grid-cols-2 gap-2">
                                 <Q
-                                  label="Şu anda stokta"
+                                  label="Aktuell auf Lager"
                                   value={draft.currentQty ?? ""}
                                   unit={item.unit}
-                                  change={(value) => patch(item.id, { currentQty: value })}
+                                  change={(value) =>
+                                    setDrafts((current) => ({
+                                      ...current,
+                                      [item.id]: {
+                                        ...(current[item.id] || {}),
+                                        currentQty: value,
+                                        checked: true,
+                                      },
+                                    }))
+                                  }
                                 />
                                 <Q
-                                  label="Sipariş lazım"
+                                  label="Benötigte Bestellung"
                                   value={draft.neededQty ?? ""}
                                   unit={item.unit}
                                   gold
-                                  change={(value) => patch(item.id, { neededQty: value })}
+                                  change={(value) =>
+                                    setDrafts((current) => ({
+                                      ...current,
+                                      [item.id]: {
+                                        ...(current[item.id] || {}),
+                                        neededQty: value,
+                                        checked: true,
+                                      },
+                                    }))
+                                  }
                                 />
                               </div>
                             ) : (
                               <div className="grid grid-cols-4 gap-1.5">
                                 {[
-                                  ["", "Yeterli"],
-                                  ["LOW", "Az"],
-                                  ["CRITICAL", "Kritik"],
-                                  ["OUT", "Yok"],
+                                  ["", "Ausreichend"],
+                                  ["LOW", "Wenig"],
+                                  ["CRITICAL", "Kritisch"],
+                                  ["OUT", "Leer"],
                                 ].map(([value, label]) => (
                                   <button
                                     key={label}
                                     onClick={() =>
-                                      patch(item.id, { status: value as Draft["status"] })
+                                      setDrafts((current) => ({
+                                        ...current,
+                                        [item.id]: {
+                                          ...(current[item.id] || {}),
+                                          status: value as Draft["status"],
+                                          checked: true,
+                                        },
+                                      }))
                                     }
-                                    className={`rounded-xl px-1 py-2 text-[11px] font-bold ${
+                                    className={`rounded-xl px-1 py-2 text-[10px] font-bold ${
                                       draft.checked && (draft.status || "") === value
                                         ? value === "OUT"
                                           ? "bg-rose-500"
@@ -679,7 +947,7 @@ export default function ChefPage() {
               onClick={() => void save()}
               className="sticky bottom-24 flex w-full items-center justify-center gap-2 rounded-2xl bg-amber-300 px-4 py-4 font-black text-black shadow-2xl disabled:opacity-50"
             >
-              <Save size={18} /> Kontrolü kaydet
+              <Save size={18} /> Bestandskontrolle speichern
             </button>
           </section>
         ) : null}
@@ -687,9 +955,9 @@ export default function ChefPage() {
         {tab === "orders" ? (
           <section className="space-y-4">
             <div className={`rounded-[26px] p-4 ${glass}`}>
-              <h2 className="font-black">Sipariş merkezi</h2>
+              <h2 className="font-black">Bestellzentrale</h2>
               <p className="mt-1 text-xs text-white/45">
-                Kaydeden ve siparişi veren kişi ayrı ayrı görünür.
+                Erfasst von und bestellt von werden getrennt gespeichert.
               </p>
             </div>
 
@@ -705,7 +973,7 @@ export default function ChefPage() {
                       <div>
                         <div className="font-black">{name}</div>
                         <div className="text-[11px] text-white/40">
-                          {openNeeds.length} açık · {doneNeeds.length} gönderildi
+                          {openNeeds.length} offen · {doneNeeds.length} bestellt
                         </div>
                       </div>
                       {openNeeds.length && canOrder ? (
@@ -744,25 +1012,24 @@ export default function ChefPage() {
 
                             <div className="min-w-0 flex-1">
                               <div className="flex justify-between gap-2">
-                                <b>{item?.name || "Ürün"}</b>
+                                <b>{item?.name || "Artikel"}</b>
                                 <b className="text-amber-200">
                                   {need.neededQty != null
                                     ? `${need.neededQty} ${item?.unit || ""}`
-                                    : need.status || "BESTELLEN"}
+                                    : statusLabel(need.status)}
                                 </b>
                               </div>
                               <div className="mt-1 text-[11px] text-white/45">
-                                Kaydeden: <b className="text-white/70">{need.createdByName}</b> ·{" "}
-                                {fmt(need.createdAt)}
+                                Erfasst von: <b className="text-white/70">{need.createdByName}</b> · {fmt(need.createdAt)}
                               </div>
                               {need.currentQty != null ? (
                                 <div className="text-[11px] text-white/35">
-                                  Mevcut: {need.currentQty} {item?.unit}
+                                  Bestand: {need.currentQty} {item?.unit}
                                 </div>
                               ) : null}
                               {need.orderedByName ? (
                                 <div className="mt-1 text-[11px] font-bold text-sky-300">
-                                  Siparişi veren: {need.orderedByName} · {fmt(need.orderedAt)}
+                                  Bestellt von: {need.orderedByName} · {fmt(need.orderedAt)}
                                 </div>
                               ) : null}
                             </div>
@@ -776,14 +1043,14 @@ export default function ChefPage() {
                         onClick={() => void receive(doneNeeds.map((need) => need.id))}
                         className="m-3 flex w-[calc(100%-1.5rem)] items-center justify-center gap-2 rounded-xl bg-sky-400/15 px-3 py-3 text-xs font-black text-sky-200"
                       >
-                        <PackageCheck size={16} /> Gelenleri kapat
+                        <PackageCheck size={16} /> Wareneingang bestätigen
                       </button>
                     ) : null}
                   </div>
                 );
               })
             ) : (
-              <Empty text="Açık sipariş kalemi yok." />
+              <Empty text="Keine offenen Bestellpositionen." />
             )}
           </section>
         ) : null}
@@ -795,7 +1062,7 @@ export default function ChefPage() {
 
         {state.activity.length ? (
           <div className={`rounded-[26px] p-4 ${glass}`}>
-            <div className="mb-2 text-xs font-black text-white/50">Son hareketler</div>
+            <div className="mb-2 text-xs font-black text-white/50">Letzte Aktivitäten</div>
             {state.activity.slice(0, 6).map((activity) => (
               <div
                 key={activity.id}
@@ -803,7 +1070,7 @@ export default function ChefPage() {
               >
                 <span>
                   <b>{activity.actorName}</b>
-                  <span className="text-white/45"> · {activity.detail}</span>
+                  <span className="text-white/45"> · {germanActivity(activity.detail)}</span>
                 </span>
                 <span className="shrink-0 text-white/30">{fmt(activity.createdAt)}</span>
               </div>
@@ -818,31 +1085,16 @@ export default function ChefPage() {
             state.me.role === "ADMIN" ? "grid-cols-4" : "grid-cols-3"
           }`}
         >
-          <Nav
-            active={tab === "stock"}
-            icon={<Boxes size={19} />}
-            label="Stok"
-            on={() => setTab("stock")}
-          />
+          <Nav active={tab === "stock"} icon={<Boxes size={19} />} label="Bestand" on={() => setTab("stock")} />
           <Nav
             active={tab === "orders"}
             icon={<MessageCircle size={19} />}
-            label={`Sipariş${open ? ` ${open}` : ""}`}
+            label={`Bestellung${open ? ` ${open}` : ""}`}
             on={() => setTab("orders")}
           />
-          <Nav
-            active={tab === "plans"}
-            icon={<CalendarDays size={19} />}
-            label="Plan"
-            on={() => setTab("plans")}
-          />
+          <Nav active={tab === "plans"} icon={<CalendarDays size={19} />} label="Plan" on={() => setTab("plans")} />
           {state.me.role === "ADMIN" ? (
-            <Nav
-              active={tab === "admin"}
-              icon={<Settings size={19} />}
-              label="Admin"
-              on={() => setTab("admin")}
-            />
+            <Nav active={tab === "admin"} icon={<Settings size={19} />} label="Admin" on={() => setTab("admin")} />
           ) : null}
         </div>
       </nav>
@@ -955,20 +1207,20 @@ function Plans({
     try {
       await api({ action: "upsertPlan", plan: form });
       setForm((current) => ({ ...current, title: "", note: "" }));
-      tell("Hazırlık planı kaydedildi.");
+      tell("Vorbereitungsplan gespeichert.");
       await reload();
     } catch (reason) {
-      tell(reason instanceof Error ? reason.message : "Plan kaydedilemedi");
+      tell(errorText(reason, "Plan konnte nicht gespeichert werden."));
     }
   }
 
   async function complete(id: string) {
     try {
       await api({ action: "completePlan", id });
-      tell("Hazırlık tamamlandı.");
+      tell("Vorbereitung als erledigt markiert.");
       await reload();
     } catch (reason) {
-      tell(reason instanceof Error ? reason.message : "Kapatılamadı");
+      tell(errorText(reason, "Plan konnte nicht abgeschlossen werden."));
     }
   }
 
@@ -976,7 +1228,7 @@ function Plans({
     <section className="space-y-4">
       <div className={`rounded-[26px] p-4 ${glass}`}>
         <div className="mb-3 flex items-center gap-2 font-black">
-          <CalendarDays size={18} /> Hazırlık planla
+          <CalendarDays size={18} /> Vorbereitung planen
         </div>
         <div className="grid gap-2">
           <input
@@ -994,7 +1246,7 @@ function Plans({
           <input
             value={form.note}
             onChange={(event) => setForm({ ...form, note: event.target.value })}
-            placeholder="Not (opsiyonel)"
+            placeholder="Notiz (optional)"
             className="rounded-xl border border-white/10 bg-black/30 px-3 py-2.5 outline-none"
           />
         </div>
@@ -1003,11 +1255,9 @@ function Plans({
             <input
               type="checkbox"
               checked={form.remindDayBefore}
-              onChange={(event) =>
-                setForm({ ...form, remindDayBefore: event.target.checked })
-              }
+              onChange={(event) => setForm({ ...form, remindDayBefore: event.target.checked })}
             />{" "}
-            1 gün önce
+            1 Tag vorher
           </label>
           <label>
             <input
@@ -1015,7 +1265,7 @@ function Plans({
               checked={form.remindSameDay}
               onChange={(event) => setForm({ ...form, remindSameDay: event.target.checked })}
             />{" "}
-            O gün
+            Am selben Tag
           </label>
           <label>
             <input
@@ -1025,38 +1275,42 @@ function Plans({
                 setForm({ ...form, recurrence: event.target.checked ? "WEEKLY" : "NONE" })
               }
             />{" "}
-            Haftalık
+            Wöchentlich
           </label>
         </div>
         <button
           onClick={() => void savePlan()}
           className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-amber-300 py-3 font-black text-black"
         >
-          <Plus size={17} /> Plan ekle
+          <Plus size={17} /> Plan speichern
         </button>
       </div>
 
-      {state.plans.map((plan) => (
-        <div key={plan.id} className={`rounded-[26px] p-4 ${glass}`}>
-          <div className="flex justify-between gap-3">
-            <div>
-              <div className="text-lg font-black">{plan.title}</div>
-              <div className="text-sm font-bold text-amber-200">{plan.scheduledDate}</div>
-              <div className="text-[11px] text-white/42">
-                Planlayan: {plan.createdByName}
-                {plan.recurrence === "WEEKLY" ? " · Haftalık" : ""}
+      {state.plans.length ? (
+        state.plans.map((plan) => (
+          <div key={plan.id} className={`rounded-[26px] p-4 ${glass}`}>
+            <div className="flex justify-between gap-3">
+              <div>
+                <div className="text-lg font-black">{plan.title}</div>
+                <div className="text-sm font-bold text-amber-200">{plan.scheduledDate}</div>
+                <div className="text-[11px] text-white/42">
+                  Geplant von: {plan.createdByName}
+                  {plan.recurrence === "WEEKLY" ? " · Wöchentlich" : ""}
+                </div>
+                {plan.note ? <p className="mt-2 text-sm text-white/60">{plan.note}</p> : null}
               </div>
-              {plan.note ? <p className="mt-2 text-sm text-white/60">{plan.note}</p> : null}
+              <button
+                onClick={() => void complete(plan.id)}
+                className="h-fit rounded-xl bg-emerald-400 px-3 py-2 text-xs font-black text-black"
+              >
+                Erledigt ✓
+              </button>
             </div>
-            <button
-              onClick={() => void complete(plan.id)}
-              className="h-fit rounded-xl bg-emerald-400 px-3 py-2 text-xs font-black text-black"
-            >
-              Hazırlandı ✓
-            </button>
           </div>
-        </div>
-      ))}
+        ))
+      ) : (
+        <Empty text="Keine Vorbereitung geplant." />
+      )}
     </section>
   );
 }
@@ -1073,7 +1327,7 @@ function Admin({
   const emptyItem = {
     id: "",
     name: "",
-    category: "Fries & Beilagen",
+    category: "Pommes & Beilagen",
     mode: "QUANTITY",
     unit: "",
     minStock: "",
@@ -1102,39 +1356,33 @@ function Admin({
     try {
       await api({ action: "upsertItem", item });
       setItem(emptyItem);
-      tell("Ürün kaydedildi.");
+      tell("Artikel gespeichert.");
       await reload();
     } catch (reason) {
-      tell(reason instanceof Error ? reason.message : "Ürün kaydedilemedi");
+      tell(errorText(reason, "Artikel konnte nicht gespeichert werden."));
     }
   }
 
   async function removeItem(id: string, name: string) {
-    if (!window.confirm(`${name} stok listesinden kaldırılsın mı?`)) return;
+    if (!window.confirm(`${name} aus der Bestandsliste entfernen?`)) return;
     try {
       await api({ action: "deleteItem", id });
       if (item.id === id) setItem(emptyItem);
-      tell(`${name} kaldırıldı.`);
+      tell(`${name} wurde entfernt.`);
       await reload();
     } catch (reason) {
-      tell(reason instanceof Error ? reason.message : "Ürün kaldırılamadı");
+      tell(errorText(reason, "Artikel konnte nicht entfernt werden."));
     }
   }
 
   async function saveUser() {
     try {
       await api({ action: "upsertUser", user });
-      setUser({
-        id: "",
-        displayName: "",
-        username: "",
-        role: "CHEF",
-        canOrder: false,
-      });
-      tell("Kullanıcı kaydedildi.");
+      setUser({ id: "", displayName: "", username: "", role: "CHEF", canOrder: false });
+      tell("Benutzer gespeichert.");
       await reload();
     } catch (reason) {
-      tell(reason instanceof Error ? reason.message : "Kullanıcı kaydedilemedi");
+      tell(errorText(reason, "Benutzer konnte nicht gespeichert werden."));
     }
   }
 
@@ -1142,17 +1390,17 @@ function Admin({
     <section className="space-y-4">
       <div className={`rounded-[26px] p-4 ${glass}`}>
         <div className="mb-1 flex items-center gap-2 font-black">
-          <Settings size={18} /> Ürün yönetimi
+          <Settings size={18} /> Artikelverwaltung
         </div>
         <p className="mb-3 text-xs text-white/45">
-          Ana grup seç; ürün adı altında görünür. Box ölçüsü/modeli gibi ayrıntıyı ürün adına yazabilirsin.
+          Relevante Artikel aus dem Extras-Menü werden automatisch mit ihrem echten Namen synchronisiert. Weitere Lagerartikel kannst du hier ergänzen.
         </p>
 
         <div className="grid grid-cols-2 gap-2">
           <input
             value={item.name}
             onChange={(event) => setItem({ ...item, name: event.target.value })}
-            placeholder="Ürün adı / model / ölçü"
+            placeholder="Artikelname / Modell / Größe"
             className="col-span-2 rounded-xl border border-white/10 bg-black/30 px-3 py-2.5"
           />
           <select
@@ -1171,33 +1419,33 @@ function Admin({
             onChange={(event) => setItem({ ...item, mode: event.target.value })}
             className="rounded-xl border border-white/10 bg-black/30 px-3 py-2.5"
           >
-            <option value="QUANTITY">Miktar</option>
-            <option value="STATUS">Durum</option>
+            <option value="QUANTITY">Menge</option>
+            <option value="STATUS">Status</option>
           </select>
           <input
             value={item.unit}
             onChange={(event) => setItem({ ...item, unit: event.target.value })}
-            placeholder="Birim: Karton/Kiste"
+            placeholder="Einheit: Karton/Kiste"
             className="rounded-xl border border-white/10 bg-black/30 px-3 py-2.5"
           />
           <input
             value={item.minStock}
             onChange={(event) => setItem({ ...item, minStock: event.target.value })}
-            placeholder="Stok limiti"
+            placeholder="Mindestbestand"
             inputMode="decimal"
             className="rounded-xl border border-white/10 bg-black/30 px-3 py-2.5"
           />
           <input
             value={item.defaultOrderQty}
             onChange={(event) => setItem({ ...item, defaultOrderQty: event.target.value })}
-            placeholder="Varsayılan sipariş"
+            placeholder="Standard-Bestellmenge"
             inputMode="decimal"
             className="rounded-xl border border-white/10 bg-black/30 px-3 py-2.5"
           />
           <input
             value={item.supplierName}
             onChange={(event) => setItem({ ...item, supplierName: event.target.value })}
-            placeholder="Firma adı"
+            placeholder="Lieferant"
             className="rounded-xl border border-white/10 bg-black/30 px-3 py-2.5"
           />
           <input
@@ -1213,13 +1461,13 @@ function Admin({
             onClick={() => setItem(emptyItem)}
             className="rounded-xl border border-white/10 bg-white/5 py-3 text-sm font-bold text-white/70"
           >
-            Yeni ürün
+            Neuer Artikel
           </button>
           <button
             onClick={() => void saveItem()}
             className="rounded-xl bg-amber-300 py-3 font-black text-black"
           >
-            {item.id ? "Değişikliği kaydet" : "Ürünü ekle"}
+            {item.id ? "Änderungen speichern" : "Artikel hinzufügen"}
           </button>
         </div>
 
@@ -1244,7 +1492,8 @@ function Admin({
                     >
                       <div className="truncate text-sm font-bold">{row.name}</div>
                       <div className="text-[10px] text-white/35">
-                        {row.mode === "QUANTITY" ? `Miktar · ${row.unit || "birim yok"}` : "Durum"}
+                        {row.mode === "QUANTITY" ? `Menge · ${row.unit || "ohne Einheit"}` : "Status"}
+                        {row.source === "menu-extras" ? " · Extras-Menü" : ""}
                       </div>
                     </button>
                     <button
@@ -1256,14 +1505,14 @@ function Admin({
                         })
                       }
                       className="rounded-lg bg-white/7 p-2 text-white/55"
-                      aria-label={`${row.name} düzenle`}
+                      aria-label={`${row.name} bearbeiten`}
                     >
                       <Pencil size={15} />
                     </button>
                     <button
                       onClick={() => void removeItem(row.id, row.name)}
                       className="rounded-lg bg-rose-500/10 p-2 text-rose-300"
-                      aria-label={`${row.name} kaldır`}
+                      aria-label={`${row.name} entfernen`}
                     >
                       <Trash2 size={15} />
                     </button>
@@ -1277,23 +1526,23 @@ function Admin({
 
       <div className={`rounded-[26px] p-4 ${glass}`}>
         <div className="mb-1 flex items-center gap-2 font-black">
-          <Users size={18} /> Şef kullanıcıları
+          <Users size={18} /> Chef-Benutzer
         </div>
         <p className="mb-3 text-xs text-white/45">
-          PIN şu an kapalı. Normal Chef hesabı Admin sekmesini göremez. “Sipariş verebilir” yalnızca seçili şeflere açılır.
+          Die PIN ist aktuell deaktiviert. Ein normaler Chef sieht den Admin-Bereich nicht. „Bestellung erlauben“ nur für berechtigte Personen aktivieren.
         </p>
 
         <div className="grid grid-cols-2 gap-2">
           <input
             value={user.displayName}
             onChange={(event) => setUser({ ...user, displayName: event.target.value })}
-            placeholder="İsim"
+            placeholder="Name"
             className="rounded-xl border border-white/10 bg-black/30 px-3 py-2.5"
           />
           <input
             value={user.username}
             onChange={(event) => setUser({ ...user, username: event.target.value })}
-            placeholder="Kullanıcı adı"
+            placeholder="Benutzername"
             className="rounded-xl border border-white/10 bg-black/30 px-3 py-2.5"
           />
           <select
@@ -1310,7 +1559,7 @@ function Admin({
               checked={user.canOrder}
               onChange={(event) => setUser({ ...user, canOrder: event.target.checked })}
             />
-            Sipariş verebilir
+            Bestellung erlauben
           </label>
         </div>
 
@@ -1318,7 +1567,7 @@ function Admin({
           onClick={() => void saveUser()}
           className="mt-3 w-full rounded-xl bg-amber-300 py-3 font-black text-black"
         >
-          Kullanıcıyı kaydet
+          Benutzer speichern
         </button>
 
         <div className="mt-4 divide-y divide-white/7">
@@ -1340,7 +1589,7 @@ function Admin({
                 {row.displayName} · @{row.username}
               </span>
               <span className="text-right text-white/35">
-                {row.role === "ADMIN" ? "Admin" : row.canOrder ? "Chef · Sipariş" : "Chef"}
+                {row.role === "ADMIN" ? "Admin" : row.canOrder ? "Chef · Bestellung" : "Chef"}
               </span>
             </button>
           ))}
