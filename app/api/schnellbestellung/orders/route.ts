@@ -13,6 +13,7 @@ import {
   hasTrustedMutationOrigin,
   readRequestCookie,
 } from "@/lib/server/request-security";
+import { getShopStatusFresh } from "@/lib/server/shop-status";
 
 export async function POST(req: Request) {
   const requestStartedAt = performance.now();
@@ -22,6 +23,44 @@ export async function POST(req: Request) {
 
   const rate = await enforceRateLimit(req, "schnell:orders", 10, 10 * 60 * 1000);
   if (rate) return rate;
+
+  try {
+    const shopStatus = await getShopStatusFresh();
+    if (shopStatus.closed) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "SHOP_CLOSED",
+          message:
+            shopStatus.message ||
+            "Der Online-Shop ist vorübergehend geschlossen.",
+        },
+        {
+          status: 503,
+          headers: {
+            "Cache-Control": "no-store",
+            "Retry-After": "5",
+          },
+        },
+      );
+    }
+  } catch (error) {
+    console.error("[schnell/orders] shop status unavailable", error);
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "SHOP_STATUS_UNAVAILABLE",
+        message: "Der Online-Shop ist vorübergehend nicht verfügbar.",
+      },
+      {
+        status: 503,
+        headers: {
+          "Cache-Control": "no-store",
+          "Retry-After": "5",
+        },
+      },
+    );
+  }
 
   const settings = await getSchnellSettings();
   const session = verifySessionToken(
