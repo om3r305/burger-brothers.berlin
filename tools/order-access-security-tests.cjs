@@ -9,6 +9,7 @@ const originalLoad = Module._load;
 const originalResolveFilename = Module._resolveFilename;
 const originalTsLoader = require.extensions[".ts"];
 let pause = { pickup: false, delivery: false };
+let shopClosed = false;
 
 function resolveAlias(request) {
   if (!request.startsWith("@/")) return null;
@@ -56,6 +57,17 @@ Module._load = function patchedLoad(request, parent, isMain) {
       prisma: {
         setting: {
           findUnique: async () => ({ value: pause }),
+          findMany: async () => [
+            {
+              key: "bb_settings_v6",
+              value: {
+                site: {
+                  closed: shopClosed,
+                  message: shopClosed ? "Wartung" : "",
+                },
+              },
+            },
+          ],
         },
       },
     };
@@ -179,6 +191,7 @@ async function main() {
     pricingMeta: { surcharges: { pfand: 0.5 } },
   };
 
+  shopClosed = false;
   pause = { pickup: false, delivery: false };
   await validation.validateOrderForCheckout({
     tenantId: "tenant-1",
@@ -186,6 +199,18 @@ async function main() {
     settings,
     pricing,
   });
+
+  shopClosed = true;
+  await expectValidationError(
+    validation.validateOrderForCheckout({
+      tenantId: "tenant-1",
+      order: baseOrder,
+      settings,
+      pricing,
+    }),
+    "ORDER_SITE_CLOSED",
+  );
+  shopClosed = false;
 
   await expectValidationError(
     validation.validateOrderForCheckout({
