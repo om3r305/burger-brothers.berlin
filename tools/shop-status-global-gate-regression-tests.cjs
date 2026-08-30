@@ -52,6 +52,11 @@ assert(
   "Middleware must own the global server-side maintenance gate",
 );
 assert(
+  sources.middleware.includes('"/logo-burger-brothers.png"') &&
+    sources.middleware.includes('<img src="/logo-burger-brothers.png"'),
+  "Maintenance logo must remain reachable while the shop gate is closed",
+);
+assert(
   sources.middleware.includes("!adminPage") &&
     sources.middleware.includes("!adminOk") &&
     sources.middleware.includes('path === "/api/admin/login"') &&
