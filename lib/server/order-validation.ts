@@ -10,6 +10,7 @@ import {
   validatePlannedTime,
 } from "@/lib/availability";
 import { normalizeStreetForMatch } from "@/lib/streets";
+import { getShopStatusFresh } from "@/lib/server/shop-status";
 
 type OrderMode = "pickup" | "delivery";
 type StreetDatabase = Record<string, string[]>;
@@ -264,6 +265,37 @@ export async function validateOrderForCheckout(params: {
   settings: any;
   pricing: any;
 }) {
+  const paymentLocked =
+    params.pricing?.pricingMeta?.source === "payment_locked" &&
+    params.pricing?.pricingMeta?.pricingLocked === true;
+
+  // Shop-Status is a DB-authoritative emergency stop. We deliberately skip
+  // this one check only for an already-paid snapshot that /api/orders/create
+  // could build solely after verifying the internal payment-finalize HMAC.
+  // That prevents a paid Stripe order from being stranded if the shop is
+  // stopped while the customer is returning from payment.
+  if (!paymentLocked) {
+    let shopStatus;
+    try {
+      shopStatus = await getShopStatusFresh(params.tenantId);
+    } catch (error) {
+      console.error("[order-validation] shop status unavailable", error);
+      throw new OrderValidationError(
+        "ORDER_SHOP_STATUS_UNAVAILABLE",
+        "Der Online-Shop ist vorübergehend nicht verfügbar.",
+        503,
+      );
+    }
+
+    if (shopStatus.closed) {
+      throw new OrderValidationError(
+        "ORDER_SITE_CLOSED",
+        shopStatus.message || "Der Online-Shop ist vorübergehend geschlossen.",
+        503,
+      );
+    }
+  }
+
   const mode = modeFrom(params.pricing?.mode ?? params.order?.mode);
   const customer = validateCustomer(params.order, params.settings, mode);
   validateMinimum(params.pricing, customer);
