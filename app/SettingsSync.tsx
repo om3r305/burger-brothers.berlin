@@ -9,7 +9,7 @@ import {
   readSettings,
 } from "@/lib/settings";
 
-const PASSIVE_REFRESH_GAP_MS = 60_000;
+const PASSIVE_REFRESH_GAP_MS = 15_000;
 
 function isAdminRoute(path: string) {
   return path === "/admin" || path.startsWith("/admin/");
@@ -21,26 +21,34 @@ function isDedicatedOperationalRoute(path: string) {
   );
 }
 
-function isCustomerCatalogRoute(path: string) {
-  return [
-    "/",
-    "/menu",
-    "/extras",
-    "/drinks",
-    "/sauces",
-    "/hotdogs",
-    "/donuts",
-    "/bubble-tea",
-  ].includes(path);
+async function fetchPublicRuntimeSettings() {
+  try {
+    const res = await fetch(`/api/settings/runtime?ts=${Date.now()}`, {
+      method: "GET",
+      cache: "no-store",
+      headers: { accept: "application/json" },
+    });
+    if (!res.ok) return null;
+    const json = await res.json().catch(() => null);
+    return json && typeof json === "object" ? json : null;
+  } catch {
+    return null;
+  }
 }
 
 async function syncSettingsOnce() {
   try {
-    const server = await fetchServerSettings();
+    const [server, runtime] = await Promise.all([
+      fetchServerSettings(),
+      fetchPublicRuntimeSettings(),
+    ]);
 
-    if (!server) return readSettings();
+    if (!server && !runtime) return readSettings();
 
-    return applyRemoteSettings(server);
+    return applyRemoteSettings({
+      ...(server || {}),
+      ...(runtime || {}),
+    });
   } catch {
     return readSettings();
   }
@@ -52,11 +60,7 @@ export default function SettingsSync() {
   const lastRefreshRef = useRef(0);
 
   useEffect(() => {
-    if (
-      isAdminRoute(pathname) ||
-      isCustomerCatalogRoute(pathname) ||
-      isDedicatedOperationalRoute(pathname)
-    ) {
+    if (isAdminRoute(pathname) || isDedicatedOperationalRoute(pathname)) {
       return;
     }
 
@@ -100,6 +104,12 @@ export default function SettingsSync() {
 
     void runSync();
 
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === "visible") {
+        void runSync();
+      }
+    }, PASSIVE_REFRESH_GAP_MS);
+
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("focus", onFocus);
     window.addEventListener(
@@ -109,6 +119,7 @@ export default function SettingsSync() {
 
     return () => {
       stopped = true;
+      window.clearInterval(interval);
       document.removeEventListener(
         "visibilitychange",
         onVisibility,
