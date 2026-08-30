@@ -67,7 +67,7 @@ function publicRuntimeView(settings: Record<string, any>) {
 
 export async function GET() {
   try {
-    const tenantId = getTenantId();
+    const tenantId = await getTenantId();
     const rows = await prisma.setting.findMany({
       where: { tenantId },
       select: { key: true, value: true },
