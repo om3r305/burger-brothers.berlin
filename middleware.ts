@@ -13,6 +13,7 @@ const PUBLIC_PATHS = new Set([
   "/api/admin/login",
   "/tv/login",
   "/api/tv/login",
+  "/api/shop-status",
   "/api/stripe/webhook",
   "/api/orders/create",
   "/api/payments/prepare",
@@ -38,6 +39,15 @@ const PUBLIC_PREFIXES = [
   "/assets",
   "/admin/icons",
 ];
+
+const SHOP_STATUS_CACHE_MS = 2_500;
+let shopStatusCache:
+  | {
+      expiresAt: number;
+      closed: boolean;
+      message: string;
+    }
+  | null = null;
 
 function child(path: string, prefix: string) {
   return path === prefix || path.startsWith(`${prefix}/`);
@@ -298,6 +308,146 @@ function allowRequest(req: NextRequest) {
     : nextPageResponse(req);
 }
 
+function escapeHtml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function maintenancePageResponse(messageRaw: string) {
+  const message = escapeHtml(
+    messageRaw ||
+      "Wir sind bald für euch da! 🍔🔥 Unser Online-Shop wird gerade vorbereitet und ist in Kürze verfügbar.",
+  );
+  const html = `<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta http-equiv="refresh" content="5" />
+  <meta name="robots" content="noindex,nofollow" />
+  <title>Wartungsmodus · Burger Brothers Berlin</title>
+  <style>
+    html,body{margin:0;min-height:100%;background:#000;color:#fff;font-family:Arial,Helvetica,sans-serif}
+    body{min-height:100vh;display:grid;place-items:center;padding:24px;box-sizing:border-box}
+    main{text-align:center;max-width:760px}
+    img{width:140px;height:140px;object-fit:contain;display:block;margin:0 auto 20px}
+    h1{font-size:22px;line-height:1.1;margin:0 0 8px;font-weight:700}
+    p{font-size:14px;line-height:1.5;color:#d6d3d1;margin:0;white-space:pre-line}
+  </style>
+</head>
+<body>
+  <main>
+    <img src="/logo-burger-brothers.png" alt="Burger Brothers Berlin" />
+    <h1>Wartungsmodus</h1>
+    <p>${message}</p>
+  </main>
+</body>
+</html>`;
+
+  return new NextResponse(html, {
+    status: 503,
+    headers: {
+      "Cache-Control": "no-store, no-cache, must-revalidate",
+      "Content-Type": "text/html; charset=utf-8",
+      "Retry-After": "5",
+      "Content-Security-Policy":
+        "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'",
+      "X-Robots-Tag": "noindex, nofollow",
+    },
+  });
+}
+
+function maintenanceApiResponse(message: string) {
+  return NextResponse.json(
+    {
+      ok: false,
+      error: "SHOP_CLOSED",
+      message:
+        message ||
+        "Der Online-Shop ist vorübergehend geschlossen.",
+    },
+    {
+      status: 503,
+      headers: {
+        "Cache-Control": "no-store, no-cache, must-revalidate",
+        "Retry-After": "5",
+      },
+    },
+  );
+}
+
+async function readShopStatus(req: NextRequest) {
+  const now = Date.now();
+  if (shopStatusCache && shopStatusCache.expiresAt > now) {
+    return shopStatusCache;
+  }
+
+  try {
+    const url = req.nextUrl.clone();
+    url.pathname = "/api/shop-status";
+    url.search = "";
+    url.searchParams.set("probe", String(now));
+
+    const response = await fetch(url, {
+      method: "GET",
+      cache: "no-store",
+      headers: {
+        accept: "application/json",
+      },
+    });
+    const payload = await response.json().catch(() => null);
+    const status = {
+      expiresAt: now + SHOP_STATUS_CACHE_MS,
+      closed: payload?.closed === true || !payload,
+      message: String(payload?.message || ""),
+    };
+    shopStatusCache = status;
+    return status;
+  } catch {
+    const status = {
+      expiresAt: now + 1_000,
+      closed: true,
+      message: "Der Online-Shop ist vorübergehend nicht verfügbar.",
+    };
+    shopStatusCache = status;
+    return status;
+  }
+}
+
+function shouldEnforceShopStatus(
+  path: string,
+  methodRaw: string,
+  access: Access,
+) {
+  if (path === "/api/shop-status") return false;
+  if (path === "/api/admin/login") return false;
+  if (path === "/api/stripe/webhook") return false;
+  if (access === "token") return false;
+
+  if (!path.startsWith("/api/")) return true;
+
+  const method = methodRaw.toUpperCase();
+  const readOnly = method === "GET" || method === "HEAD" || method === "OPTIONS";
+  if (readOnly) return false;
+
+  // These three routes perform a fresh DB-backed shop-status check inside the
+  // business transaction path. Keeping them out of the middleware gate also
+  // lets an already-paid, HMAC-verified Stripe order finalize safely.
+  if (
+    path === "/api/orders/create" ||
+    path === "/api/payments/prepare" ||
+    path === "/api/schnellbestellung/orders"
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
 export async function middleware(req: NextRequest) {
   const path = req.nextUrl.pathname;
 
@@ -322,20 +472,44 @@ export async function middleware(req: NextRequest) {
     }
   }
 
-  if (publicAsset(path)) return NextResponse.next();
+  // Static assets and the admin login shell must remain reachable so the
+  // maintenance response can render and the owner can always recover the shop.
+  // /tv/login is intentionally excluded: TV is not an admin exception.
+  if (publicAsset(path) && path !== "/tv/login") {
+    return NextResponse.next();
+  }
 
   const adminPage = child(path, "/admin") || child(path, "/dashboard");
   const tvPage = child(path, "/tv") || child(path, "/print");
   const access = path.startsWith("/api/") ? apiAccess(path, req.method) : "public";
 
-  if (!adminPage && !tvPage && (access === "public" || access === "token")) {
+  const adminCookie = req.cookies.get(ADMIN_COOKIE)?.value || "";
+  const adminOk = adminCookie
+    ? await verifySessionToken(adminCookie, "admin")
+    : false;
+
+  if (
+    !adminPage &&
+    !adminOk &&
+    shouldEnforceShopStatus(path, req.method, access)
+  ) {
+    const shopStatus = await readShopStatus(req);
+    if (shopStatus.closed) {
+      return path.startsWith("/api/")
+        ? maintenanceApiResponse(shopStatus.message)
+        : maintenancePageResponse(shopStatus.message);
+    }
+  }
+
+  // The TV login page is public only while the shop is open. The POST endpoint
+  // follows the same maintenance gate above.
+  if (path === "/tv/login") {
     return allowRequest(req);
   }
 
-  const adminOk = await verifySessionToken(
-    req.cookies.get(ADMIN_COOKIE)?.value || "",
-    "admin",
-  );
+  if (!adminPage && !tvPage && (access === "public" || access === "token")) {
+    return allowRequest(req);
+  }
 
   if (adminPage || access === "admin") {
     return adminOk ? allowRequest(req) : unauthorized(req, "/admin/login");
