@@ -9,11 +9,12 @@ export type ShopStatus = {
   maintenanceEnd: string;
 };
 
-const WHOLE_SETTINGS_KEYS = new Set([
+const WHOLE_SETTINGS_PRECEDENCE = [
   "app:settings",
-  "bb_settings_v6",
   "settings",
-]);
+  "bb_settings_v6",
+] as const;
+const WHOLE_SETTINGS_KEYS = new Set<string>(WHOLE_SETTINGS_PRECEDENCE);
 
 function isPlainObject(value: any): value is PlainObject {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
@@ -55,7 +56,7 @@ export async function getShopStatusFresh(
   });
 
   let legacySite: PlainObject = {};
-  let wholeSite: PlainObject = {};
+  const wholeSites = new Map<string, PlainObject>();
 
   for (const row of rows) {
     if (row.key === "site") {
@@ -71,12 +72,21 @@ export async function getShopStatusFresh(
 
     const site = row.value.site;
     if (isPlainObject(site)) {
-      wholeSite = mergeObjects(wholeSite, site);
+      wholeSites.set(
+        row.key,
+        mergeObjects(wholeSites.get(row.key) || {}, site),
+      );
     }
   }
 
-  // Canonical whole-settings rows win over old standalone `site` rows, matching
-  // the rest of the settings stack. The read is intentionally uncached so the
-  // emergency stop propagates across devices immediately.
+  let wholeSite: PlainObject = {};
+  for (const key of WHOLE_SETTINGS_PRECEDENCE) {
+    const site = wholeSites.get(key);
+    if (site) wholeSite = mergeObjects(wholeSite, site);
+  }
+
+  // Canonical bb_settings_v6 is applied last and wins over legacy whole-setting
+  // rows and the old standalone `site` row. The read is intentionally uncached
+  // so the emergency stop propagates across devices immediately.
   return normalizeStatus(mergeObjects(legacySite, wholeSite));
 }
