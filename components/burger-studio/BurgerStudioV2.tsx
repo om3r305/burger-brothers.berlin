@@ -399,7 +399,7 @@ export default function BurgerStudioV2() {
       qty: 1,
       add: plan.add,
       rm: plan.rm,
-      note: `🔥 BURGER STUDIO: ${cleanName}`,
+      note: `🔥 BURGER STUDIO: ${cleanName}\nZutaten: ${selectedSummary}`,
     });
 
     flash("Dein Burger ist im Warenkorb 🔥");
