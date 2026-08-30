@@ -61,7 +61,7 @@ export async function getShopStatusFresh(
   for (const row of rows) {
     if (row.key === "site") {
       if (isPlainObject(row.value)) {
-        legacySite = mergeObjects(legacySite, row.value);
+        legacySite = mergeObjects(legacySite, row.value as PlainObject);
       }
       continue;
     }
@@ -70,7 +70,8 @@ export async function getShopStatusFresh(
       continue;
     }
 
-    const site = row.value.site;
+    const rowValue = row.value as PlainObject;
+    const site = rowValue.site;
     if (isPlainObject(site)) {
       wholeSites.set(
         row.key,
