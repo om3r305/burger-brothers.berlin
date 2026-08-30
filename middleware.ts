@@ -19,6 +19,7 @@ const PUBLIC_PATHS = new Set([
   "/api/payments/prepare",
   "/api/coupons/validate",
   "/favicon.ico",
+  "/logo-burger-brothers.png",
   "/manifest.webmanifest",
   "/manifest-schnellbestellung.webmanifest",
   "/site.webmanifest",
