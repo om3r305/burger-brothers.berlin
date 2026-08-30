@@ -11,6 +11,7 @@ const originalTsLoader = require.extensions[".ts"];
 const previousSecret = process.env.SESSION_SECRET;
 const previousVercel = process.env.VERCEL;
 const previousVercelEnv = process.env.VERCEL_ENV;
+const previousFetch = global.fetch;
 
 function resolveAlias(request) {
   if (!request.startsWith("@/")) return null;
@@ -90,6 +91,23 @@ async function expectUnauthorized(middleware, req) {
 
 async function main() {
   process.env.SESSION_SECRET = "test-session-secret-0123456789-ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+  // Session/authorization checks must not depend on the live restaurant's
+  // Shop-Status. The maintenance gate has dedicated coverage elsewhere.
+  global.fetch = async () =>
+    new Response(
+      JSON.stringify({
+        ok: true,
+        closed: false,
+        message: "",
+        maintenanceStart: "",
+        maintenanceEnd: "",
+      }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      },
+    );
 
   const {
     createSessionToken,
@@ -285,6 +303,7 @@ main()
     process.exitCode = 1;
   })
   .finally(() => {
+    global.fetch = previousFetch;
     Module._resolveFilename = originalResolveFilename;
     if (originalTsLoader) require.extensions[".ts"] = originalTsLoader;
     else delete require.extensions[".ts"];
