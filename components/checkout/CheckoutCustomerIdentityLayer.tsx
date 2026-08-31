@@ -82,7 +82,7 @@ export default function CheckoutCustomerIdentityLayer() {
 
   const refreshSession = useCallback(async () => {
     try {
-      const response = await fetch("/api/customer-identity/session", {
+      const response = await fetch("/customer-identity/session", {
         credentials: "same-origin",
         cache: "no-store",
       });
@@ -140,7 +140,7 @@ export default function CheckoutCustomerIdentityLayer() {
     setError("");
     try {
       const response = await (originalFetchRef.current || window.fetch)(
-        "/api/customer-identity/verification/start",
+        "/customer-identity/verification/start",
         {
           method: "POST",
           credentials: "same-origin",
@@ -220,7 +220,7 @@ export default function CheckoutCustomerIdentityLayer() {
     setError("");
     try {
       const fetcher = originalFetchRef.current || window.fetch;
-      const response = await fetcher("/api/customer-identity/verification/confirm", {
+      const response = await fetcher("/customer-identity/verification/confirm", {
         method: "POST",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
@@ -281,7 +281,7 @@ export default function CheckoutCustomerIdentityLayer() {
     setError("");
     try {
       const response = await (originalFetchRef.current || window.fetch)(
-        "/api/customer-identity/addresses",
+        "/customer-identity/addresses",
         {
           method: "POST",
           credentials: "same-origin",
