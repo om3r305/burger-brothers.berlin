@@ -16,6 +16,7 @@ const CUSTOMER_MENU_PATHS = new Set([
 
 const SELECTED_ADDRESS_KEY = "bb_selected_delivery_address_v1";
 const CHECKOUT_PROFILE_KEY = "bb_checkout_profile_v2";
+const CHECKOUT_INFO_KEY = "bb_checkout_info_v1";
 const ADDRESS_RECHECK_MS = 7 * 24 * 60 * 60 * 1000;
 
 type SavedAddress = {
@@ -47,15 +48,79 @@ function parseTimestamp(value: unknown) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function recordValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
 function readJsonRecord(key: string): Record<string, unknown> {
   try {
-    const parsed = JSON.parse(localStorage.getItem(key) || "null");
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? parsed
-      : {};
+    return recordValue(JSON.parse(localStorage.getItem(key) || "null"));
   } catch {
     return {};
   }
+}
+
+function cleanZip(value: unknown) {
+  return String(value || "").replace(/\D/g, "").slice(0, 5);
+}
+
+function localAddressFromRecord(
+  raw: Record<string, unknown>,
+  label = "Letzte Lieferadresse",
+): SavedAddress | null {
+  const street = String(raw.street || "").trim();
+  const house = String(raw.house || raw.houseNo || "").trim();
+  const zip = cleanZip(raw.zip || raw.plz);
+  const city = String(raw.city || "Berlin").trim() || "Berlin";
+
+  if (!street || !house || zip.length !== 5) return null;
+
+  return {
+    id: `local:${zip}:${street.toLocaleLowerCase("de-DE")}:${house.toLocaleLowerCase("de-DE")}`,
+    label,
+    street,
+    house,
+    zip,
+    city,
+    deliveryHint:
+      typeof raw.deliveryHint === "string"
+        ? raw.deliveryHint
+        : typeof raw.note === "string"
+          ? raw.note
+          : undefined,
+  };
+}
+
+function readRememberedCheckoutAddress(): SavedAddress | null {
+  try {
+    const profile = localAddressFromRecord(
+      readJsonRecord(`${CHECKOUT_PROFILE_KEY}:delivery`),
+    );
+    if (profile) return profile;
+
+    const checkout = readJsonRecord(CHECKOUT_INFO_KEY);
+    const checkoutAddress = localAddressFromRecord(
+      recordValue(checkout.addr),
+      "Letzte Lieferadresse",
+    );
+    if (checkoutAddress) return checkoutAddress;
+  } catch {
+    // Local checkout history is an optional fallback only.
+  }
+
+  return null;
+}
+
+function sameAddress(left: SavedAddress, right: SavedAddress) {
+  return (
+    cleanZip(left.zip) === cleanZip(right.zip) &&
+    left.street.trim().toLocaleLowerCase("de-DE") ===
+      right.street.trim().toLocaleLowerCase("de-DE") &&
+    left.house.replace(/\s+/g, "").toLocaleLowerCase("de-DE") ===
+      right.house.replace(/\s+/g, "").toLocaleLowerCase("de-DE")
+  );
 }
 
 function persistCheckoutAddress(address: SavedAddress) {
@@ -99,6 +164,7 @@ export default function DeliveryAddressEntry() {
     trusted: false,
     addresses: [],
   });
+  const [localAddress, setLocalAddress] = useState<SavedAddress | null>(null);
   const [selectedId, setSelectedId] = useState("");
   const [chooserOpen, setChooserOpen] = useState(false);
   const [recheckOpen, setRecheckOpen] = useState(false);
@@ -131,12 +197,22 @@ export default function DeliveryAddressEntry() {
   useEffect(() => {
     if (!CUSTOMER_MENU_PATHS.has(pathname) || orderMode !== "delivery") {
       setReady(false);
+      setLocalAddress(null);
       setChooserOpen(false);
       setRecheckOpen(false);
       return;
     }
 
     let active = true;
+    const remembered = readRememberedCheckoutAddress();
+
+    if (remembered) {
+      setLocalAddress(remembered);
+      selectAddress(remembered, false);
+      setReady(true);
+    } else {
+      setLocalAddress(null);
+    }
 
     void (async () => {
       try {
@@ -202,21 +278,28 @@ export default function DeliveryAddressEntry() {
     };
   }, [orderMode, pathname, selectAddress]);
 
+  const availableAddresses = useMemo(() => {
+    const serverAddresses = session.trusted ? session.addresses : [];
+    if (!localAddress) return serverAddresses;
+    if (serverAddresses.some((address) => sameAddress(address, localAddress))) {
+      return serverAddresses;
+    }
+    return [...serverAddresses, localAddress];
+  }, [localAddress, session.addresses, session.trusted]);
+
   const selected = useMemo(
     () =>
-      session.addresses.find((address) => address.id === selectedId) ||
-      session.addresses.find((address) => address.isDefault) ||
-      session.addresses[0] ||
+      availableAddresses.find((address) => address.id === selectedId) ||
+      availableAddresses.find((address) => address.isDefault) ||
+      availableAddresses[0] ||
       null,
-    [selectedId, session.addresses],
+    [availableAddresses, selectedId],
   );
 
   if (
     !ready ||
     orderMode !== "delivery" ||
     !CUSTOMER_MENU_PATHS.has(pathname) ||
-    !session.enabled ||
-    !session.trusted ||
     !selected
   ) {
     return null;
@@ -226,6 +309,7 @@ export default function DeliveryAddressEntry() {
     <>
       <div
         data-bb-swipe-ignore
+        data-bb-delivery-address-entry="1"
         className="fixed left-1/2 top-[calc(env(safe-area-inset-top)+142px)] z-[44] w-[min(92vw,460px)] -translate-x-1/2 sm:top-[calc(env(safe-area-inset-top)+98px)]"
       >
         <button
@@ -276,7 +360,7 @@ export default function DeliveryAddressEntry() {
             </div>
 
             <div className="space-y-2">
-              {session.addresses.map((address) => {
+              {availableAddresses.map((address) => {
                 const active = address.id === selected.id;
                 return (
                   <button

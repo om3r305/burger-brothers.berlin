@@ -19,6 +19,7 @@ const CUSTOMER_MENU_PATHS = new Set([
 const POSITION_KEY = "bb_burger_studio_floating_position_v1";
 const COLLAPSE_DELAY_MS = 4_500;
 const EDGE_GAP_PX = 10;
+const SNAP_AFTER_COLLAPSE_MS = 340;
 
 type Position = { x: number; y: number };
 type DragState = {
@@ -44,6 +45,26 @@ function clampPosition(position: Position, width: number, height: number): Posit
   };
 }
 
+function snapPositionToNearestEdge(
+  position: Position,
+  width: number,
+  height: number,
+): Position {
+  const clamped = clampPosition(position, width, height);
+  const useLeftEdge = clamped.x + width / 2 <= window.innerWidth / 2;
+
+  return clampPosition(
+    {
+      x: useLeftEdge
+        ? EDGE_GAP_PX
+        : window.innerWidth - width - EDGE_GAP_PX,
+      y: clamped.y,
+    },
+    width,
+    height,
+  );
+}
+
 export default function BurgerStudioEntry() {
   const pathname = usePathname();
   const router = useRouter();
@@ -54,6 +75,46 @@ export default function BurgerStudioEntry() {
   const dragRef = useRef<DragState | null>(null);
   const draggedRef = useRef(false);
   const collapseTimerRef = useRef<number | null>(null);
+  const snapTimerRef = useRef<number | null>(null);
+
+  const persistPosition = useCallback((next: Position) => {
+    setPosition((current) => {
+      if (
+        current &&
+        Math.abs(current.x - next.x) < 0.5 &&
+        Math.abs(current.y - next.y) < 0.5
+      ) {
+        return current;
+      }
+      return next;
+    });
+
+    try {
+      localStorage.setItem(POSITION_KEY, JSON.stringify(next));
+    } catch {}
+  }, []);
+
+  const snapCurrentButtonToEdge = useCallback(() => {
+    const button = buttonRef.current;
+    if (!button) return;
+    const rect = button.getBoundingClientRect();
+    const next = snapPositionToNearestEdge(
+      { x: rect.left, y: rect.top },
+      rect.width,
+      rect.height,
+    );
+    persistPosition(next);
+  }, [persistPosition]);
+
+  const scheduleSnap = useCallback(() => {
+    if (snapTimerRef.current) {
+      window.clearTimeout(snapTimerRef.current);
+    }
+    snapTimerRef.current = window.setTimeout(() => {
+      snapTimerRef.current = null;
+      snapCurrentButtonToEdge();
+    }, SNAP_AFTER_COLLAPSE_MS);
+  }, [snapCurrentButtonToEdge]);
 
   const armCollapse = useCallback(() => {
     if (collapseTimerRef.current) {
@@ -61,9 +122,10 @@ export default function BurgerStudioEntry() {
     }
     collapseTimerRef.current = window.setTimeout(() => {
       setExpanded(false);
+      scheduleSnap();
       collapseTimerRef.current = null;
     }, COLLAPSE_DELAY_MS);
-  }, []);
+  }, [scheduleSnap]);
 
   useEffect(() => {
     const sync = (value?: any) => setEnabled(enabledFromSettings(value));
@@ -99,8 +161,7 @@ export default function BurgerStudioEntry() {
   useEffect(() => {
     if (!CUSTOMER_MENU_PATHS.has(pathname)) return;
 
-    setExpanded(true);
-    armCollapse();
+    let restored = false;
 
     try {
       const parsed = JSON.parse(localStorage.getItem(POSITION_KEY) || "null");
@@ -110,20 +171,33 @@ export default function BurgerStudioEntry() {
         Number.isFinite(Number(parsed.x)) &&
         Number.isFinite(Number(parsed.y))
       ) {
-        window.requestAnimationFrame(() => {
+        restored = true;
+        setExpanded(false);
+
+        if (snapTimerRef.current) {
+          window.clearTimeout(snapTimerRef.current);
+        }
+        snapTimerRef.current = window.setTimeout(() => {
+          snapTimerRef.current = null;
           const rect = buttonRef.current?.getBoundingClientRect();
           if (!rect) return;
-          setPosition(
-            clampPosition(
+          persistPosition(
+            snapPositionToNearestEdge(
               { x: Number(parsed.x), y: Number(parsed.y) },
               rect.width,
               rect.height,
             ),
           );
-        });
+        }, SNAP_AFTER_COLLAPSE_MS);
       }
     } catch {
       // Default anchored position remains available when storage is unavailable.
+    }
+
+    if (!restored) {
+      setPosition(null);
+      setExpanded(true);
+      armCollapse();
     }
 
     return () => {
@@ -131,24 +205,26 @@ export default function BurgerStudioEntry() {
         window.clearTimeout(collapseTimerRef.current);
         collapseTimerRef.current = null;
       }
+      if (snapTimerRef.current) {
+        window.clearTimeout(snapTimerRef.current);
+        snapTimerRef.current = null;
+      }
     };
-  }, [armCollapse, pathname]);
+  }, [armCollapse, pathname, persistPosition]);
 
   useEffect(() => {
     const onResize = () => {
       const button = buttonRef.current;
       if (!button || !position) return;
       const rect = button.getBoundingClientRect();
-      const next = clampPosition(position, rect.width, rect.height);
-      setPosition(next);
-      try {
-        localStorage.setItem(POSITION_KEY, JSON.stringify(next));
-      } catch {}
+      persistPosition(
+        snapPositionToNearestEdge(position, rect.width, rect.height),
+      );
     };
 
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
-  }, [position]);
+  }, [persistPosition, position]);
 
   const openStudio = useCallback(() => {
     const href = "/burger-studio";
@@ -164,6 +240,19 @@ export default function BurgerStudioEntry() {
 
   return (
     <>
+      <style jsx global>{`
+        body:has([role="dialog"][aria-label="Bestellübersicht"])
+          [data-bb-burger-studio="1"],
+        body:has([role="dialog"][aria-label="Bestellübersicht"])
+          [data-bb-assistant="1"],
+        body:has([role="dialog"][aria-label="Bestellart wählen"])
+          [data-bb-burger-studio="1"],
+        body:has([role="dialog"][aria-label="Bestellart wählen"])
+          [data-bb-assistant="1"] {
+          display: none !important;
+        }
+      `}</style>
+
       <DeliveryAddressEntry />
 
       {enabled && (
@@ -171,6 +260,7 @@ export default function BurgerStudioEntry() {
           ref={buttonRef}
           type="button"
           data-bb-swipe-ignore
+          data-bb-burger-studio="1"
           aria-label="Burger Studio öffnen oder verschieben"
           title="Burger Studio – gedrückt halten und verschieben"
           onPointerDown={(event) => {
@@ -185,8 +275,6 @@ export default function BurgerStudioEntry() {
               moved: false,
             };
             draggedRef.current = false;
-            setExpanded(true);
-            armCollapse();
             event.currentTarget.setPointerCapture(event.pointerId);
           }}
           onPointerMove={(event) => {
@@ -197,8 +285,16 @@ export default function BurgerStudioEntry() {
             const dy = event.clientY - drag.startY;
             if (!drag.moved && Math.hypot(dx, dy) < 7) return;
 
-            drag.moved = true;
-            draggedRef.current = true;
+            if (!drag.moved) {
+              drag.moved = true;
+              draggedRef.current = true;
+              setExpanded(false);
+              if (collapseTimerRef.current) {
+                window.clearTimeout(collapseTimerRef.current);
+                collapseTimerRef.current = null;
+              }
+            }
+
             const rect = event.currentTarget.getBoundingClientRect();
             setPosition(
               clampPosition(
@@ -219,15 +315,15 @@ export default function BurgerStudioEntry() {
 
             if (drag.moved) {
               const rect = event.currentTarget.getBoundingClientRect();
-              const next = clampPosition(
-                { x: rect.left, y: rect.top },
-                rect.width,
-                rect.height,
+              setExpanded(false);
+              setPosition(
+                clampPosition(
+                  { x: rect.left, y: rect.top },
+                  rect.width,
+                  rect.height,
+                ),
               );
-              setPosition(next);
-              try {
-                localStorage.setItem(POSITION_KEY, JSON.stringify(next));
-              } catch {}
+              scheduleSnap();
               window.setTimeout(() => {
                 draggedRef.current = false;
               }, 0);
