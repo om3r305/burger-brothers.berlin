@@ -1,7 +1,15 @@
 "use client";
 
-import type { OrderMode } from "@/components/store";
+import { useCart, type OrderMode } from "@/components/store";
 import { etaLabelForMode, useSmartEta } from "@/lib/client/smart-eta";
+import { getPricingOverrides } from "@/lib/settings";
+
+function fmtMoney(value: number) {
+  return new Intl.NumberFormat("de-DE", {
+    style: "currency",
+    currency: "EUR",
+  }).format(value);
+}
 
 export function OrderModeSummary({
   mode,
@@ -16,6 +24,22 @@ export function OrderModeSummary({
 }) {
   const eta = useSmartEta();
   const delivery = mode === "delivery";
+  const plz = useCart((state) => state.plz);
+
+  let deliveryMinimum: number | null = null;
+  if (delivery) {
+    const code = String(plz || "").replace(/\D/g, "").slice(0, 5);
+    if (code.length === 5) {
+      try {
+        const minimum = getPricingOverrides("delivery").plzMin?.[code];
+        if (typeof minimum === "number" && Number.isFinite(minimum)) {
+          deliveryMinimum = minimum;
+        }
+      } catch {
+        deliveryMinimum = null;
+      }
+    }
+  }
 
   return (
     <div className={`rounded-2xl border border-amber-400/30 bg-gradient-to-br from-amber-400/10 to-black/30 ${compact ? "p-3" : "p-4"}`}>
@@ -33,6 +57,11 @@ export function OrderModeSummary({
           <div className="mt-0.5 text-sm text-amber-200">
             {etaLabelForMode(eta, mode)}
           </div>
+          {deliveryMinimum !== null ? (
+            <div className="mt-1 text-xs font-semibold text-amber-100/90">
+              Mindestbestellwert: {fmtMoney(deliveryMinimum)}
+            </div>
+          ) : null}
         </div>
         <button
           type="button"
