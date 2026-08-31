@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import {
   customerIdentityConfigured,
+  germanPhoneForCheckout,
   readTrustedCustomer,
 } from "@/lib/server/customer-identity";
 import { createCustomerOrderProof } from "@/lib/server/customer-order-proof";
@@ -26,7 +27,7 @@ export async function GET(req: Request) {
           trusted: true,
           customer: {
             name: trusted.customer.name,
-            phone: trusted.customer.phone,
+            phone: germanPhoneForCheckout(String(trusted.customer.phone || "")),
             phoneVerifiedAt: trusted.identity.phoneVerifiedAt || null,
           },
           orderProof: createCustomerOrderProof(String(trusted.customer.phone || "")),
