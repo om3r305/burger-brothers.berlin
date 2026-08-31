@@ -8,6 +8,7 @@ import { prisma } from "@/lib/db";
 import { findEligibleRouteDealForCustomer } from "@/lib/server/route-deal-eligibility";
 import { BURGER_STUDIO_SCRATCH_SKU } from "@/lib/burger-studio-v2";
 import { validateBurgerStudioCanonicalSelection } from "@/lib/server/burger-studio-order-guard";
+import { withProductProteinExtra } from "@/lib/product-protein-extra";
 
 type OrderMode = "pickup" | "delivery";
 
@@ -384,24 +385,34 @@ async function loadCatalog(tenantId: string, settings: any) {
   });
 
   const catalog: CanonicalCatalogItem[] = products.map((row: any) => {
+    const productName = String(row?.name ?? row?.sku ?? "Artikel").trim();
+    const productCategory = normalizeCategory(row?.category);
     const extrasRaw = Array.isArray(row?.extrasJson)
       ? row.extrasJson
       : Array.isArray(row?.extras)
         ? row.extras
         : [];
 
+  const extras = withProductProteinExtra({
+    productName,
+    productDescription: row?.description ?? "",
+    category: productCategory,
+    extras: extrasRaw,
+    defaultPrice: 3,
+  });
+
     return {
       source: "product",
       id: String(row?.id ?? "").trim(),
       sku: String(row?.sku ?? row?.id ?? "").trim(),
-      name: String(row?.name ?? row?.sku ?? "Artikel").trim(),
-      category: normalizeCategory(row?.category),
+      name: productName,
+      category: productCategory,
       priceCents: toCents(row?.price),
       taxRate: normalizeTaxRate(row?.taxRate, row?.category),
       active: row?.active !== false,
       activeFrom: toDate(row?.activeFrom),
       activeTo: toDate(row?.activeTo),
-      extras: extrasRaw.map(normalizeExtra),
+      extras: extras.map(normalizeExtra),
       pfandType: "none",
       pfandAmountCents: 0,
       aliases: uniqueAliases([
