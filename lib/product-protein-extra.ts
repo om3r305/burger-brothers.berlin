@@ -83,7 +83,9 @@ function isProteinSlot(extra: ProductExtraLike, spec: ProteinExtraSpec) {
 
 function finitePrice(value: unknown, fallback: number) {
   if (typeof value === "number" && Number.isFinite(value)) return value;
-  const numeric = Number(String(value ?? "").replace(",", "."));
+  const text = String(value ?? "").trim().replace(",", ".");
+  if (!text) return fallback;
+  const numeric = Number(text);
   return Number.isFinite(numeric) ? numeric : fallback;
 }
 
