@@ -76,7 +76,7 @@ function sha256(value: string) {
 function safeEqual(left: string, right: string) {
   const a = Buffer.from(left);
   const b = Buffer.from(right);
-  return a.length === b.length && timingSafeEqual(a, b);
+  return a.length > 0 && a.length === b.length && timingSafeEqual(a, b);
 }
 
 function signPayload(payload: string) {
@@ -118,8 +118,7 @@ export function hashOtp(phoneE164: string, otp: string) {
 }
 
 export function verifyOtpHash(phoneE164: string, otp: string, expected: string) {
-  const actual = hashOtp(phoneE164, otp);
-  return safeEqual(actual, expected);
+  return safeEqual(hashOtp(phoneE164, otp), expected);
 }
 
 export function challengeFromInput(input: {
@@ -143,7 +142,10 @@ export function challengeFromInput(input: {
 }
 
 export function nextFailedChallenge(challenge: ChallengePayload) {
-  return { ...challenge, attempts: Math.min(OTP_MAX_ATTEMPTS, challenge.attempts + 1) };
+  return {
+    ...challenge,
+    attempts: Math.min(OTP_MAX_ATTEMPTS, challenge.attempts + 1),
+  };
 }
 
 export function challengeUsable(challenge: ChallengePayload) {
@@ -152,24 +154,54 @@ export function challengeUsable(challenge: ChallengePayload) {
 
 function normalizeGermanNationalDigits(raw: string) {
   const compact = String(raw || "").replace(/[^\d+]/g, "");
-  if (compact.startsWith("+49")) return `0${compact.slice(3).replace(/\D/g, "")}`;
-  if (compact.startsWith("0049")) return `0${compact.slice(4).replace(/\D/g, "")}`;
+  if (compact.startsWith("+49")) {
+    return `0${compact.slice(3).replace(/\D/g, "")}`;
+  }
+  if (compact.startsWith("0049")) {
+    return `0${compact.slice(4).replace(/\D/g, "")}`;
+  }
   const digits = compact.replace(/\D/g, "");
-  if (digits.startsWith("49") && !digits.startsWith("049")) return `0${digits.slice(2)}`;
+  if (digits.startsWith("49") && !digits.startsWith("049")) {
+    return `0${digits.slice(2)}`;
+  }
   return digits;
 }
 
 /**
- * Zero-cost pre-filter for German numbers. Twilio Basic Lookup performs the
- * authoritative numbering-plan validation before paid Line Status is used.
+ * Zero-cost German pre-filter and E.164 normalizer. Twilio Lookup performs the
+ * provider-side numbering-plan / line-status validation before an SMS is sent.
  */
 export function normalizeGermanPhone(raw: string) {
   const national = normalizeGermanNationalDigits(raw);
   if (!/^0\d+$/.test(national)) return null;
   if (national.length < 8 || national.length > 13) return null;
   if (/^0(?:0|1{5,}|2{6,}|9{6,})/.test(national)) return null;
-  if (!/^0(?:1[5-7]|2\d|3\d|4\d|5\d|6\d|7\d|8\d|9\d)/.test(national)) return null;
+  if (!/^0(?:1[5-7]|2\d|3\d|4\d|5\d|6\d|7\d|8\d|9\d)/.test(national)) {
+    return null;
+  }
   return `+49${national.slice(1)}`;
+}
+
+export function germanPhoneForCheckout(raw: string) {
+  const e164 = normalizeGermanPhone(raw);
+  return e164 ? `0${e164.slice(3)}` : String(raw || "").replace(/\D/g, "");
+}
+
+function phoneStorageCandidates(raw: string) {
+  const e164 = normalizeGermanPhone(raw);
+  if (!e164) return [];
+  const national = `0${e164.slice(3)}`;
+  const internationalDigits = e164.replace(/\D/g, "");
+  return [national, internationalDigits, e164];
+}
+
+function canonicalLineStatus(raw: unknown) {
+  const value = String(raw || "Unknown").trim().toLowerCase();
+  if (value === "active") return "Active";
+  if (value === "reachable") return "Reachable";
+  if (value === "unreachable") return "Unreachable";
+  if (value === "inactive") return "Inactive";
+  return "Unknown";
 }
 
 export async function lookupGermanLineStatus(phoneE164: string) {
@@ -199,11 +231,19 @@ export async function lookupGermanLineStatus(phoneE164: string) {
   }
 
   const data: any = await response.json().catch(() => ({}));
-  const canonical = String(data?.phone_number || data?.phoneNumber || phoneE164).trim();
-  const status = String(data?.line_status?.status || data?.lineStatus?.status || "Unknown");
-  const valid = Boolean(canonical.startsWith("+49"));
+  const canonical = String(
+    data?.phone_number || data?.phoneNumber || phoneE164,
+  ).trim();
+  const status = canonicalLineStatus(
+    data?.line_status?.status || data?.lineStatus?.status || "Unknown",
+  );
+  const valid = Boolean(normalizeGermanPhone(canonical));
 
-  return { valid, phoneE164: canonical || phoneE164, status };
+  return {
+    valid,
+    phoneE164: normalizeGermanPhone(canonical) || phoneE164,
+    status,
+  };
 }
 
 export async function sendSevenOtp(phoneE164: string, otp: string) {
@@ -231,7 +271,8 @@ export async function sendSevenOtp(phoneE164: string, otp: string) {
   const success =
     response.ok &&
     (String(data?.success || "") === "100" ||
-      (Array.isArray(data?.messages) && data.messages.some((item: any) => item?.success === true)));
+      (Array.isArray(data?.messages) &&
+        data.messages.some((item: any) => item?.success === true)));
 
   if (!success) throw new Error(`SEVEN_SEND_${response.status}`);
   return data;
@@ -246,13 +287,21 @@ function asRecord(value: unknown): Record<string, any> {
 function readIdentity(stats: unknown): IdentityStats {
   const root = asRecord(stats);
   const current = asRecord(root.identityV1);
-  const devices = Array.isArray(current.trustedDevices) ? current.trustedDevices : [];
-  const addresses = Array.isArray(current.savedAddresses) ? current.savedAddresses : [];
+  const devices = Array.isArray(current.trustedDevices)
+    ? current.trustedDevices
+    : [];
+  const addresses = Array.isArray(current.savedAddresses)
+    ? current.savedAddresses
+    : [];
   return {
     version: CUSTOMER_IDENTITY_VERSION,
     phoneVerifiedAt: String(current.phoneVerifiedAt || "") || undefined,
-    trustedDevices: devices.filter((item) => item && typeof item.hash === "string"),
-    savedAddresses: addresses.filter((item) => item && typeof item.id === "string"),
+    trustedDevices: devices.filter(
+      (item) => item && typeof item.hash === "string",
+    ),
+    savedAddresses: addresses.filter(
+      (item) => item && typeof item.id === "string",
+    ),
   };
 }
 
@@ -263,16 +312,21 @@ function mergedStats(stats: unknown, identity: IdentityStats) {
 export function sanitizeAddress(input: any) {
   const street = String(input?.street || "").trim().slice(0, 120);
   const house = String(input?.house || "").trim().slice(0, 30);
-  const zip = String(input?.zip || input?.plz || "").replace(/\D/g, "").slice(0, 5);
+  const zip = String(input?.zip || input?.plz || "")
+    .replace(/\D/g, "")
+    .slice(0, 5);
   const city = String(input?.city || "Berlin").trim().slice(0, 80) || "Berlin";
   if (!street || !house || !/^\d{5}$/.test(zip)) return null;
   return {
-    label: String(input?.label || "Zuhause").trim().slice(0, 40) || "Zuhause",
+    label:
+      String(input?.label || "Zuhause").trim().slice(0, 40) || "Zuhause",
     street,
     house,
     zip,
     city,
-    deliveryHint: String(input?.deliveryHint || input?.note || "").trim().slice(0, 240),
+    deliveryHint: String(input?.deliveryHint || input?.note || "")
+      .trim()
+      .slice(0, 240),
     isDefault: Boolean(input?.isDefault),
   };
 }
@@ -283,9 +337,16 @@ export async function establishTrustedCustomer(input: {
   pendingAddress?: ChallengePayload["pendingAddress"];
 }) {
   const tenantId = await getTenantId();
+  const candidates = phoneStorageCandidates(input.phoneE164);
+  if (!candidates.length) throw new Error("CUSTOMER_PHONE_INVALID");
+
   const existing = await prisma.customer.findFirst({
-    where: { tenantId, phone: input.phoneE164 },
+    where: {
+      tenantId,
+      phone: { in: candidates },
+    },
   });
+  const dbPhone = String(existing?.phone || candidates[0]);
   const now = new Date().toISOString();
   const rawDeviceToken = randomBytes(32).toString("base64url");
   const deviceHash = sha256(rawDeviceToken);
@@ -325,7 +386,6 @@ export async function establishTrustedCustomer(input: {
     ? await prisma.customer.update({
         where: { id: existing.id },
         data: {
-          phone: input.phoneE164,
           ...(input.name ? { name: input.name } : {}),
           stats,
         },
@@ -333,7 +393,7 @@ export async function establishTrustedCustomer(input: {
     : await prisma.customer.create({
         data: {
           tenantId,
-          phone: input.phoneE164,
+          phone: dbPhone,
           name: input.name || "Gast",
           stats,
         },
@@ -343,24 +403,30 @@ export async function establishTrustedCustomer(input: {
 }
 
 export async function readTrustedCustomer(req: Request) {
-  const rawToken = readRequestCookie(req, CUSTOMER_DEVICE_COOKIE);
-  if (!rawToken) return null;
-  const tokenHash = sha256(rawToken);
+  const cookie = readRequestCookie(req, CUSTOMER_DEVICE_COOKIE);
+  const separator = cookie.indexOf(".");
+  if (separator <= 0) return null;
+
+  const customerId = cookie.slice(0, separator).trim();
+  const rawToken = cookie.slice(separator + 1).trim();
+  if (!customerId || rawToken.length < 24) return null;
+
   const tenantId = await getTenantId();
-  const customers = await prisma.customer.findMany({
-    where: { tenantId, phone: { not: null } },
+  const customer = await prisma.customer.findFirst({
+    where: { id: customerId, tenantId },
     select: { id: true, name: true, phone: true, stats: true },
   });
+  if (!customer) return null;
 
-  for (const customer of customers) {
-    const identity = readIdentity(customer.stats);
-    const device = identity.trustedDevices.find(
-      (item) => item.hash === tokenHash && Date.parse(item.expiresAt) > Date.now(),
-    );
-    if (!device) continue;
-    return { customer, identity };
-  }
-  return null;
+  const tokenHash = sha256(rawToken);
+  const identity = readIdentity(customer.stats);
+  const device = identity.trustedDevices.find(
+    (item) =>
+      safeEqual(item.hash, tokenHash) && Date.parse(item.expiresAt) > Date.now(),
+  );
+  if (!device) return null;
+
+  return { customer, identity };
 }
 
 export async function replaceSavedAddresses(
@@ -369,7 +435,10 @@ export async function replaceSavedAddresses(
   addresses: SavedCustomerAddress[],
 ) {
   const identity = readIdentity(stats);
-  const nextIdentity = { ...identity, savedAddresses: addresses.slice(0, 10) };
+  const nextIdentity = {
+    ...identity,
+    savedAddresses: addresses.slice(0, 10),
+  };
   await prisma.customer.update({
     where: { id: customerId },
     data: { stats: mergedStats(stats, nextIdentity) },
@@ -377,7 +446,10 @@ export async function replaceSavedAddresses(
   return nextIdentity;
 }
 
-export function newSavedAddress(input: any, existingCount: number): SavedCustomerAddress | null {
+export function newSavedAddress(
+  input: any,
+  existingCount: number,
+): SavedCustomerAddress | null {
   const address = sanitizeAddress(input);
   if (!address) return null;
   const now = new Date().toISOString();
