@@ -16,6 +16,7 @@ type SavedAddress = {
 type SessionState = {
   enabled: boolean;
   trusted: boolean;
+  orderProof?: string;
   customer?: { name?: string; phone?: string; phoneVerifiedAt?: string | null };
   addresses: SavedAddress[];
 };
@@ -23,6 +24,7 @@ type SessionState = {
 type PendingOrderFetch = {
   input: RequestInfo | URL;
   init?: RequestInit;
+  payload: Record<string, any>;
   resolve: (response: Response) => void;
   reject: (reason?: unknown) => void;
 };
@@ -54,11 +56,31 @@ function setControlledInput(id: string, value: string) {
 }
 
 function readInput(id: string) {
-  return String((document.getElementById(id) as HTMLInputElement | null)?.value || "").trim();
+  return String(
+    (document.getElementById(id) as HTMLInputElement | null)?.value || "",
+  ).trim();
 }
 
 function sleep(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function requestWithProof(
+  init: RequestInit | undefined,
+  payload: Record<string, any>,
+  orderProof: string,
+): RequestInit {
+  return {
+    ...(init || {}),
+    headers: {
+      ...(init?.headers || {}),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      ...payload,
+      customerVerificationProof: orderProof,
+    }),
+  };
 }
 
 export default function CheckoutCustomerIdentityLayer() {
@@ -76,35 +98,54 @@ export default function CheckoutCustomerIdentityLayer() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [saveLabel, setSaveLabel] = useState("Zuhause");
+  const [editingAddressId, setEditingAddressId] = useState<string | null>(null);
   const originalFetchRef = useRef<typeof window.fetch | null>(null);
   const pendingRef = useRef<PendingOrderFetch | null>(null);
-  const bypassRef = useRef(false);
 
-  const refreshSession = useCallback(async () => {
-    try {
-      const response = await fetch("/customer-identity/session", {
-        credentials: "same-origin",
-        cache: "no-store",
-      });
-      const data = await response.json().catch(() => null);
-      if (response.ok && data?.ok) {
-        setSession({
-          enabled: data.enabled === true,
-          trusted: data.trusted === true,
-          customer: data.customer || undefined,
-          addresses: Array.isArray(data.addresses) ? data.addresses : [],
-        });
-      }
-    } catch (cause) {
-      console.error("[checkout-identity] session failed", cause);
-    } finally {
-      setReady(true);
-    }
+  const applySessionPayload = useCallback((data: any) => {
+    const next: SessionState = {
+      enabled: data?.enabled !== false,
+      trusted: data?.trusted === true,
+      orderProof: String(data?.orderProof || "") || undefined,
+      customer: data?.customer || undefined,
+      addresses: Array.isArray(data?.addresses) ? data.addresses : [],
+    };
+    setSession(next);
+    return next;
   }, []);
 
+  const loadFreshSession = useCallback(async () => {
+    const fetcher = originalFetchRef.current || window.fetch.bind(window);
+    const response = await fetcher("/customer-identity/session", {
+      credentials: "same-origin",
+      cache: "no-store",
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data?.ok) return null;
+    return applySessionPayload(data);
+  }, [applySessionPayload]);
+
   useEffect(() => {
-    void refreshSession();
-  }, [refreshSession]);
+    let active = true;
+    const load = async () => {
+      try {
+        const response = await fetch("/customer-identity/session", {
+          credentials: "same-origin",
+          cache: "no-store",
+        });
+        const data = await response.json().catch(() => null);
+        if (active && response.ok && data?.ok) applySessionPayload(data);
+      } catch (cause) {
+        console.error("[checkout-identity] session failed", cause);
+      } finally {
+        if (active) setReady(true);
+      }
+    };
+    void load();
+    return () => {
+      active = false;
+    };
+  }, [applySessionPayload]);
 
   useEffect(() => {
     if (!ready || !session.trusted || phoneEditing) return;
@@ -139,22 +180,25 @@ export default function CheckoutCustomerIdentityLayer() {
     setBusy(true);
     setError("");
     try {
-      const response = await (originalFetchRef.current || window.fetch)(
-        "/customer-identity/verification/start",
-        {
-          method: "POST",
-          credentials: "same-origin",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            phone,
-            name: customer.name || payload.customerName || "",
-            address: String(payload.mode || "").toLowerCase() === "delivery" ? address : null,
-          }),
-        },
-      );
+      const fetcher = originalFetchRef.current || window.fetch.bind(window);
+      const response = await fetcher("/customer-identity/verification/start", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          phone,
+          name: customer.name || payload.customerName || "",
+          address:
+            String(payload.mode || "").toLowerCase() === "delivery"
+              ? address
+              : null,
+        }),
+      });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data?.ok) {
-        throw new Error(data?.message || "Die Telefonnummer konnte nicht bestätigt werden.");
+        throw new Error(
+          data?.message || "Die Telefonnummer konnte nicht bestätigt werden.",
+        );
       }
       setOtpPhone(String(data.phoneE164 || phone));
       setOtpCode("");
@@ -176,7 +220,7 @@ export default function CheckoutCustomerIdentityLayer() {
           : input instanceof URL
             ? input.toString()
             : input.url;
-      if (bypassRef.current || !url.includes("/api/orders/create")) {
+      if (!url.includes("/api/orders/create")) {
         return originalFetch(input, init);
       }
 
@@ -186,11 +230,34 @@ export default function CheckoutCustomerIdentityLayer() {
       } catch {
         return originalFetch(input, init);
       }
+
       const customer = asRecord(payload.customer);
       const orderPhone = comparablePhone(customer.phone || payload.phone);
       const trustedPhone = comparablePhone(session.customer?.phone);
-      if (session.trusted && trustedPhone && orderPhone === trustedPhone && !phoneEditing) {
-        return originalFetch(input, init);
+
+      if (
+        session.trusted &&
+        trustedPhone &&
+        orderPhone === trustedPhone &&
+        !phoneEditing
+      ) {
+        try {
+          const fresh = await loadFreshSession();
+          const freshPhone = comparablePhone(fresh?.customer?.phone);
+          if (
+            fresh?.trusted &&
+            fresh?.orderProof &&
+            freshPhone &&
+            freshPhone === orderPhone
+          ) {
+            return originalFetch(
+              input,
+              requestWithProof(init, payload, fresh.orderProof),
+            );
+          }
+        } catch (cause) {
+          console.error("[checkout-identity] fresh proof failed", cause);
+        }
       }
 
       if (pendingRef.current) {
@@ -198,10 +265,13 @@ export default function CheckoutCustomerIdentityLayer() {
       }
 
       return new Promise<Response>((resolve, reject) => {
-        pendingRef.current = { input, init, resolve, reject };
+        pendingRef.current = { input, init, payload, resolve, reject };
         void startVerification(payload).catch((cause) => {
           pendingRef.current = null;
-          const message = cause instanceof Error ? cause.message : "Telefonbestätigung fehlgeschlagen.";
+          const message =
+            cause instanceof Error
+              ? cause.message
+              : "Telefonbestätigung fehlgeschlagen.";
           setError(message);
           reject(cause);
         });
@@ -212,14 +282,22 @@ export default function CheckoutCustomerIdentityLayer() {
       if (originalFetchRef.current) window.fetch = originalFetchRef.current;
       originalFetchRef.current = null;
     };
-  }, [ready, session.enabled, session.trusted, session.customer?.phone, phoneEditing, startVerification]);
+  }, [
+    ready,
+    session.enabled,
+    session.trusted,
+    session.customer?.phone,
+    phoneEditing,
+    loadFreshSession,
+    startVerification,
+  ]);
 
   const confirmOtp = useCallback(async () => {
     if (otpCode.replace(/\D/g, "").length !== 6) return;
     setBusy(true);
     setError("");
     try {
-      const fetcher = originalFetchRef.current || window.fetch;
+      const fetcher = originalFetchRef.current || window.fetch.bind(window);
       const response = await fetcher("/customer-identity/verification/confirm", {
         method: "POST",
         credentials: "same-origin",
@@ -227,13 +305,14 @@ export default function CheckoutCustomerIdentityLayer() {
         body: JSON.stringify({ code: otpCode }),
       });
       const data = await response.json().catch(() => ({}));
-      if (!response.ok || !data?.ok) {
+      if (!response.ok || !data?.ok || !data?.orderProof) {
         throw new Error(data?.message || "Der Code ist nicht korrekt.");
       }
 
       setSession({
         enabled: true,
         trusted: true,
+        orderProof: String(data.orderProof),
         customer: { name: data.name, phone: data.phoneE164 },
         addresses: Array.isArray(data.addresses) ? data.addresses : [],
       });
@@ -243,18 +322,20 @@ export default function CheckoutCustomerIdentityLayer() {
       const pending = pendingRef.current;
       pendingRef.current = null;
       if (pending) {
-        bypassRef.current = true;
         try {
-          const orderResponse = await fetcher(pending.input, pending.init);
+          const orderResponse = await fetcher(
+            pending.input,
+            requestWithProof(pending.init, pending.payload, String(data.orderProof)),
+          );
           pending.resolve(orderResponse);
         } catch (cause) {
           pending.reject(cause);
-        } finally {
-          bypassRef.current = false;
         }
       }
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Bestätigung fehlgeschlagen.");
+      setError(
+        cause instanceof Error ? cause.message : "Bestätigung fehlgeschlagen.",
+      );
     } finally {
       setBusy(false);
     }
@@ -266,7 +347,6 @@ export default function CheckoutCustomerIdentityLayer() {
     setControlledInput("checkout-street", address.street);
     await sleep(120);
     setControlledInput("checkout-house", address.house);
-    setPanelOpen(false);
   }, []);
 
   const saveCurrentAddress = useCallback(async () => {
@@ -277,34 +357,87 @@ export default function CheckoutCustomerIdentityLayer() {
       setError("Bitte zuerst eine vollständige Lieferadresse eingeben.");
       return;
     }
+
     setBusy(true);
     setError("");
     try {
-      const response = await (originalFetchRef.current || window.fetch)(
-        "/customer-identity/addresses",
-        {
-          method: "POST",
-          credentials: "same-origin",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            label: saveLabel,
-            street,
-            house,
-            zip,
-            city: "Berlin",
-            isDefault: session.addresses.length === 0,
-          }),
-        },
-      );
+      const fetcher = originalFetchRef.current || window.fetch.bind(window);
+      const method = editingAddressId ? "PATCH" : "POST";
+      const response = await fetcher("/customer-identity/addresses", {
+        method,
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...(editingAddressId ? { id: editingAddressId } : {}),
+          label: saveLabel,
+          street,
+          house,
+          zip,
+          city: "Berlin",
+          isDefault: session.addresses.length === 0,
+        }),
+      });
       const data = await response.json().catch(() => ({}));
-      if (!response.ok || !data?.ok) throw new Error("Adresse konnte nicht gespeichert werden.");
-      setSession((current) => ({ ...current, addresses: data.addresses || [] }));
+      if (!response.ok || !data?.ok) {
+        throw new Error("Adresse konnte nicht gespeichert werden.");
+      }
+      setSession((current) => ({
+        ...current,
+        addresses: Array.isArray(data.addresses) ? data.addresses : [],
+      }));
+      setEditingAddressId(null);
+      setSaveLabel("Zuhause");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Adresse konnte nicht gespeichert werden.");
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Adresse konnte nicht gespeichert werden.",
+      );
     } finally {
       setBusy(false);
     }
-  }, [saveLabel, session.addresses.length]);
+  }, [editingAddressId, saveLabel, session.addresses.length]);
+
+  const deleteAddress = useCallback(async (id: string) => {
+    setBusy(true);
+    setError("");
+    try {
+      const fetcher = originalFetchRef.current || window.fetch.bind(window);
+      const response = await fetcher("/customer-identity/addresses", {
+        method: "DELETE",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data?.ok) {
+        throw new Error("Adresse konnte nicht gelöscht werden.");
+      }
+      setSession((current) => ({
+        ...current,
+        addresses: Array.isArray(data.addresses) ? data.addresses : [],
+      }));
+      if (editingAddressId === id) setEditingAddressId(null);
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Adresse konnte nicht gelöscht werden.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }, [editingAddressId]);
+
+  const beginAddressEdit = useCallback(
+    async (address: SavedAddress) => {
+      setEditingAddressId(address.id);
+      setSaveLabel(address.label || "Zuhause");
+      await applyAddress(address);
+      setPanelOpen(false);
+    },
+    [applyAddress],
+  );
 
   const beginPhoneChange = useCallback(() => {
     setPhoneEditing(true);
@@ -336,7 +469,13 @@ export default function CheckoutCustomerIdentityLayer() {
               <div className="text-sm font-bold">Kundendaten</div>
               <div className="text-xs text-zinc-400">Ohne Konto und Passwort</div>
             </div>
-            <button type="button" onClick={() => setPanelOpen(false)} className="rounded-lg px-2 py-1 text-zinc-400">✕</button>
+            <button
+              type="button"
+              onClick={() => setPanelOpen(false)}
+              className="rounded-lg px-2 py-1 text-zinc-400"
+            >
+              ✕
+            </button>
           </div>
 
           {session.trusted ? (
@@ -345,55 +484,124 @@ export default function CheckoutCustomerIdentityLayer() {
                 <div className="text-xs text-emerald-300">Telefon bestätigt</div>
                 <div className="mt-1 flex items-center justify-between gap-3">
                   <strong>{session.customer?.phone}</strong>
-                  <button type="button" onClick={beginPhoneChange} className="text-xs font-semibold text-amber-300">Ändern</button>
+                  <button
+                    type="button"
+                    onClick={beginPhoneChange}
+                    className="text-xs font-semibold text-amber-300"
+                  >
+                    Ändern
+                  </button>
                 </div>
                 {phoneEditing && (
-                  <p className="mt-2 text-xs text-zinc-400">Die alte Nummer bleibt bestätigt, bis die neue Nummer per SMS bestätigt wurde.</p>
+                  <p className="mt-2 text-xs text-zinc-400">
+                    Die alte Nummer bleibt bestätigt, bis die neue Nummer per SMS
+                    bestätigt wurde.
+                  </p>
                 )}
               </div>
 
               <div>
-                <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-400">Gespeicherte Adressen</div>
+                <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-400">
+                  Gespeicherte Adressen
+                </div>
                 <div className="space-y-2">
                   {session.addresses.map((address) => (
-                    <button
+                    <div
                       key={address.id}
-                      type="button"
-                      onClick={() => void applyAddress(address)}
-                      className="w-full rounded-2xl border border-white/10 bg-white/[0.04] p-3 text-left hover:border-amber-300/30"
+                      className="rounded-2xl border border-white/10 bg-white/[0.04] p-3"
                     >
-                      <div className="flex items-center justify-between gap-2">
-                        <strong className="text-sm">{address.label || "Adresse"}</strong>
-                        {address.isDefault && <span className="text-[10px] text-amber-300">Standard</span>}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void applyAddress(address);
+                          setPanelOpen(false);
+                        }}
+                        className="w-full text-left"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <strong className="text-sm">
+                            {address.label || "Adresse"}
+                          </strong>
+                          {address.isDefault && (
+                            <span className="text-[10px] text-amber-300">
+                              Standard
+                            </span>
+                          )}
+                        </div>
+                        <div className="mt-1 text-xs text-zinc-400">
+                          {address.street} {address.house}, {address.zip} {address.city}
+                        </div>
+                      </button>
+                      <div className="mt-3 flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void beginAddressEdit(address)}
+                          className="rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold"
+                        >
+                          Ändern
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => void deleteAddress(address.id)}
+                          className="rounded-lg px-3 py-1.5 text-xs text-red-300 disabled:opacity-50"
+                        >
+                          Löschen
+                        </button>
                       </div>
-                      <div className="mt-1 text-xs text-zinc-400">{address.street} {address.house}, {address.zip} {address.city}</div>
-                    </button>
+                    </div>
                   ))}
-                  {!session.addresses.length && <div className="text-xs text-zinc-500">Noch keine Adresse gespeichert.</div>}
+                  {!session.addresses.length && (
+                    <div className="text-xs text-zinc-500">
+                      Noch keine Adresse gespeichert.
+                    </div>
+                  )}
                 </div>
               </div>
 
               <div className="rounded-2xl border border-white/10 p-3">
-                <div className="mb-2 text-xs font-semibold">Aktuelle Lieferadresse speichern</div>
+                <div className="mb-2 text-xs font-semibold">
+                  {editingAddressId
+                    ? "Geänderte Lieferadresse speichern"
+                    : "Aktuelle Lieferadresse speichern"}
+                </div>
                 <div className="mb-3 flex flex-wrap gap-2">
                   {["Zuhause", "Arbeit", "Andere"].map((label) => (
                     <button
                       key={label}
                       type="button"
                       onClick={() => setSaveLabel(label)}
-                      className={`rounded-full px-3 py-1 text-xs ${saveLabel === label ? "bg-amber-300 text-black" : "bg-white/10 text-zinc-300"}`}
+                      className={`rounded-full px-3 py-1 text-xs ${
+                        saveLabel === label
+                          ? "bg-amber-300 text-black"
+                          : "bg-white/10 text-zinc-300"
+                      }`}
                     >
                       {label}
                     </button>
                   ))}
                 </div>
-                <button type="button" disabled={busy} onClick={() => void saveCurrentAddress()} className="w-full rounded-xl bg-white/10 px-3 py-2 text-xs font-semibold hover:bg-white/15 disabled:opacity-50">+ Adresse speichern</button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void saveCurrentAddress()}
+                  className="w-full rounded-xl bg-white/10 px-3 py-2 text-xs font-semibold hover:bg-white/15 disabled:opacity-50"
+                >
+                  {editingAddressId ? "Änderung speichern" : "+ Adresse speichern"}
+                </button>
               </div>
             </div>
           ) : (
-            <p className="text-sm text-zinc-300">Bei deiner ersten Bestellung bestätigen wir die Telefonnummer einmalig per SMS. Danach bleibt sie auf diesem Gerät bestätigt.</p>
+            <p className="text-sm text-zinc-300">
+              Bei deiner ersten Bestellung bestätigen wir die Telefonnummer einmalig
+              per SMS. Danach bleibt sie auf diesem Gerät bestätigt.
+            </p>
           )}
-          {error && <div className="mt-3 rounded-xl border border-red-400/20 bg-red-400/10 p-2 text-xs text-red-200">{error}</div>}
+          {error && (
+            <div className="mt-3 rounded-xl border border-red-400/20 bg-red-400/10 p-2 text-xs text-red-200">
+              {error}
+            </div>
+          )}
         </div>
       )}
 
@@ -401,13 +609,18 @@ export default function CheckoutCustomerIdentityLayer() {
         <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
           <div className="w-full max-w-sm rounded-3xl border border-white/10 bg-zinc-950 p-5 text-white shadow-2xl">
             <div className="text-lg font-bold">Telefon bestätigen</div>
-            <p className="mt-1 text-sm text-zinc-400">Wir haben einen 6-stelligen Code an <strong className="text-zinc-200">{otpPhone}</strong> gesendet.</p>
+            <p className="mt-1 text-sm text-zinc-400">
+              Wir haben einen 6-stelligen Code an{" "}
+              <strong className="text-zinc-200">{otpPhone}</strong> gesendet.
+            </p>
             <input
               autoFocus
               inputMode="numeric"
               autoComplete="one-time-code"
               value={otpCode}
-              onChange={(event) => setOtpCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
+              onChange={(event) =>
+                setOtpCode(event.target.value.replace(/\D/g, "").slice(0, 6))
+              }
               onKeyDown={(event) => {
                 if (event.key === "Enter") void confirmOtp();
               }}
