@@ -286,22 +286,24 @@ export default function DeliveryAddressEntry() {
     }
 
     let active = true;
+    let manualRequested = false;
+    if (isCheckoutPath) {
+      try {
+        manualRequested = localStorage.getItem(NEW_ADDRESS_KEY) === "1";
+      } catch {
+        manualRequested = false;
+      }
+      setCheckoutManualAddress(manualRequested);
+    }
+
     const remembered = readRememberedCheckoutAddress();
 
     if (remembered) {
       setLocalAddress(remembered);
-      selectAddress(remembered, false);
+      if (!manualRequested) selectAddress(remembered, false);
       setReady(true);
     } else {
       setLocalAddress(null);
-    }
-
-    if (isCheckoutPath) {
-      try {
-        setCheckoutManualAddress(localStorage.getItem(NEW_ADDRESS_KEY) === "1");
-      } catch {
-        setCheckoutManualAddress(false);
-      }
     }
 
     void (async () => {
@@ -335,7 +337,7 @@ export default function DeliveryAddressEntry() {
           addresses.find((address) => address.isDefault) ||
           addresses[0];
 
-        if (!isCheckoutPath || !checkoutManualAddress) {
+        if (!manualRequested) {
           selectAddress(selected, false);
         }
 
@@ -368,13 +370,7 @@ export default function DeliveryAddressEntry() {
     return () => {
       active = false;
     };
-  }, [
-    checkoutManualAddress,
-    isAddressSurface,
-    isCheckoutPath,
-    orderMode,
-    selectAddress,
-  ]);
+  }, [isAddressSurface, isCheckoutPath, orderMode, selectAddress]);
 
   const availableAddresses = useMemo(() => {
     const serverAddresses = session.trusted ? session.addresses : [];
