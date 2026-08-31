@@ -343,7 +343,8 @@ function groupVariantsToCatalog(
         source,
         id: compositeSku,
         sku: compositeSku,
-        name: fullName,
+        // Keep group-qualified names only as lookup aliases; customer/TV/print display uses the selected variant itself.
+        name: variantName,
         category,
         priceCents: toCents(variant?.price ?? variant?.preis),
         taxRate: normalizeTaxRate(
