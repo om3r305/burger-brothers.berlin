@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { startAppNavigation } from "@/components/AppRouteTransition";
+import DeliveryAddressEntry from "@/components/customer/DeliveryAddressEntry";
 import { readSettings } from "@/lib/settings";
 
 const CUSTOMER_MENU_PATHS = new Set([
@@ -15,15 +16,54 @@ const CUSTOMER_MENU_PATHS = new Set([
   "/bubble-tea",
 ]);
 
+const POSITION_KEY = "bb_burger_studio_floating_position_v1";
+const COLLAPSE_DELAY_MS = 4_500;
+const EDGE_GAP_PX = 10;
+
+type Position = { x: number; y: number };
+type DragState = {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  originX: number;
+  originY: number;
+  moved: boolean;
+};
+
 function enabledFromSettings(value?: any) {
   const settings = value && typeof value === "object" ? value : readSettings();
   return settings?.menu?.burgerStudio?.enabled === true;
+}
+
+function clampPosition(position: Position, width: number, height: number): Position {
+  const maxX = Math.max(EDGE_GAP_PX, window.innerWidth - width - EDGE_GAP_PX);
+  const maxY = Math.max(EDGE_GAP_PX, window.innerHeight - height - EDGE_GAP_PX);
+  return {
+    x: Math.min(maxX, Math.max(EDGE_GAP_PX, position.x)),
+    y: Math.min(maxY, Math.max(EDGE_GAP_PX, position.y)),
+  };
 }
 
 export default function BurgerStudioEntry() {
   const pathname = usePathname();
   const router = useRouter();
   const [enabled, setEnabled] = useState(false);
+  const [expanded, setExpanded] = useState(true);
+  const [position, setPosition] = useState<Position | null>(null);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const dragRef = useRef<DragState | null>(null);
+  const draggedRef = useRef(false);
+  const collapseTimerRef = useRef<number | null>(null);
+
+  const armCollapse = useCallback(() => {
+    if (collapseTimerRef.current) {
+      window.clearTimeout(collapseTimerRef.current);
+    }
+    collapseTimerRef.current = window.setTimeout(() => {
+      setExpanded(false);
+      collapseTimerRef.current = null;
+    }, COLLAPSE_DELAY_MS);
+  }, []);
 
   useEffect(() => {
     const sync = (value?: any) => setEnabled(enabledFromSettings(value));
@@ -56,29 +96,189 @@ export default function BurgerStudioEntry() {
     };
   }, []);
 
-  if (!enabled || !CUSTOMER_MENU_PATHS.has(pathname)) return null;
+  useEffect(() => {
+    if (!CUSTOMER_MENU_PATHS.has(pathname)) return;
+
+    setExpanded(true);
+    armCollapse();
+
+    try {
+      const parsed = JSON.parse(localStorage.getItem(POSITION_KEY) || "null");
+      if (
+        parsed &&
+        typeof parsed === "object" &&
+        Number.isFinite(Number(parsed.x)) &&
+        Number.isFinite(Number(parsed.y))
+      ) {
+        window.requestAnimationFrame(() => {
+          const rect = buttonRef.current?.getBoundingClientRect();
+          if (!rect) return;
+          setPosition(
+            clampPosition(
+              { x: Number(parsed.x), y: Number(parsed.y) },
+              rect.width,
+              rect.height,
+            ),
+          );
+        });
+      }
+    } catch {
+      // Default anchored position remains available when storage is unavailable.
+    }
+
+    return () => {
+      if (collapseTimerRef.current) {
+        window.clearTimeout(collapseTimerRef.current);
+        collapseTimerRef.current = null;
+      }
+    };
+  }, [armCollapse, pathname]);
+
+  useEffect(() => {
+    const onResize = () => {
+      const button = buttonRef.current;
+      if (!button || !position) return;
+      const rect = button.getBoundingClientRect();
+      const next = clampPosition(position, rect.width, rect.height);
+      setPosition(next);
+      try {
+        localStorage.setItem(POSITION_KEY, JSON.stringify(next));
+      } catch {}
+    };
+
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [position]);
+
+  const openStudio = useCallback(() => {
+    const href = "/burger-studio";
+    startAppNavigation({
+      href,
+      source: "burger-studio-entry",
+      scrollToTop: true,
+    });
+    router.push(href, { scroll: false });
+  }, [router]);
+
+  if (!CUSTOMER_MENU_PATHS.has(pathname)) return null;
 
   return (
-    <button
-      type="button"
-      data-bb-swipe-ignore
-      aria-label="Burger Studio öffnen"
-      onClick={() => {
-        const href = "/burger-studio";
-        startAppNavigation({
-          href,
-          source: "burger-studio-entry",
-          scrollToTop: true,
-        });
-        router.push(href, { scroll: false });
-      }}
-      className="group fixed right-3 top-[calc(env(safe-area-inset-top)+78px)] z-[45] flex items-center gap-2 rounded-full border border-amber-300/35 bg-black/90 px-3 py-2 text-xs font-black text-white shadow-[0_12px_38px_rgba(0,0,0,.45),0_0_28px_rgba(245,158,11,.13)] backdrop-blur-xl transition hover:border-amber-300/65 sm:right-5 sm:top-[calc(env(safe-area-inset-top)+86px)] sm:px-4 sm:text-sm"
-    >
-      <span className="grid h-7 w-7 place-items-center rounded-full bg-amber-400 text-base text-black shadow-[0_0_18px_rgba(245,158,11,.28)] transition group-hover:scale-105">
-        🔥
-      </span>
-      <span>Burger Studio</span>
-      <span className="text-amber-300">→</span>
-    </button>
+    <>
+      <DeliveryAddressEntry />
+
+      {enabled && (
+        <button
+          ref={buttonRef}
+          type="button"
+          data-bb-swipe-ignore
+          aria-label="Burger Studio öffnen oder verschieben"
+          title="Burger Studio – gedrückt halten und verschieben"
+          onPointerDown={(event) => {
+            if (event.button !== 0 && event.pointerType === "mouse") return;
+            const rect = event.currentTarget.getBoundingClientRect();
+            dragRef.current = {
+              pointerId: event.pointerId,
+              startX: event.clientX,
+              startY: event.clientY,
+              originX: rect.left,
+              originY: rect.top,
+              moved: false,
+            };
+            draggedRef.current = false;
+            setExpanded(true);
+            armCollapse();
+            event.currentTarget.setPointerCapture(event.pointerId);
+          }}
+          onPointerMove={(event) => {
+            const drag = dragRef.current;
+            if (!drag || drag.pointerId !== event.pointerId) return;
+
+            const dx = event.clientX - drag.startX;
+            const dy = event.clientY - drag.startY;
+            if (!drag.moved && Math.hypot(dx, dy) < 7) return;
+
+            drag.moved = true;
+            draggedRef.current = true;
+            const rect = event.currentTarget.getBoundingClientRect();
+            setPosition(
+              clampPosition(
+                { x: drag.originX + dx, y: drag.originY + dy },
+                rect.width,
+                rect.height,
+              ),
+            );
+          }}
+          onPointerUp={(event) => {
+            const drag = dragRef.current;
+            if (!drag || drag.pointerId !== event.pointerId) return;
+            dragRef.current = null;
+
+            try {
+              event.currentTarget.releasePointerCapture(event.pointerId);
+            } catch {}
+
+            if (drag.moved) {
+              const rect = event.currentTarget.getBoundingClientRect();
+              const next = clampPosition(
+                { x: rect.left, y: rect.top },
+                rect.width,
+                rect.height,
+              );
+              setPosition(next);
+              try {
+                localStorage.setItem(POSITION_KEY, JSON.stringify(next));
+              } catch {}
+              window.setTimeout(() => {
+                draggedRef.current = false;
+              }, 0);
+            }
+          }}
+          onPointerCancel={() => {
+            dragRef.current = null;
+            draggedRef.current = false;
+          }}
+          onClick={(event) => {
+            if (draggedRef.current) {
+              event.preventDefault();
+              return;
+            }
+            openStudio();
+          }}
+          style={
+            position
+              ? {
+                  left: `${position.x}px`,
+                  top: `${position.y}px`,
+                  right: "auto",
+                  touchAction: "none",
+                }
+              : { touchAction: "none" }
+          }
+          className={`group fixed z-[45] flex select-none items-center rounded-full border border-amber-300/35 bg-black/90 py-2 text-xs font-black text-white shadow-[0_12px_38px_rgba(0,0,0,.45),0_0_28px_rgba(245,158,11,.13)] backdrop-blur-xl transition-[padding,border-color,box-shadow] duration-300 hover:border-amber-300/65 ${
+            position
+              ? ""
+              : "right-3 top-[calc(env(safe-area-inset-top)+78px)] sm:right-5 sm:top-[calc(env(safe-area-inset-top)+86px)]"
+          } ${expanded ? "gap-2 px-3 sm:px-4 sm:text-sm" : "gap-0 px-2"}`}
+        >
+          <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-amber-400 text-base text-black shadow-[0_0_18px_rgba(245,158,11,.28)] transition group-hover:scale-105">
+            🔥
+          </span>
+          <span
+            className={`overflow-hidden whitespace-nowrap transition-[max-width,opacity,margin] duration-300 ${
+              expanded ? "max-w-32 opacity-100" : "max-w-0 opacity-0"
+            }`}
+          >
+            Burger Studio
+          </span>
+          <span
+            className={`overflow-hidden text-amber-300 transition-[max-width,opacity] duration-300 ${
+              expanded ? "max-w-5 opacity-100" : "max-w-0 opacity-0"
+            }`}
+          >
+            →
+          </span>
+        </button>
+      )}
+    </>
   );
 }

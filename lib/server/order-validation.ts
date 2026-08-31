@@ -11,6 +11,11 @@ import {
 } from "@/lib/availability";
 import { normalizeStreetForMatch } from "@/lib/streets";
 import { getShopStatusFresh } from "@/lib/server/shop-status";
+import {
+  customerIdentityConfigured,
+  normalizeGermanPhone,
+} from "@/lib/server/customer-identity";
+import { verifyCustomerOrderProof } from "@/lib/server/customer-order-proof";
 
 type OrderMode = "pickup" | "delivery";
 type StreetDatabase = Record<string, string[]>;
@@ -125,29 +130,58 @@ async function readPauseState(tenantId: string) {
 function validateCustomer(order: any, settings: any, mode: OrderMode) {
   const customer = object(order?.customer);
   const name = text(customer.name ?? order?.customerName);
-  const phone = digits(customer.phone ?? order?.phone);
+  const phoneRaw = text(customer.phone ?? order?.phone);
   const email = text(customer.email ?? order?.email);
-  const phoneMinDigits = Math.min(
-    15,
-    Math.max(6, Math.round(number(settings?.validation?.phoneMinDigits, 7))),
-  );
-  const phoneMaxDigits = Math.min(
-    15,
-    Math.max(
-      phoneMinDigits,
-      Math.round(number(settings?.validation?.phoneMaxDigits, 15)),
-    ),
-  );
+  const source = text(order?.source ?? order?.channel).toLowerCase();
+  const directWebOrder = ["web", "online", "direct"].includes(source);
+  const strictDirectPhone = customerIdentityConfigured() && directWebOrder;
 
+  let phone = digits(phoneRaw);
   if (!name || name.length > 120) {
     throw new OrderValidationError("ORDER_CUSTOMER_NAME_INVALID", "Bitte einen gültigen Namen eingeben.");
   }
-  if (phone.length < phoneMinDigits || phone.length > phoneMaxDigits) {
-    throw new OrderValidationError(
-      "ORDER_CUSTOMER_PHONE_INVALID",
-      `Die Telefonnummer muss ${phoneMinDigits} bis ${phoneMaxDigits} Ziffern enthalten.`,
+
+  if (strictDirectPhone) {
+    const normalized = normalizeGermanPhone(phoneRaw);
+    if (!normalized) {
+      throw new OrderValidationError(
+        "ORDER_CUSTOMER_PHONE_INVALID",
+        "Bitte eine gültige deutsche Telefonnummer eingeben.",
+      );
+    }
+    if (
+      !verifyCustomerOrderProof(
+        order?.customerVerificationProof ?? object(order?.meta).customerVerificationProof,
+        normalized,
+      )
+    ) {
+      throw new OrderValidationError(
+        "ORDER_PHONE_VERIFICATION_REQUIRED",
+        "Bitte bestätige deine Telefonnummer per SMS, bevor du bestellst.",
+        401,
+      );
+    }
+    phone = normalized;
+  } else {
+    const phoneMinDigits = Math.min(
+      15,
+      Math.max(6, Math.round(number(settings?.validation?.phoneMinDigits, 7))),
     );
+    const phoneMaxDigits = Math.min(
+      15,
+      Math.max(
+        phoneMinDigits,
+        Math.round(number(settings?.validation?.phoneMaxDigits, 15)),
+      ),
+    );
+    if (phone.length < phoneMinDigits || phone.length > phoneMaxDigits) {
+      throw new OrderValidationError(
+        "ORDER_CUSTOMER_PHONE_INVALID",
+        `Die Telefonnummer muss ${phoneMinDigits} bis ${phoneMaxDigits} Ziffern enthalten.`,
+      );
+    }
   }
+
   if (email && (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) {
     throw new OrderValidationError("ORDER_CUSTOMER_EMAIL_INVALID", "Bitte eine gültige E-Mail-Adresse eingeben.");
   }
@@ -269,11 +303,6 @@ export async function validateOrderForCheckout(params: {
     params.pricing?.pricingMeta?.source === "payment_locked" &&
     params.pricing?.pricingMeta?.pricingLocked === true;
 
-  // Shop-Status is a DB-authoritative emergency stop. We deliberately skip
-  // this one check only for an already-paid snapshot that /api/orders/create
-  // could build solely after verifying the internal payment-finalize HMAC.
-  // That prevents a paid Stripe order from being stranded if the shop is
-  // stopped while the customer is returning from payment.
   if (!paymentLocked) {
     let shopStatus;
     try {
