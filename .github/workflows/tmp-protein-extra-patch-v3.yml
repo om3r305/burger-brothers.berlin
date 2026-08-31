@@ -1,0 +1,273 @@
+name: Temporary protein extra patch v3
+
+on:
+  push:
+    branches:
+      - fix/menu-protein-extras-v2
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch protein extras
+        shell: bash
+        run: |
+          python <<'PY'
+          from pathlib import Path
+
+          helper = '''export type ProductExtraLike = {
+            id?: unknown;
+            sku?: unknown;
+            code?: unknown;
+            name?: unknown;
+            label?: unknown;
+            price?: unknown;
+            [key: string]: unknown;
+          };
+
+          type ProteinExtraSpec = { key: string; label: string };
+
+          function normalizeText(value: unknown) {
+            return String(value ?? "")
+              .trim()
+              .toLowerCase()
+              .normalize("NFKD")
+              .replace(/[\\u0300-\\u036f]/g, "")
+              .replace(/ß/g, "ss")
+              .replace(/[^a-z0-9]+/g, " ")
+              .replace(/\\s+/g, " ")
+              .trim();
+          }
+
+          function proteinExtraSpecForProduct(params: {
+            productName: string;
+            productDescription?: string | null;
+            category?: string | null;
+          }): ProteinExtraSpec | null {
+            const category = normalizeText(params.category);
+            const productText = normalizeText(
+              `${params.productName} ${params.productDescription ?? ""}`,
+            );
+            const isVeganOrVegetarian =
+              category.includes("vegan") || category.includes("vegetar");
+
+            if (!isVeganOrVegetarian && category !== "burger") return null;
+
+            if (isVeganOrVegetarian) {
+              if (/\\bfarmers?\\b/.test(productText)) {
+                return { key: "farmers", label: "Extra Farmers" };
+              }
+              if (/\\bhalloumi\\b/.test(productText)) {
+                return { key: "halloumi", label: "Extra Halloumi" };
+              }
+              if (/\\bitalian\\b/.test(productText)) {
+                return { key: "mozzarella", label: "Extra Mozzarella" };
+              }
+              return { key: "vegan-tofu", label: "Extra Vegan Tofu" };
+            }
+
+            if (/\\bblack\\s+angus\\b/.test(productText)) {
+              return { key: "black-angus", label: "Extra Black Angus" };
+            }
+            if (/\\bcrispy\\b/.test(productText)) {
+              return { key: "crispy", label: "Extra Crispy" };
+            }
+            if (
+              /\\bfit\\s*burger\\b/.test(productText) ||
+              /\\bhahnchen\\b/.test(productText) ||
+              /\\bchicken\\b/.test(productText)
+            ) {
+              return { key: "haehnchen", label: "Extra Hähnchen" };
+            }
+            return { key: "beef", label: "Extra Beef" };
+          }
+
+          function isProteinSlot(extra: ProductExtraLike, spec: ProteinExtraSpec) {
+            const identity = normalizeText(
+              [extra.id, extra.sku, extra.code, extra.name, extra.label]
+                .filter(Boolean)
+                .join(" "),
+            );
+            const id = String(extra.id ?? extra.sku ?? extra.code ?? "").trim();
+            const desired = normalizeText(spec.label);
+            return (
+              id.startsWith("bb-protein-") ||
+              /\\b(beef|rind|rindfleisch)\\b/.test(identity) ||
+              normalizeText(extra.name) === desired ||
+              normalizeText(extra.label) === desired
+            );
+          }
+
+          function finitePrice(value: unknown, fallback: number) {
+            if (typeof value === "number" && Number.isFinite(value)) return value;
+            const numeric = Number(String(value ?? "").replace(",", "."));
+            return Number.isFinite(numeric) ? numeric : fallback;
+          }
+
+          export function withProductProteinExtra(params: {
+            productName: string;
+            productDescription?: string | null;
+            category?: string | null;
+            extras: ProductExtraLike[];
+            defaultPrice?: number;
+          }): ProductExtraLike[] {
+            const extras = Array.isArray(params.extras)
+              ? params.extras.map((extra) => ({ ...extra }))
+              : [];
+            const spec = proteinExtraSpecForProduct(params);
+            if (!spec) return extras;
+
+            const defaultPrice = finitePrice(params.defaultPrice, 3);
+            const index = extras.findIndex((extra) => isProteinSlot(extra, spec));
+            if (index >= 0) {
+              const existing = extras[index];
+              extras[index] = {
+                ...existing,
+                name: spec.label,
+                label: spec.label,
+                price: finitePrice(existing.price, defaultPrice),
+              };
+              return extras;
+            }
+
+            const id = `bb-protein-${spec.key}`;
+            extras.push({
+              id,
+              sku: id,
+              name: spec.label,
+              label: spec.label,
+              price: defaultPrice,
+            });
+            return extras;
+          }
+          '''
+          Path("lib/product-protein-extra.ts").write_text(helper, encoding="utf-8")
+
+          # Public catalog: rename legacy Beef (140gr), and expose missing product protein extras.
+          cp = Path("app/api/catalog/route.ts")
+          catalog = cp.read_text(encoding="utf-8")
+          import_anchor = 'import { BURGER_STUDIO_SCRATCH_SKU } from "@/lib/burger-studio-v2";'
+          assert import_anchor in catalog
+          catalog = catalog.replace(
+            import_anchor,
+            import_anchor + '\nimport { withProductProteinExtra } from "@/lib/product-protein-extra";',
+            1,
+          )
+          fn = catalog.index("function serializeProduct(row: any) {")
+          ret = catalog.index("\n\n  return sanitizeJson({", fn)
+          header = '''function serializeProduct(row: any) {
+            const category = normalizeCategory(row?.category);
+            const extras = withProductProteinExtra({
+              productName: String(row?.name ?? "Produkt"),
+              productDescription: row?.description ?? "",
+              category,
+              extras: normalizeExtras(row?.extrasJson ?? row?.extras),
+              defaultPrice: 3,
+            });
+            const allergens = normalizeAllergens(row?.allergens);'''
+          catalog = catalog[:fn] + header + catalog[ret:]
+          cp.write_text(catalog, encoding="utf-8")
+
+          # Server-authoritative pricing must build the exact same protein extras,
+          # otherwise a synthetic vegan/vegetarian extra would be rejected at checkout.
+          pp = Path("lib/server/order-pricing.ts")
+          pricing = pp.read_text(encoding="utf-8")
+          import_anchor = 'import { validateBurgerStudioCanonicalSelection } from "@/lib/server/burger-studio-order-guard";'
+          assert import_anchor in pricing
+          pricing = pricing.replace(
+            import_anchor,
+            import_anchor + '\nimport { withProductProteinExtra } from "@/lib/product-protein-extra";',
+            1,
+          )
+
+          map_anchor = "const catalog: CanonicalCatalogItem[] = products.map((row: any) => {"
+          m = pricing.index(map_anchor)
+          line_end = pricing.index("\n", m) + 1
+          pricing = (
+            pricing[:line_end]
+            + '    const productName = String(row?.name ?? row?.sku ?? "Artikel").trim();\n'
+            + '    const productCategory = normalizeCategory(row?.category);\n'
+            + pricing[line_end:]
+          )
+          extras_start = pricing.index("    const extrasRaw = Array.isArray(row?.extrasJson)", line_end)
+          return_pos = pricing.index("\n\n    return {", extras_start)
+          protein_block = '''
+            const extras = withProductProteinExtra({
+              productName,
+              productDescription: row?.description ?? "",
+              category: productCategory,
+              extras: extrasRaw,
+              defaultPrice: 3,
+            });'''
+          pricing = pricing[:return_pos] + "\n" + protein_block + pricing[return_pos:]
+
+          def replace_after(text, old, new, start):
+            pos = text.index(old, start)
+            return text[:pos] + new + text[pos + len(old):]
+
+          pricing = replace_after(
+            pricing,
+            '    name: String(row?.name ?? row?.sku ?? "Artikel").trim(),',
+            '    name: productName,',
+            m,
+          )
+          pricing = replace_after(
+            pricing,
+            '    category: normalizeCategory(row?.category),',
+            '    category: productCategory,',
+            m,
+          )
+          pricing = replace_after(
+            pricing,
+            '    extras: extrasRaw.map(normalizeExtra),',
+            '    extras: extras.map(normalizeExtra),',
+            m,
+          )
+          pp.write_text(pricing, encoding="utf-8")
+
+          test = '''const fs = require("node:fs");
+          const assert = require("node:assert/strict");
+          const helper = fs.readFileSync("lib/product-protein-extra.ts", "utf8");
+          const catalog = fs.readFileSync("app/api/catalog/route.ts", "utf8");
+          const pricing = fs.readFileSync("lib/server/order-pricing.ts", "utf8");
+
+          for (const label of [
+            "Extra Beef",
+            "Extra Black Angus",
+            "Extra Crispy",
+            "Extra Hähnchen",
+            "Extra Farmers",
+            "Extra Halloumi",
+            "Extra Mozzarella",
+            "Extra Vegan Tofu",
+          ]) assert.ok(helper.includes(label), `missing label ${label}`);
+
+          assert.ok(helper.includes("beef|rind|rindfleisch"));
+          assert.ok(helper.includes("bb-protein-"));
+          assert.ok(helper.includes("defaultPrice, 3"));
+          assert.ok(catalog.includes("withProductProteinExtra"));
+          assert.ok(pricing.includes("withProductProteinExtra"));
+          assert.ok(pricing.includes("extras: extras.map(normalizeExtra)"));
+          console.log("product protein extra regression checks: OK");
+          '''
+          Path("tools/product-protein-extra-regression-tests.cjs").write_text(test, encoding="utf-8")
+          PY
+
+          node tools/product-protein-extra-regression-tests.cjs
+
+      - name: Commit source patch and remove temporary workflows
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm -f .github/workflows/tmp-protein-extra-patch.yml .github/workflows/tmp-protein-extra-patch-v3.yml
+          git add app/api/catalog/route.ts lib/server/order-pricing.ts lib/product-protein-extra.ts tools/product-protein-extra-regression-tests.cjs
+          git commit -m "fix(menu): correct product-specific protein extras"
+          git push origin HEAD:fix/menu-protein-extras-v2
