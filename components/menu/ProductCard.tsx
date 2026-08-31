@@ -60,6 +60,48 @@ const ALLERGEN_LEGEND: Record<string, string> = {
 const fmt = (n: number) =>
   new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" }).format(n);
 
+function normalizeExtraLookupText(value: unknown) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+function getProductSpecificPattyExtraLabel({
+  productName,
+  productDescription,
+  category,
+  rawLabel,
+}: {
+  productName: string;
+  productDescription?: string;
+  category?: Props["category"];
+  rawLabel: string;
+}) {
+  const normalizedLabel = normalizeExtraLookupText(rawLabel);
+  const isGenericBeefExtra =
+    /\bextra\b/.test(normalizedLabel) &&
+    /\b(beef|rind|rindfleisch)\b/.test(normalizedLabel);
+
+  if (!isGenericBeefExtra) return rawLabel;
+
+  const productText = normalizeExtraLookupText(
+    `${productName} ${productDescription ?? ""}`,
+  );
+
+  if (/\bcrispy\b/.test(productText)) return "Extra Crispy";
+  if (/\bfit\s*burger\b/.test(productText)) return "Extra Hähnchen";
+  if (/\bfarmers?\b/.test(productText)) return "Extra Farmers";
+  if (/\bhalloumi\b/.test(productText)) return "Extra Halloumi";
+  if (/\btofu\b/.test(productText)) return "Extra Tofu";
+  if (/\bfalafel\b/.test(productText)) return "Extra Falafel";
+  if (/\b(hahnchen|chicken)\b/.test(productText)) return "Extra Hähnchen";
+  if (category === "vegan") return "Extra Tofu";
+
+  return "Extra Beef";
+}
+
 /* ====== Görsel madalya rozeti (PNG) + failover CSS medal ====== */
 function MedalBadgeImage({
   rank,
@@ -328,11 +370,20 @@ export default function ProductCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, showLegend]);
 
-  const normalizedExtras: Extra[] = (extrasOptions as any[]).map((e) => ({
-    id: String(e?.id ?? ""),
-    label: String((e as any)?.label ?? (e as any)?.name ?? ""),
-    price: Number.isFinite(Number((e as any)?.price)) ? Number((e as any)?.price) : undefined,
-  }));
+  const normalizedExtras: Extra[] = (extrasOptions as any[]).map((e) => {
+    const rawLabel = String((e as any)?.label ?? (e as any)?.name ?? "");
+
+    return {
+      id: String(e?.id ?? ""),
+      label: getProductSpecificPattyExtraLabel({
+        productName: name,
+        productDescription: description,
+        category,
+        rawLabel,
+      }),
+      price: Number.isFinite(Number((e as any)?.price)) ? Number((e as any)?.price) : undefined,
+    };
+  });
 
   const activeItem = items[active] || items[0] || { extras: [], note: "" };
 
