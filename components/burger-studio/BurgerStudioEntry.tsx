@@ -19,8 +19,10 @@ const CUSTOMER_MENU_PATHS = new Set([
 const POSITION_KEY = "bb_burger_studio_floating_position_v1";
 const COLLAPSE_DELAY_MS = 4_500;
 const EDGE_GAP_PX = 10;
+const MOBILE_SAFE_TOP_PX = 88;
+const MOBILE_SAFE_BOTTOM_PX = 96;
 const SNAP_AFTER_COLLAPSE_MS = 340;
-const PROMO_FIRST_REVEAL_MS = 2_500;
+const PROMO_FIRST_REVEAL_MS = 1_200;
 const PROMO_INTERVAL_MS = 20_000;
 
 type Position = { x: number; y: number };
@@ -39,12 +41,20 @@ function enabledFromSettings(value?: any) {
   return settings?.menu?.burgerStudio?.enabled === true;
 }
 
+function verticalBounds(height: number) {
+  const mobile = window.innerWidth < 640;
+  const minY = mobile ? MOBILE_SAFE_TOP_PX : EDGE_GAP_PX;
+  const bottomGap = mobile ? MOBILE_SAFE_BOTTOM_PX : EDGE_GAP_PX;
+  const maxY = Math.max(minY, window.innerHeight - height - bottomGap);
+  return { minY, maxY };
+}
+
 function clampPosition(position: Position, width: number, height: number): Position {
   const maxX = Math.max(EDGE_GAP_PX, window.innerWidth - width - EDGE_GAP_PX);
-  const maxY = Math.max(EDGE_GAP_PX, window.innerHeight - height - EDGE_GAP_PX);
+  const { minY, maxY } = verticalBounds(height);
   return {
     x: Math.min(maxX, Math.max(EDGE_GAP_PX, position.x)),
-    y: Math.min(maxY, Math.max(EDGE_GAP_PX, position.y)),
+    y: Math.min(maxY, Math.max(minY, position.y)),
   };
 }
 
@@ -189,7 +199,7 @@ export default function BurgerStudioEntry() {
         Number.isFinite(Number(parsed.y))
       ) {
         restored = true;
-        setExpanded(false);
+        setExpanded(true);
 
         if (snapTimerRef.current) {
           window.clearTimeout(snapTimerRef.current);
@@ -204,6 +214,7 @@ export default function BurgerStudioEntry() {
             rect.height,
           );
           persistPosition(snapped.position, snapped.edge);
+          armCollapse();
         }, SNAP_AFTER_COLLAPSE_MS);
       }
     } catch {
@@ -413,13 +424,13 @@ export default function BurgerStudioEntry() {
             openStudio();
           }}
           style={positionedStyle}
-          className={`group fixed z-[45] flex select-none items-center rounded-full border border-amber-300/35 bg-black/90 py-2 text-xs font-black text-white shadow-[0_12px_38px_rgba(0,0,0,.45),0_0_28px_rgba(245,158,11,.13)] backdrop-blur-xl transition-[padding,border-color,box-shadow] duration-300 hover:border-amber-300/65 ${
+          className={`group fixed z-[48] flex min-h-12 min-w-12 select-none items-center rounded-full border border-amber-300/45 bg-black/92 py-2 text-xs font-black text-white shadow-[0_12px_38px_rgba(0,0,0,.5),0_0_30px_rgba(245,158,11,.2)] ring-1 ring-amber-300/10 backdrop-blur-xl transition-[padding,border-color,box-shadow] duration-300 hover:border-amber-300/70 ${
             position
               ? ""
               : "right-3 top-[calc(env(safe-area-inset-top)+78px)] sm:right-5 sm:top-[calc(env(safe-area-inset-top)+86px)]"
-          } ${expanded ? "gap-2 px-3 sm:px-4 sm:text-sm" : "gap-0 px-2"}`}
+          } ${expanded ? "gap-2 px-3 sm:px-4 sm:text-sm" : "justify-center gap-0 px-2.5"}`}
         >
-          <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-amber-400 text-base text-black shadow-[0_0_18px_rgba(245,158,11,.28)] transition group-hover:scale-105">
+          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-amber-400 text-lg text-black shadow-[0_0_20px_rgba(245,158,11,.36)] transition group-hover:scale-105">
             🔥
           </span>
           <span
