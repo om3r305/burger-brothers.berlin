@@ -60,7 +60,7 @@ jobs:
             );
             const isVeganOrVegetarian =
               category.includes("vegan") || category.includes("vegetar");
-            const isBurger = category.includes("burger");
+            const isBurger = category === "burger";
 
             if (!isVeganOrVegetarian && !isBurger) return null;
 
@@ -167,9 +167,12 @@ jobs:
           catalog_path = Path("app/api/catalog/route.ts")
           catalog = catalog_path.read_text(encoding="utf-8")
           catalog_import_anchor = 'import { BURGER_STUDIO_SCRATCH_SKU } from "@/lib/burger-studio-v2";\n'
-          catalog_import = catalog_import_anchor + 'import { withProductProteinExtra } from "@/lib/product-protein-extra";\n'
-          assert catalog.count(catalog_import_anchor) == 1
-          catalog = catalog.replace(catalog_import_anchor, catalog_import, 1)
+          assert catalog.count(catalog_import_anchor) == 1, "catalog import anchor changed"
+          catalog = catalog.replace(
+              catalog_import_anchor,
+              catalog_import_anchor + 'import { withProductProteinExtra } from "@/lib/product-protein-extra";\n',
+              1,
+          )
 
           old_serialize = '''function serializeProduct(row: any) {
             const extras = normalizeExtras(row?.extrasJson ?? row?.extras);
@@ -194,35 +197,32 @@ jobs:
           pricing_path = Path("lib/server/order-pricing.ts")
           pricing = pricing_path.read_text(encoding="utf-8")
           pricing_import_anchor = 'import { validateBurgerStudioCanonicalSelection } from "@/lib/server/burger-studio-order-guard";\n'
-          pricing_import = pricing_import_anchor + 'import { withProductProteinExtra } from "@/lib/product-protein-extra";\n'
-          assert pricing.count(pricing_import_anchor) == 1
-          pricing = pricing.replace(pricing_import_anchor, pricing_import, 1)
+          assert pricing.count(pricing_import_anchor) == 1, "pricing import anchor changed"
+          pricing = pricing.replace(
+              pricing_import_anchor,
+              pricing_import_anchor + 'import { withProductProteinExtra } from "@/lib/product-protein-extra";\n',
+              1,
+          )
 
-          old_catalog_map = '''  const catalog: CanonicalCatalogItem[] = products.map((row: any) => {
+          map_start = '''  const catalog: CanonicalCatalogItem[] = products.map((row: any) => {
             const extrasRaw = Array.isArray(row?.extrasJson)
-              ? row.extrasJson
+          '''
+          map_start_new = '''  const catalog: CanonicalCatalogItem[] = products.map((row: any) => {
+            const productName = String(row?.name ?? row?.sku ?? "Artikel").trim();
+            const productCategory = normalizeCategory(row?.category);
+            const extrasRaw = Array.isArray(row?.extrasJson)
+          '''
+          assert pricing.count(map_start) == 1, "pricing map start anchor changed"
+          pricing = pricing.replace(map_start, map_start_new, 1)
+
+          extras_end = '''      ? row.extrasJson
               : Array.isArray(row?.extras)
                 ? row.extras
                 : [];
 
             return {
-              source: "product",
-              id: String(row?.id ?? "").trim(),
-              sku: String(row?.sku ?? row?.id ?? "").trim(),
-              name: String(row?.name ?? row?.sku ?? "Artikel").trim(),
-              category: normalizeCategory(row?.category),
-              priceCents: toCents(row?.price),
-              taxRate: normalizeTaxRate(row?.taxRate, row?.category),
-              active: row?.active !== false,
-              activeFrom: toDate(row?.activeFrom),
-              activeTo: toDate(row?.activeTo),
-              extras: extrasRaw.map(normalizeExtra),
           '''
-          new_catalog_map = '''  const catalog: CanonicalCatalogItem[] = products.map((row: any) => {
-            const productName = String(row?.name ?? row?.sku ?? "Artikel").trim();
-            const productCategory = normalizeCategory(row?.category);
-            const extrasRaw = Array.isArray(row?.extrasJson)
-              ? row.extrasJson
+          extras_end_new = '''      ? row.extrasJson
               : Array.isArray(row?.extras)
                 ? row.extras
                 : [];
@@ -235,20 +235,27 @@ jobs:
             });
 
             return {
-              source: "product",
-              id: String(row?.id ?? "").trim(),
-              sku: String(row?.sku ?? row?.id ?? "").trim(),
+          '''
+          assert pricing.count(extras_end) == 1, "pricing extras end anchor changed"
+          pricing = pricing.replace(extras_end, extras_end_new, 1)
+
+          name_category = '''      sku: String(row?.sku ?? row?.id ?? "").trim(),
+              name: String(row?.name ?? row?.sku ?? "Artikel").trim(),
+              category: normalizeCategory(row?.category),
+          '''
+          name_category_new = '''      sku: String(row?.sku ?? row?.id ?? "").trim(),
               name: productName,
               category: productCategory,
-              priceCents: toCents(row?.price),
-              taxRate: normalizeTaxRate(row?.taxRate, row?.category),
-              active: row?.active !== false,
-              activeFrom: toDate(row?.activeFrom),
-              activeTo: toDate(row?.activeTo),
-              extras: extras.map(normalizeExtra),
           '''
-          assert pricing.count(old_catalog_map) == 1, "order pricing catalog anchor changed"
-          pricing = pricing.replace(old_catalog_map, new_catalog_map, 1)
+          assert pricing.count(name_category) == 1, "pricing name/category anchor changed"
+          pricing = pricing.replace(name_category, name_category_new, 1)
+
+          assert pricing.count('      extras: extrasRaw.map(normalizeExtra),\n') == 1, "pricing extras map anchor changed"
+          pricing = pricing.replace(
+              '      extras: extrasRaw.map(normalizeExtra),\n',
+              '      extras: extras.map(normalizeExtra),\n',
+              1,
+          )
           pricing_path.write_text(pricing, encoding="utf-8")
 
           test = r'''const fs = require("node:fs");
@@ -273,6 +280,7 @@ jobs:
 
           assert.ok(helper.includes("bb-protein-"), "stable synthetic protein ID is missing");
           assert.ok(helper.includes("beef|rind|rindfleisch"), "legacy Beef (140gr) detection is missing");
+          assert.ok(helper.includes("defaultPrice, 3"), "3 EUR fallback price is missing");
           assert.ok(catalog.includes("withProductProteinExtra"), "catalog does not expose corrected protein extras");
           assert.ok(pricing.includes("withProductProteinExtra"), "canonical pricing does not validate corrected protein extras");
           assert.ok(pricing.includes("extras: extras.map(normalizeExtra)"), "canonical extras are not rebuilt from corrected list");
@@ -282,15 +290,12 @@ jobs:
           Path("tools/product-protein-extra-regression-tests.cjs").write_text(test, encoding="utf-8")
           PY
 
-      - name: Commit patch
+      - name: Commit patch and remove temporary workflow
         shell: bash
         run: |
-          if git diff --quiet && git diff --cached --quiet; then
-            echo "No changes to commit"
-            exit 0
-          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/tmp-protein-extra-patch.yml
           git add app/api/catalog/route.ts lib/server/order-pricing.ts lib/product-protein-extra.ts tools/product-protein-extra-regression-tests.cjs
           git commit -m "fix(menu): correct product-specific protein extras"
           git push origin HEAD:fix/menu-protein-extras-v2
