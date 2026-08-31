@@ -20,8 +20,11 @@ const POSITION_KEY = "bb_burger_studio_floating_position_v1";
 const COLLAPSE_DELAY_MS = 4_500;
 const EDGE_GAP_PX = 10;
 const SNAP_AFTER_COLLAPSE_MS = 340;
+const PROMO_FIRST_REVEAL_MS = 2_500;
+const PROMO_INTERVAL_MS = 20_000;
 
 type Position = { x: number; y: number };
+type Edge = "left" | "right" | null;
 type DragState = {
   pointerId: number;
   startX: number;
@@ -49,35 +52,44 @@ function snapPositionToNearestEdge(
   position: Position,
   width: number,
   height: number,
-): Position {
+): { position: Position; edge: Exclude<Edge, null> } {
   const clamped = clampPosition(position, width, height);
   const useLeftEdge = clamped.x + width / 2 <= window.innerWidth / 2;
+  const edge: Exclude<Edge, null> = useLeftEdge ? "left" : "right";
 
-  return clampPosition(
-    {
-      x: useLeftEdge
-        ? EDGE_GAP_PX
-        : window.innerWidth - width - EDGE_GAP_PX,
-      y: clamped.y,
-    },
-    width,
-    height,
-  );
+  return {
+    edge,
+    position: clampPosition(
+      {
+        x: useLeftEdge
+          ? EDGE_GAP_PX
+          : window.innerWidth - width - EDGE_GAP_PX,
+        y: clamped.y,
+      },
+      width,
+      height,
+    ),
+  };
 }
 
 export default function BurgerStudioEntry() {
   const pathname = usePathname();
   const router = useRouter();
+  const isMenuPath = CUSTOMER_MENU_PATHS.has(pathname);
+  const isCheckoutPath = pathname === "/checkout";
   const [enabled, setEnabled] = useState(false);
   const [expanded, setExpanded] = useState(true);
   const [position, setPosition] = useState<Position | null>(null);
+  const [edge, setEdge] = useState<Edge>(null);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const dragRef = useRef<DragState | null>(null);
   const draggedRef = useRef(false);
   const collapseTimerRef = useRef<number | null>(null);
   const snapTimerRef = useRef<number | null>(null);
+  const promoFirstTimerRef = useRef<number | null>(null);
+  const promoIntervalRef = useRef<number | null>(null);
 
-  const persistPosition = useCallback((next: Position) => {
+  const persistPosition = useCallback((next: Position, nextEdge?: Edge) => {
     setPosition((current) => {
       if (
         current &&
@@ -89,6 +101,8 @@ export default function BurgerStudioEntry() {
       return next;
     });
 
+    if (nextEdge !== undefined) setEdge(nextEdge);
+
     try {
       localStorage.setItem(POSITION_KEY, JSON.stringify(next));
     } catch {}
@@ -98,12 +112,12 @@ export default function BurgerStudioEntry() {
     const button = buttonRef.current;
     if (!button) return;
     const rect = button.getBoundingClientRect();
-    const next = snapPositionToNearestEdge(
+    const snapped = snapPositionToNearestEdge(
       { x: rect.left, y: rect.top },
       rect.width,
       rect.height,
     );
-    persistPosition(next);
+    persistPosition(snapped.position, snapped.edge);
   }, [persistPosition]);
 
   const scheduleSnap = useCallback(() => {
@@ -127,6 +141,12 @@ export default function BurgerStudioEntry() {
     }, COLLAPSE_DELAY_MS);
   }, [scheduleSnap]);
 
+  const revealTemporarily = useCallback(() => {
+    if (dragRef.current) return;
+    setExpanded(true);
+    armCollapse();
+  }, [armCollapse]);
+
   useEffect(() => {
     const sync = (value?: any) => setEnabled(enabledFromSettings(value));
     const onSettings = (event: Event) => {
@@ -136,9 +156,6 @@ export default function BurgerStudioEntry() {
       if (!event.key || event.key === "bb_settings_v6") sync();
     };
 
-    // CatalogProvider already warms /api/settings for customer catalog routes
-    // and emits bb_settings_changed when the payload changes. Reuse that
-    // central cache instead of adding a second Burger Studio network request.
     sync();
 
     window.addEventListener("bb_settings_changed", onSettings as EventListener);
@@ -159,7 +176,7 @@ export default function BurgerStudioEntry() {
   }, []);
 
   useEffect(() => {
-    if (!CUSTOMER_MENU_PATHS.has(pathname)) return;
+    if (!isMenuPath) return;
 
     let restored = false;
 
@@ -181,13 +198,12 @@ export default function BurgerStudioEntry() {
           snapTimerRef.current = null;
           const rect = buttonRef.current?.getBoundingClientRect();
           if (!rect) return;
-          persistPosition(
-            snapPositionToNearestEdge(
-              { x: Number(parsed.x), y: Number(parsed.y) },
-              rect.width,
-              rect.height,
-            ),
+          const snapped = snapPositionToNearestEdge(
+            { x: Number(parsed.x), y: Number(parsed.y) },
+            rect.width,
+            rect.height,
           );
+          persistPosition(snapped.position, snapped.edge);
         }, SNAP_AFTER_COLLAPSE_MS);
       }
     } catch {
@@ -196,6 +212,7 @@ export default function BurgerStudioEntry() {
 
     if (!restored) {
       setPosition(null);
+      setEdge("right");
       setExpanded(true);
       armCollapse();
     }
@@ -210,16 +227,46 @@ export default function BurgerStudioEntry() {
         snapTimerRef.current = null;
       }
     };
-  }, [armCollapse, pathname, persistPosition]);
+  }, [armCollapse, isMenuPath, pathname, persistPosition]);
+
+  useEffect(() => {
+    if (!isMenuPath || !enabled) return;
+
+    if (promoFirstTimerRef.current) {
+      window.clearTimeout(promoFirstTimerRef.current);
+    }
+    if (promoIntervalRef.current) {
+      window.clearInterval(promoIntervalRef.current);
+    }
+
+    promoFirstTimerRef.current = window.setTimeout(() => {
+      promoFirstTimerRef.current = null;
+      revealTemporarily();
+    }, PROMO_FIRST_REVEAL_MS);
+
+    promoIntervalRef.current = window.setInterval(() => {
+      revealTemporarily();
+    }, PROMO_INTERVAL_MS);
+
+    return () => {
+      if (promoFirstTimerRef.current) {
+        window.clearTimeout(promoFirstTimerRef.current);
+        promoFirstTimerRef.current = null;
+      }
+      if (promoIntervalRef.current) {
+        window.clearInterval(promoIntervalRef.current);
+        promoIntervalRef.current = null;
+      }
+    };
+  }, [enabled, isMenuPath, revealTemporarily]);
 
   useEffect(() => {
     const onResize = () => {
       const button = buttonRef.current;
       if (!button || !position) return;
       const rect = button.getBoundingClientRect();
-      persistPosition(
-        snapPositionToNearestEdge(position, rect.width, rect.height),
-      );
+      const snapped = snapPositionToNearestEdge(position, rect.width, rect.height);
+      persistPosition(snapped.position, snapped.edge);
     };
 
     window.addEventListener("resize", onResize);
@@ -236,7 +283,32 @@ export default function BurgerStudioEntry() {
     router.push(href, { scroll: false });
   }, [router]);
 
-  if (!CUSTOMER_MENU_PATHS.has(pathname)) return null;
+  if (!isMenuPath) {
+    return isCheckoutPath ? <DeliveryAddressEntry /> : null;
+  }
+
+  const positionedStyle = position
+    ? edge === "right"
+      ? {
+          right: `${EDGE_GAP_PX}px`,
+          top: `${position.y}px`,
+          left: "auto",
+          touchAction: "none" as const,
+        }
+      : edge === "left"
+        ? {
+            left: `${EDGE_GAP_PX}px`,
+            top: `${position.y}px`,
+            right: "auto",
+            touchAction: "none" as const,
+          }
+        : {
+            left: `${position.x}px`,
+            top: `${position.y}px`,
+            right: "auto",
+            touchAction: "none" as const,
+          }
+    : { touchAction: "none" as const };
 
   return (
     <>
@@ -275,6 +347,13 @@ export default function BurgerStudioEntry() {
               moved: false,
             };
             draggedRef.current = false;
+            setPosition({ x: rect.left, y: rect.top });
+            setEdge(null);
+            setExpanded(true);
+            if (collapseTimerRef.current) {
+              window.clearTimeout(collapseTimerRef.current);
+              collapseTimerRef.current = null;
+            }
             event.currentTarget.setPointerCapture(event.pointerId);
           }}
           onPointerMove={(event) => {
@@ -288,11 +367,6 @@ export default function BurgerStudioEntry() {
             if (!drag.moved) {
               drag.moved = true;
               draggedRef.current = true;
-              setExpanded(false);
-              if (collapseTimerRef.current) {
-                window.clearTimeout(collapseTimerRef.current);
-                collapseTimerRef.current = null;
-              }
             }
 
             const rect = event.currentTarget.getBoundingClientRect();
@@ -314,24 +388,22 @@ export default function BurgerStudioEntry() {
             } catch {}
 
             if (drag.moved) {
-              const rect = event.currentTarget.getBoundingClientRect();
-              setExpanded(false);
-              setPosition(
-                clampPosition(
-                  { x: rect.left, y: rect.top },
-                  rect.width,
-                  rect.height,
-                ),
-              );
-              scheduleSnap();
+              setExpanded(true);
+              window.requestAnimationFrame(() => {
+                snapCurrentButtonToEdge();
+                armCollapse();
+              });
               window.setTimeout(() => {
                 draggedRef.current = false;
               }, 0);
+            } else {
+              armCollapse();
             }
           }}
           onPointerCancel={() => {
             dragRef.current = null;
             draggedRef.current = false;
+            armCollapse();
           }}
           onClick={(event) => {
             if (draggedRef.current) {
@@ -340,16 +412,7 @@ export default function BurgerStudioEntry() {
             }
             openStudio();
           }}
-          style={
-            position
-              ? {
-                  left: `${position.x}px`,
-                  top: `${position.y}px`,
-                  right: "auto",
-                  touchAction: "none",
-                }
-              : { touchAction: "none" }
-          }
+          style={positionedStyle}
           className={`group fixed z-[45] flex select-none items-center rounded-full border border-amber-300/35 bg-black/90 py-2 text-xs font-black text-white shadow-[0_12px_38px_rgba(0,0,0,.45),0_0_28px_rgba(245,158,11,.13)] backdrop-blur-xl transition-[padding,border-color,box-shadow] duration-300 hover:border-amber-300/65 ${
             position
               ? ""
