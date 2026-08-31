@@ -131,34 +131,55 @@ function validateCustomer(order: any, settings: any, mode: OrderMode) {
   const customer = object(order?.customer);
   const name = text(customer.name ?? order?.customerName);
   const phoneRaw = text(customer.phone ?? order?.phone);
-  const phone = normalizeGermanPhone(phoneRaw);
   const email = text(customer.email ?? order?.email);
+  const source = text(order?.source ?? order?.channel).toLowerCase();
+  const directWebOrder = ["web", "online", "direct"].includes(source);
+  const strictDirectPhone = customerIdentityConfigured() && directWebOrder;
 
+  let phone = digits(phoneRaw);
   if (!name || name.length > 120) {
     throw new OrderValidationError("ORDER_CUSTOMER_NAME_INVALID", "Bitte einen gültigen Namen eingeben.");
   }
-  if (!phone) {
-    throw new OrderValidationError(
-      "ORDER_CUSTOMER_PHONE_INVALID",
-      "Bitte eine gültige deutsche Telefonnummer eingeben.",
-    );
-  }
 
-  const source = text(order?.source ?? order?.channel).toLowerCase();
-  const directWebOrder = ["web", "online", "direct"].includes(source);
-  if (
-    customerIdentityConfigured() &&
-    directWebOrder &&
-    !verifyCustomerOrderProof(
-      order?.customerVerificationProof ?? object(order?.meta).customerVerificationProof,
-      phone,
-    )
-  ) {
-    throw new OrderValidationError(
-      "ORDER_PHONE_VERIFICATION_REQUIRED",
-      "Bitte bestätige deine Telefonnummer per SMS, bevor du bestellst.",
-      401,
+  if (strictDirectPhone) {
+    const normalized = normalizeGermanPhone(phoneRaw);
+    if (!normalized) {
+      throw new OrderValidationError(
+        "ORDER_CUSTOMER_PHONE_INVALID",
+        "Bitte eine gültige deutsche Telefonnummer eingeben.",
+      );
+    }
+    if (
+      !verifyCustomerOrderProof(
+        order?.customerVerificationProof ?? object(order?.meta).customerVerificationProof,
+        normalized,
+      )
+    ) {
+      throw new OrderValidationError(
+        "ORDER_PHONE_VERIFICATION_REQUIRED",
+        "Bitte bestätige deine Telefonnummer per SMS, bevor du bestellst.",
+        401,
+      );
+    }
+    phone = normalized;
+  } else {
+    const phoneMinDigits = Math.min(
+      15,
+      Math.max(6, Math.round(number(settings?.validation?.phoneMinDigits, 7))),
     );
+    const phoneMaxDigits = Math.min(
+      15,
+      Math.max(
+        phoneMinDigits,
+        Math.round(number(settings?.validation?.phoneMaxDigits, 15)),
+      ),
+    );
+    if (phone.length < phoneMinDigits || phone.length > phoneMaxDigits) {
+      throw new OrderValidationError(
+        "ORDER_CUSTOMER_PHONE_INVALID",
+        `Die Telefonnummer muss ${phoneMinDigits} bis ${phoneMaxDigits} Ziffern enthalten.`,
+      );
+    }
   }
 
   if (email && (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) {
