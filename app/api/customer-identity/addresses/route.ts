@@ -17,16 +17,20 @@ function json(payload: Record<string, unknown>, status = 200) {
   });
 }
 
-async function trusted(req: Request) {
-  if (!hasTrustedMutationOrigin(req)) return { error: json({ ok: false, error: "origin_not_allowed" }, 403) };
+async function requireTrusted(req: Request) {
+  if (!hasTrustedMutationOrigin(req)) {
+    return { session: null, response: json({ ok: false, error: "origin_not_allowed" }, 403) };
+  }
   const session = await readTrustedCustomer(req);
-  if (!session) return { error: json({ ok: false, error: "trusted_customer_required" }, 401) };
-  return { session };
+  if (!session) {
+    return { session: null, response: json({ ok: false, error: "trusted_customer_required" }, 401) };
+  }
+  return { session, response: null };
 }
 
 export async function POST(req: Request) {
-  const auth = await trusted(req);
-  if (auth.error || !auth.session) return auth.error!;
+  const auth = await requireTrusted(req);
+  if (!auth.session) return auth.response!;
   const body: any = await req.json().catch(() => ({}));
   const current = auth.session.identity.savedAddresses;
   const address = newSavedAddress(body, current.length);
@@ -40,8 +44,8 @@ export async function POST(req: Request) {
 }
 
 export async function PATCH(req: Request) {
-  const auth = await trusted(req);
-  if (auth.error || !auth.session) return auth.error!;
+  const auth = await requireTrusted(req);
+  if (!auth.session) return auth.response!;
   const body: any = await req.json().catch(() => ({}));
   const id = String(body?.id || "");
   const current = auth.session.identity.savedAddresses;
@@ -61,8 +65,8 @@ export async function PATCH(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  const auth = await trusted(req);
-  if (auth.error || !auth.session) return auth.error!;
+  const auth = await requireTrusted(req);
+  if (!auth.session) return auth.response!;
   const body: any = await req.json().catch(() => ({}));
   const id = String(body?.id || "");
   const current = auth.session.identity.savedAddresses;
