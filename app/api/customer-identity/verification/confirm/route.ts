@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import {
-  CHALLENGE_COOKIE_MAX_AGE,
   CUSTOMER_DEVICE_COOKIE,
   DEVICE_COOKIE_MAX_AGE,
   PHONE_CHALLENGE_COOKIE,
@@ -8,6 +7,7 @@ import {
   decodeChallenge,
   encodeChallenge,
   establishTrustedCustomer,
+  germanPhoneForCheckout,
   identityCookieOptions,
   nextFailedChallenge,
   verifyOtpHash,
@@ -63,18 +63,23 @@ export async function POST(req: Request) {
     name: challenge.name,
     pendingAddress: challenge.pendingAddress,
   });
+  const checkoutPhone = germanPhoneForCheckout(String(established.customer.phone || challenge.phoneE164));
 
   const response = json({
     ok: true,
-    phoneE164: established.customer.phone,
+    phoneE164: checkoutPhone,
     name: established.customer.name,
-    orderProof: createCustomerOrderProof(String(established.customer.phone || "")),
+    orderProof: createCustomerOrderProof(String(established.customer.phone || challenge.phoneE164)),
     addresses: established.identity.savedAddresses,
   });
-  response.cookies.set(CUSTOMER_DEVICE_COOKIE, established.rawDeviceToken, {
-    ...identityCookieOptions,
-    maxAge: DEVICE_COOKIE_MAX_AGE,
-  });
+  response.cookies.set(
+    CUSTOMER_DEVICE_COOKIE,
+    `${established.customer.id}.${established.rawDeviceToken}`,
+    {
+      ...identityCookieOptions,
+      maxAge: DEVICE_COOKIE_MAX_AGE,
+    },
+  );
   response.cookies.set(PHONE_CHALLENGE_COOKIE, "", {
     ...identityCookieOptions,
     maxAge: 0,
