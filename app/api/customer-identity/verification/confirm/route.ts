@@ -12,6 +12,7 @@ import {
   nextFailedChallenge,
   verifyOtpHash,
 } from "@/lib/server/customer-identity";
+import { createCustomerOrderProof } from "@/lib/server/customer-order-proof";
 import {
   enforceRateLimit,
   hasTrustedMutationOrigin,
@@ -67,6 +68,7 @@ export async function POST(req: Request) {
     ok: true,
     phoneE164: established.customer.phone,
     name: established.customer.name,
+    orderProof: createCustomerOrderProof(String(established.customer.phone || "")),
     addresses: established.identity.savedAddresses,
   });
   response.cookies.set(CUSTOMER_DEVICE_COOKIE, established.rawDeviceToken, {
