@@ -3,6 +3,7 @@ import {
   customerIdentityConfigured,
   readTrustedCustomer,
 } from "@/lib/server/customer-identity";
+import { createCustomerOrderProof } from "@/lib/server/customer-order-proof";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,6 +29,7 @@ export async function GET(req: Request) {
             phone: trusted.customer.phone,
             phoneVerifiedAt: trusted.identity.phoneVerifiedAt || null,
           },
+          orderProof: createCustomerOrderProof(String(trusted.customer.phone || "")),
           addresses: trusted.identity.savedAddresses,
         }
       : { ok: true, enabled: true, trusted: false, addresses: [] },
