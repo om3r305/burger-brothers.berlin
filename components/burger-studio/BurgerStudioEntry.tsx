@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { startAppNavigation } from "@/components/AppRouteTransition";
+import DeliveryAddressEntry from "@/components/customer/DeliveryAddressEntry";
 import { readSettings } from "@/lib/settings";
 
 const CUSTOMER_MENU_PATHS = new Set([
@@ -159,119 +160,125 @@ export default function BurgerStudioEntry() {
     router.push(href, { scroll: false });
   }, [router]);
 
-  if (!enabled || !CUSTOMER_MENU_PATHS.has(pathname)) return null;
+  if (!CUSTOMER_MENU_PATHS.has(pathname)) return null;
 
   return (
-    <button
-      ref={buttonRef}
-      type="button"
-      data-bb-swipe-ignore
-      aria-label="Burger Studio öffnen oder verschieben"
-      title="Burger Studio – gedrückt halten und verschieben"
-      onPointerDown={(event) => {
-        if (event.button !== 0 && event.pointerType === "mouse") return;
-        const rect = event.currentTarget.getBoundingClientRect();
-        dragRef.current = {
-          pointerId: event.pointerId,
-          startX: event.clientX,
-          startY: event.clientY,
-          originX: rect.left,
-          originY: rect.top,
-          moved: false,
-        };
-        draggedRef.current = false;
-        setExpanded(true);
-        armCollapse();
-        event.currentTarget.setPointerCapture(event.pointerId);
-      }}
-      onPointerMove={(event) => {
-        const drag = dragRef.current;
-        if (!drag || drag.pointerId !== event.pointerId) return;
+    <>
+      <DeliveryAddressEntry />
 
-        const dx = event.clientX - drag.startX;
-        const dy = event.clientY - drag.startY;
-        if (!drag.moved && Math.hypot(dx, dy) < 7) return;
-
-        drag.moved = true;
-        draggedRef.current = true;
-        const rect = event.currentTarget.getBoundingClientRect();
-        setPosition(
-          clampPosition(
-            { x: drag.originX + dx, y: drag.originY + dy },
-            rect.width,
-            rect.height,
-          ),
-        );
-      }}
-      onPointerUp={(event) => {
-        const drag = dragRef.current;
-        if (!drag || drag.pointerId !== event.pointerId) return;
-        dragRef.current = null;
-
-        try {
-          event.currentTarget.releasePointerCapture(event.pointerId);
-        } catch {}
-
-        if (drag.moved) {
-          const rect = event.currentTarget.getBoundingClientRect();
-          const next = clampPosition(
-            { x: rect.left, y: rect.top },
-            rect.width,
-            rect.height,
-          );
-          setPosition(next);
-          try {
-            localStorage.setItem(POSITION_KEY, JSON.stringify(next));
-          } catch {}
-          window.setTimeout(() => {
+      {enabled && (
+        <button
+          ref={buttonRef}
+          type="button"
+          data-bb-swipe-ignore
+          aria-label="Burger Studio öffnen oder verschieben"
+          title="Burger Studio – gedrückt halten und verschieben"
+          onPointerDown={(event) => {
+            if (event.button !== 0 && event.pointerType === "mouse") return;
+            const rect = event.currentTarget.getBoundingClientRect();
+            dragRef.current = {
+              pointerId: event.pointerId,
+              startX: event.clientX,
+              startY: event.clientY,
+              originX: rect.left,
+              originY: rect.top,
+              moved: false,
+            };
             draggedRef.current = false;
-          }, 0);
-        }
-      }}
-      onPointerCancel={() => {
-        dragRef.current = null;
-        draggedRef.current = false;
-      }}
-      onClick={(event) => {
-        if (draggedRef.current) {
-          event.preventDefault();
-          return;
-        }
-        openStudio();
-      }}
-      style={
-        position
-          ? {
-              left: `${position.x}px`,
-              top: `${position.y}px`,
-              right: "auto",
-              touchAction: "none",
+            setExpanded(true);
+            armCollapse();
+            event.currentTarget.setPointerCapture(event.pointerId);
+          }}
+          onPointerMove={(event) => {
+            const drag = dragRef.current;
+            if (!drag || drag.pointerId !== event.pointerId) return;
+
+            const dx = event.clientX - drag.startX;
+            const dy = event.clientY - drag.startY;
+            if (!drag.moved && Math.hypot(dx, dy) < 7) return;
+
+            drag.moved = true;
+            draggedRef.current = true;
+            const rect = event.currentTarget.getBoundingClientRect();
+            setPosition(
+              clampPosition(
+                { x: drag.originX + dx, y: drag.originY + dy },
+                rect.width,
+                rect.height,
+              ),
+            );
+          }}
+          onPointerUp={(event) => {
+            const drag = dragRef.current;
+            if (!drag || drag.pointerId !== event.pointerId) return;
+            dragRef.current = null;
+
+            try {
+              event.currentTarget.releasePointerCapture(event.pointerId);
+            } catch {}
+
+            if (drag.moved) {
+              const rect = event.currentTarget.getBoundingClientRect();
+              const next = clampPosition(
+                { x: rect.left, y: rect.top },
+                rect.width,
+                rect.height,
+              );
+              setPosition(next);
+              try {
+                localStorage.setItem(POSITION_KEY, JSON.stringify(next));
+              } catch {}
+              window.setTimeout(() => {
+                draggedRef.current = false;
+              }, 0);
             }
-          : { touchAction: "none" }
-      }
-      className={`group fixed z-[45] flex select-none items-center rounded-full border border-amber-300/35 bg-black/90 py-2 text-xs font-black text-white shadow-[0_12px_38px_rgba(0,0,0,.45),0_0_28px_rgba(245,158,11,.13)] backdrop-blur-xl transition-[padding,border-color,box-shadow] duration-300 hover:border-amber-300/65 ${
-        position
-          ? ""
-          : "right-3 top-[calc(env(safe-area-inset-top)+78px)] sm:right-5 sm:top-[calc(env(safe-area-inset-top)+86px)]"
-      } ${expanded ? "gap-2 px-3 sm:px-4 sm:text-sm" : "gap-0 px-2"}`}
-    >
-      <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-amber-400 text-base text-black shadow-[0_0_18px_rgba(245,158,11,.28)] transition group-hover:scale-105">
-        🔥
-      </span>
-      <span
-        className={`overflow-hidden whitespace-nowrap transition-[max-width,opacity,margin] duration-300 ${
-          expanded ? "max-w-32 opacity-100" : "max-w-0 opacity-0"
-        }`}
-      >
-        Burger Studio
-      </span>
-      <span
-        className={`overflow-hidden text-amber-300 transition-[max-width,opacity] duration-300 ${
-          expanded ? "max-w-5 opacity-100" : "max-w-0 opacity-0"
-        }`}
-      >
-        →
-      </span>
-    </button>
+          }}
+          onPointerCancel={() => {
+            dragRef.current = null;
+            draggedRef.current = false;
+          }}
+          onClick={(event) => {
+            if (draggedRef.current) {
+              event.preventDefault();
+              return;
+            }
+            openStudio();
+          }}
+          style={
+            position
+              ? {
+                  left: `${position.x}px`,
+                  top: `${position.y}px`,
+                  right: "auto",
+                  touchAction: "none",
+                }
+              : { touchAction: "none" }
+          }
+          className={`group fixed z-[45] flex select-none items-center rounded-full border border-amber-300/35 bg-black/90 py-2 text-xs font-black text-white shadow-[0_12px_38px_rgba(0,0,0,.45),0_0_28px_rgba(245,158,11,.13)] backdrop-blur-xl transition-[padding,border-color,box-shadow] duration-300 hover:border-amber-300/65 ${
+            position
+              ? ""
+              : "right-3 top-[calc(env(safe-area-inset-top)+78px)] sm:right-5 sm:top-[calc(env(safe-area-inset-top)+86px)]"
+          } ${expanded ? "gap-2 px-3 sm:px-4 sm:text-sm" : "gap-0 px-2"}`}
+        >
+          <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-amber-400 text-base text-black shadow-[0_0_18px_rgba(245,158,11,.28)] transition group-hover:scale-105">
+            🔥
+          </span>
+          <span
+            className={`overflow-hidden whitespace-nowrap transition-[max-width,opacity,margin] duration-300 ${
+              expanded ? "max-w-32 opacity-100" : "max-w-0 opacity-0"
+            }`}
+          >
+            Burger Studio
+          </span>
+          <span
+            className={`overflow-hidden text-amber-300 transition-[max-width,opacity] duration-300 ${
+              expanded ? "max-w-5 opacity-100" : "max-w-0 opacity-0"
+            }`}
+          >
+            →
+          </span>
+        </button>
+      )}
+    </>
   );
 }
