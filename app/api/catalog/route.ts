@@ -5,6 +5,7 @@ import { prisma, getTenantId } from "@/lib/db";
 import { readFallbackSnapshot, writeFallbackSnapshot } from "@/lib/server/fallback-snapshot";
 import { requireMutationRole } from "@/lib/server/request-security";
 import { BURGER_STUDIO_SCRATCH_SKU } from "@/lib/burger-studio-v2";
+import { withProductProteinExtra } from "@/lib/product-protein-extra";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -467,9 +468,15 @@ function normalizeProductInput(item: any) {
 }
 
 function serializeProduct(row: any) {
-  const extras = normalizeExtras(row?.extrasJson ?? row?.extras);
-  const allergens = normalizeAllergens(row?.allergens);
   const category = normalizeCategory(row?.category);
+  const extras = withProductProteinExtra({
+    productName: String(row?.name ?? "Produkt"),
+    productDescription: row?.description ?? "",
+    category,
+    extras: normalizeExtras(row?.extrasJson ?? row?.extras),
+    defaultPrice: 3,
+  });
+  const allergens = normalizeAllergens(row?.allergens);
 
   return sanitizeJson({
     id: String(row?.id ?? ""),
