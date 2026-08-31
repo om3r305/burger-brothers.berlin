@@ -70,16 +70,27 @@ function requestWithProof(
   payload: Record<string, any>,
   orderProof: string,
 ): RequestInit {
+  const wrappedOrder = asRecord(payload.order);
+  const nextPayload = Object.keys(wrappedOrder).length
+    ? {
+        ...payload,
+        order: {
+          ...wrappedOrder,
+          customerVerificationProof: orderProof,
+        },
+      }
+    : {
+        ...payload,
+        customerVerificationProof: orderProof,
+      };
+
   return {
     ...(init || {}),
     headers: {
       ...(init?.headers || {}),
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      ...payload,
-      customerVerificationProof: orderProof,
-    }),
+    body: JSON.stringify(nextPayload),
   };
 }
 
@@ -127,7 +138,7 @@ export default function CheckoutCustomerIdentityLayer() {
 
   useEffect(() => {
     let active = true;
-    const load = async () => {
+    void (async () => {
       try {
         const response = await fetch("/customer-identity/session", {
           credentials: "same-origin",
@@ -140,8 +151,7 @@ export default function CheckoutCustomerIdentityLayer() {
       } finally {
         if (active) setReady(true);
       }
-    };
-    void load();
+    })();
     return () => {
       active = false;
     };
@@ -165,8 +175,11 @@ export default function CheckoutCustomerIdentityLayer() {
   }, [ready, session.trusted, session.customer?.phone, phoneEditing]);
 
   const startVerification = useCallback(async (payload: Record<string, any>) => {
-    const customer = asRecord(payload.customer);
-    const phone = String(customer.phone || payload.phone || "");
+    const order = Object.keys(asRecord(payload.order)).length
+      ? asRecord(payload.order)
+      : payload;
+    const customer = asRecord(order.customer);
+    const phone = String(customer.phone || order.phone || "");
     const address = {
       street: customer.street,
       house: customer.house || customer.houseNo,
@@ -187,9 +200,9 @@ export default function CheckoutCustomerIdentityLayer() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           phone,
-          name: customer.name || payload.customerName || "",
+          name: customer.name || order.customerName || "",
           address:
-            String(payload.mode || "").toLowerCase() === "delivery"
+            String(order.mode || "").toLowerCase() === "delivery"
               ? address
               : null,
         }),
@@ -231,8 +244,11 @@ export default function CheckoutCustomerIdentityLayer() {
         return originalFetch(input, init);
       }
 
-      const customer = asRecord(payload.customer);
-      const orderPhone = comparablePhone(customer.phone || payload.phone);
+      const order = Object.keys(asRecord(payload.order)).length
+        ? asRecord(payload.order)
+        : payload;
+      const customer = asRecord(order.customer);
+      const orderPhone = comparablePhone(customer.phone || order.phone);
       const trustedPhone = comparablePhone(session.customer?.phone);
 
       if (
@@ -247,7 +263,6 @@ export default function CheckoutCustomerIdentityLayer() {
           if (
             fresh?.trusted &&
             fresh?.orderProof &&
-            freshPhone &&
             freshPhone === orderPhone
           ) {
             return originalFetch(
@@ -323,11 +338,16 @@ export default function CheckoutCustomerIdentityLayer() {
       pendingRef.current = null;
       if (pending) {
         try {
-          const orderResponse = await fetcher(
-            pending.input,
-            requestWithProof(pending.init, pending.payload, String(data.orderProof)),
+          pending.resolve(
+            await fetcher(
+              pending.input,
+              requestWithProof(
+                pending.init,
+                pending.payload,
+                String(data.orderProof),
+              ),
+            ),
           );
-          pending.resolve(orderResponse);
         } catch (cause) {
           pending.reject(cause);
         }
@@ -357,14 +377,12 @@ export default function CheckoutCustomerIdentityLayer() {
       setError("Bitte zuerst eine vollständige Lieferadresse eingeben.");
       return;
     }
-
     setBusy(true);
     setError("");
     try {
       const fetcher = originalFetchRef.current || window.fetch.bind(window);
-      const method = editingAddressId ? "PATCH" : "POST";
       const response = await fetcher("/customer-identity/addresses", {
-        method,
+        method: editingAddressId ? "PATCH" : "POST",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -429,16 +447,6 @@ export default function CheckoutCustomerIdentityLayer() {
     }
   }, [editingAddressId]);
 
-  const beginAddressEdit = useCallback(
-    async (address: SavedAddress) => {
-      setEditingAddressId(address.id);
-      setSaveLabel(address.label || "Zuhause");
-      await applyAddress(address);
-      setPanelOpen(false);
-    },
-    [applyAddress],
-  );
-
   const beginPhoneChange = useCallback(() => {
     setPhoneEditing(true);
     const phone = document.getElementById("checkout-phone") as HTMLInputElement | null;
@@ -469,13 +477,7 @@ export default function CheckoutCustomerIdentityLayer() {
               <div className="text-sm font-bold">Kundendaten</div>
               <div className="text-xs text-zinc-400">Ohne Konto und Passwort</div>
             </div>
-            <button
-              type="button"
-              onClick={() => setPanelOpen(false)}
-              className="rounded-lg px-2 py-1 text-zinc-400"
-            >
-              ✕
-            </button>
+            <button type="button" onClick={() => setPanelOpen(false)} className="px-2 py-1 text-zinc-400">✕</button>
           </div>
 
           {session.trusted ? (
@@ -484,124 +486,47 @@ export default function CheckoutCustomerIdentityLayer() {
                 <div className="text-xs text-emerald-300">Telefon bestätigt</div>
                 <div className="mt-1 flex items-center justify-between gap-3">
                   <strong>{session.customer?.phone}</strong>
-                  <button
-                    type="button"
-                    onClick={beginPhoneChange}
-                    className="text-xs font-semibold text-amber-300"
-                  >
-                    Ändern
-                  </button>
+                  <button type="button" onClick={beginPhoneChange} className="text-xs font-semibold text-amber-300">Ändern</button>
                 </div>
-                {phoneEditing && (
-                  <p className="mt-2 text-xs text-zinc-400">
-                    Die alte Nummer bleibt bestätigt, bis die neue Nummer per SMS
-                    bestätigt wurde.
-                  </p>
-                )}
+                {phoneEditing && <p className="mt-2 text-xs text-zinc-400">Die alte Nummer bleibt bestätigt, bis die neue Nummer per SMS bestätigt wurde.</p>}
               </div>
 
               <div>
-                <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-400">
-                  Gespeicherte Adressen
-                </div>
+                <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-400">Gespeicherte Adressen</div>
                 <div className="space-y-2">
                   {session.addresses.map((address) => (
-                    <div
-                      key={address.id}
-                      className="rounded-2xl border border-white/10 bg-white/[0.04] p-3"
-                    >
-                      <button
-                        type="button"
-                        onClick={() => {
-                          void applyAddress(address);
-                          setPanelOpen(false);
-                        }}
-                        className="w-full text-left"
-                      >
+                    <div key={address.id} className="rounded-2xl border border-white/10 bg-white/[0.04] p-3">
+                      <button type="button" onClick={() => { void applyAddress(address); setPanelOpen(false); }} className="w-full text-left">
                         <div className="flex items-center justify-between gap-2">
-                          <strong className="text-sm">
-                            {address.label || "Adresse"}
-                          </strong>
-                          {address.isDefault && (
-                            <span className="text-[10px] text-amber-300">
-                              Standard
-                            </span>
-                          )}
+                          <strong className="text-sm">{address.label || "Adresse"}</strong>
+                          {address.isDefault && <span className="text-[10px] text-amber-300">Standard</span>}
                         </div>
-                        <div className="mt-1 text-xs text-zinc-400">
-                          {address.street} {address.house}, {address.zip} {address.city}
-                        </div>
+                        <div className="mt-1 text-xs text-zinc-400">{address.street} {address.house}, {address.zip} {address.city}</div>
                       </button>
                       <div className="mt-3 flex gap-2">
-                        <button
-                          type="button"
-                          onClick={() => void beginAddressEdit(address)}
-                          className="rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold"
-                        >
-                          Ändern
-                        </button>
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={() => void deleteAddress(address.id)}
-                          className="rounded-lg px-3 py-1.5 text-xs text-red-300 disabled:opacity-50"
-                        >
-                          Löschen
-                        </button>
+                        <button type="button" onClick={() => { setEditingAddressId(address.id); setSaveLabel(address.label || "Zuhause"); void applyAddress(address); setPanelOpen(false); }} className="rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold">Ändern</button>
+                        <button type="button" disabled={busy} onClick={() => void deleteAddress(address.id)} className="rounded-lg px-3 py-1.5 text-xs text-red-300 disabled:opacity-50">Löschen</button>
                       </div>
                     </div>
                   ))}
-                  {!session.addresses.length && (
-                    <div className="text-xs text-zinc-500">
-                      Noch keine Adresse gespeichert.
-                    </div>
-                  )}
+                  {!session.addresses.length && <div className="text-xs text-zinc-500">Noch keine Adresse gespeichert.</div>}
                 </div>
               </div>
 
               <div className="rounded-2xl border border-white/10 p-3">
-                <div className="mb-2 text-xs font-semibold">
-                  {editingAddressId
-                    ? "Geänderte Lieferadresse speichern"
-                    : "Aktuelle Lieferadresse speichern"}
-                </div>
+                <div className="mb-2 text-xs font-semibold">{editingAddressId ? "Geänderte Lieferadresse speichern" : "Aktuelle Lieferadresse speichern"}</div>
                 <div className="mb-3 flex flex-wrap gap-2">
                   {["Zuhause", "Arbeit", "Andere"].map((label) => (
-                    <button
-                      key={label}
-                      type="button"
-                      onClick={() => setSaveLabel(label)}
-                      className={`rounded-full px-3 py-1 text-xs ${
-                        saveLabel === label
-                          ? "bg-amber-300 text-black"
-                          : "bg-white/10 text-zinc-300"
-                      }`}
-                    >
-                      {label}
-                    </button>
+                    <button key={label} type="button" onClick={() => setSaveLabel(label)} className={`rounded-full px-3 py-1 text-xs ${saveLabel === label ? "bg-amber-300 text-black" : "bg-white/10 text-zinc-300"}`}>{label}</button>
                   ))}
                 </div>
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => void saveCurrentAddress()}
-                  className="w-full rounded-xl bg-white/10 px-3 py-2 text-xs font-semibold hover:bg-white/15 disabled:opacity-50"
-                >
-                  {editingAddressId ? "Änderung speichern" : "+ Adresse speichern"}
-                </button>
+                <button type="button" disabled={busy} onClick={() => void saveCurrentAddress()} className="w-full rounded-xl bg-white/10 px-3 py-2 text-xs font-semibold hover:bg-white/15 disabled:opacity-50">{editingAddressId ? "Änderung speichern" : "+ Adresse speichern"}</button>
               </div>
             </div>
           ) : (
-            <p className="text-sm text-zinc-300">
-              Bei deiner ersten Bestellung bestätigen wir die Telefonnummer einmalig
-              per SMS. Danach bleibt sie auf diesem Gerät bestätigt.
-            </p>
+            <p className="text-sm text-zinc-300">Bei deiner ersten Bestellung bestätigen wir die Telefonnummer einmalig per SMS. Danach bleibt sie auf diesem Gerät bestätigt.</p>
           )}
-          {error && (
-            <div className="mt-3 rounded-xl border border-red-400/20 bg-red-400/10 p-2 text-xs text-red-200">
-              {error}
-            </div>
-          )}
+          {error && <div className="mt-3 rounded-xl border border-red-400/20 bg-red-400/10 p-2 text-xs text-red-200">{error}</div>}
         </div>
       )}
 
@@ -609,47 +534,11 @@ export default function CheckoutCustomerIdentityLayer() {
         <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
           <div className="w-full max-w-sm rounded-3xl border border-white/10 bg-zinc-950 p-5 text-white shadow-2xl">
             <div className="text-lg font-bold">Telefon bestätigen</div>
-            <p className="mt-1 text-sm text-zinc-400">
-              Wir haben einen 6-stelligen Code an{" "}
-              <strong className="text-zinc-200">{otpPhone}</strong> gesendet.
-            </p>
-            <input
-              autoFocus
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              value={otpCode}
-              onChange={(event) =>
-                setOtpCode(event.target.value.replace(/\D/g, "").slice(0, 6))
-              }
-              onKeyDown={(event) => {
-                if (event.key === "Enter") void confirmOtp();
-              }}
-              placeholder="123456"
-              className="mt-4 w-full rounded-2xl border border-white/15 bg-black px-4 py-3 text-center text-2xl tracking-[0.35em] outline-none focus:border-amber-300/60"
-            />
+            <p className="mt-1 text-sm text-zinc-400">Wir haben einen 6-stelligen Code an <strong className="text-zinc-200">{otpPhone}</strong> gesendet.</p>
+            <input autoFocus inputMode="numeric" autoComplete="one-time-code" value={otpCode} onChange={(event) => setOtpCode(event.target.value.replace(/\D/g, "").slice(0, 6))} onKeyDown={(event) => { if (event.key === "Enter") void confirmOtp(); }} placeholder="123456" className="mt-4 w-full rounded-2xl border border-white/15 bg-black px-4 py-3 text-center text-2xl tracking-[0.35em] outline-none focus:border-amber-300/60" />
             {error && <div className="mt-3 text-sm text-red-300">{error}</div>}
-            <button
-              type="button"
-              disabled={busy || otpCode.length !== 6}
-              onClick={() => void confirmOtp()}
-              className="mt-4 w-full rounded-2xl bg-amber-300 px-4 py-3 font-bold text-black disabled:opacity-50"
-            >
-              {busy ? "Prüfen…" : "Bestätigen & bestellen"}
-            </button>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => {
-                const pending = pendingRef.current;
-                pendingRef.current = null;
-                pending?.reject(new Error("Telefonbestätigung abgebrochen."));
-                setOtpOpen(false);
-                setError("");
-              }}
-              className="mt-2 w-full px-4 py-2 text-sm text-zinc-500"
-            >
-              Abbrechen
-            </button>
+            <button type="button" disabled={busy || otpCode.length !== 6} onClick={() => void confirmOtp()} className="mt-4 w-full rounded-2xl bg-amber-300 px-4 py-3 font-bold text-black disabled:opacity-50">{busy ? "Prüfen…" : "Bestätigen & bestellen"}</button>
+            <button type="button" disabled={busy} onClick={() => { const pending = pendingRef.current; pendingRef.current = null; pending?.reject(new Error("Telefonbestätigung abgebrochen.")); setOtpOpen(false); setError(""); }} className="mt-2 w-full px-4 py-2 text-sm text-zinc-500">Abbrechen</button>
           </div>
         </div>
       )}
