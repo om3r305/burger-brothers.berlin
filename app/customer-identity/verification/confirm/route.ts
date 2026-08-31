@@ -1,1 +1,3 @@
-export { runtime, dynamic, POST } from "@/app/api/customer-identity/verification/confirm/route";
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export { POST } from "@/app/api/customer-identity/verification/confirm/route";
