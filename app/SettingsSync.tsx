@@ -48,16 +48,39 @@ async function syncSettingsOnce() {
   }
 }
 
+function normalizeShopStatus(status: any) {
+  return {
+    closed: status?.closed === true,
+    message: String(status?.message || ""),
+    maintenanceStart: String(status?.maintenanceStart || ""),
+    maintenanceEnd: String(status?.maintenanceEnd || ""),
+  };
+}
+
+function shopStatusChanged(currentSite: any, nextStatus: ReturnType<typeof normalizeShopStatus>) {
+  return (
+    currentSite?.closed === true !== nextStatus.closed ||
+    String(currentSite?.message || "") !== nextStatus.message ||
+    String(currentSite?.maintenanceStart || "") !== nextStatus.maintenanceStart ||
+    String(currentSite?.maintenanceEnd || "") !== nextStatus.maintenanceEnd
+  );
+}
+
 function publishShopStatus(status: any) {
   const current = readSettings();
+  const nextStatus = normalizeShopStatus(status);
+
+  // /api/shop-status is intentionally polled every five seconds so emergency
+  // stop changes arrive quickly. Do not turn an unchanged heartbeat into a
+  // full settings event: customer menu listeners would otherwise rerender the
+  // entire product grid every five seconds and recreate image DOM nodes.
+  if (!shopStatusChanged(current?.site, nextStatus)) return false;
+
   const next = {
     ...current,
     site: {
       ...(current.site || {}),
-      closed: status?.closed === true,
-      message: String(status?.message || ""),
-      maintenanceStart: String(status?.maintenanceStart || ""),
-      maintenanceEnd: String(status?.maintenanceEnd || ""),
+      ...nextStatus,
     },
   };
 
@@ -72,6 +95,8 @@ function publishShopStatus(status: any) {
       }),
     );
   } catch {}
+
+  return true;
 }
 
 export default function SettingsSync() {
