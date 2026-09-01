@@ -15,6 +15,7 @@ import PrivacyConsent from "@/components/PrivacyConsent";
 import MobileCategorySwipe from "@/components/menu/MobileCategorySwipe";
 import BurgerAssistant from "@/components/assistant/BurgerAssistant";
 import BurgerStudioEntry from "@/components/burger-studio/BurgerStudioEntry";
+import DeliveryCheckoutGate from "@/components/customer/DeliveryCheckoutGate";
 
 /* 🔧 SSG yerine runtime render (prerender hatalarını engelle) */
 export const dynamic = "force-dynamic";
@@ -298,6 +299,9 @@ body:has(#bb-landing-page) .bb-mobile-footer-gap {
 
         {/* Burger Studio ayrı bir müşteri menüsü olarak, normal swipe sırasını bozmadan açılır. */}
         <BurgerStudioEntry />
+
+        {/* Yeni teslimat müşterisi menüyü özgürce gezer; adres yalnız checkout öncesi zorunlu olur. */}
+        <DeliveryCheckoutGate />
 
         {/* Customer AI assistant lives in the global shell so menu scroll/mask containers cannot clip it.
             The component itself only renders on customer menu routes. */}
