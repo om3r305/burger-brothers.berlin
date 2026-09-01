@@ -157,10 +157,12 @@ must(
 );
 must(
   productCard.includes("NormalizedProductImage") &&
-    normalizedProductImage.includes("requestIdleCallback") &&
     normalizedProductImage.includes("sessionStorage") &&
-    normalizedProductImage.includes("IMAGE_LAYOUT_CACHE_KEY"),
-  "ürün görsel analizi boş zamanda çalışıyor ve oturumda önbellekleniyor",
+    normalizedProductImage.includes("IMAGE_LAYOUT_CACHE_KEY") &&
+    normalizedProductImage.includes("opacity: ready ? 1 : 0") &&
+    normalizedProductImage.includes('transition: "opacity 120ms ease-out"') &&
+    !normalizedProductImage.includes("requestIdleCallback"),
+  "ürün görsel analizi görünmeden tamamlanıyor, zıplamıyor ve oturumda önbellekleniyor",
 );
 must(
   localImages.includes('replace(/\\.png$/i, ".webp")') &&
