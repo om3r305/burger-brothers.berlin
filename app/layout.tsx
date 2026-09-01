@@ -16,6 +16,7 @@ import MobileCategorySwipe from "@/components/menu/MobileCategorySwipe";
 import BurgerAssistant from "@/components/assistant/BurgerAssistant";
 import BurgerStudioEntry from "@/components/burger-studio/BurgerStudioEntry";
 import DeliveryCheckoutGate from "@/components/customer/DeliveryCheckoutGate";
+import DeliveryCartPresentation from "@/components/customer/DeliveryCartPresentation";
 
 /* 🔧 SSG yerine runtime render (prerender hatalarını engelle) */
 export const dynamic = "force-dynamic";
@@ -302,6 +303,7 @@ body:has(#bb-landing-page) .bb-mobile-footer-gap {
 
         {/* Yeni teslimat müşterisi menüyü özgürce gezer; adres yalnız checkout öncesi zorunlu olur. */}
         <DeliveryCheckoutGate />
+        <DeliveryCartPresentation />
 
         {/* Customer AI assistant lives in the global shell so menu scroll/mask containers cannot clip it.
             The component itself only renders on customer menu routes. */}
