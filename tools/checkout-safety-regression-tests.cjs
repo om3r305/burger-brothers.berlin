@@ -8,6 +8,7 @@ const root = path.resolve(__dirname, "..");
 const read = (relative) => fs.readFileSync(path.join(root, relative), "utf8");
 
 const checkout = read("app/checkout/page.tsx");
+const deliveryGate = read("components/customer/DeliveryCheckoutGate.tsx");
 const store = read("components/store.ts");
 const runtime = read("lib/checkout/runtime.ts");
 const types = read("types/checkout.ts");
@@ -15,6 +16,7 @@ const toast = read("components/checkout/CheckoutToastViewport.tsx");
 
 for (const [name, source, jsx] of [
   ["app/checkout/page.tsx", checkout, true],
+  ["components/customer/DeliveryCheckoutGate.tsx", deliveryGate, true],
   ["components/store.ts", store, false],
   ["lib/checkout/runtime.ts", runtime, false],
   ["types/checkout.ts", types, false],
@@ -90,6 +92,30 @@ assert(
 assert(
   checkout.includes("This is only a split-distribution weight"),
   "The 0.01 split weight compatibility rule must be documented",
+);
+
+assert(
+  deliveryGate.includes('searchStreets(zip, streetQuery, 12)') &&
+    deliveryGate.includes('streetEquals(candidate, value)') &&
+    deliveryGate.includes('Bitte eine Straße aus der offiziellen Liste auswählen.'),
+  "Delivery gate must only accept streets from the same official street data used by checkout",
+);
+assert(
+  deliveryGate.includes('"Meinen Standort verwenden"') &&
+    deliveryGate.includes("navigator.geolocation.getCurrentPosition") &&
+    deliveryGate.includes("reverseGeocodePosition"),
+  "Delivery gate must expose checkout-style device geolocation",
+);
+assert(
+  deliveryGate.includes('fetch("/api/maps/address/validate"') &&
+    deliveryGate.includes("validation.hasUnconfirmedComponents") &&
+    deliveryGate.includes("getPricingOverrides(\"delivery\").plzMin"),
+  "Delivery gate must keep PLZ, official-street and Google address validation layers",
+);
+assert(
+  deliveryGate.includes('attributeFilter: ["disabled"]') &&
+    deliveryGate.includes("button.dataset.bbAddressGateButton !== \"1\""),
+  "Delivery gate observer must stay bounded to avoid menu paint churn",
 );
 
 const runtimeJs = ts.transpileModule(runtime, {
