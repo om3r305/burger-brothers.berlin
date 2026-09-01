@@ -83,8 +83,9 @@ function clamp(value: number, min: number, max: number) {
 
 /**
  * Şeffaf ürün görsellerindeki gerçek görünür alanı düşük çözünürlüklü bir
- * canvas üzerinde ölçer. Kaynak dosyaya dokunmaz; yalnızca kart içindeki
- * sunum ölçeğini ve hizasını düzenler.
+ * canvas üzerinde ölçer. İlk paint'te varsayılan geometriyi göstermeyiz;
+ * analiz bittikten sonra son geometri tek seferde görünür olur. Böylece
+ * burger görseli yüklenip sonradan zıplamaz.
  */
 export default function NormalizedProductImage({
   src,
@@ -94,45 +95,47 @@ export default function NormalizedProductImage({
   eager = false,
   fetchPriority = "auto",
 }: Props) {
+  const initialCached = cachedImageLayout(src, profile);
   const [layout, setLayout] = useState<NormalizedImageLayout>(
-    () => cachedImageLayout(src, profile) || DEFAULT_LAYOUT,
+    () => initialCached || DEFAULT_LAYOUT,
   );
-  const scheduledAnalysisRef = useRef<{
-    id: number;
-    mode: "idle" | "timeout";
-  } | null>(null);
+  const [ready, setReady] = useState(() => Boolean(initialCached));
+  const scheduledAnalysisRef = useRef<number | null>(null);
 
   useEffect(() => {
-    setLayout(cachedImageLayout(src, profile) || DEFAULT_LAYOUT);
+    const cached = cachedImageLayout(src, profile);
+    setLayout(cached || DEFAULT_LAYOUT);
+    setReady(Boolean(cached));
 
     return () => {
-      const scheduled = scheduledAnalysisRef.current;
-      if (!scheduled) return;
-
-      if (scheduled.mode === "idle") {
-        const idleWindow = window as Window & {
-          cancelIdleCallback?: (id: number) => void;
-        };
-        idleWindow.cancelIdleCallback?.(scheduled.id);
-      } else {
-        window.clearTimeout(scheduled.id);
+      if (scheduledAnalysisRef.current !== null) {
+        window.clearTimeout(scheduledAnalysisRef.current);
+        scheduledAnalysisRef.current = null;
       }
-
-      scheduledAnalysisRef.current = null;
     };
   }, [profile, src]);
+
+  const commitLayout = (nextLayout: NormalizedImageLayout) => {
+    cacheImageLayout(src, profile, nextLayout);
+    setLayout(nextLayout);
+    setReady(true);
+  };
 
   const analyzeImage = (element: HTMLImageElement) => {
     try {
       const cached = cachedImageLayout(src, profile);
       if (cached) {
         setLayout(cached);
+        setReady(true);
         return;
       }
 
       const naturalWidth = element.naturalWidth;
       const naturalHeight = element.naturalHeight;
-      if (!naturalWidth || !naturalHeight) return;
+      if (!naturalWidth || !naturalHeight) {
+        commitLayout(DEFAULT_LAYOUT);
+        return;
+      }
 
       const sampleWidth = Math.min(240, naturalWidth);
       const sampleHeight = Math.max(
@@ -144,7 +147,10 @@ export default function NormalizedProductImage({
       canvas.height = sampleHeight;
 
       const context = canvas.getContext("2d", { willReadFrequently: true });
-      if (!context) return;
+      if (!context) {
+        commitLayout(DEFAULT_LAYOUT);
+        return;
+      }
 
       context.clearRect(0, 0, sampleWidth, sampleHeight);
       context.drawImage(element, 0, 0, sampleWidth, sampleHeight);
@@ -169,8 +175,11 @@ export default function NormalizedProductImage({
         }
       }
 
-      // Şeffaf olmayan görsellerin mevcut object-contain davranışını koru.
-      if (opaquePixelCount > sampleWidth * sampleHeight * 0.96) return;
+      // Şeffaf olmayan görseller mevcut tam-kart geometrisinde kalır.
+      if (opaquePixelCount > sampleWidth * sampleHeight * 0.96) {
+        commitLayout(DEFAULT_LAYOUT);
+        return;
+      }
 
       const minColumnHits = Math.max(2, Math.floor(sampleHeight * 0.004));
       const minRowHits = Math.max(2, Math.floor(sampleWidth * 0.004));
@@ -187,7 +196,10 @@ export default function NormalizedProductImage({
       let maxY = sampleHeight - 1;
       while (maxY >= 0 && rowHits[maxY] < minRowHits) maxY -= 1;
 
-      if (minX >= maxX || minY >= maxY) return;
+      if (minX >= maxX || minY >= maxY) {
+        commitLayout(DEFAULT_LAYOUT);
+        return;
+      }
 
       const x0 = minX / sampleWidth;
       const x1 = (maxX + 1) / sampleWidth;
@@ -195,7 +207,10 @@ export default function NormalizedProductImage({
       const y1 = (maxY + 1) / sampleHeight;
       const visibleWidth = x1 - x0;
       const visibleHeight = y1 - y0;
-      if (visibleWidth <= 0 || visibleHeight <= 0) return;
+      if (visibleWidth <= 0 || visibleHeight <= 0) {
+        commitLayout(DEFAULT_LAYOUT);
+        return;
+      }
 
       const targetWidth = profile === "schnell" ? 0.86 : 0.84;
       const targetHeight = profile === "schnell" ? 0.84 : 0.82;
@@ -207,41 +222,31 @@ export default function NormalizedProductImage({
       );
       const left = (1 - visibleWidth * scale) / 2 - x0 * scale;
       const top = targetBottom - y1 * scale;
-      const nextLayout = { left, top, scale };
 
-      setLayout(nextLayout);
-      cacheImageLayout(src, profile, nextLayout);
+      commitLayout({ left, top, scale });
     } catch {
-      // CORS veya canvas kısıtı varsa güvenli object-contain görünümü kalır.
-      setLayout(DEFAULT_LAYOUT);
+      // CORS veya canvas kısıtı varsa güvenli tam-kart görünümü tek seferde açılır.
+      commitLayout(DEFAULT_LAYOUT);
     }
   };
 
   const scheduleAnalysis = (element: HTMLImageElement) => {
-    if (cachedImageLayout(src, profile)) return;
+    const cached = cachedImageLayout(src, profile);
+    if (cached) {
+      setLayout(cached);
+      setReady(true);
+      return;
+    }
 
-    const run = () => {
+    if (scheduledAnalysisRef.current !== null) {
+      window.clearTimeout(scheduledAnalysisRef.current);
+    }
+
+    // Görsel opacity:0 iken analiz edilir; son geometri hazır olduğunda açılır.
+    scheduledAnalysisRef.current = window.setTimeout(() => {
       scheduledAnalysisRef.current = null;
       analyzeImage(element);
-    };
-    const idleWindow = window as Window & {
-      requestIdleCallback?: (
-        callback: () => void,
-        options?: { timeout: number },
-      ) => number;
-    };
-
-    if (idleWindow.requestIdleCallback) {
-      scheduledAnalysisRef.current = {
-        id: idleWindow.requestIdleCallback(run, { timeout: 650 }),
-        mode: "idle",
-      };
-    } else {
-      scheduledAnalysisRef.current = {
-        id: window.setTimeout(run, 32),
-        mode: "timeout",
-      };
-    }
+    }, 0);
   };
 
   return (
@@ -252,6 +257,9 @@ export default function NormalizedProductImage({
         top: `${layout.top * 100}%`,
         width: `${layout.scale * 100}%`,
         height: `${layout.scale * 100}%`,
+        opacity: ready ? 1 : 0,
+        transition: "opacity 120ms ease-out",
+        willChange: ready ? "auto" : "opacity",
       }}
     >
       <img
