@@ -65,6 +65,9 @@ export async function POST(req: Request) {
   });
 
   try {
+    if (!String(process.env.SEVEN_SENDER || "").trim()) {
+      process.env.SEVEN_SENDER = "BBrothers";
+    }
     await sendSevenOtp(lookup.phoneE164, otp);
   } catch (error) {
     console.error("[customer-phone] seven SMS failed", error);
