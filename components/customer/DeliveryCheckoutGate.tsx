@@ -62,7 +62,8 @@ function readRememberedAddress(): Address | null {
   if (!street || !house || zip.length !== 5) return null;
 
   const labelRaw = String(raw.addressLabel || raw.label || "Zuhause");
-  const label: Address["label"] = labelRaw === "Arbeit" || labelRaw === "Andere" ? labelRaw : "Zuhause";
+  const label: Address["label"] =
+    labelRaw === "Arbeit" || labelRaw === "Andere" ? labelRaw : "Zuhause";
   return {
     id: `local:${zip}:${street.toLocaleLowerCase("de-DE")}:${house.toLocaleLowerCase("de-DE")}`,
     label,
@@ -125,14 +126,17 @@ export default function DeliveryCheckoutGate() {
     }
   }, [open, pathname]);
 
-  const minimum = zip.length === 5 && Object.prototype.hasOwnProperty.call(minimums, zip)
-    ? Number(minimums[zip] || 0)
-    : null;
+  const minimum =
+    zip.length === 5 && Object.prototype.hasOwnProperty.call(minimums, zip)
+      ? Number(minimums[zip] || 0)
+      : null;
 
   const isDeliverableZip = useCallback(
     (value: string) => {
       const code = cleanZip(value);
-      return code.length === 5 && Object.prototype.hasOwnProperty.call(minimums, code);
+      return (
+        code.length === 5 && Object.prototype.hasOwnProperty.call(minimums, code)
+      );
     },
     [minimums],
   );
@@ -147,48 +151,57 @@ export default function DeliveryCheckoutGate() {
     setOpen(true);
   }, []);
 
-  const persistAddress = useCallback((address: Address) => {
-    try {
-      const profile = readRecord(`${CHECKOUT_PROFILE_KEY}:delivery`);
-      const nextProfile = {
-        ...profile,
-        street: address.street,
-        house: address.house,
-        zip: address.zip,
-        city: address.city,
-        addressLabel: address.label,
-      };
-      localStorage.setItem(`${CHECKOUT_PROFILE_KEY}:delivery`, JSON.stringify(nextProfile));
-      localStorage.setItem(`${CHECKOUT_PROFILE_KEY}:delivery:${address.zip}`, JSON.stringify(nextProfile));
+  const persistAddress = useCallback(
+    (address: Address) => {
+      try {
+        const profile = readRecord(`${CHECKOUT_PROFILE_KEY}:delivery`);
+        const nextProfile = {
+          ...profile,
+          street: address.street,
+          house: address.house,
+          zip: address.zip,
+          city: address.city,
+          addressLabel: address.label,
+        };
+        localStorage.setItem(
+          `${CHECKOUT_PROFILE_KEY}:delivery`,
+          JSON.stringify(nextProfile),
+        );
+        localStorage.setItem(
+          `${CHECKOUT_PROFILE_KEY}:delivery:${address.zip}`,
+          JSON.stringify(nextProfile),
+        );
 
-      const checkout = readRecord(CHECKOUT_INFO_KEY);
-      localStorage.setItem(
-        CHECKOUT_INFO_KEY,
-        JSON.stringify({
-          ...checkout,
-          orderMode: "delivery",
-          addr: {
-            ...recordValue(checkout.addr),
-            street: address.street,
-            house: address.house,
-            zip: address.zip,
-            city: address.city,
-          },
+        const checkout = readRecord(CHECKOUT_INFO_KEY);
+        localStorage.setItem(
+          CHECKOUT_INFO_KEY,
+          JSON.stringify({
+            ...checkout,
+            orderMode: "delivery",
+            addr: {
+              ...recordValue(checkout.addr),
+              street: address.street,
+              house: address.house,
+              zip: address.zip,
+              city: address.city,
+            },
+          }),
+        );
+        localStorage.setItem(SELECTED_ADDRESS_KEY, address.id);
+        localStorage.removeItem(NEW_ADDRESS_KEY);
+      } catch {
+        // Local persistence is convenience; checkout still receives the in-memory PLZ.
+      }
+
+      setPLZ(address.zip);
+      window.dispatchEvent(
+        new CustomEvent("bb:delivery-address-selected", {
+          detail: address,
         }),
       );
-      localStorage.setItem(SELECTED_ADDRESS_KEY, address.id);
-      localStorage.removeItem(NEW_ADDRESS_KEY);
-    } catch {
-      // Local persistence is convenience; checkout still receives the in-memory PLZ.
-    }
-
-    setPLZ(address.zip);
-    window.dispatchEvent(
-      new CustomEvent("bb:delivery-address-selected", {
-        detail: address,
-      }),
-    );
-  }, [setPLZ]);
+    },
+    [setPLZ],
+  );
 
   useEffect(() => {
     if (!isMenuPath || orderMode !== "delivery") return;
@@ -224,17 +237,32 @@ export default function DeliveryCheckoutGate() {
       const address = readRememberedAddress();
       if (address && isDeliverableZip(address.zip)) return;
 
-      for (const button of Array.from(document.querySelectorAll<HTMLButtonElement>("aside button"))) {
-        const text = String(button.textContent || "").replace(/\s+/g, " ").trim();
+      for (const button of Array.from(
+        document.querySelectorAll<HTMLButtonElement>("aside button"),
+      )) {
+        const text = String(button.textContent || "")
+          .replace(/\s+/g, " ")
+          .trim();
         if (text !== "Zur Kasse") continue;
-        button.disabled = false;
-        button.setAttribute("data-bb-address-gate-button", "1");
+
+        // Only mutate when the DOM actually needs a change. The previous
+        // implementation rewrote the same attribute while observing all
+        // attributes, which could keep the MutationObserver alive forever.
+        if (button.disabled) button.disabled = false;
+        if (button.dataset.bbAddressGateButton !== "1") {
+          button.setAttribute("data-bb-address-gate-button", "1");
+        }
       }
     };
 
     makeDesktopCheckoutAddressable();
     const observer = new MutationObserver(makeDesktopCheckoutAddressable);
-    observer.observe(document.body, { childList: true, subtree: true, attributes: true });
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["disabled"],
+    });
     return () => observer.disconnect();
   }, [isDeliverableZip, isMenuPath, orderMode]);
 
@@ -246,7 +274,10 @@ export default function DeliveryCheckoutGate() {
       const list = Array.isArray(data?.[code]) ? data[code] : [];
       if (code === "13503") list.push("Alt-Heiligensee");
       const target = normalizedStreet(value);
-      return list.some((candidate: unknown) => normalizedStreet(String(candidate || "")) === target);
+      return list.some(
+        (candidate: unknown) =>
+          normalizedStreet(String(candidate || "")) === target,
+      );
     } catch {
       return true;
     }
@@ -261,7 +292,9 @@ export default function DeliveryCheckoutGate() {
     const houseValue = house.trim();
 
     if (code.length !== 5 || !isDeliverableZip(code)) {
-      setError("Leider liefern wir nicht in diese Postleitzahl. Bitte ändere die Adresse oder wähle Abholung.");
+      setError(
+        "Leider liefern wir nicht in diese Postleitzahl. Bitte ändere die Adresse oder wähle Abholung.",
+      );
       return;
     }
     if (!streetValue || !houseValue) {
@@ -292,7 +325,17 @@ export default function DeliveryCheckoutGate() {
     } finally {
       setBusy(false);
     }
-  }, [busy, house, isDeliverableZip, label, persistAddress, router, street, validateStreet, zip]);
+  }, [
+    busy,
+    house,
+    isDeliverableZip,
+    label,
+    persistAddress,
+    router,
+    street,
+    validateStreet,
+    zip,
+  ]);
 
   const switchToPickup = useCallback(() => {
     setOpen(false);
@@ -331,16 +374,26 @@ export default function DeliveryCheckoutGate() {
                   Du kannst die Speisekarte frei ansehen. Die Adresse brauchen wir erst, bevor du zur Kasse gehst.
                 </div>
               </div>
-              <button type="button" onClick={() => setOpen(false)} className="p-2 text-zinc-400" aria-label="Schließen">✕</button>
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="p-2 text-zinc-400"
+                aria-label="Schließen"
+              >
+                ✕
+              </button>
             </div>
 
             {view === "outside" ? (
               <div className="mt-4">
                 <div className="rounded-2xl border border-rose-400/30 bg-rose-400/10 p-4">
-                  <div className="font-bold text-rose-200">Leider außerhalb unseres Liefergebiets</div>
+                  <div className="font-bold text-rose-200">
+                    Leider außerhalb unseres Liefergebiets
+                  </div>
                   {currentAddress && (
                     <div className="mt-2 text-sm text-zinc-300">
-                      {currentAddress.street} {currentAddress.house}, {currentAddress.zip} {currentAddress.city}
+                      {currentAddress.street} {currentAddress.house},{" "}
+                      {currentAddress.zip} {currentAddress.city}
                     </div>
                   )}
                   <div className="mt-2 text-xs leading-relaxed text-zinc-400">
@@ -348,10 +401,18 @@ export default function DeliveryCheckoutGate() {
                   </div>
                 </div>
                 <div className="mt-3 grid grid-cols-2 gap-2">
-                  <button type="button" onClick={() => startForm(currentAddress)} className="rounded-2xl bg-amber-300 px-3 py-3 text-sm font-black text-black">
+                  <button
+                    type="button"
+                    onClick={() => startForm(currentAddress)}
+                    className="rounded-2xl bg-amber-300 px-3 py-3 text-sm font-black text-black"
+                  >
                     Adresse ändern
                   </button>
-                  <button type="button" onClick={switchToPickup} className="rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-3 text-sm font-bold text-white">
+                  <button
+                    type="button"
+                    onClick={switchToPickup}
+                    className="rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-3 text-sm font-bold text-white"
+                  >
                     Abholung wählen
                   </button>
                 </div>
@@ -364,16 +425,30 @@ export default function DeliveryCheckoutGate() {
                       key={value}
                       type="button"
                       onClick={() => setLabel(value)}
-                      className={`rounded-xl border px-2 py-2 text-xs font-bold ${label === value ? "border-amber-300/50 bg-amber-300/10 text-amber-100" : "border-white/10 bg-white/[0.04] text-zinc-300"}`}
+                      className={`rounded-xl border px-2 py-2 text-xs font-bold ${
+                        label === value
+                          ? "border-amber-300/50 bg-amber-300/10 text-amber-100"
+                          : "border-white/10 bg-white/[0.04] text-zinc-300"
+                      }`}
                     >
-                      {value === "Zuhause" ? "🏠" : value === "Arbeit" ? "💼" : "📍"} {value}
+                      {value === "Zuhause"
+                        ? "🏠"
+                        : value === "Arbeit"
+                          ? "💼"
+                          : "📍"}{" "}
+                      {value}
                     </button>
                   ))}
                 </div>
 
                 <div className="grid grid-cols-[110px_1fr] gap-2">
                   <div>
-                    <label className="mb-1 block text-xs text-zinc-400" htmlFor="bb-gate-zip">PLZ</label>
+                    <label
+                      className="mb-1 block text-xs text-zinc-400"
+                      htmlFor="bb-gate-zip"
+                    >
+                      PLZ
+                    </label>
                     <input
                       id="bb-gate-zip"
                       inputMode="numeric"
@@ -388,11 +463,19 @@ export default function DeliveryCheckoutGate() {
                     />
                   </div>
                   <div>
-                    <label className="mb-1 block text-xs text-zinc-400" htmlFor="bb-gate-street">Straße</label>
+                    <label
+                      className="mb-1 block text-xs text-zinc-400"
+                      htmlFor="bb-gate-street"
+                    >
+                      Straße
+                    </label>
                     <input
                       id="bb-gate-street"
                       value={street}
-                      onChange={(event) => { setStreet(event.target.value); setError(""); }}
+                      onChange={(event) => {
+                        setStreet(event.target.value);
+                        setError("");
+                      }}
                       placeholder="Namslaustraße"
                       className="w-full rounded-xl border border-white/10 bg-black/40 px-3 py-3 outline-none focus:border-amber-300/50"
                     />
@@ -400,11 +483,19 @@ export default function DeliveryCheckoutGate() {
                 </div>
 
                 <div>
-                  <label className="mb-1 block text-xs text-zinc-400" htmlFor="bb-gate-house">Hausnummer</label>
+                  <label
+                    className="mb-1 block text-xs text-zinc-400"
+                    htmlFor="bb-gate-house"
+                  >
+                    Hausnummer
+                  </label>
                   <input
                     id="bb-gate-house"
                     value={house}
-                    onChange={(event) => { setHouse(event.target.value); setError(""); }}
+                    onChange={(event) => {
+                      setHouse(event.target.value);
+                      setError("");
+                    }}
                     placeholder="81"
                     className="w-full rounded-xl border border-white/10 bg-black/40 px-3 py-3 outline-none focus:border-amber-300/50"
                   />
@@ -420,7 +511,11 @@ export default function DeliveryCheckoutGate() {
                     Diese PLZ liegt außerhalb unseres Liefergebiets.
                   </div>
                 )}
-                {error && <div className="text-xs font-semibold leading-relaxed text-rose-300">{error}</div>}
+                {error && (
+                  <div className="text-xs font-semibold leading-relaxed text-rose-300">
+                    {error}
+                  </div>
+                )}
 
                 <button
                   type="button"
@@ -431,7 +526,11 @@ export default function DeliveryCheckoutGate() {
                   {busy ? "Adresse wird geprüft …" : "Adresse prüfen & weiter"}
                 </button>
 
-                <button type="button" onClick={switchToPickup} className="w-full py-2 text-xs font-semibold text-zinc-400">
+                <button
+                  type="button"
+                  onClick={switchToPickup}
+                  className="w-full py-2 text-xs font-semibold text-zinc-400"
+                >
                   Lieber zur Abholung bestellen
                 </button>
               </div>
