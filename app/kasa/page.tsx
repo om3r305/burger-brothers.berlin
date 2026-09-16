@@ -450,11 +450,11 @@ export default function MobileRegisterPage() {
   const cartItems = useMemo(() => Object.values(cart).filter((line) => line.quantity > 0), [cart]);
   const totalQuantity = useMemo(() => cartItems.reduce((sum, line) => sum + line.quantity, 0), [cartItems]);
   const subtotal = useMemo(() => cartItems.reduce((sum, line) => sum + line.price * line.quantity, 0), [cartItems]);
-  const lieferandoSurcharge = useMemo(
+  const lieferandoDiscount = useMemo(
     () => (lieferando ? Number((subtotal * 0.1).toFixed(2)) : 0),
     [lieferando, subtotal],
   );
-  const total = subtotal + lieferandoSurcharge;
+  const total = Math.max(0, Number((subtotal - lieferandoDiscount).toFixed(2)));
 
   function addProduct(product: RegisterProduct) {
     setCart((current) => {
@@ -595,10 +595,20 @@ export default function MobileRegisterPage() {
   return (
     <div id="bb-kasa-page" className="bb-register-page">
       <style jsx global>{`
+        html:has(#bb-kasa-page),
+        body:has(#bb-kasa-page) {
+          background: #090909 !important;
+          color-scheme: only dark !important;
+        }
         body:has(#bb-kasa-page) .bb-mobile-footer-gap,
         body:has(#bb-kasa-page) footer { display: none !important; }
-        .bb-register-page, .bb-register-page * { box-sizing: border-box; }
-        .bb-register-page button, .bb-register-page input { font: inherit; }
+        .bb-register-page,
+        .bb-register-page * {
+          box-sizing: border-box;
+          color-scheme: only dark;
+        }
+        .bb-register-page button,
+        .bb-register-page input { font: inherit; }
         .bb-register-page button { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
       `}</style>
 
@@ -780,7 +790,7 @@ export default function MobileRegisterPage() {
           <span>GESAMT</span>
           <strong>{euro.format(total)}</strong>
           {lieferando && subtotal > 0 && (
-            <small>Zwischensumme {euro.format(subtotal)} · Lieferando +10% ({euro.format(lieferandoSurcharge)})</small>
+            <small>Zwischensumme {euro.format(subtotal)} · Lieferando −10% (−{euro.format(lieferandoDiscount)})</small>
           )}
         </div>
         <div className="bb-bottom-actions">
@@ -792,7 +802,7 @@ export default function MobileRegisterPage() {
               onChange={(event) => setLieferando(event.target.checked)}
             />
             <span className="bb-checkmark" aria-hidden="true">{lieferando ? "✓" : ""}</span>
-            <span>Lieferando +10%</span>
+            <span>Lieferando −10%</span>
           </label>
         </div>
       </div>
@@ -801,7 +811,8 @@ export default function MobileRegisterPage() {
         .bb-register-page {
           position: fixed; inset: 0; z-index: 100000; display: flex; flex-direction: column;
           width: 100%; min-width: 0; height: 100dvh; color: #f7f7f7; background: #090909;
-          overflow: hidden; overscroll-behavior: none; isolation: isolate;
+          overflow: hidden; overscroll-behavior: none; isolation: isolate; color-scheme: only dark;
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         }
         .bb-register-header {
           position: relative; z-index: 80; flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 12px;
@@ -907,7 +918,6 @@ export default function MobileRegisterPage() {
         }
         @media (min-width: 560px) {
           .bb-register-page { left: 50%; right: auto; width: min(100%,560px); transform: translateX(-50%); border-right: 1px solid #282828; border-left: 1px solid #282828; box-shadow: 0 0 80px rgba(0,0,0,.5); }
-          :global(body) { background: #050505 !important; }
         }
       `}</style>
     </div>
