@@ -117,7 +117,7 @@ const TABS: Tab[] = [
 
 const LUNCH_MENUS = [
   { id: "all-american", name: "All American + Fries", price: 8.9 },
-  { id: "cheesy-cheese", name: "Cheesy Cheese + Fries", price: 14.9 },
+  { id: "cheesy-cheese", name: "Cheesy Cheese + Fries", price: 9.5 },
   { id: "beef-bacon", name: "Beef & Bacon + Fries", price: 9.8 },
   { id: "farmers-market", name: "Farmer’s Market + Fries", price: 9.9 },
   { id: "halloumi", name: "Halloumi + Fries", price: 9.9 },
