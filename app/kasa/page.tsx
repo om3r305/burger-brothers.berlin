@@ -68,12 +68,18 @@ type GroupsResponse = {
   error?: string;
 };
 
-type GroupKey = "burger" | "vegetarian" | "extras" | "sauces" | "drinks";
+type GroupKey = "burger" | "vegetarian" | "extras" | "sauces" | "drinks" | "lunch";
 
 type Modifier = {
   key: string;
   name: string;
   price: number;
+};
+
+type SideOption = {
+  key: string;
+  name: string;
+  upgrade: number;
 };
 
 type RegisterProduct = {
@@ -82,6 +88,7 @@ type RegisterProduct = {
   category: GroupKey;
   price: number;
   extras: Modifier[];
+  sides?: SideOption[];
 };
 
 type CartLine = {
@@ -89,7 +96,7 @@ type CartLine = {
   name: string;
   price: number;
   quantity: number;
-  kind: "product" | "modifier";
+  kind: "product" | "modifier" | "side";
   parentKey?: string;
   parentName?: string;
 };
@@ -101,11 +108,20 @@ type Tab = {
 
 const TABS: Tab[] = [
   { key: "burger", label: "Burger" },
-  { key: "vegetarian", label: "Vegetarian" },
-  { key: "extras", label: "Ekstralar" },
-  { key: "sauces", label: "Soslar" },
-  { key: "drinks", label: "İçecekler" },
+  { key: "vegetarian", label: "Vegetarisch" },
+  { key: "extras", label: "Extras" },
+  { key: "sauces", label: "Soßen" },
+  { key: "drinks", label: "Getränke" },
+  { key: "lunch", label: "Mittagsmenü" },
 ];
+
+const LUNCH_MENUS = [
+  { id: "all-american", name: "All American + Fries", price: 8.9 },
+  { id: "cheesy-cheese", name: "Cheesy Cheese + Fries", price: 14.9 },
+  { id: "beef-bacon", name: "Beef & Bacon + Fries", price: 9.8 },
+  { id: "farmers-market", name: "Farmer’s Market + Fries", price: 9.9 },
+  { id: "halloumi", name: "Halloumi + Fries", price: 9.9 },
+] as const;
 
 const euro = new Intl.NumberFormat("de-DE", {
   style: "currency",
@@ -160,7 +176,6 @@ function resolveCatalogCategory(product: CatalogProduct): GroupKey | null {
   if (/drink|getrank|beverage/.test(value)) return "drinks";
   if (/extra|beilage|snack/.test(value)) return "extras";
   if (/burger/.test(value)) return "burger";
-
   return null;
 }
 
@@ -182,7 +197,6 @@ function productExtras(product: CatalogProduct): Modifier[] {
 
   source.forEach((extra, index) => {
     if (!extra || extra.active === false) return;
-
     const name = cleanDisplayName(extra.name ?? extra.label);
     const price = toPrice(extra.price);
     if (!name || price <= 0) return;
@@ -207,7 +221,6 @@ function catalogProduct(product: CatalogProduct, index: number): RegisterProduct
   const category = resolveCatalogCategory(product);
   const name = cleanDisplayName(product.name);
   const price = toPrice(product.price);
-
   if (!category || !name || price < 0) return null;
 
   return {
@@ -235,7 +248,6 @@ function flattenGroups(groups: ProductGroup[], category: "extras" | "drinks") {
 
     readGroupVariants(group).forEach((variant, variantIndex) => {
       if (!variant || variant.active === false) return;
-
       const name = cleanDisplayName(variant.name ?? variant.label);
       const price = toPrice(variant.price);
       if (!name || price < 0) return;
@@ -245,9 +257,7 @@ function flattenGroups(groups: ProductGroup[], category: "extras" | "drinks") {
       seen.add(fingerprint);
 
       result.push({
-        key: `${category}:${String(group.id ?? group.sku ?? groupIndex)}:${String(
-          variant.id ?? variant.sku ?? variantIndex,
-        )}`,
+        key: `${category}:${String(group.id ?? group.sku ?? groupIndex)}:${String(variant.id ?? variant.sku ?? variantIndex)}`,
         name,
         category,
         price,
@@ -259,12 +269,60 @@ function flattenGroups(groups: ProductGroup[], category: "extras" | "drinks") {
   return result;
 }
 
+function lunchSideOptions(extraGroups: ProductGroup[]): SideOption[] {
+  const allGroups = extraGroups.filter((group) => group && group.active !== false);
+  const friesGroup = allGroups.find((group) => {
+    const groupName = normalizeText(`${group.name ?? ""} ${group.title ?? ""} ${group.sku ?? ""}`);
+    const names = readGroupVariants(group).map((variant) => normalizeText(String(variant.name ?? variant.label ?? "")));
+    return groupName.includes("fries") || names.some((name) => name === "fries");
+  });
+
+  if (!friesGroup) return [];
+
+  const variants = readGroupVariants(friesGroup)
+    .filter((variant) => variant && variant.active !== false)
+    .map((variant, index) => ({
+      key: String(variant.id ?? variant.sku ?? index),
+      name: cleanDisplayName(variant.name ?? variant.label),
+      price: toPrice(variant.price),
+    }))
+    .filter((variant) => variant.name && variant.price >= 0);
+
+  const base = variants.find((variant) => normalizeText(variant.name) === "fries");
+  if (!base) return [];
+
+  return variants.map((variant) => ({
+    key: variant.key,
+    name: variant.name,
+    upgrade: Math.max(0, Number((variant.price - base.price).toFixed(2))),
+  }));
+}
+
+function buildLunchMenus(sides: SideOption[]): RegisterProduct[] {
+  return LUNCH_MENUS.map((menu) => ({
+    key: `lunch:${menu.id}`,
+    name: menu.name,
+    category: "lunch" as const,
+    price: menu.price,
+    extras: [],
+    sides,
+  }));
+}
+
 function isBurgerGroup(group: GroupKey) {
   return group === "burger" || group === "vegetarian";
 }
 
+function isSelectableGroup(group: GroupKey) {
+  return isBurgerGroup(group) || group === "lunch";
+}
+
 function modifierCartKey(product: RegisterProduct, modifier: Modifier) {
   return `modifier:${product.key}:${modifier.key}`;
+}
+
+function sideCartKey(product: RegisterProduct) {
+  return `side:${product.key}`;
 }
 
 export default function MobileRegisterPage() {
@@ -272,6 +330,7 @@ export default function MobileRegisterPage() {
   const [cart, setCart] = useState<Record<string, CartLine>>({});
   const [activeGroup, setActiveGroup] = useState<GroupKey>("burger");
   const [selectedProductKey, setSelectedProductKey] = useState<string | null>(null);
+  const [selectedSides, setSelectedSides] = useState<Record<string, string>>({});
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -279,7 +338,6 @@ export default function MobileRegisterPage() {
   useEffect(() => {
     const oldOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-
     return () => {
       document.body.style.overflow = oldOverflow;
     };
@@ -304,7 +362,6 @@ export default function MobileRegisterPage() {
         if (!catalogResponse.ok || catalogData.ok === false) {
           throw new Error(catalogData.error || "catalog_load_failed");
         }
-
         if (!groupsResponse.ok || groupsData.ok === false) {
           throw new Error(groupsData.error || "groups_load_failed");
         }
@@ -337,18 +394,18 @@ export default function MobileRegisterPage() {
 
         const groupedExtras = flattenGroups(extraGroups, "extras");
         const groupedDrinks = flattenGroups(drinkGroups, "drinks");
-
         const mainProducts = catalogItems.filter(
           (item) => item.category === "burger" || item.category === "vegetarian" || item.category === "sauces",
         );
-
         const fallbackExtras = catalogItems.filter((item) => item.category === "extras");
         const fallbackDrinks = catalogItems.filter((item) => item.category === "drinks");
+        const lunchMenus = buildLunchMenus(lunchSideOptions(extraGroups));
 
         const merged = [
           ...mainProducts,
           ...(groupedExtras.length > 0 ? groupedExtras : fallbackExtras),
           ...(groupedDrinks.length > 0 ? groupedDrinks : fallbackDrinks),
+          ...lunchMenus,
         ];
 
         if (!cancelled) setProducts(merged);
@@ -361,16 +418,12 @@ export default function MobileRegisterPage() {
     }
 
     void loadRegisterData();
-
     return () => {
       cancelled = true;
     };
   }, []);
 
-  const productByKey = useMemo(
-    () => new Map(products.map((product) => [product.key, product])),
-    [products],
-  );
+  const productByKey = useMemo(() => new Map(products.map((product) => [product.key, product])), [products]);
 
   const countsByGroup = useMemo(() => {
     const counts: Record<GroupKey, number> = {
@@ -379,43 +432,25 @@ export default function MobileRegisterPage() {
       extras: 0,
       sauces: 0,
       drinks: 0,
+      lunch: 0,
     };
-
     products.forEach((product) => {
       counts[product.category] += 1;
     });
-
     return counts;
   }, [products]);
 
   const filteredProducts = useMemo(() => {
     const query = normalizeText(search);
-
     return products.filter((product) => {
       if (product.category !== activeGroup) return false;
       return !query || normalizeText(product.name).includes(query);
     });
   }, [activeGroup, products, search]);
 
-  const selectedProduct = useMemo(
-    () => (selectedProductKey ? productByKey.get(selectedProductKey) ?? null : null),
-    [productByKey, selectedProductKey],
-  );
-
-  const cartItems = useMemo(
-    () => Object.values(cart).filter((line) => line.quantity > 0),
-    [cart],
-  );
-
-  const totalQuantity = useMemo(
-    () => cartItems.reduce((sum, line) => sum + line.quantity, 0),
-    [cartItems],
-  );
-
-  const total = useMemo(
-    () => cartItems.reduce((sum, line) => sum + line.price * line.quantity, 0),
-    [cartItems],
-  );
+  const cartItems = useMemo(() => Object.values(cart).filter((line) => line.quantity > 0), [cart]);
+  const totalQuantity = useMemo(() => cartItems.reduce((sum, line) => sum + line.quantity, 0), [cartItems]);
+  const total = useMemo(() => cartItems.reduce((sum, line) => sum + line.price * line.quantity, 0), [cartItems]);
 
   function addProduct(product: RegisterProduct) {
     setCart((current) => {
@@ -433,12 +468,10 @@ export default function MobileRegisterPage() {
     });
   }
 
-  function selectBurger(product: RegisterProduct) {
+  function selectProduct(product: RegisterProduct) {
     setSelectedProductKey(product.key);
-
     setCart((current) => {
       if (current[product.key]?.quantity) return current;
-
       return {
         ...current,
         [product.key]: {
@@ -450,11 +483,15 @@ export default function MobileRegisterPage() {
         },
       };
     });
+
+    if (product.category === "lunch" && product.sides?.length && !selectedSides[product.key]) {
+      const included = product.sides.find((side) => normalizeText(side.name) === "fries") ?? product.sides[0];
+      setSelectedSides((current) => ({ ...current, [product.key]: included.key }));
+    }
   }
 
   function addModifier(product: RegisterProduct, modifier: Modifier) {
     const key = modifierCartKey(product, modifier);
-
     setCart((current) => {
       const existing = current[key];
       return {
@@ -472,17 +509,46 @@ export default function MobileRegisterPage() {
     });
   }
 
+  function chooseLunchSide(product: RegisterProduct, side: SideOption) {
+    const key = sideCartKey(product);
+    setSelectedSides((current) => ({ ...current, [product.key]: side.key }));
+    setCart((current) => {
+      const next = { ...current };
+      delete next[key];
+      if (side.upgrade > 0) {
+        next[key] = {
+          key,
+          name: `${side.name} statt Fries`,
+          price: side.upgrade,
+          quantity: current[product.key]?.quantity ?? 1,
+          kind: "side",
+          parentKey: product.key,
+          parentName: product.name,
+        };
+      }
+      return next;
+    });
+  }
+
   function changeQuantity(key: string, delta: number) {
+    const currentLine = cart[key];
+    if (currentLine?.kind === "product" && currentLine.quantity <= 1 && delta < 0) {
+      setSelectedSides((current) => {
+        if (!(key in current)) return current;
+        const next = { ...current };
+        delete next[key];
+        return next;
+      });
+    }
+
     setCart((current) => {
       const line = current[key];
       if (!line) return current;
-
       const nextQuantity = Math.max(0, line.quantity + delta);
       const next = { ...current };
 
       if (nextQuantity === 0) {
         delete next[key];
-
         if (line.kind === "product") {
           Object.entries(next).forEach(([candidateKey, candidate]) => {
             if (candidate.parentKey === key) delete next[candidateKey];
@@ -490,30 +556,29 @@ export default function MobileRegisterPage() {
         }
       } else {
         next[key] = { ...line, quantity: nextQuantity };
+        if (line.kind === "product") {
+          const sideKey = `side:${key}`;
+          if (next[sideKey]) next[sideKey] = { ...next[sideKey], quantity: nextQuantity };
+        }
       }
-
       return next;
     });
   }
 
   function changeSelectedProductQuantity(product: RegisterProduct, delta: number) {
     const currentQuantity = cart[product.key]?.quantity ?? 0;
-
     if (currentQuantity === 0 && delta > 0) {
       addProduct(product);
       return;
     }
-
-    if (currentQuantity <= 1 && delta < 0) {
-      setSelectedProductKey(null);
-    }
-
+    if (currentQuantity <= 1 && delta < 0) setSelectedProductKey(null);
     changeQuantity(product.key, delta);
   }
 
   function clearCart() {
     setCart({});
     setSelectedProductKey(null);
+    setSelectedSides({});
   }
 
   function switchGroup(group: GroupKey) {
@@ -526,45 +591,31 @@ export default function MobileRegisterPage() {
     <div id="bb-kasa-page" className="bb-register-page">
       <style jsx global>{`
         body:has(#bb-kasa-page) .bb-mobile-footer-gap,
-        body:has(#bb-kasa-page) footer {
-          display: none !important;
-        }
-
-        .bb-register-page,
-        .bb-register-page * {
-          box-sizing: border-box;
-        }
-
-        .bb-register-page button,
-        .bb-register-page input {
-          font: inherit;
-        }
-
-        .bb-register-page button {
-          -webkit-tap-highlight-color: transparent;
-          touch-action: manipulation;
-        }
+        body:has(#bb-kasa-page) footer { display: none !important; }
+        .bb-register-page, .bb-register-page * { box-sizing: border-box; }
+        .bb-register-page button, .bb-register-page input { font: inherit; }
+        .bb-register-page button { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
       `}</style>
 
       <header className="bb-register-header">
         <div>
-          <p className="bb-register-kicker">BURGER BROTHERS</p>
+          <p>BURGER BROTHERS</p>
           <h1>Fiyat Kasası</h1>
         </div>
-        <div className="bb-register-status">Hızlı hesap</div>
+        <div className="bb-status">Hızlı hesap</div>
       </header>
 
-      <div className="bb-register-search-wrap">
+      <div className="bb-search-wrap">
         <input
           aria-label="Ürün ara"
-          className="bb-register-search"
+          className="bb-search"
           placeholder="Ürün ara…"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
         />
       </div>
 
-      <nav className="bb-register-tabs" aria-label="Ürün kategorileri">
+      <nav className="bb-tabs" aria-label="Ürün kategorileri">
         {TABS.map((tab) => (
           <button
             key={tab.key}
@@ -578,70 +629,56 @@ export default function MobileRegisterPage() {
         ))}
       </nav>
 
-      <main className="bb-register-content">
+      <main className="bb-content">
         {loading ? (
-          <div className="bb-register-state">Ürünler yükleniyor…</div>
+          <div className="bb-state">Ürünler yükleniyor…</div>
         ) : error ? (
-          <div className="bb-register-state is-error">{error}</div>
+          <div className="bb-state is-error">{error}</div>
         ) : filteredProducts.length === 0 ? (
-          <div className="bb-register-state">Bu bölümde ürün bulunamadı.</div>
+          <div className="bb-state">Bu bölümde ürün bulunamadı.</div>
         ) : (
-          <div className="bb-register-grid">
+          <div className="bb-grid">
             {filteredProducts.map((product) => {
               const quantity = cart[product.key]?.quantity ?? 0;
-              const selected = selectedProductKey === product.key && isBurgerGroup(activeGroup);
+              const selected = selectedProductKey === product.key && isSelectableGroup(activeGroup);
+              const sideSelection = selectedSides[product.key];
 
               return (
                 <Fragment key={product.key}>
                   <button
                     type="button"
-                    className={`bb-product-button${quantity ? " is-in-cart" : ""}${selected ? " is-selected" : ""}`}
+                    className={`bb-product${quantity ? " is-in-cart" : ""}${selected ? " is-selected" : ""}`}
                     onClick={() => {
-                      if (isBurgerGroup(activeGroup)) selectBurger(product);
+                      if (isSelectableGroup(activeGroup)) selectProduct(product);
                       else addProduct(product);
                     }}
                   >
-                    {quantity > 0 && <span className="bb-product-count">{quantity}</span>}
+                    {quantity > 0 && <span className="bb-count">{quantity}</span>}
                     <span className="bb-product-name">{product.name}</span>
                     <strong>{euro.format(product.price)}</strong>
                   </button>
 
-                  {selected && (
-                    <section className="bb-modifier-panel" aria-label={`${product.name} ekstraları`}>
-                      <div className="bb-modifier-head">
+                  {selected && product.category !== "lunch" && (
+                    <section className="bb-panel">
+                      <div className="bb-panel-head">
                         <div>
                           <span>SEÇİLİ BURGER</span>
                           <strong>{product.name}</strong>
                         </div>
                         <div className="bb-main-qty">
-                          <button
-                            type="button"
-                            aria-label={`${product.name} azalt`}
-                            onClick={() => changeSelectedProductQuantity(product, -1)}
-                          >
-                            −
-                          </button>
+                          <button type="button" onClick={() => changeSelectedProductQuantity(product, -1)}>−</button>
                           <b>{quantity}</b>
-                          <button
-                            type="button"
-                            aria-label={`${product.name} artır`}
-                            onClick={() => changeSelectedProductQuantity(product, 1)}
-                          >
-                            +
-                          </button>
+                          <button type="button" onClick={() => changeSelectedProductQuantity(product, 1)}>+</button>
                         </div>
                       </div>
-
-                      <div className="bb-modifier-title">Bu burgerin ekstraları</div>
-
+                      <div className="bb-panel-title">Bu burgerin ekstraları</div>
                       {product.extras.length === 0 ? (
-                        <div className="bb-no-modifiers">Bu burger için ücretli ekstra tanımlı değil.</div>
+                        <div className="bb-empty-extra">Bu burger için ücretli ekstra tanımlı değil.</div>
                       ) : (
-                        <div className="bb-modifier-grid">
+                        <div className="bb-options">
                           {product.extras.map((modifier) => {
                             const modifierKey = modifierCartKey(product, modifier);
                             const modifierQuantity = cart[modifierKey]?.quantity ?? 0;
-
                             return (
                               <button
                                 key={modifier.key}
@@ -649,9 +686,7 @@ export default function MobileRegisterPage() {
                                 className={modifierQuantity ? "is-added" : ""}
                                 onClick={() => addModifier(product, modifier)}
                               >
-                                {modifierQuantity > 0 && (
-                                  <span className="bb-modifier-count">{modifierQuantity}</span>
-                                )}
+                                {modifierQuantity > 0 && <span className="bb-option-count">{modifierQuantity}</span>}
                                 <span>+ {modifier.name}</span>
                                 <strong>{euro.format(modifier.price)}</strong>
                               </button>
@@ -661,45 +696,71 @@ export default function MobileRegisterPage() {
                       )}
                     </section>
                   )}
+
+                  {selected && product.category === "lunch" && (
+                    <section className="bb-panel">
+                      <div className="bb-panel-head">
+                        <div>
+                          <span>MITTAGSMENÜ</span>
+                          <strong>{product.name}</strong>
+                        </div>
+                        <div className="bb-main-qty">
+                          <button type="button" onClick={() => changeSelectedProductQuantity(product, -1)}>−</button>
+                          <b>{quantity}</b>
+                          <button type="button" onClick={() => changeSelectedProductQuantity(product, 1)}>+</button>
+                        </div>
+                      </div>
+                      <div className="bb-panel-title">FRIES AUSWÄHLEN</div>
+                      <div className="bb-options bb-sides">
+                        {(product.sides ?? []).map((side) => {
+                          const active = sideSelection === side.key;
+                          const label = normalizeText(side.name) === "fries"
+                            ? "Fries inklusive"
+                            : `${side.name} statt Fries`;
+                          return (
+                            <button
+                              key={side.key}
+                              type="button"
+                              className={active ? "is-added" : ""}
+                              onClick={() => chooseLunchSide(product, side)}
+                            >
+                              <span>{label}</span>
+                              <strong>{side.upgrade > 0 ? `+ ${euro.format(side.upgrade)}` : "inklusive"}</strong>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </section>
+                  )}
                 </Fragment>
               );
             })}
           </div>
         )}
 
-        <section className="bb-cart-panel" aria-label="Hesap">
-          <div className="bb-cart-heading">
-            <div>
-              <span>HESAP</span>
-              <strong>{totalQuantity} kalem</strong>
-            </div>
-            {cartItems.length > 0 && (
-              <button type="button" onClick={clearCart}>
-                Temizle
-              </button>
-            )}
+        <section className="bb-cart">
+          <div className="bb-cart-head">
+            <div><span>HESAP</span><strong>{totalQuantity} kalem</strong></div>
+            {cartItems.length > 0 && <button type="button" onClick={clearCart}>Temizle</button>}
           </div>
-
           {cartItems.length === 0 ? (
             <div className="bb-cart-empty">Ürüne dokun, hesaba eklensin.</div>
           ) : (
             <div className="bb-cart-lines">
               {cartItems.map((line) => (
-                <div className={`bb-cart-line${line.kind === "modifier" ? " is-modifier" : ""}`} key={line.key}>
-                  <div className="bb-cart-line-main">
-                    <span>{line.kind === "modifier" ? `+ ${line.name}` : line.name}</span>
-                    {line.parentName && <small>{line.parentName} ekstrası</small>}
+                <div className={`bb-cart-line${line.kind !== "product" ? " is-sub" : ""}`} key={line.key}>
+                  <div className="bb-line-main">
+                    <span>{line.kind === "product" ? line.name : `+ ${line.name}`}</span>
+                    {line.parentName && <small>{line.parentName}</small>}
                     <strong>{euro.format(line.price * line.quantity)}</strong>
                   </div>
-                  <div className="bb-quantity-control" aria-label={`${line.name} adet`}>
-                    <button type="button" onClick={() => changeQuantity(line.key, -1)}>
-                      −
-                    </button>
-                    <span>{line.quantity}</span>
-                    <button type="button" onClick={() => changeQuantity(line.key, 1)}>
-                      +
-                    </button>
-                  </div>
+                  {line.kind !== "side" && (
+                    <div className="bb-qty">
+                      <button type="button" onClick={() => changeQuantity(line.key, -1)}>−</button>
+                      <span>{line.quantity}</span>
+                      <button type="button" onClick={() => changeQuantity(line.key, 1)}>+</button>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -707,578 +768,97 @@ export default function MobileRegisterPage() {
         </section>
       </main>
 
-      <div className="bb-register-bottom">
-        <div className="bb-register-total">
-          <span>TOPLAM</span>
-          <strong>{euro.format(total)}</strong>
-        </div>
-        <button type="button" className="bb-new-order" onClick={clearCart} disabled={!cartItems.length}>
-          Yeni Hesap
-        </button>
+      <div className="bb-bottom">
+        <div className="bb-total"><span>TOPLAM</span><strong>{euro.format(total)}</strong></div>
+        <button type="button" className="bb-new" onClick={clearCart} disabled={!cartItems.length}>Yeni Hesap</button>
       </div>
 
       <style jsx>{`
         .bb-register-page {
-          position: fixed;
-          inset: 0;
-          z-index: 100000;
-          display: flex;
-          flex-direction: column;
-          width: 100%;
-          min-width: 0;
-          height: 100dvh;
-          color: #f7f7f7;
-          background: #090909;
-          overflow: hidden;
-          overscroll-behavior: none;
+          position: fixed; inset: 0; z-index: 100000; display: flex; flex-direction: column;
+          width: 100%; min-width: 0; height: 100dvh; color: #f7f7f7; background: #090909;
+          overflow: hidden; overscroll-behavior: none;
         }
-
         .bb-register-header {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 12px;
-          padding: calc(env(safe-area-inset-top) + 12px) 14px 10px;
-          border-bottom: 1px solid #242424;
-          background: #111;
+          display: flex; align-items: center; justify-content: space-between; gap: 12px;
+          padding: calc(env(safe-area-inset-top) + 12px) 14px 10px; border-bottom: 1px solid #242424; background: #111;
         }
-
-        .bb-register-kicker {
-          margin: 0 0 3px;
-          color: #8d8d8d;
-          font-size: 10px;
-          font-weight: 850;
-          letter-spacing: 0.16em;
+        .bb-register-header p { margin: 0 0 3px; color: #8d8d8d; font-size: 10px; font-weight: 850; letter-spacing: .16em; }
+        .bb-register-header h1 { margin: 0; font-size: clamp(20px, 6vw, 27px); line-height: 1; font-weight: 950; letter-spacing: -.04em; }
+        .bb-status { padding: 7px 10px; border: 1px solid #353535; border-radius: 999px; color: #aaa; background: #181818; font-size: 10px; font-weight: 800; white-space: nowrap; }
+        .bb-search-wrap { padding: 9px 10px 7px; background: #090909; }
+        .bb-search { width: 100%; height: 42px; padding: 0 13px; border: 1px solid #2b2b2b; border-radius: 11px; outline: none; color: #fff; background: #151515; font-size: 16px; appearance: none; }
+        .bb-search:focus { border-color: #6d6d6d; background: #181818; }
+        .bb-tabs {
+          display: flex; gap: 5px; padding: 0 10px 9px; overflow-x: auto; background: #090909;
+          scrollbar-width: none; -webkit-overflow-scrolling: touch;
         }
-
-        .bb-register-header h1 {
-          margin: 0;
-          font-size: clamp(20px, 6vw, 27px);
-          line-height: 1;
-          font-weight: 950;
-          letter-spacing: -0.04em;
+        .bb-tabs::-webkit-scrollbar { display: none; }
+        .bb-tabs button {
+          position: relative; flex: 0 0 auto; min-width: 76px; min-height: 45px; padding: 7px 8px;
+          border: 1px solid #2d2d2d; border-radius: 10px; color: #aaa; background: #151515; font-weight: 850;
         }
-
-        .bb-register-status {
-          flex: 0 0 auto;
-          padding: 7px 10px;
-          border: 1px solid #353535;
-          border-radius: 999px;
-          color: #aaa;
-          background: #181818;
-          font-size: 10px;
-          font-weight: 800;
-          white-space: nowrap;
+        .bb-tabs button.is-active { border-color: #f3f3f3; color: #090909; background: #f3f3f3; }
+        .bb-tabs span { display: block; font-size: 10px; white-space: nowrap; }
+        .bb-tabs small { position: absolute; top: 3px; right: 4px; color: #727272; font-size: 7px; font-weight: 900; }
+        .bb-content { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; padding: 0 10px 122px; }
+        .bb-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; width: 100%; }
+        .bb-product {
+          position: relative; display: flex; min-width: 0; min-height: 76px; flex-direction: column; align-items: flex-start;
+          justify-content: space-between; gap: 8px; padding: 11px 10px; border: 1px solid #2b2b2b; border-radius: 12px;
+          color: #f3f3f3; background: #171717; text-align: left; user-select: none;
         }
-
-        .bb-register-search-wrap {
-          padding: 9px 10px 7px;
-          background: #090909;
-        }
-
-        .bb-register-search {
-          width: 100%;
-          height: 42px;
-          padding: 0 13px;
-          border: 1px solid #2b2b2b;
-          border-radius: 11px;
-          outline: none;
-          color: #fff;
-          background: #151515;
-          font-size: 16px;
-          appearance: none;
-        }
-
-        .bb-register-search:focus {
-          border-color: #6d6d6d;
-          background: #181818;
-        }
-
-        .bb-register-tabs {
-          display: grid;
-          grid-template-columns: repeat(5, minmax(0, 1fr));
-          gap: 5px;
-          padding: 0 10px 9px;
-          background: #090909;
-        }
-
-        .bb-register-tabs button {
-          position: relative;
-          min-width: 0;
-          min-height: 45px;
-          padding: 7px 3px;
-          border: 1px solid #2d2d2d;
-          border-radius: 10px;
-          color: #aaa;
-          background: #151515;
-          font-weight: 850;
-          cursor: pointer;
-        }
-
-        .bb-register-tabs button.is-active {
-          border-color: #f3f3f3;
-          color: #090909;
-          background: #f3f3f3;
-        }
-
-        .bb-register-tabs span {
-          display: block;
-          overflow: hidden;
-          font-size: clamp(9px, 2.7vw, 11px);
-          text-overflow: ellipsis;
-          white-space: nowrap;
-        }
-
-        .bb-register-tabs small {
-          position: absolute;
-          top: 3px;
-          right: 4px;
-          color: #727272;
-          font-size: 7px;
-          font-weight: 900;
-        }
-
-        .bb-register-content {
-          flex: 1 1 auto;
-          min-height: 0;
-          overflow-y: auto;
-          overscroll-behavior: contain;
-          -webkit-overflow-scrolling: touch;
-          padding: 0 10px 122px;
-        }
-
-        .bb-register-grid {
-          display: grid;
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 7px;
-          width: 100%;
-        }
-
-        .bb-product-button {
-          position: relative;
-          display: flex;
-          min-width: 0;
-          min-height: 76px;
-          flex-direction: column;
-          align-items: flex-start;
-          justify-content: space-between;
-          gap: 8px;
-          padding: 11px 10px;
-          border: 1px solid #2b2b2b;
-          border-radius: 12px;
-          color: #f3f3f3;
-          background: #171717;
-          text-align: left;
-          cursor: pointer;
-          user-select: none;
-        }
-
-        .bb-product-button:active {
-          transform: scale(0.985);
-          background: #222;
-        }
-
-        .bb-product-button.is-in-cart {
-          border-color: #777;
-        }
-
-        .bb-product-button.is-selected {
-          border-color: #f1f1f1;
-          background: #222;
-          box-shadow: inset 0 0 0 1px #f1f1f1;
-        }
-
-        .bb-product-name {
-          display: -webkit-box;
-          width: calc(100% - 22px);
-          overflow: hidden;
-          color: #f5f5f5;
-          font-size: 13px;
-          font-weight: 850;
-          line-height: 1.15;
-          -webkit-box-orient: vertical;
-          -webkit-line-clamp: 2;
-        }
-
-        .bb-product-button > strong {
-          color: #bcbcbc;
-          font-size: 13px;
-          font-weight: 850;
-          font-variant-numeric: tabular-nums;
-        }
-
-        .bb-product-count,
-        .bb-modifier-count {
-          position: absolute;
-          top: 7px;
-          right: 7px;
-          display: grid;
-          width: 22px;
-          height: 22px;
-          place-items: center;
-          border-radius: 999px;
-          color: #0b0b0b;
-          background: #fff;
-          font-size: 11px;
-          font-weight: 950;
-        }
-
-        .bb-modifier-panel {
-          grid-column: 1 / -1;
-          margin: 1px 0 3px;
-          padding: 10px;
-          border: 1px solid #454545;
-          border-radius: 14px;
-          background: #111;
-          box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
-        }
-
-        .bb-modifier-head {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 10px;
-          padding-bottom: 9px;
-          border-bottom: 1px solid #292929;
-        }
-
-        .bb-modifier-head > div:first-child {
-          display: flex;
-          min-width: 0;
-          flex-direction: column;
-          gap: 2px;
-        }
-
-        .bb-modifier-head span,
-        .bb-modifier-title {
-          color: #777;
-          font-size: 9px;
-          font-weight: 900;
-          letter-spacing: 0.13em;
-        }
-
-        .bb-modifier-head strong {
-          overflow: hidden;
-          color: #fff;
-          font-size: 13px;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-        }
-
-        .bb-main-qty {
-          display: grid;
-          flex: 0 0 auto;
-          grid-template-columns: 34px 30px 34px;
-          align-items: center;
-          overflow: hidden;
-          border: 1px solid #3a3a3a;
-          border-radius: 10px;
-          background: #1d1d1d;
-        }
-
-        .bb-main-qty button {
-          width: 34px;
-          height: 34px;
-          border: 0;
-          color: #fff;
-          background: transparent;
-          font-size: 20px;
-        }
-
-        .bb-main-qty b {
-          font-size: 12px;
-          text-align: center;
-          font-variant-numeric: tabular-nums;
-        }
-
-        .bb-modifier-title {
-          padding: 10px 1px 7px;
-        }
-
-        .bb-modifier-grid {
-          display: grid;
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 6px;
-        }
-
-        .bb-modifier-grid button {
-          position: relative;
-          display: flex;
-          min-width: 0;
-          min-height: 58px;
-          flex-direction: column;
-          align-items: flex-start;
-          justify-content: space-between;
-          gap: 5px;
-          padding: 9px;
-          border: 1px solid #303030;
-          border-radius: 10px;
-          color: #efefef;
-          background: #1a1a1a;
-          text-align: left;
-        }
-
-        .bb-modifier-grid button.is-added {
-          border-color: #a8a8a8;
-          background: #242424;
-        }
-
-        .bb-modifier-grid button > span:not(.bb-modifier-count) {
-          width: calc(100% - 20px);
-          font-size: 11px;
-          font-weight: 850;
-          line-height: 1.15;
-        }
-
-        .bb-modifier-grid button > strong {
-          color: #aaa;
-          font-size: 11px;
-          font-variant-numeric: tabular-nums;
-        }
-
-        .bb-no-modifiers {
-          padding: 13px 4px 4px;
-          color: #777;
-          font-size: 11px;
-        }
-
-        .bb-register-state {
-          display: grid;
-          min-height: 180px;
-          place-items: center;
-          padding: 24px;
-          color: #858585;
-          font-size: 13px;
-          text-align: center;
-        }
-
-        .bb-register-state.is-error {
-          color: #ffb4b4;
-        }
-
-        .bb-cart-panel {
-          margin-top: 12px;
-          border: 1px solid #292929;
-          border-radius: 14px;
-          overflow: hidden;
-          background: #121212;
-        }
-
-        .bb-cart-heading {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 10px;
-          min-height: 51px;
-          padding: 9px 11px;
-          border-bottom: 1px solid #252525;
-        }
-
-        .bb-cart-heading > div {
-          display: flex;
-          flex-direction: column;
-          gap: 2px;
-        }
-
-        .bb-cart-heading span {
-          color: #777;
-          font-size: 9px;
-          font-weight: 900;
-          letter-spacing: 0.14em;
-        }
-
-        .bb-cart-heading strong {
-          color: #e5e5e5;
-          font-size: 12px;
-        }
-
-        .bb-cart-heading button {
-          min-height: 32px;
-          padding: 0 10px;
-          border: 1px solid #3b3b3b;
-          border-radius: 9px;
-          color: #bdbdbd;
-          background: #1d1d1d;
-          font-size: 11px;
-          font-weight: 800;
-        }
-
-        .bb-cart-empty {
-          padding: 20px 12px;
-          color: #777;
-          font-size: 12px;
-          text-align: center;
-        }
-
-        .bb-cart-lines {
-          padding: 3px 10px;
-        }
-
-        .bb-cart-line {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 10px;
-          padding: 9px 0;
-          border-bottom: 1px solid #222;
-        }
-
-        .bb-cart-line:last-child {
-          border-bottom: 0;
-        }
-
-        .bb-cart-line.is-modifier {
-          padding-left: 8px;
-        }
-
-        .bb-cart-line-main {
-          display: flex;
-          min-width: 0;
-          flex: 1;
-          flex-direction: column;
-          gap: 2px;
-        }
-
-        .bb-cart-line-main span {
-          overflow: hidden;
-          color: #e8e8e8;
-          font-size: 12px;
-          font-weight: 800;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-        }
-
-        .bb-cart-line-main small {
-          color: #666;
-          font-size: 9px;
-        }
-
-        .bb-cart-line-main strong {
-          color: #929292;
-          font-size: 11px;
-          font-variant-numeric: tabular-nums;
-        }
-
-        .bb-quantity-control {
-          display: grid;
-          flex: 0 0 auto;
-          grid-template-columns: 34px 28px 34px;
-          align-items: center;
-          overflow: hidden;
-          border: 1px solid #333;
-          border-radius: 10px;
-          background: #1a1a1a;
-        }
-
-        .bb-quantity-control button {
-          width: 34px;
-          height: 34px;
-          border: 0;
-          color: #fff;
-          background: transparent;
-          font-size: 20px;
-          font-weight: 500;
-        }
-
-        .bb-quantity-control span {
-          color: #ddd;
-          font-size: 12px;
-          font-weight: 900;
-          text-align: center;
-          font-variant-numeric: tabular-nums;
-        }
-
-        .bb-register-bottom {
-          position: absolute;
-          right: 0;
-          bottom: 0;
-          left: 0;
-          display: grid;
-          grid-template-columns: minmax(0, 1fr) auto;
-          gap: 9px;
-          align-items: stretch;
-          padding: 10px 10px calc(env(safe-area-inset-bottom) + 10px);
-          border-top: 1px solid #2a2a2a;
-          background: rgba(11, 11, 11, 0.97);
-          backdrop-filter: blur(16px);
-          -webkit-backdrop-filter: blur(16px);
-        }
-
-        .bb-register-total {
-          display: flex;
-          min-width: 0;
-          flex-direction: column;
-          justify-content: center;
-          padding: 3px 4px;
-        }
-
-        .bb-register-total span {
-          color: #858585;
-          font-size: 9px;
-          font-weight: 900;
-          letter-spacing: 0.16em;
-        }
-
-        .bb-register-total strong {
-          overflow: hidden;
-          color: #fff;
-          font-size: clamp(24px, 8vw, 34px);
-          font-weight: 950;
-          line-height: 1.05;
-          letter-spacing: -0.04em;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-          font-variant-numeric: tabular-nums;
-        }
-
-        .bb-new-order {
-          min-width: 105px;
-          min-height: 54px;
-          padding: 0 15px;
-          border: 0;
-          border-radius: 13px;
-          color: #050505;
-          background: #f5f5f5;
-          font-size: 12px;
-          font-weight: 900;
-        }
-
-        .bb-new-order:disabled {
-          color: #666;
-          background: #252525;
-        }
-
-        @media (max-width: 360px) {
-          .bb-register-tabs {
-            gap: 3px;
-            padding-right: 6px;
-            padding-left: 6px;
-          }
-
-          .bb-register-tabs button {
-            padding-right: 1px;
-            padding-left: 1px;
-          }
-
-          .bb-register-tabs span {
-            font-size: 9px;
-          }
-        }
-
+        .bb-product:active { transform: scale(.985); background: #222; }
+        .bb-product.is-in-cart { border-color: #777; }
+        .bb-product.is-selected { border-color: #f1f1f1; background: #222; box-shadow: inset 0 0 0 1px #f1f1f1; }
+        .bb-product-name { display: -webkit-box; width: calc(100% - 22px); overflow: hidden; color: #f5f5f5; font-size: 13px; font-weight: 850; line-height: 1.15; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+        .bb-product > strong { color: #bcbcbc; font-size: 13px; font-weight: 850; font-variant-numeric: tabular-nums; }
+        .bb-count, .bb-option-count { position: absolute; top: 7px; right: 7px; display: grid; width: 22px; height: 22px; place-items: center; border-radius: 999px; color: #0b0b0b; background: #fff; font-size: 11px; font-weight: 950; }
+        .bb-panel { grid-column: 1 / -1; margin: 1px 0 3px; padding: 10px; border: 1px solid #454545; border-radius: 14px; background: #111; box-shadow: 0 8px 24px rgba(0,0,0,.28); }
+        .bb-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-bottom: 9px; border-bottom: 1px solid #292929; }
+        .bb-panel-head > div:first-child { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+        .bb-panel-head span, .bb-panel-title { color: #777; font-size: 9px; font-weight: 900; letter-spacing: .13em; }
+        .bb-panel-head strong { overflow: hidden; color: #fff; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+        .bb-main-qty { display: grid; flex: 0 0 auto; grid-template-columns: 34px 30px 34px; align-items: center; overflow: hidden; border: 1px solid #3a3a3a; border-radius: 10px; background: #1d1d1d; }
+        .bb-main-qty button { width: 34px; height: 34px; border: 0; color: #fff; background: transparent; font-size: 20px; }
+        .bb-main-qty b { font-size: 12px; text-align: center; font-variant-numeric: tabular-nums; }
+        .bb-panel-title { padding: 10px 1px 7px; }
+        .bb-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+        .bb-options button { position: relative; display: flex; min-width: 0; min-height: 58px; flex-direction: column; align-items: flex-start; justify-content: space-between; gap: 5px; padding: 9px; border: 1px solid #303030; border-radius: 10px; color: #efefef; background: #1a1a1a; text-align: left; }
+        .bb-options button.is-added { border-color: #a8a8a8; background: #242424; box-shadow: inset 0 0 0 1px #7f7f7f; }
+        .bb-options button > span:not(.bb-option-count) { width: calc(100% - 18px); font-size: 11px; font-weight: 850; line-height: 1.15; }
+        .bb-options button > strong { color: #aaa; font-size: 11px; font-variant-numeric: tabular-nums; }
+        .bb-sides button.is-added > strong { color: #fff; }
+        .bb-empty-extra { padding: 13px 4px 4px; color: #777; font-size: 11px; }
+        .bb-state { display: grid; min-height: 180px; place-items: center; padding: 24px; color: #858585; font-size: 13px; text-align: center; }
+        .bb-state.is-error { color: #ffb4b4; }
+        .bb-cart { margin-top: 12px; border: 1px solid #292929; border-radius: 14px; overflow: hidden; background: #121212; }
+        .bb-cart-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 51px; padding: 9px 11px; border-bottom: 1px solid #252525; }
+        .bb-cart-head > div { display: flex; flex-direction: column; gap: 2px; }
+        .bb-cart-head span { color: #777; font-size: 9px; font-weight: 900; letter-spacing: .14em; }
+        .bb-cart-head strong { color: #e5e5e5; font-size: 12px; }
+        .bb-cart-head button { min-height: 32px; padding: 0 10px; border: 1px solid #3b3b3b; border-radius: 9px; color: #bdbdbd; background: #1d1d1d; font-size: 11px; font-weight: 800; }
+        .bb-cart-empty { padding: 20px 12px; color: #777; font-size: 12px; text-align: center; }
+        .bb-cart-lines { padding: 3px 10px; }
+        .bb-cart-line { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 0; border-bottom: 1px solid #222; }
+        .bb-cart-line:last-child { border-bottom: 0; }
+        .bb-cart-line.is-sub { padding-left: 8px; }
+        .bb-line-main { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 2px; }
+        .bb-line-main span { overflow: hidden; color: #e8e8e8; font-size: 12px; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
+        .bb-line-main small { color: #666; font-size: 9px; }
+        .bb-line-main strong { color: #929292; font-size: 11px; font-variant-numeric: tabular-nums; }
+        .bb-qty { display: grid; flex: 0 0 auto; grid-template-columns: 34px 28px 34px; align-items: center; overflow: hidden; border: 1px solid #333; border-radius: 10px; background: #1a1a1a; }
+        .bb-qty button { width: 34px; height: 34px; border: 0; color: #fff; background: transparent; font-size: 20px; }
+        .bb-qty span { color: #ddd; font-size: 12px; font-weight: 900; text-align: center; font-variant-numeric: tabular-nums; }
+        .bb-bottom { position: absolute; right: 0; bottom: 0; left: 0; display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 9px; align-items: stretch; padding: 10px 10px calc(env(safe-area-inset-bottom) + 10px); border-top: 1px solid #2a2a2a; background: rgba(11,11,11,.97); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); }
+        .bb-total { display: flex; min-width: 0; flex-direction: column; justify-content: center; padding: 3px 4px; }
+        .bb-total span { color: #858585; font-size: 9px; font-weight: 900; letter-spacing: .16em; }
+        .bb-total strong { overflow: hidden; color: #fff; font-size: clamp(24px,8vw,34px); font-weight: 950; line-height: 1.05; letter-spacing: -.04em; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+        .bb-new { min-width: 105px; min-height: 54px; padding: 0 15px; border: 0; border-radius: 13px; color: #050505; background: #f5f5f5; font-size: 12px; font-weight: 900; }
+        .bb-new:disabled { color: #666; background: #252525; }
         @media (min-width: 560px) {
-          .bb-register-page {
-            left: 50%;
-            right: auto;
-            width: min(100%, 560px);
-            transform: translateX(-50%);
-            border-right: 1px solid #282828;
-            border-left: 1px solid #282828;
-            box-shadow: 0 0 80px rgba(0, 0, 0, 0.5);
-          }
-
-          :global(body) {
-            background: #050505 !important;
-          }
+          .bb-register-page { left: 50%; right: auto; width: min(100%,560px); transform: translateX(-50%); border-right: 1px solid #282828; border-left: 1px solid #282828; box-shadow: 0 0 80px rgba(0,0,0,.5); }
+          :global(body) { background: #050505 !important; }
         }
       `}</style>
     </div>
