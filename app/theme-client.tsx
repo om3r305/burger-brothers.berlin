@@ -33,12 +33,17 @@ function isAdminPath(pathname: string) {
   return pathname === "/admin" || pathname.startsWith("/admin/");
 }
 
+function isKasaPath(pathname: string) {
+  return pathname === "/kasa" || pathname.startsWith("/kasa/");
+}
+
 function isThemeIsolatedPath(pathname: string) {
   return (
     pathname === "/tv" ||
     pathname.startsWith("/tv/") ||
     pathname === "/driver" ||
-    pathname.startsWith("/driver/")
+    pathname.startsWith("/driver/") ||
+    isKasaPath(pathname)
   );
 }
 
@@ -52,6 +57,7 @@ function applyRootTheme(
 ): ResolvedTheme {
   const admin = isAdminPath(pathname);
   const isolated = isThemeIsolatedPath(pathname);
+  const kasa = isKasaPath(pathname);
   const fixedClassic = admin || isolated;
   const activeTheme: ThemeId = fixedClassic ? "classic" : resolved.theme;
   const settings = resolved.settings;
@@ -90,14 +96,16 @@ function applyRootTheme(
     for (const className of Array.from(body.classList)) {
       if (className.startsWith("bb-theme-")) body.classList.remove(className);
     }
-    body.classList.add(`bb-theme-${activeTheme}`);
+
+    body.classList.toggle("bb-kasa-standalone", kasa);
+    if (!kasa) body.classList.add(`bb-theme-${activeTheme}`);
   }
 
   const meta = document.querySelector<HTMLMetaElement>(
     'meta[name="theme-color"]',
   );
 
-  if (meta) meta.content = themeColor(activeTheme);
+  if (meta) meta.content = kasa ? "#090909" : themeColor(activeTheme);
 
   const next: ResolvedTheme = {
     ...resolved,
@@ -271,6 +279,38 @@ export default function ThemeClient() {
       count: preset.density === 2 ? 10 : preset.density === 1 ? 7 : 0,
     };
   }, [pathname, resolved]);
+
+  if (isKasaPath(pathname)) {
+    return (
+      <style>{`
+        body.bb-kasa-standalone {
+          background: #090909 !important;
+          color-scheme: dark;
+        }
+        body.bb-kasa-standalone::before,
+        body.bb-kasa-standalone::after,
+        body.bb-kasa-standalone .bb-theme-decorations,
+        body.bb-kasa-standalone .bb-theme-burst {
+          display: none !important;
+          content: none !important;
+        }
+        #bb-kasa-page .bb-tabs {
+          min-height: 60px !important;
+        }
+        #bb-kasa-page .bb-tabs button {
+          min-width: 84px !important;
+          min-height: 51px !important;
+          padding: 9px 10px !important;
+          font-weight: 950 !important;
+        }
+        #bb-kasa-page .bb-tabs span {
+          font-size: 11px !important;
+          font-weight: 950 !important;
+          letter-spacing: 0.01em !important;
+        }
+      `}</style>
+    );
+  }
 
   if (!decoration) return null;
 
