@@ -332,6 +332,7 @@ export default function MobileRegisterPage() {
   const [selectedProductKey, setSelectedProductKey] = useState<string | null>(null);
   const [selectedSides, setSelectedSides] = useState<Record<string, string>>({});
   const [search, setSearch] = useState("");
+  const [lieferando, setLieferando] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -410,8 +411,8 @@ export default function MobileRegisterPage() {
 
         if (!cancelled) setProducts(merged);
       } catch (loadError) {
-        console.error("Kasa data load failed", loadError);
-        if (!cancelled) setError("Kasa ürünleri şu anda yüklenemedi. Sayfayı yenileyin.");
+        console.error("Preiskasse konnte nicht geladen werden", loadError);
+        if (!cancelled) setError("Die Produkte konnten nicht geladen werden. Bitte die Seite neu laden.");
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -422,8 +423,6 @@ export default function MobileRegisterPage() {
       cancelled = true;
     };
   }, []);
-
-  const productByKey = useMemo(() => new Map(products.map((product) => [product.key, product])), [products]);
 
   const countsByGroup = useMemo(() => {
     const counts: Record<GroupKey, number> = {
@@ -450,7 +449,12 @@ export default function MobileRegisterPage() {
 
   const cartItems = useMemo(() => Object.values(cart).filter((line) => line.quantity > 0), [cart]);
   const totalQuantity = useMemo(() => cartItems.reduce((sum, line) => sum + line.quantity, 0), [cartItems]);
-  const total = useMemo(() => cartItems.reduce((sum, line) => sum + line.price * line.quantity, 0), [cartItems]);
+  const subtotal = useMemo(() => cartItems.reduce((sum, line) => sum + line.price * line.quantity, 0), [cartItems]);
+  const lieferandoSurcharge = useMemo(
+    () => (lieferando ? Number((subtotal * 0.1).toFixed(2)) : 0),
+    [lieferando, subtotal],
+  );
+  const total = subtotal + lieferandoSurcharge;
 
   function addProduct(product: RegisterProduct) {
     setCart((current) => {
@@ -579,6 +583,7 @@ export default function MobileRegisterPage() {
     setCart({});
     setSelectedProductKey(null);
     setSelectedSides({});
+    setLieferando(false);
   }
 
   function switchGroup(group: GroupKey) {
@@ -600,42 +605,44 @@ export default function MobileRegisterPage() {
       <header className="bb-register-header">
         <div>
           <p>BURGER BROTHERS</p>
-          <h1>Fiyat Kasası</h1>
+          <h1>Preiskasse</h1>
         </div>
-        <div className="bb-status">Hızlı hesap</div>
+        <div className="bb-status">Schnellrechnung</div>
       </header>
 
-      <div className="bb-search-wrap">
-        <input
-          aria-label="Ürün ara"
-          className="bb-search"
-          placeholder="Ürün ara…"
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-        />
-      </div>
+      <div className="bb-topbar">
+        <div className="bb-search-wrap">
+          <input
+            aria-label="Produkt suchen"
+            className="bb-search"
+            placeholder="Produkt suchen…"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+          />
+        </div>
 
-      <nav className="bb-tabs" aria-label="Ürün kategorileri">
-        {TABS.map((tab) => (
-          <button
-            key={tab.key}
-            type="button"
-            className={activeGroup === tab.key ? "is-active" : ""}
-            onClick={() => switchGroup(tab.key)}
-          >
-            <span>{tab.label}</span>
-            <small>{countsByGroup[tab.key]}</small>
-          </button>
-        ))}
-      </nav>
+        <nav className="bb-tabs" aria-label="Produktkategorien">
+          {TABS.map((tab) => (
+            <button
+              key={tab.key}
+              type="button"
+              className={activeGroup === tab.key ? "is-active" : ""}
+              onClick={() => switchGroup(tab.key)}
+            >
+              <span>{tab.label}</span>
+              <small>{countsByGroup[tab.key]}</small>
+            </button>
+          ))}
+        </nav>
+      </div>
 
       <main className="bb-content">
         {loading ? (
-          <div className="bb-state">Ürünler yükleniyor…</div>
+          <div className="bb-state">Produkte werden geladen…</div>
         ) : error ? (
           <div className="bb-state is-error">{error}</div>
         ) : filteredProducts.length === 0 ? (
-          <div className="bb-state">Bu bölümde ürün bulunamadı.</div>
+          <div className="bb-state">In dieser Kategorie wurden keine Produkte gefunden.</div>
         ) : (
           <div className="bb-grid">
             {filteredProducts.map((product) => {
@@ -659,21 +666,21 @@ export default function MobileRegisterPage() {
                   </button>
 
                   {selected && product.category !== "lunch" && (
-                    <section className="bb-panel">
+                    <section className="bb-panel" aria-label={`Extras für ${product.name}`}>
                       <div className="bb-panel-head">
                         <div>
-                          <span>SEÇİLİ BURGER</span>
+                          <span>GEWÄHLTER BURGER</span>
                           <strong>{product.name}</strong>
                         </div>
-                        <div className="bb-main-qty">
-                          <button type="button" onClick={() => changeSelectedProductQuantity(product, -1)}>−</button>
+                        <div className="bb-main-qty" aria-label={`Anzahl ${product.name}`}>
+                          <button type="button" aria-label="Weniger" onClick={() => changeSelectedProductQuantity(product, -1)}>−</button>
                           <b>{quantity}</b>
-                          <button type="button" onClick={() => changeSelectedProductQuantity(product, 1)}>+</button>
+                          <button type="button" aria-label="Mehr" onClick={() => changeSelectedProductQuantity(product, 1)}>+</button>
                         </div>
                       </div>
-                      <div className="bb-panel-title">Bu burgerin ekstraları</div>
+                      <div className="bb-panel-title">EXTRAS FÜR DIESEN BURGER</div>
                       {product.extras.length === 0 ? (
-                        <div className="bb-empty-extra">Bu burger için ücretli ekstra tanımlı değil.</div>
+                        <div className="bb-empty-extra">Für diesen Burger sind keine kostenpflichtigen Extras hinterlegt.</div>
                       ) : (
                         <div className="bb-options">
                           {product.extras.map((modifier) => {
@@ -698,16 +705,16 @@ export default function MobileRegisterPage() {
                   )}
 
                   {selected && product.category === "lunch" && (
-                    <section className="bb-panel">
+                    <section className="bb-panel" aria-label={`Mittagsmenü ${product.name}`}>
                       <div className="bb-panel-head">
                         <div>
                           <span>MITTAGSMENÜ</span>
                           <strong>{product.name}</strong>
                         </div>
-                        <div className="bb-main-qty">
-                          <button type="button" onClick={() => changeSelectedProductQuantity(product, -1)}>−</button>
+                        <div className="bb-main-qty" aria-label={`Anzahl ${product.name}`}>
+                          <button type="button" aria-label="Weniger" onClick={() => changeSelectedProductQuantity(product, -1)}>−</button>
                           <b>{quantity}</b>
-                          <button type="button" onClick={() => changeSelectedProductQuantity(product, 1)}>+</button>
+                          <button type="button" aria-label="Mehr" onClick={() => changeSelectedProductQuantity(product, 1)}>+</button>
                         </div>
                       </div>
                       <div className="bb-panel-title">FRIES AUSWÄHLEN</div>
@@ -738,13 +745,13 @@ export default function MobileRegisterPage() {
           </div>
         )}
 
-        <section className="bb-cart">
+        <section className="bb-cart" aria-label="Rechnung">
           <div className="bb-cart-head">
-            <div><span>HESAP</span><strong>{totalQuantity} kalem</strong></div>
-            {cartItems.length > 0 && <button type="button" onClick={clearCart}>Temizle</button>}
+            <div><span>RECHNUNG</span><strong>{totalQuantity} Artikel</strong></div>
+            {cartItems.length > 0 && <button type="button" onClick={clearCart}>Leeren</button>}
           </div>
           {cartItems.length === 0 ? (
-            <div className="bb-cart-empty">Ürüne dokun, hesaba eklensin.</div>
+            <div className="bb-cart-empty">Produkt antippen, um es zur Rechnung hinzuzufügen.</div>
           ) : (
             <div className="bb-cart-lines">
               {cartItems.map((line) => (
@@ -755,10 +762,10 @@ export default function MobileRegisterPage() {
                     <strong>{euro.format(line.price * line.quantity)}</strong>
                   </div>
                   {line.kind !== "side" && (
-                    <div className="bb-qty">
-                      <button type="button" onClick={() => changeQuantity(line.key, -1)}>−</button>
+                    <div className="bb-qty" aria-label={`Anzahl ${line.name}`}>
+                      <button type="button" aria-label="Weniger" onClick={() => changeQuantity(line.key, -1)}>−</button>
                       <span>{line.quantity}</span>
-                      <button type="button" onClick={() => changeQuantity(line.key, 1)}>+</button>
+                      <button type="button" aria-label="Mehr" onClick={() => changeQuantity(line.key, 1)}>+</button>
                     </div>
                   )}
                 </div>
@@ -769,40 +776,63 @@ export default function MobileRegisterPage() {
       </main>
 
       <div className="bb-bottom">
-        <div className="bb-total"><span>TOPLAM</span><strong>{euro.format(total)}</strong></div>
-        <button type="button" className="bb-new" onClick={clearCart} disabled={!cartItems.length}>Yeni Hesap</button>
+        <div className="bb-total">
+          <span>GESAMT</span>
+          <strong>{euro.format(total)}</strong>
+          {lieferando && subtotal > 0 && (
+            <small>Zwischensumme {euro.format(subtotal)} · Lieferando +10% ({euro.format(lieferandoSurcharge)})</small>
+          )}
+        </div>
+        <div className="bb-bottom-actions">
+          <button type="button" className="bb-new" onClick={clearCart} disabled={!cartItems.length}>Neue Rechnung</button>
+          <label className={`bb-lieferando${lieferando ? " is-active" : ""}`}>
+            <input
+              type="checkbox"
+              checked={lieferando}
+              onChange={(event) => setLieferando(event.target.checked)}
+            />
+            <span className="bb-checkmark" aria-hidden="true">{lieferando ? "✓" : ""}</span>
+            <span>Lieferando +10%</span>
+          </label>
+        </div>
       </div>
 
       <style jsx>{`
         .bb-register-page {
           position: fixed; inset: 0; z-index: 100000; display: flex; flex-direction: column;
           width: 100%; min-width: 0; height: 100dvh; color: #f7f7f7; background: #090909;
-          overflow: hidden; overscroll-behavior: none;
+          overflow: hidden; overscroll-behavior: none; isolation: isolate;
         }
         .bb-register-header {
-          display: flex; align-items: center; justify-content: space-between; gap: 12px;
+          position: relative; z-index: 80; flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 12px;
           padding: calc(env(safe-area-inset-top) + 12px) 14px 10px; border-bottom: 1px solid #242424; background: #111;
         }
         .bb-register-header p { margin: 0 0 3px; color: #8d8d8d; font-size: 10px; font-weight: 850; letter-spacing: .16em; }
         .bb-register-header h1 { margin: 0; font-size: clamp(20px, 6vw, 27px); line-height: 1; font-weight: 950; letter-spacing: -.04em; }
         .bb-status { padding: 7px 10px; border: 1px solid #353535; border-radius: 999px; color: #aaa; background: #181818; font-size: 10px; font-weight: 800; white-space: nowrap; }
+        .bb-topbar {
+          position: relative; z-index: 70; flex: 0 0 auto; background: #090909; box-shadow: 0 9px 18px rgba(0,0,0,.42);
+        }
         .bb-search-wrap { padding: 9px 10px 7px; background: #090909; }
         .bb-search { width: 100%; height: 42px; padding: 0 13px; border: 1px solid #2b2b2b; border-radius: 11px; outline: none; color: #fff; background: #151515; font-size: 16px; appearance: none; }
         .bb-search:focus { border-color: #6d6d6d; background: #181818; }
         .bb-tabs {
-          display: flex; gap: 5px; padding: 0 10px 9px; overflow-x: auto; background: #090909;
-          scrollbar-width: none; -webkit-overflow-scrolling: touch;
+          position: relative; z-index: 75; display: flex; gap: 5px; min-height: 54px; padding: 0 10px 9px; overflow-x: auto; overflow-y: hidden;
+          background: #090909; scrollbar-width: none; -webkit-overflow-scrolling: touch; contain: paint;
         }
         .bb-tabs::-webkit-scrollbar { display: none; }
         .bb-tabs button {
-          position: relative; flex: 0 0 auto; min-width: 76px; min-height: 45px; padding: 7px 8px;
+          position: relative; z-index: 1; flex: 0 0 auto; min-width: 76px; min-height: 45px; padding: 7px 8px;
           border: 1px solid #2d2d2d; border-radius: 10px; color: #aaa; background: #151515; font-weight: 850;
         }
         .bb-tabs button.is-active { border-color: #f3f3f3; color: #090909; background: #f3f3f3; }
         .bb-tabs span { display: block; font-size: 10px; white-space: nowrap; }
         .bb-tabs small { position: absolute; top: 3px; right: 4px; color: #727272; font-size: 7px; font-weight: 900; }
-        .bb-content { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; padding: 0 10px 122px; }
-        .bb-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; width: 100%; }
+        .bb-content {
+          position: relative; z-index: 1; flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden;
+          overscroll-behavior: contain; -webkit-overflow-scrolling: touch; padding: 8px 10px 174px; background: #090909;
+        }
+        .bb-grid { position: relative; z-index: 1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; width: 100%; }
         .bb-product {
           position: relative; display: flex; min-width: 0; min-height: 76px; flex-direction: column; align-items: flex-start;
           justify-content: space-between; gap: 8px; padding: 11px 10px; border: 1px solid #2b2b2b; border-radius: 12px;
@@ -850,12 +880,31 @@ export default function MobileRegisterPage() {
         .bb-qty { display: grid; flex: 0 0 auto; grid-template-columns: 34px 28px 34px; align-items: center; overflow: hidden; border: 1px solid #333; border-radius: 10px; background: #1a1a1a; }
         .bb-qty button { width: 34px; height: 34px; border: 0; color: #fff; background: transparent; font-size: 20px; }
         .bb-qty span { color: #ddd; font-size: 12px; font-weight: 900; text-align: center; font-variant-numeric: tabular-nums; }
-        .bb-bottom { position: absolute; right: 0; bottom: 0; left: 0; display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 9px; align-items: stretch; padding: 10px 10px calc(env(safe-area-inset-bottom) + 10px); border-top: 1px solid #2a2a2a; background: rgba(11,11,11,.97); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); }
+        .bb-bottom {
+          position: absolute; z-index: 90; right: 0; bottom: 0; left: 0; display: grid; grid-template-columns: minmax(0,1fr) auto;
+          gap: 10px; align-items: stretch; padding: 10px 10px calc(env(safe-area-inset-bottom) + 10px); border-top: 1px solid #2a2a2a;
+          background: rgba(11,11,11,.98); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); box-shadow: 0 -12px 28px rgba(0,0,0,.35);
+        }
         .bb-total { display: flex; min-width: 0; flex-direction: column; justify-content: center; padding: 3px 4px; }
-        .bb-total span { color: #858585; font-size: 9px; font-weight: 900; letter-spacing: .16em; }
-        .bb-total strong { overflow: hidden; color: #fff; font-size: clamp(24px,8vw,34px); font-weight: 950; line-height: 1.05; letter-spacing: -.04em; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
-        .bb-new { min-width: 105px; min-height: 54px; padding: 0 15px; border: 0; border-radius: 13px; color: #050505; background: #f5f5f5; font-size: 12px; font-weight: 900; }
+        .bb-total > span { color: #858585; font-size: 9px; font-weight: 900; letter-spacing: .16em; }
+        .bb-total > strong { overflow: hidden; color: #fff; font-size: clamp(24px,8vw,34px); font-weight: 950; line-height: 1.05; letter-spacing: -.04em; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+        .bb-total small { margin-top: 4px; max-width: 230px; color: #9a9a9a; font-size: 9px; line-height: 1.25; }
+        .bb-bottom-actions { display: flex; min-width: 124px; flex-direction: column; gap: 7px; }
+        .bb-new { min-width: 124px; min-height: 48px; padding: 0 13px; border: 0; border-radius: 13px; color: #050505; background: #f5f5f5; font-size: 11px; font-weight: 900; }
         .bb-new:disabled { color: #666; background: #252525; }
+        .bb-lieferando {
+          display: flex; min-height: 34px; align-items: center; justify-content: center; gap: 7px; padding: 5px 8px;
+          border: 1px solid #353535; border-radius: 10px; color: #bdbdbd; background: #171717; font-size: 10px; font-weight: 850; cursor: pointer; user-select: none;
+        }
+        .bb-lieferando.is-active { border-color: #f5f5f5; color: #fff; background: #202020; }
+        .bb-lieferando input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+        .bb-checkmark { display: grid; width: 17px; height: 17px; flex: 0 0 17px; place-items: center; border: 1px solid #666; border-radius: 5px; color: #050505; background: #0e0e0e; font-size: 12px; font-weight: 950; }
+        .bb-lieferando.is-active .bb-checkmark { border-color: #fff; background: #fff; }
+        @media (max-width: 360px) {
+          .bb-bottom { gap: 6px; }
+          .bb-bottom-actions, .bb-new { min-width: 112px; }
+          .bb-total small { max-width: 190px; font-size: 8px; }
+        }
         @media (min-width: 560px) {
           .bb-register-page { left: 50%; right: auto; width: min(100%,560px); transform: translateX(-50%); border-right: 1px solid #282828; border-left: 1px solid #282828; box-shadow: 0 0 80px rgba(0,0,0,.5); }
           :global(body) { background: #050505 !important; }
