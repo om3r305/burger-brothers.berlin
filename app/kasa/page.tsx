@@ -40,19 +40,18 @@ type CatalogResponse = {
   error?: string;
 };
 
-type GroupKey = "burgers" | "fries" | "extras" | "other";
+type GroupKey = "burgers" | "vegetarian" | "extras" | "drinks";
 
 type Group = {
   key: GroupKey;
   label: string;
-  shortLabel: string;
 };
 
 const GROUPS: Group[] = [
-  { key: "burgers", label: "Burgerler", shortLabel: "Burger" },
-  { key: "fries", label: "Patates", shortLabel: "Patates" },
-  { key: "extras", label: "Ekstralar", shortLabel: "Ekstra" },
-  { key: "other", label: "Diğer", shortLabel: "Diğer" },
+  { key: "burgers", label: "Burger" },
+  { key: "vegetarian", label: "Vegetarian" },
+  { key: "extras", label: "Ekstralar" },
+  { key: "drinks", label: "İçecekler" },
 ];
 
 const euro = new Intl.NumberFormat("de-DE", {
@@ -75,6 +74,14 @@ function normalizeText(value: string) {
     .trim();
 }
 
+function cleanName(value: string) {
+  return value
+    .replace(/[\uFFFD\u25C6\u25C7\u25CA\u25A0\u25A1]/g, " ")
+    .replace(/[\u2600-\u27BF]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function productIsCurrent(product: CatalogProduct) {
   if (product.active === false) return false;
   const now = Date.now();
@@ -92,30 +99,34 @@ function productIsCurrent(product: CatalogProduct) {
   return true;
 }
 
-function looksLikeFries(name: string) {
-  const text = normalizeText(name);
-  return /pommes|fries|frites|kartoff|potato|wedges|curly|sweet\s*potato|susskartoff/.test(text);
+function isVegetarianCategory(category: string) {
+  const value = normalizeText(category);
+  return value === "vegan" || value === "vegetarian" || value === "vegetarisch" || value === "veggie";
 }
 
-function groupFor(item: RegisterProduct): GroupKey {
+function groupFor(item: RegisterProduct): GroupKey | null {
   const category = normalizeText(item.category);
 
-  if (category === "burger" || category === "vegan") return "burgers";
-  if (category === "extras" && looksLikeFries(item.name)) return "fries";
+  if (category === "burger") return "burgers";
+  if (isVegetarianCategory(category)) return "vegetarian";
+  if (category === "drinks" || category === "drink" || category === "getranke") return "drinks";
 
   if (
     item.source === "embedded-extra" ||
     category === "extras" ||
-    category === "sauces"
+    category === "extra" ||
+    category === "sauces" ||
+    category === "sauce" ||
+    category === "sossen"
   ) {
     return "extras";
   }
 
-  return "other";
+  return null;
 }
 
 function canonicalProduct(product: CatalogProduct, index: number): RegisterProduct | null {
-  const name = String(product.name ?? "").trim();
+  const name = cleanName(String(product.name ?? ""));
   const price = toPrice(product.price);
   const category = String(product.categoryKey ?? product.category ?? "other").trim().toLowerCase();
 
@@ -141,7 +152,7 @@ function collectEmbeddedExtras(products: CatalogProduct[]) {
         : [];
 
     for (const extra of extras) {
-      const name = String(extra.name ?? extra.label ?? "").trim();
+      const name = cleanName(String(extra.name ?? extra.label ?? ""));
       const price = toPrice(extra.price);
       if (!name || price <= 0) continue;
 
@@ -172,7 +183,6 @@ export default function MobileRegisterPage() {
   useEffect(() => {
     const oldOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-
     return () => {
       document.body.style.overflow = oldOverflow;
     };
@@ -202,11 +212,11 @@ export default function MobileRegisterPage() {
           .filter((item): item is RegisterProduct => Boolean(item));
 
         const embeddedExtras = collectEmbeddedExtras(rawProducts);
-        const merged = [...mainProducts, ...embeddedExtras].sort((a, b) =>
-          a.name.localeCompare(b.name, "de-DE", { sensitivity: "base" }),
-        );
+        const allowed = [...mainProducts, ...embeddedExtras]
+          .filter((item) => groupFor(item) !== null)
+          .sort((a, b) => a.name.localeCompare(b.name, "de-DE", { sensitivity: "base" }));
 
-        if (!cancelled) setProducts(merged);
+        if (!cancelled) setProducts(allowed);
       } catch (catalogError) {
         console.error("Kasa catalog load failed", catalogError);
         if (!cancelled) setError("Ürünler şu anda yüklenemedi. Tekrar deneyin.");
@@ -216,7 +226,6 @@ export default function MobileRegisterPage() {
     }
 
     void loadCatalog();
-
     return () => {
       cancelled = true;
     };
@@ -230,26 +239,18 @@ export default function MobileRegisterPage() {
   const countsByGroup = useMemo(() => {
     const counts: Record<GroupKey, number> = {
       burgers: 0,
-      fries: 0,
+      vegetarian: 0,
       extras: 0,
-      other: 0,
+      drinks: 0,
     };
 
-    for (const product of products) counts[groupFor(product)] += 1;
+    for (const product of products) {
+      const group = groupFor(product);
+      if (group) counts[group] += 1;
+    }
+
     return counts;
   }, [products]);
-
-  const visibleGroups = useMemo(
-    () => GROUPS.filter((group) => countsByGroup[group.key] > 0),
-    [countsByGroup],
-  );
-
-  useEffect(() => {
-    if (loading || visibleGroups.length === 0) return;
-    if (!visibleGroups.some((group) => group.key === activeGroup)) {
-      setActiveGroup(visibleGroups[0].key);
-    }
-  }, [activeGroup, loading, visibleGroups]);
 
   const filteredProducts = useMemo(() => {
     const query = normalizeText(search);
@@ -286,10 +287,8 @@ export default function MobileRegisterPage() {
     setCart((current) => {
       const nextQuantity = Math.max(0, (current[key] || 0) + delta);
       const next = { ...current };
-
       if (nextQuantity === 0) delete next[key];
       else next[key] = nextQuantity;
-
       return next;
     });
   }
@@ -311,6 +310,11 @@ export default function MobileRegisterPage() {
           box-sizing: border-box;
         }
 
+        .bb-register-page *::before,
+        .bb-register-page *::after {
+          content: none !important;
+        }
+
         .bb-register-page button,
         .bb-register-page input {
           font: inherit;
@@ -327,7 +331,7 @@ export default function MobileRegisterPage() {
           <p className="bb-register-kicker">BURGER BROTHERS</p>
           <h1>Fiyat Kasası</h1>
         </div>
-        <div className="bb-register-status">Sadece hesaplama</div>
+        <div className="bb-register-status">Hızlı hesap</div>
       </header>
 
       <div className="bb-register-search-wrap">
@@ -341,14 +345,17 @@ export default function MobileRegisterPage() {
       </div>
 
       <nav className="bb-register-tabs" aria-label="Ürün kategorileri">
-        {visibleGroups.map((group) => (
+        {GROUPS.map((group) => (
           <button
             key={group.key}
             type="button"
             className={activeGroup === group.key ? "is-active" : ""}
-            onClick={() => setActiveGroup(group.key)}
+            onClick={() => {
+              setActiveGroup(group.key);
+              setSearch("");
+            }}
           >
-            <span>{group.shortLabel}</span>
+            <span>{group.label}</span>
             <small>{countsByGroup[group.key]}</small>
           </button>
         ))}
@@ -450,7 +457,7 @@ export default function MobileRegisterPage() {
           min-width: 0;
           height: 100dvh;
           color: #f7f7f7;
-          background: #0a0a0a;
+          background: #090909;
           overflow: hidden;
           overscroll-behavior: none;
         }
@@ -460,50 +467,50 @@ export default function MobileRegisterPage() {
           align-items: center;
           justify-content: space-between;
           gap: 12px;
-          padding: calc(env(safe-area-inset-top) + 12px) 14px 10px;
+          padding: calc(env(safe-area-inset-top) + 12px) 14px 11px;
           border-bottom: 1px solid #242424;
-          background: #111;
+          background: #101010;
         }
 
         .bb-register-kicker {
           margin: 0 0 3px;
-          color: #8d8d8d;
+          color: #858585;
           font-size: 10px;
-          font-weight: 800;
-          letter-spacing: 0.16em;
+          font-weight: 850;
+          letter-spacing: 0.17em;
         }
 
         .bb-register-header h1 {
           margin: 0;
-          font-size: clamp(20px, 6vw, 27px);
+          font-size: clamp(22px, 6vw, 29px);
           line-height: 1;
-          font-weight: 900;
+          font-weight: 950;
           letter-spacing: -0.04em;
         }
 
         .bb-register-status {
           flex: 0 0 auto;
-          padding: 7px 9px;
+          padding: 7px 10px;
           border: 1px solid #343434;
           border-radius: 999px;
-          color: #a7a7a7;
+          color: #aaa;
           background: #181818;
           font-size: 10px;
-          font-weight: 700;
+          font-weight: 800;
           white-space: nowrap;
         }
 
         .bb-register-search-wrap {
-          padding: 9px 10px 7px;
-          background: #0a0a0a;
+          padding: 9px 10px 8px;
+          background: #090909;
         }
 
         .bb-register-search {
           width: 100%;
-          height: 42px;
+          height: 43px;
           padding: 0 13px;
-          border: 1px solid #2a2a2a;
-          border-radius: 11px;
+          border: 1px solid #2b2b2b;
+          border-radius: 12px;
           outline: none;
           color: #fff;
           background: #151515;
@@ -512,59 +519,53 @@ export default function MobileRegisterPage() {
         }
 
         .bb-register-search:focus {
-          border-color: #676767;
-          background: #181818;
+          border-color: #777;
+          background: #191919;
         }
 
         .bb-register-tabs {
           display: grid;
-          grid-auto-flow: column;
-          grid-auto-columns: minmax(82px, 1fr);
-          gap: 6px;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+          gap: 5px;
           padding: 0 10px 9px;
-          overflow-x: auto;
-          scrollbar-width: none;
-          background: #0a0a0a;
-        }
-
-        .bb-register-tabs::-webkit-scrollbar {
-          display: none;
+          background: #090909;
         }
 
         .bb-register-tabs button {
           position: relative;
-          min-height: 44px;
-          padding: 6px 7px;
-          border: 1px solid #2a2a2a;
+          min-width: 0;
+          min-height: 46px;
+          padding: 7px 4px;
+          border: 1px solid #2c2c2c;
           border-radius: 10px;
-          color: #bcbcbc;
+          color: #aaa;
           background: #151515;
-          font-weight: 800;
+          font-weight: 850;
           cursor: pointer;
+          overflow: hidden;
         }
 
         .bb-register-tabs button.is-active {
-          border-color: #f5f5f5;
+          border-color: #f3f3f3;
           color: #090909;
-          background: #f5f5f5;
+          background: #f3f3f3;
         }
 
         .bb-register-tabs span {
           display: block;
-          font-size: 12px;
+          overflow: hidden;
+          font-size: clamp(9px, 2.8vw, 12px);
+          text-overflow: ellipsis;
+          white-space: nowrap;
         }
 
         .bb-register-tabs small {
           position: absolute;
-          top: 3px;
-          right: 5px;
-          color: #777;
-          font-size: 8px;
-          font-weight: 800;
-        }
-
-        .bb-register-tabs .is-active small {
-          color: #777;
+          top: 2px;
+          right: 4px;
+          color: #6f6f6f;
+          font-size: 7px;
+          font-weight: 900;
         }
 
         .bb-register-content {
@@ -587,13 +588,13 @@ export default function MobileRegisterPage() {
           position: relative;
           display: flex;
           min-width: 0;
-          min-height: 76px;
+          min-height: 78px;
           flex-direction: column;
           align-items: flex-start;
           justify-content: space-between;
           gap: 8px;
           padding: 11px 10px;
-          border: 1px solid #2b2b2b;
+          border: 1px solid #2c2c2c;
           border-radius: 12px;
           color: #f3f3f3;
           background: #171717;
@@ -608,7 +609,7 @@ export default function MobileRegisterPage() {
         }
 
         .bb-product-button.is-selected {
-          border-color: #d8d8d8;
+          border-color: #d6d6d6;
           background: #202020;
         }
 
@@ -618,16 +619,16 @@ export default function MobileRegisterPage() {
           overflow: hidden;
           color: #f5f5f5;
           font-size: 13px;
-          font-weight: 800;
-          line-height: 1.15;
+          font-weight: 850;
+          line-height: 1.16;
           -webkit-box-orient: vertical;
           -webkit-line-clamp: 2;
         }
 
         .bb-product-button strong {
-          color: #bcbcbc;
+          color: #bdbdbd;
           font-size: 13px;
-          font-weight: 800;
+          font-weight: 850;
           font-variant-numeric: tabular-nums;
         }
 
@@ -643,7 +644,7 @@ export default function MobileRegisterPage() {
           color: #0b0b0b;
           background: #fff;
           font-size: 11px;
-          font-weight: 900;
+          font-weight: 950;
         }
 
         .bb-register-state {
@@ -841,6 +842,16 @@ export default function MobileRegisterPage() {
         .bb-new-order:disabled {
           color: #666;
           background: #252525;
+        }
+
+        @media (max-width: 380px) {
+          .bb-register-tabs span {
+            font-size: 9px;
+          }
+
+          .bb-register-tabs button {
+            padding-inline: 2px;
+          }
         }
 
         @media (min-width: 560px) {
