@@ -1165,7 +1165,7 @@ export default function MenuPage() {
           border-color: color-mix(in srgb, var(--bb-accent) 22%, transparent);
           box-shadow: 0 12px 28px rgba(0, 0, 0, .22);
         }
-        html[data-bb-theme] .bb-menu-page .bb-menu-product-cover {
+        html[data-bb-theme] main.bb-menu-page .grid-cards .bb-menu-product-cover {
           border: 0 !important;
           border-radius: 14px;
           background-color: #151414 !important;
