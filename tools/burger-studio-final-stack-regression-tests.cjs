@@ -21,10 +21,10 @@ assert(stack.includes('return 4;'));
 assert(stack.includes('if (kind === "lettuce") return 10;'));
 assert(stack.includes('if (kind === "tomato") return 7;'));
 assert(stack.includes('if (["onion", "fried-onion", "pickle"].includes(kind)) return 6;'));
-assert(stack.includes('if (kind === "beef") return 33;'));
-assert(stack.includes('if (kind === "black-angus") return 39;'));
-assert(stack.includes('if (kind === "chicken-breast") return 31;'));
-assert(stack.includes('if (kind === "crispy") return 31;'));
+assert(stack.includes('if (kind === "beef") return 48;'));
+assert(stack.includes('if (kind === "black-angus") return 56;'));
+assert(stack.includes('if (kind === "chicken-breast") return 44;'));
+assert(stack.includes('if (kind === "crispy") return 48;'));
 assert(stack.includes('let finalCursor = 80;'));
 assert(stack.includes('const finalTopBottom = Math.max(90, finalCursor + 1);'));
 assert(stack.includes('bottom:var(--bsv2-final-bottom)'));
@@ -52,3 +52,4 @@ assert(!stack.includes('THREE.'));
 assert(!stack.includes('<Canvas'));
 
 console.log("Burger Studio final stack regression tests: OK");
+
