@@ -52,7 +52,7 @@ function layerKind(group: string, visual?: string) {
   if (key.includes("bacon")) return "bacon";
   if (key.includes("guacamole")) return "guacamole";
   if (key.includes("jalap")) return "jalapeno";
-  if (key.includes("rost") || key.includes("röst")) return "fried-onion";
+  if (key.includes("fried-onion") || key.includes("roest") || key.includes("rost") || key.includes("röst")) return "fried-onion";
   if (key.includes("onion") || key.includes("zwiebel")) return "onion";
   return "topping";
 }
