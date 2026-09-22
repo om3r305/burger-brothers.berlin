@@ -131,7 +131,7 @@ export default function BurgerStackV2({ config, recipe, assembled }: {
   const buildGap = count > 14 ? 64 : 72;
   const buildHeight = Math.max(430, 218 + count * buildGap);
 
-  let finalCursor = 80;
+  let finalCursor = 70;
   const finalBottoms = layers.map((layer) => {
     const bottom = finalCursor;
     finalCursor += assembledStep(layer.kind);
