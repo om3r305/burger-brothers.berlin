@@ -16,6 +16,7 @@ type StackLayer = {
 const PHOTO_KINDS = new Set([
   "beef", "black-angus", "crispy", "chicken-breast", "vegan",
   "cheddar", "gouda", "mozzarella", "lettuce", "tomato", "onion", "bacon",
+  "pickle", "jalapeno", "fried-onion", "farmers-market", "guacamole", "gorgonzola",
 ]);
 const CHEESE_KINDS = new Set(["cheddar", "gouda", "mozzarella", "gorgonzola"]);
 
@@ -114,7 +115,10 @@ export default function BurgerStackV2({ config, recipe, assembled }: {
     const ingredient = ingredientMap.get(id);
     if (!ingredient || !ingredient.active || ingredient.group === "bun") continue;
     const qty = Math.max(0, Math.min(ingredient.max, Math.round(Number(rawQty) || 0)));
-    const kind = layerKind(ingredient.group, ingredient.visual);
+    // Some saved configs label fried onions with the generic onion visual.
+    const kind = layerKind(ingredient.group,
+      /roestzwiebel|röstzwiebel/i.test(`${ingredient.id} ${ingredient.name}`)
+        ? "fried-onion" : ingredient.visual);
     for (let unit = 0; unit < qty; unit += 1) {
       layers.push({
         id: `${id}-${unit}`,
@@ -138,7 +142,7 @@ export default function BurgerStackV2({ config, recipe, assembled }: {
     return bottom;
   });
   const finalTopBottom = Math.max(90, finalCursor + 1);
-  const finalHeight = Math.max(430, finalTopBottom + 175);
+  const finalHeight = Math.max(470, finalTopBottom + 265);
 
   const stageHeight = assembled ? finalHeight : buildHeight;
   const stackStyle = {
@@ -159,7 +163,7 @@ export default function BurgerStackV2({ config, recipe, assembled }: {
 
       <div className="bsv2-stack">
         <div className="bsv2-heat-glow" aria-hidden="true" />
-        <div className="bsv2-steam" aria-hidden="true"><span /><span /><span /></div>
+        <div className="bsv2-steam" aria-hidden="true"><span /><span /><span /><span /><span /></div>
 
         {selectedBun ? <div className={`bsv2-piece bsv2-bun bsv2-bun-bottom ${bunVisualClass}`}
           style={{ "--bsv2-i": 0 } as CSSProperties} data-bun-position="bottom" title={`${selectedBun.name} – unten`} /> : null}
@@ -173,6 +177,7 @@ export default function BurgerStackV2({ config, recipe, assembled }: {
               "--bsv2-final-bottom": `${finalBottoms[index]}px`,
               "--bsv2-photo": PHOTO_KINDS.has(layer.kind) ? `url(/images/burger-studio/${layer.kind}.webp)` : undefined,
             } as CSSProperties} title={layer.name}>
+            {CHEESE_KINDS.has(layer.kind) ? <span className="bsv2-cheese-flow" aria-hidden="true"><i /><i /><i /></span> : null}
             <span className="bsv2-food-detail" aria-hidden="true" />
             <span className="bsv2-piece-label">{layer.name}</span>
           </div>
@@ -257,6 +262,11 @@ export default function BurgerStackV2({ config, recipe, assembled }: {
         .bsv2-stage .bsv2-layer--tomato{height:27px}
         .bsv2-stage .bsv2-layer--onion{height:24px}
         .bsv2-stage .bsv2-layer--bacon{height:28px}
+        .bsv2-stage .bsv2-layer--pickle{height:25px;width:72%}
+        .bsv2-stage .bsv2-layer--jalapeno{height:24px;width:68%}
+        .bsv2-stage .bsv2-layer--fried-onion{height:27px;width:72%}
+        .bsv2-stage .bsv2-layer--farmers-market{height:37px;width:78%}
+        .bsv2-stage .bsv2-layer--guacamole{height:25px;width:73%}
         .bsv2-stage .bsv2-bun{background-color:transparent;background-size:100% 100%;background-repeat:no-repeat;border:0;border-radius:0;box-shadow:none;overflow:visible;filter:drop-shadow(0 5px 4px rgba(0,0,0,.22))}
         .bsv2-stage .bsv2-bun:before{content:none}
         .bsv2-stage .bsv2-bun-top{height:123px;background-image:url(/images/burger-studio/bun-classic.webp)}
@@ -267,13 +277,25 @@ export default function BurgerStackV2({ config, recipe, assembled }: {
            the protein without moving the layer or clipping away the drips. */
         .bsv2-stage .bsv2-melting{clip-path:none;overflow:visible}
         .bsv2-melting .bsv2-food-detail{transform-origin:50% 0}
-        .is-assembled .bsv2-melting.bsv2-photo .bsv2-food-detail{animation:bsv2-photo-melt 2.4s cubic-bezier(.2,.65,.3,1) both;animation-delay:calc(160ms + (var(--bsv2-i) * 65ms))}
+        .is-assembled .bsv2-melting.bsv2-photo .bsv2-food-detail{z-index:1;animation:bsv2-photo-melt 9s cubic-bezier(.2,.65,.3,1) both;animation-delay:calc(700ms + (var(--bsv2-count) * 65ms))}
+        .bsv2-cheese-flow{display:none;position:absolute;inset:0;pointer-events:none}
+        .is-assembled .bsv2-cheese-flow{display:block}
+        .bsv2-cheese-flow i{position:absolute;top:48%;left:17%;width:11px;height:34px;border-radius:35% 38% 48% 48%;background:linear-gradient(90deg,var(--bsv2-cheese-drip),#fff3 40%,var(--bsv2-cheese-drip) 85%);box-shadow:1px 2px 2px #0003;transform-origin:50% 0;opacity:0;animation:bsv2-slow-cheese-flow 14s linear infinite;animation-delay:calc(900ms + (var(--bsv2-count) * 65ms))}
+        .bsv2-cheese-flow i:nth-child(2){left:58%;width:8px;height:39px;animation-duration:18s;animation-delay:calc(3800ms + (var(--bsv2-count) * 65ms))}
+        .bsv2-cheese-flow i:nth-child(3){left:83%;width:13px;height:30px;animation-duration:16s;animation-delay:calc(6500ms + (var(--bsv2-count) * 65ms))}
         .is-assembled .bsv2-layer{animation-duration:.42s;animation-delay:calc(45ms + (var(--bsv2-i) * 65ms));filter:drop-shadow(0 3px 2px rgba(0,0,0,.28))}
         .is-assembled .bsv2-bun-top{animation-duration:.5s;animation-delay:calc(150ms + (var(--bsv2-count) * 65ms))}
         .is-assembled .bsv2-assembly-flash{display:none}
-        .is-assembled .bsv2-steam span{animation-delay:calc(400ms + (var(--bsv2-count) * 65ms))}
-        .is-assembled .bsv2-steam span:nth-child(2){animation-delay:calc(650ms + (var(--bsv2-count) * 65ms))}
-        .is-assembled .bsv2-steam span:nth-child(3){animation-delay:calc(900ms + (var(--bsv2-count) * 65ms))}
+        .bsv2-stage .bsv2-steam{bottom:calc(var(--bsv2-top-bottom) + 105px);width:240px;height:140px}
+        .bsv2-stage .bsv2-steam span{width:34px;height:102px;border:0;border-radius:48%;background:radial-gradient(ellipse at 40% 70%,rgba(255,245,227,.5),rgba(255,245,227,.19) 38%,transparent 69%);filter:blur(5px);mix-blend-mode:screen}
+        .is-assembled .bsv2-steam span{animation:bsv2-warm-steam 5.8s ease-in-out infinite;animation-delay:calc(700ms + (var(--bsv2-count) * 65ms))}
+        .bsv2-stage .bsv2-steam span:nth-child(1){left:14px}
+        .bsv2-stage .bsv2-steam span:nth-child(2){left:58px;height:124px;animation-duration:6.5s;animation-delay:calc(1900ms + (var(--bsv2-count) * 65ms))}
+        .bsv2-stage .bsv2-steam span:nth-child(3){left:108px;height:112px;animation-duration:5.6s;animation-delay:calc(1100ms + (var(--bsv2-count) * 65ms))}
+        .bsv2-stage .bsv2-steam span:nth-child(4){left:155px;animation-duration:7s;animation-delay:calc(3000ms + (var(--bsv2-count) * 65ms))}
+        .bsv2-stage .bsv2-steam span:nth-child(5){left:197px;height:90px;animation-duration:6.2s;animation-delay:calc(2300ms + (var(--bsv2-count) * 65ms))}
+        @keyframes bsv2-warm-steam{0%{opacity:0;transform:translate(-6px,16px) scale(.7,.55) rotate(-7deg)}18%{opacity:.82}48%{opacity:.65;transform:translate(8px,-22px) scale(1.15,1.04) rotate(6deg)}78%{opacity:.28}100%{opacity:0;transform:translate(-10px,-78px) scale(1.7,1.25) rotate(-5deg)}}
+        @keyframes bsv2-slow-cheese-flow{0%{opacity:0;transform:scale(.9,.12)}12%{opacity:.9;transform:scale(1,.25)}70%{opacity:.95;transform:scale(.92,1)}87%{opacity:.7;transform:translateY(3px) scale(.78,1.2)}100%{opacity:0;transform:translateY(9px) scale(.65,1.3)}}
         @keyframes bsv2-photo-melt{0%{transform:scale(1,1)}55%{transform:scale(1.018,1.3)}100%{transform:scale(1.025,1.55)}}
         @keyframes bsv2-flash{0%{opacity:0}25%{opacity:1}100%{opacity:0}}
         @keyframes bsv2-drop{0%{transform:translate(-50%,-90px) scale(1.04);opacity:.55}72%{transform:translate(-50%,3px) scale(.99)}100%{transform:translateX(-50%);opacity:1}}
@@ -285,6 +307,7 @@ export default function BurgerStackV2({ config, recipe, assembled }: {
         @keyframes bsv2-warm-settle{0%{opacity:.78}28%{opacity:1}100%{opacity:.76}}
         @media(max-width:720px){.bsv2-stage{border-radius:24px}.bsv2-stack{width:min(91vw,345px)}.bsv2-piece-label{display:block;left:auto;right:6px;max-width:46%;overflow:hidden;text-overflow:ellipsis;padding:4px 6px;font-size:8px;letter-spacing:.01em}.is-building .bsv2-layer{top:calc(78px + (var(--bsv2-r) * var(--bsv2-gap)))}}
         @media(prefers-reduced-motion:reduce){.bsv2-stage,.bsv2-piece{transition:none!important}.bsv2-assembly-flash,.bsv2-steam,.bsv2-heat-glow{display:none!important}.is-assembled .bsv2-layer,.is-assembled .bsv2-bun-top,.is-assembled .bsv2-stage-light,.is-assembled .bsv2-layer:after,.is-assembled .bsv2-food-detail{animation:none!important}.bsv2-stage-light{filter:none;opacity:.18}}
+        @media(prefers-reduced-motion:reduce){.bsv2-cheese-flow{display:none!important}.bsv2-cheese-flow i,.bsv2-steam span{animation:none!important}}
       `}</style>
     </div>
   );
