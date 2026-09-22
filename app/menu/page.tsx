@@ -1038,7 +1038,7 @@ export default function MenuPage() {
   const showBlurb = tab === "burger" || tab === "vegan" || tab === "hotdogs";
 
   return (
-    <main className="bb-menu-page mx-auto max-w-7xl p-6">
+    <main className="bb-menu-page mx-auto max-w-7xl p-6" data-menu-category={tab}>
       {/* Kopfbereich */}
       <div className="bb-menu-header mb-4 flex flex-col gap-3 sm:mb-6 sm:flex-row sm:items-center sm:justify-between">
         <Link href="/" className="flex items-center gap-3">
@@ -1159,6 +1159,61 @@ export default function MenuPage() {
       <CartSummaryMobile />
 
       <style jsx global>{`
+        /* Food presentation stays consistent while seasonal accent tokens change. */
+        html[data-bb-theme] .bb-menu-page .grid-cards .product-card {
+          padding: 18px;
+          border-color: color-mix(in srgb, var(--bb-accent) 22%, transparent);
+          box-shadow: 0 12px 28px rgba(0, 0, 0, .22);
+        }
+        html[data-bb-theme] .bb-menu-page .bb-menu-product-cover {
+          border: 0 !important;
+          border-radius: 14px;
+          background-color: #151414 !important;
+          background-image: radial-gradient(ellipse at 50% 42%, #35302a 0%, #1c1917 48%, #111112 100%) !important;
+          box-shadow: none;
+          margin: -6px -6px 18px;
+        }
+        .bb-menu-page:is([data-menu-category="burger"], [data-menu-category="vegan"]) .bb-menu-product-cover img {
+          transform: scale(1.055);
+          transform-origin: 50% 65%;
+          filter: brightness(1.09) saturate(1.06);
+        }
+        .bb-menu-page .product-card__title {
+          font-size: 1.2rem;
+          line-height: 1.3;
+          font-weight: 750;
+          letter-spacing: -.02em;
+          margin-bottom: 10px;
+          color: #fff;
+        }
+        .bb-menu-page .product-card__body > .flex.flex-wrap > span {
+          border-color: transparent;
+          background: rgba(255,255,255,.055);
+          color: #d6d3d1;
+          padding-inline: 5px;
+        }
+        .bb-menu-page .product-card__desc {
+          opacity: 1;
+          color: #dedbd7;
+          line-height: 1.55;
+          margin-top: 3px;
+        }
+        .bb-menu-page .product-card__cta {
+          padding-top: 16px;
+        }
+        .bb-menu-page .product-card__cta .card-cta {
+          min-height: 48px;
+          border-radius: 14px;
+          box-shadow: 0 4px 12px rgba(0,0,0,.16);
+        }
+        .bb-menu-page .cover > .absolute.right-2.bottom-2 {
+          padding: 6px 12px;
+          font-size: 1rem;
+          font-weight: 750;
+          background: rgba(10,10,10,.9);
+          border: 1px solid rgba(255,255,255,.16);
+        }
+
         .grid-cards {
           display: grid;
           grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
