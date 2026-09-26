@@ -57,7 +57,7 @@ async function tvTest() {
     autoDisplayStatus:o=>o.status,
     dayBoundsMs:()=>({start:now-1000,end:now+1000,key:'today'}),
     readTvClockCache:()=>({}),readTvFirstSeenCache:()=>({}),saveTvClockCache(){},saveTvFirstSeenCache(){},
-    orderDateFromId:()=>null,getOrderExactCreatedMs:o=>o.ts,getOrderStartMs:o=>o.ts,
+    orderDateFromId:()=>null,getOrderExactCreatedMs:o=>o.ts,getOrderStartMs:o=>o.ts,getDoneAtMs:o=>o.doneAt??null,
   };
   vm.createContext(ctx);vm.runInContext(ts(source),ctx);
   const hook=ctx.useTvOrders({avgPickup:10,avgDelivery:35,newGraceMin:5,timezone:'Europe/Berlin',nowMs:now,onNewOrders(){},notify(){}});

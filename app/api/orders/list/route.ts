@@ -871,6 +871,7 @@ export async function GET(req: Request) {
         // Operational work survives midnight; archived rows remain excluded.
         where.OR = [
           { ts: todayRange },
+          ...(hasOrderField("doneAt") ? [{ doneAt: todayRange }] : []),
           { status: { in: ["new", "received", "eingegangen", "preparing", "prepare", "in_vorbereitung", "in vorbereitung", "zubereitung", "ready", "bereit", "abholbereit", "out_for_delivery", "on_the_way", "unterwegs"] } },
         ];
       } else {
@@ -924,7 +925,7 @@ export async function GET(req: Request) {
     if (!all && !fromDate && !toDateValue && (view === "tv" || driverView)) {
       allOrders = allOrders.filter((order: any) => {
         if (order.status !== "done" && order.status !== "cancelled") return true;
-        const ts = toMs(order.ts ?? order.createdAt);
+        const ts = toMs(order.doneAt ?? order.ts ?? order.createdAt, 0);
         return ts != null && ts >= day.startMs && ts <= day.endMs;
       });
     }

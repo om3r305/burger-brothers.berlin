@@ -20,6 +20,7 @@ import {
   etaFor,
   fetchOrdersFromTvEndpoint,
   getOrderExactCreatedMs,
+  getDoneAtMs,
   getOrderStartMs,
   orderDateFromId,
   persistEtaAdjustToDb,
@@ -213,7 +214,7 @@ export function useTvOrders({
           order.status === "done" || order.status === "cancelled";
         const isActive = !isFinal;
 
-        let dayMs: number | null = idDayMs ?? exactMs ?? null;
+        let dayMs: number | null = (isFinal ? getDoneAtMs(order) : null) ?? idDayMs ?? exactMs ?? null;
 
         if (
           dayMs == null &&
