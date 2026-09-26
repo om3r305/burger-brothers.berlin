@@ -59,6 +59,9 @@ export function useTvOrders({
   notify: Notify;
 }) {
   const [orders, setOrders] = useState<StoredOrder[]>([]);
+  const [refreshError, setRefreshError] = useState("");
+  const [lastRefreshAt, setLastRefreshAt] = useState<number | null>(null);
+  const etaRevisionRef = useRef(0);
   const [etaOverrides, setEtaOverridesState] = useState<Record<string, number>>(
     {},
   );
@@ -171,6 +174,7 @@ export function useTvOrders({
     if (refreshInFlightRef.current) return;
     refreshInFlightRef.current = true;
     const refreshSequence = ++refreshSequenceRef.current;
+    const etaRevision = etaRevisionRef.current;
 
     try {
       // Tek kanonik DB kaynağı kullanılır. Önceki yapı aynı refresh içinde
@@ -237,7 +241,7 @@ export function useTvOrders({
         }
 
         if (dayMs == null || !Number.isFinite(dayMs)) return false;
-        if (dayMs < start || dayMs > end) return false;
+        if (isFinal && (dayMs < start || dayMs > end)) return false;
 
         const hasReliableDate = idDayMs != null || exactMs != null;
         const firstSeenMs =
@@ -247,7 +251,7 @@ export function useTvOrders({
           dayMs;
 
         if (
-          !hasReliableDate &&
+          isFinal && !hasReliableDate &&
           currentTime - firstSeenMs > UNKNOWN_ORDER_GRACE_MS
         ) {
           return false;
@@ -288,6 +292,13 @@ export function useTvOrders({
       saveTvClockCache(nextClock);
       saveTvFirstSeenCache(nextFirstSeen);
 
+      if (etaRevision === etaRevisionRef.current) {
+        setEtaOverrides((current) => Object.fromEntries(
+          Object.entries(current).filter(([id]) => etaBusyRef.current.has(id)),
+        ));
+      }
+      setRefreshError("");
+      setLastRefreshAt(Date.now());
       latestOrdersRef.current = today;
       setOrders(today);
       onNewOrders(today);
@@ -319,6 +330,7 @@ export function useTvOrders({
       });
     } catch (caught) {
       console.error("TV refresh failed", caught);
+      setRefreshError("Keine Verbindung: Bestellungen sind möglicherweise nicht aktuell. Verbindung prüfen.");
     } finally {
       refreshInFlightRef.current = false;
     }
@@ -405,6 +417,7 @@ export function useTvOrders({
         ),
       );
 
+      etaRevisionRef.current += 1;
       etaBusyRef.current.add(order.id);
       setEtaBusyIds(new Set(etaBusyRef.current));
       delete minuteCacheRef.current[order.id];
@@ -431,6 +444,12 @@ export function useTvOrders({
 
         notify("ETA konnte nicht gespeichert werden.", "error");
       } finally {
+        setEtaOverrides((current) => {
+          const next = { ...current };
+          delete next[order.id];
+          return next;
+        });
+        delete minuteCacheRef.current[order.id];
         etaBusyRef.current.delete(order.id);
         setEtaBusyIds(new Set(etaBusyRef.current));
       }
@@ -444,6 +463,8 @@ export function useTvOrders({
 
   const setOptimisticAcceptedOrder = useCallback(
     (acceptedOrder: StoredOrder, etaMin: number) => {
+      etaRevisionRef.current += 1;
+      etaBusyRef.current.add(acceptedOrder.id);
       clearTimer(acceptedOrder.id);
 
       setOrders((current) =>
@@ -459,6 +480,16 @@ export function useTvOrders({
     },
     [clearTimer, setEtaOverrides],
   );
+
+  const releaseEtaOverride = useCallback((id: string) => {
+    etaBusyRef.current.delete(id);
+    clearTimer(id);
+    setEtaOverrides((current) => {
+      const next = { ...current };
+      delete next[id];
+      return next;
+    });
+  }, [clearTimer, setEtaOverrides]);
 
   const setDeliveryDeparture = useCallback(
     (orderId: string, departed: boolean) => {
@@ -481,6 +512,9 @@ export function useTvOrders({
   }, []);
 
   return {
+    refreshError,
+    lastRefreshAt,
+    releaseEtaOverride,
     orders,
     setOrders,
     refresh,
@@ -495,3 +529,4 @@ export function useTvOrders({
     getStartTime,
   };
 }
+

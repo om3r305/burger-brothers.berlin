@@ -866,10 +866,16 @@ export async function GET(req: Request) {
       if (fromDate) where.ts.gte = fromDate;
       if (toDateValue) where.ts.lte = toDateValue;
     } else if (!all) {
-      where.ts = {
-        gte: day.start,
-        lte: day.end,
-      };
+      const todayRange = { gte: day.start, lte: day.end };
+      if (view === "tv" || driverView) {
+        // Operational work survives midnight; archived rows remain excluded.
+        where.OR = [
+          { ts: todayRange },
+          { status: { in: ["new", "received", "eingegangen", "preparing", "prepare", "in_vorbereitung", "in vorbereitung", "zubereitung", "ready", "bereit", "abholbereit", "out_for_delivery", "on_the_way", "unterwegs"] } },
+        ];
+      } else {
+        where.ts = todayRange;
+      }
     }
 
     if (modeFilter) {
@@ -913,6 +919,14 @@ export async function GET(req: Request) {
     */
     if (!includeArchived) {
       allOrders = allOrders.filter((order: any) => !isArchivedOrder(order));
+    }
+
+    if (!all && !fromDate && !toDateValue && (view === "tv" || driverView)) {
+      allOrders = allOrders.filter((order: any) => {
+        if (order.status !== "done" && order.status !== "cancelled") return true;
+        const ts = toMs(order.ts ?? order.createdAt);
+        return ts != null && ts >= day.startMs && ts <= day.endMs;
+      });
     }
 
     if (statusFilter) {
@@ -1014,3 +1028,4 @@ export async function GET(req: Request) {
     return errorResponse(error, "ORDERS_LIST_FAILED");
   }
 }
+

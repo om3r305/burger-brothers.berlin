@@ -5826,9 +5826,11 @@ export default function CheckoutPage() {
           throw couponError;
         }
 
-        throw new Error(
+        const failure = new Error(
           created.message || created.error || "ORDER_CREATE_FAILED",
-        );
+        ) as Error & { retryable: boolean };
+        failure.retryable = response.status === 408 || response.status >= 500;
+        throw failure;
       }
 
       const order = created.order ?? {};
@@ -5873,6 +5875,7 @@ export default function CheckoutPage() {
       try {
         const response = await fetch("/api/orders/create", {
           method: "POST",
+          signal: AbortSignal.timeout(Math.max(1, Math.min(20_000, ORDER_RETRY_TOTAL_MS - (Date.now() - startedAt)))),
           headers: {
             "Content-Type": "application/json",
             "Idempotency-Key": idempotencyKey,
@@ -5888,8 +5891,8 @@ export default function CheckoutPage() {
       } catch (error: unknown) {
         if (
           error instanceof Error &&
-          "couponError" in error &&
-          error.couponError === true
+          (("couponError" in error && error.couponError === true) ||
+            ("retryable" in error && error.retryable === false))
         ) {
           throw error;
         }
@@ -5922,6 +5925,7 @@ export default function CheckoutPage() {
 
     const emergencyResponse = await fetch("/api/orders/create", {
       method: "POST",
+      signal: AbortSignal.timeout(20_000),
       headers: {
         "Content-Type": "application/json",
         "Idempotency-Key": idempotencyKey,
@@ -5985,3 +5989,4 @@ function FieldGroup({
     </fieldset>
   );
 }
+

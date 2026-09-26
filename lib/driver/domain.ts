@@ -333,6 +333,8 @@ export function isOrderForTodayOrFresh(
   const done = getOrderDoneMs(order);
   const mainMs = done ?? idDay ?? created ?? toMsStrict(order.ts);
 
+  if (!isFinal) return true;
+
   if (mainMs != null) {
     return dayKeyForMs(mainMs, timezone) === today;
   }
@@ -1774,3 +1776,4 @@ export function tabButtonClass(
     ? `${base} ${activeMarker} border-amber-200/90 bg-gradient-to-b from-amber-500/85 to-orange-600/75 text-white shadow-[0_0_26px_rgba(251,146,60,.34)] ring-amber-300/55`
     : `${base} ${activeMarker} border-emerald-200/90 bg-gradient-to-b from-emerald-500/80 to-cyan-700/70 text-white shadow-[0_0_26px_rgba(52,211,153,.30)] ring-emerald-300/55`;
 }
+

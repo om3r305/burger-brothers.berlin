@@ -105,6 +105,9 @@ export default function TVPage() {
     getStableLeftMin,
     adjustEta,
     setOptimisticAcceptedOrder,
+    releaseEtaOverride,
+    refreshError,
+    lastRefreshAt,
     setDeliveryDeparture,
     getStartTime,
   } = useTvOrders({
@@ -451,6 +454,7 @@ export default function TVPage() {
         );
         await refresh();
       } finally {
+        releaseEtaOverride(order.id);
         setAcceptBusyId("");
       }
     },
@@ -463,6 +467,7 @@ export default function TVPage() {
       printOrder,
       refresh,
       setOptimisticAcceptedOrder,
+      releaseEtaOverride,
       sound,
     ],
   );
@@ -659,6 +664,16 @@ export default function TVPage() {
         onLogout={handleLogout}
       />
 
+      {refreshError ? (
+        <div role="alert" className="rounded-xl border border-rose-400/50 bg-rose-950/90 p-4 text-rose-100">
+          <p className="font-semibold">{refreshError}</p>
+          <p className="mt-1 text-sm">
+            {lastRefreshAt ? `Letzte Aktualisierung: ${new Date(lastRefreshAt).toLocaleTimeString("de-DE", { timeZone: timezone })}` : "Noch keine erfolgreiche Aktualisierung."}
+          </p>
+          <button type="button" className="mt-2 rounded-lg border border-rose-200/40 px-3 py-2" onClick={() => void refresh()}>Erneut versuchen</button>
+        </div>
+      ) : null}
+
       {pause.delivery || pause.pickup || pause.dineIn ? (
         <div className="rounded-xl border border-amber-400/40 bg-amber-500/15 p-3 text-sm text-amber-100">
           {pause.delivery ? (
@@ -847,3 +862,4 @@ export default function TVPage() {
     </main>
   );
 }
+

@@ -1347,6 +1347,7 @@ export async function fetchOrdersFromTvEndpoint(): Promise<StoredOrder[]> {
   for (const endpoint of endpoints) {
     try {
       const res = await fetch(endpoint, {
+        signal: AbortSignal.timeout(15_000),
         cache: "no-store",
         headers: {
           accept: "application/json",
@@ -2302,3 +2303,4 @@ export function acceptanceZip(order: StoredOrder) {
       "",
   ).trim();
 }
+
