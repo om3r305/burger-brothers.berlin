@@ -5,17 +5,10 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { startAppNavigation } from "@/components/AppRouteTransition";
 import { warmCategoryData } from "@/lib/public-data-cache";
 import { fetchAndApplyRemoteSettings, readSettings } from "@/lib/settings";
-import {
-  createDefaultMenuTransitionSettings,
-  normalizeMenuTransitionSettings,
-  resolveMenuTransitionStyle,
-  type MenuTransitionSettings,
-  type MenuTransitionStyle,
-} from "@/lib/menu-transitions";
+import { normalizeMenuTransitionSettings } from "@/lib/menu-transitions";
 import {
   MENU_NAV_ITEMS,
   MENU_NAV_KEYS,
-  MENU_NAV_LABELS,
   MENU_NAV_ROUTES,
   type MenuNavKey,
 } from "@/lib/menu-navigation";
@@ -30,31 +23,20 @@ const MENU_PATHS = new Set([
   "/bubble-tea",
 ]);
 
-const CATEGORY_VIDEOS: Record<MenuNavKey, string> = {
-  burger: "/flames/flame-loop.mp4",
-  vegan: "/swipe-transitions/vegan.mp4",
-  extras: "/swipe-transitions/extras.mp4",
-  drinks: "/swipe-transitions/drinks.mp4",
-  hotdogs: "/swipe-transitions/hotdogs.mp4",
-  sauces: "/swipe-transitions/sauces.mp4",
-  donuts: "/swipe-transitions/donuts.mp4",
-  bubbletea: "/swipe-transitions/bubbletea.mp4",
-};
-
 const START_EDGE_GUARD_PX = 22;
 const AXIS_LOCK_PX = 10;
 const COMPLETE_DISTANCE_PX = 72;
 const FAST_DISTANCE_PX = 36;
 const FAST_VELOCITY_PX_MS = 0.46;
-const PREVIEW_DISTANCE_PX = 150;
-const COMMIT_SETTLE_MS = 180;
+const ARRIVE_MS = 180;
+const LEAVE_FALLBACK_MS = 2_500;
+
+// Sade geçiş: renkli şerit, etiket ve video yok. Commit olunca içerik kısa bir
+// opacity geçişi yapar (bkz. globals.css "MOBILE CATEGORY SWIPE — sade geçiş").
+const LEAVING_CLASS = "bb-swipe-leaving";
+const ARRIVING_CLASS = "bb-swipe-arriving";
 
 type Axis = "pending" | "horizontal" | "vertical";
-type Direction = "previous" | "next";
-
-function activeThemeId() {
-  return document.documentElement.getAttribute("data-bb-theme") || "classic";
-}
 
 type GestureState = {
   active: boolean;
@@ -66,7 +48,6 @@ type GestureState = {
   velocityX: number;
   keys: MenuNavKey[];
   target: MenuNavKey | null;
-  direction: Direction | null;
 };
 
 function emptyGesture(): GestureState {
@@ -80,7 +61,6 @@ function emptyGesture(): GestureState {
     velocityX: 0,
     keys: [],
     target: null,
-    direction: null,
   };
 }
 
@@ -186,69 +166,12 @@ function supportsMobileSwipe() {
   return viewportWidth <= 900;
 }
 
-function clampProgress(value: number) {
-  return Math.max(0, Math.min(1, value));
-}
-
-type RevealGeometry = {
-  clip: string;
-  outline: string;
-  revealWidth: string;
-};
-
-function edgeRevealGeometry(
-  progress: number,
-  direction: Direction,
-  style: MenuTransitionStyle,
-  committed: boolean,
-): RevealGeometry {
-  const normalized = clampProgress(progress);
-  const eased = 1 - Math.pow(1 - normalized, committed ? 1.18 : 1.5);
-  const previewWidths: Record<MenuTransitionStyle, number> = {
-    "edge-glow": 6.5,
-    "color-wave": 42,
-    "soft-ribbon": 32,
-    "cinematic-video": 68,
-    "theme-auto": 38,
-    minimal: 18,
-  };
-  // Video dahil hiçbir stil parmak bırakılınca tam ekrana büyümez.
-  // Commit, kullanıcının kenarda açtığı önizleme genişliğini korur.
-  const committedWidth =
-    style === "cinematic-video" ? previewWidths[style] : previewWidths[style] + 4;
-  const width =
-    style === "edge-glow"
-      ? normalized > 0
-        ? 6.5
-        : 0.001
-      : Math.max(
-          0.001,
-          (committed ? committedWidth : previewWidths[style]) * eased,
-        );
-  const boundaryX = direction === "previous" ? width : 100 - width;
-  const clip =
-    direction === "previous"
-      ? `polygon(0% 0%, ${width.toFixed(3)}% 0%, ${width.toFixed(3)}% 100%, 0% 100%)`
-      : `polygon(${(100 - width).toFixed(3)}% 0%, 100% 0%, 100% 100%, ${(100 - width).toFixed(3)}% 100%)`;
-
-  return {
-    clip,
-    outline: `M ${boundaryX.toFixed(3)},0 L ${boundaryX.toFixed(3)},100`,
-    revealWidth: `${width.toFixed(3)}%`,
-  };
-}
-
-function activeThemePalette(fallback: string) {
-  const styles = window.getComputedStyle(document.documentElement);
-  const read = (name: string, defaultValue: string) =>
-    styles.getPropertyValue(name).trim() || defaultValue;
-
-  return {
-    primary: read("--bb-accent", fallback),
-    secondary: read("--bb-accent-2", fallback),
-    tertiary: read("--bb-accent-3", fallback),
-    background: read("--bb-page-bg", "#050505"),
-  };
+function transitionEnabled(raw?: unknown) {
+  const incoming =
+    raw && typeof raw === "object"
+      ? (raw as { menuTransitions?: unknown }).menuTransitions
+      : readSettings().menuTransitions;
+  return normalizeMenuTransitionSettings(incoming).enabled;
 }
 
 export default function MobileCategorySwipe() {
@@ -262,63 +185,23 @@ export default function MobileCategorySwipe() {
     [pathname, searchKey, searchParams],
   );
 
-  const overlayRef = useRef<HTMLDivElement | null>(null);
-  const labelRef = useRef<HTMLSpanElement | null>(null);
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const edgeGlowRef = useRef<SVGPathElement | null>(null);
-  const edgeCoreRef = useRef<SVGPathElement | null>(null);
-  const activeVideoKeyRef = useRef<MenuNavKey | null>(null);
   const gestureRef = useRef<GestureState>(emptyGesture());
   const navigationLockedRef = useRef(false);
   const primedRef = useRef(new Set<MenuNavKey>());
-  const resetTimerRef = useRef<number | null>(null);
-  const transitionSettingsRef = useRef<MenuTransitionSettings>(
-    createDefaultMenuTransitionSettings(),
-  );
+  const fadeEnabledRef = useRef(true);
 
   useEffect(() => {
-    const overlay = overlayRef.current;
-
-    const applySettings = (raw?: unknown) => {
-      const incoming =
-        raw && typeof raw === "object"
-          ? (raw as { menuTransitions?: unknown }).menuTransitions
-          : readSettings().menuTransitions;
-      const next = normalizeMenuTransitionSettings(incoming);
-      transitionSettingsRef.current = next;
-
-      if (overlay) {
-        overlay.style.setProperty("--bb-swipe-duration", `${next.durationMs}ms`);
-        overlay.style.setProperty(
-          "--bb-swipe-shadow-strength",
-          (next.shadowStrength / 100).toFixed(2),
-        );
-        overlay.style.setProperty(
-          "--bb-swipe-shadow-percent",
-          `${Math.round(28 + next.shadowStrength * 0.52)}%`,
-        );
-        overlay.style.setProperty(
-          "--bb-swipe-shadow-soft-percent",
-          `${Math.round(10 + next.shadowStrength * 0.24)}%`,
-        );
-        overlay.dataset.enabled = next.enabled ? "true" : "false";
-        overlay.dataset.labelEnabled = "true";
-
-        if (!next.enabled) {
-          overlay.dataset.visible = "false";
-          videoRef.current?.pause();
-        }
-      }
+    const apply = (raw?: unknown) => {
+      fadeEnabledRef.current = transitionEnabled(raw);
     };
-
     const onSettings = (event: Event) => {
-      applySettings((event as CustomEvent).detail);
+      apply((event as CustomEvent).detail);
     };
 
-    applySettings();
+    apply();
 
     void fetchAndApplyRemoteSettings()
-      .then((next) => applySettings(next))
+      .then((next) => apply(next))
       .catch(() => undefined);
 
     window.addEventListener("bb_settings_changed", onSettings as EventListener);
@@ -330,206 +213,37 @@ export default function MobileCategorySwipe() {
     };
   }, []);
 
+  // Yeni kategori render olduysa soluk içerik geri gelir. NavBar sayfa ile
+  // birlikte yeniden mount olabildiği için durum html sınıfında tutulur.
   useEffect(() => {
-    const overlay = overlayRef.current;
-    const video = videoRef.current;
+    const root = document.documentElement;
+    if (!root.classList.contains(LEAVING_CLASS)) return;
 
-    if (overlay?.dataset.committed === "true") {
-      gestureRef.current = emptyGesture();
-      return;
-    }
+    root.classList.remove(LEAVING_CLASS);
+    root.classList.add(ARRIVING_CLASS);
 
-    if (overlay) {
-      overlay.dataset.visible = "false";
-      overlay.dataset.committed = "false";
-      overlay.dataset.dragging = "false";
-      overlay.dataset.videoReady = "false";
-      const emptyGeometry = edgeRevealGeometry(
-        0,
-        "previous",
-        "edge-glow",
-        false,
-      );
-      overlay.style.setProperty("--bb-swipe-clip", emptyGeometry.clip);
-      overlay.style.setProperty(
-        "--bb-swipe-reveal-width",
-        emptyGeometry.revealWidth,
-      );
-      edgeGlowRef.current?.setAttribute("d", "");
-      edgeCoreRef.current?.setAttribute("d", "");
-      overlay.style.setProperty("--bb-swipe-label-inset", "7vw");
-      overlay.style.setProperty("--bb-swipe-label-scale", "0.92");
-      overlay.style.setProperty("--bb-swipe-label-shift", "0px");
-      overlay.style.setProperty("--bb-swipe-scene-opacity", "0");
-      overlay.style.setProperty("--bb-swipe-label-opacity", "0");
-      overlay.style.setProperty("--bb-swipe-video-opacity", "0");
-      overlay.style.setProperty("--bb-swipe-edge-opacity", "0");
-    }
+    const timer = window.setTimeout(() => {
+      root.classList.remove(ARRIVING_CLASS);
+    }, ARRIVE_MS);
 
-    if (video) {
-      video.pause();
-    }
-
-    gestureRef.current = emptyGesture();
+    return () => window.clearTimeout(timer);
   }, [pathname, searchKey]);
 
   useEffect(() => {
     const unlock = () => {
       navigationLockedRef.current = false;
+      document.documentElement.classList.remove(LEAVING_CLASS);
     };
 
     window.addEventListener("bb:navigation-end", unlock as EventListener);
 
     return () => {
-      window.removeEventListener(
-        "bb:navigation-end",
-        unlock as EventListener,
-      );
+      window.removeEventListener("bb:navigation-end", unlock as EventListener);
     };
   }, []);
 
   useEffect(() => {
     if (!currentKey || !MENU_PATHS.has(pathname)) return;
-
-    const overlay = overlayRef.current;
-    const label = labelRef.current;
-    const video = videoRef.current;
-
-    const setReveal = (
-      progress: number,
-      direction: Direction,
-      style: MenuTransitionStyle,
-      committed = false,
-    ) => {
-      if (!overlay) return;
-
-      const normalized = clampProgress(progress);
-      const eased = 1 - Math.pow(1 - normalized, 1.35);
-      const labelInset =
-        style === "cinematic-video" ? Math.min(24, 6 + eased * 16) : 5 + eased * 4;
-      const labelScale = 0.95 + eased * 0.05;
-      const glowStrength = Math.pow(eased, 0.9);
-      const geometry = edgeRevealGeometry(
-        normalized,
-        direction,
-        style,
-        committed,
-      );
-
-      overlay.style.setProperty("--bb-swipe-progress", eased.toFixed(3));
-      overlay.style.setProperty(
-        "--bb-swipe-color-strength",
-        (0.1 + glowStrength * 0.9).toFixed(3),
-      );
-      overlay.style.setProperty(
-        "--bb-swipe-glow-blur",
-        `${(5 + glowStrength * 23).toFixed(2)}px`,
-      );
-      overlay.style.setProperty(
-        "--bb-swipe-brightness",
-        (0.72 + glowStrength * 0.48).toFixed(3),
-      );
-      overlay.style.setProperty(
-        "--bb-swipe-saturation",
-        (0.82 + glowStrength * 0.58).toFixed(3),
-      );
-      overlay.style.setProperty("--bb-swipe-clip", geometry.clip);
-      overlay.style.setProperty(
-        "--bb-swipe-reveal-width",
-        geometry.revealWidth,
-      );
-      edgeGlowRef.current?.setAttribute("d", geometry.outline);
-      edgeCoreRef.current?.setAttribute("d", geometry.outline);
-      overlay.style.setProperty(
-        "--bb-swipe-label-inset",
-        `${labelInset.toFixed(2)}vw`,
-      );
-      overlay.style.setProperty(
-        "--bb-swipe-label-scale",
-        labelScale.toFixed(3),
-      );
-      overlay.style.setProperty(
-        "--bb-swipe-label-shift",
-        `${((1 - eased) * (direction === "previous" ? -8 : 8)).toFixed(2)}px`,
-      );
-    };
-
-    const stopVideo = () => {
-      if (!video) return;
-      video.pause();
-    };
-
-    const startVideo = (target: MenuNavKey) => {
-      if (!video || !overlay) return;
-
-      const source = CATEGORY_VIDEOS[target];
-
-      if (activeVideoKeyRef.current !== target || video.getAttribute("src") !== source) {
-        activeVideoKeyRef.current = target;
-        overlay.dataset.videoReady = "false";
-        video.pause();
-        video.src = source;
-        video.load();
-      }
-
-      video.muted = true;
-      video.playsInline = true;
-      video.loop = true;
-
-      const playPromise = video.play();
-      if (playPromise && typeof playPromise.catch === "function") {
-        void playPromise.catch(() => undefined);
-      }
-    };
-
-    const hidePreview = (immediate = false) => {
-      if (!overlay) return;
-
-      if (resetTimerRef.current) {
-        window.clearTimeout(resetTimerRef.current);
-        resetTimerRef.current = null;
-      }
-
-      if (immediate) {
-        overlay.dataset.instant = "true";
-      }
-
-      overlay.dataset.visible = "false";
-      overlay.dataset.committed = "false";
-      overlay.dataset.dragging = "false";
-      const resetDirection: Direction =
-        overlay.dataset.direction === "previous" ? "previous" : "next";
-      const resetStyle = (overlay.dataset.style ||
-        "edge-glow") as MenuTransitionStyle;
-      const emptyGeometry = edgeRevealGeometry(
-        0,
-        resetDirection,
-        resetStyle,
-        false,
-      );
-      overlay.style.setProperty("--bb-swipe-clip", emptyGeometry.clip);
-      overlay.style.setProperty(
-        "--bb-swipe-reveal-width",
-        emptyGeometry.revealWidth,
-      );
-      edgeGlowRef.current?.setAttribute("d", emptyGeometry.outline);
-      edgeCoreRef.current?.setAttribute("d", emptyGeometry.outline);
-      overlay.style.setProperty("--bb-swipe-label-inset", "7vw");
-      overlay.style.setProperty("--bb-swipe-label-scale", "0.92");
-      overlay.style.setProperty("--bb-swipe-label-shift", "0px");
-      overlay.style.setProperty("--bb-swipe-scene-opacity", "0");
-      overlay.style.setProperty("--bb-swipe-label-opacity", "0");
-      overlay.style.setProperty("--bb-swipe-video-opacity", "0");
-      overlay.style.setProperty("--bb-swipe-edge-opacity", "0");
-
-      stopVideo();
-
-      if (immediate) {
-        window.requestAnimationFrame(() => {
-          overlay.dataset.instant = "false";
-        });
-      }
-    };
 
     const primeTarget = (target: MenuNavKey) => {
       if (primedRef.current.has(target)) return;
@@ -544,128 +258,41 @@ export default function MobileCategorySwipe() {
       void warmCategoryData(target).catch(() => undefined);
     };
 
-    const showPreview = (
-      target: MenuNavKey,
-      direction: Direction,
-      progress: number,
-      dragging = true,
-    ) => {
-      if (!overlay || !label) return;
-
-      const settings = transitionSettingsRef.current;
-
-      if (!settings.enabled) {
-        hidePreview();
-        return;
-      }
-
-      const normalized = clampProgress(progress);
-      overlay.style.setProperty("--bb-swipe-duration", `${settings.durationMs}ms`);
-      const style = resolveMenuTransitionStyle(settings, target);
-      const categoryAccent = settings.categoryColors[target];
-      const themePalette = activeThemePalette(categoryAccent);
-      const accent = style === "theme-auto" ? themePalette.primary : categoryAccent;
-      const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      const displayStyle = reducedMotion ? "minimal" : style;
-      const sceneOpacity = clampProgress(
-        (displayStyle === "minimal" ? 0.08 : 0.14) + normalized * 0.86,
-      );
-      const labelOpacity = clampProgress(0.32 + normalized * 2.4);
-      const videoOpacity =
-        displayStyle === "cinematic-video"
-          ? clampProgress((normalized - 0.08) * 1.24)
-          : 0;
-      const edgeOpacity =
-        displayStyle === "minimal"
-          ? clampProgress(normalized * 0.55)
-          : clampProgress((normalized - 0.03) * 1.45);
-
-      overlay.dataset.visible = "true";
-      overlay.dataset.committed = "false";
-      overlay.dataset.dragging = dragging ? "true" : "false";
-      overlay.dataset.direction = direction;
-      overlay.dataset.category = target;
-      overlay.dataset.style = displayStyle;
-      overlay.dataset.theme = activeThemeId();
-      overlay.style.setProperty("--bb-swipe-accent", accent);
-      overlay.style.setProperty(
-        "--bb-swipe-accent-2",
-        style === "theme-auto" ? themePalette.secondary : categoryAccent,
-      );
-      overlay.style.setProperty(
-        "--bb-swipe-accent-3",
-        style === "theme-auto" ? themePalette.tertiary : categoryAccent,
-      );
-      overlay.style.setProperty("--bb-swipe-theme-bg", themePalette.background);
-      overlay.style.setProperty(
-        "--bb-swipe-scene-opacity",
-        sceneOpacity.toFixed(3),
-      );
-      overlay.style.setProperty(
-        "--bb-swipe-label-opacity",
-        labelOpacity.toFixed(3),
-      );
-      overlay.style.setProperty(
-        "--bb-swipe-video-opacity",
-        videoOpacity.toFixed(3),
-      );
-      overlay.style.setProperty(
-        "--bb-swipe-edge-opacity",
-        edgeOpacity.toFixed(3),
-      );
-
-      setReveal(normalized, direction, displayStyle);
-      label.textContent = MENU_NAV_LABELS[target];
-
-      if (displayStyle === "cinematic-video") {
-        startVideo(target);
-      } else {
-        stopVideo();
-        overlay.dataset.videoReady = "false";
-      }
-    };
-
-    const targetForDelta = (
-      keys: MenuNavKey[],
-      deltaX: number,
-    ): { target: MenuNavKey | null; direction: Direction } => {
+    const targetFor = (keys: MenuNavKey[], deltaX: number) => {
       const currentIndex = keys.indexOf(currentKey);
-      const direction: Direction = deltaX < 0 ? "next" : "previous";
-      const targetIndex =
-        direction === "next" ? currentIndex + 1 : currentIndex - 1;
+      const targetIndex = deltaX < 0 ? currentIndex + 1 : currentIndex - 1;
 
-      return {
-        direction,
-        target:
-          currentIndex >= 0 && targetIndex >= 0 && targetIndex < keys.length
-            ? keys[targetIndex]
-            : null,
-      };
+      return currentIndex >= 0 && targetIndex >= 0 && targetIndex < keys.length
+        ? keys[targetIndex]
+        : null;
     };
 
-    const navigateTo = (
-      target: MenuNavKey,
-      direction: Direction,
-      releaseProgress: number,
-    ) => {
+    const navigateTo = (target: MenuNavKey) => {
       if (navigationLockedRef.current) return;
 
       navigationLockedRef.current = true;
       const href = MENU_NAV_ROUTES[target];
-      const committedProgress = clampProgress(releaseProgress);
+      const root = document.documentElement;
 
-      showPreview(target, direction, committedProgress, false);
+      if (fadeEnabledRef.current) {
+        root.classList.remove(ARRIVING_CLASS);
+        root.classList.add(LEAVING_CLASS);
+        window.setTimeout(() => {
+          root.classList.remove(LEAVING_CLASS);
+        }, LEAVE_FALLBACK_MS);
+      }
 
-      if (overlay) {
-        overlay.dataset.committed = "true";
-        overlay.dataset.dragging = "false";
-        overlay.style.setProperty(
-          "--bb-swipe-duration",
-          `${COMMIT_SETTLE_MS}ms`,
-        );
-        const style = (overlay.dataset.style ||
-          "edge-glow") as MenuTransitionStyle;
-        setReveal(committedProgress, direction, style, true);
+      // Burger ↔ Vegan aynı sayfa (/menu?cat=…): sunucuya gitmeden yalnızca
+      // URL değişir, menü sayfası searchParams'tan sekmeyi anında seçer.
+      // Route bekleme durumu (progress çizgisi, dokunma kilidi) açılmaz.
+      const nextPath = href.split("?")[0];
+      if (nextPath === pathname) {
+        window.history.pushState(null, "", href);
+        window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+        window.setTimeout(() => {
+          navigationLockedRef.current = false;
+        }, ARRIVE_MS);
+        return;
       }
 
       startAppNavigation({
@@ -677,11 +304,6 @@ export default function MobileCategorySwipe() {
       router.push(href, {
         scroll: false,
       });
-
-      resetTimerRef.current = window.setTimeout(() => {
-        navigationLockedRef.current = false;
-        hidePreview();
-      }, COMMIT_SETTLE_MS);
     };
 
     const onTouchStart = (event: TouchEvent) => {
@@ -715,7 +337,6 @@ export default function MobileCategorySwipe() {
         velocityX: 0,
         keys: visibleMenuKeysFromPage(currentKey),
         target: null,
-        direction: null,
       };
     };
 
@@ -735,7 +356,6 @@ export default function MobileCategorySwipe() {
 
         if (absY > absX * 1.05) {
           gesture.axis = "vertical";
-          hidePreview();
           return;
         }
 
@@ -756,25 +376,8 @@ export default function MobileCategorySwipe() {
       gesture.lastX = touch.clientX;
       gesture.lastAt = now;
 
-      const { target, direction } = targetForDelta(
-        gesture.keys,
-        deltaX,
-      );
-
-      gesture.target = target;
-      gesture.direction = direction;
-
-      if (!target) {
-        hidePreview();
-        return;
-      }
-
-      primeTarget(target);
-      showPreview(
-        target,
-        direction,
-        clampProgress((absX - AXIS_LOCK_PX) / PREVIEW_DISTANCE_PX),
-      );
+      gesture.target = targetFor(gesture.keys, deltaX);
+      if (gesture.target) primeTarget(gesture.target);
     };
 
     const finishGesture = (event: TouchEvent) => {
@@ -784,36 +387,22 @@ export default function MobileCategorySwipe() {
 
       const endingTouch = event.changedTouches[0];
       const finalX = endingTouch?.clientX ?? gesture.lastX;
-      const deltaX = finalX - gesture.startX;
-      const absX = Math.abs(deltaX);
+      const absX = Math.abs(finalX - gesture.startX);
       const fastEnough =
         absX >= FAST_DISTANCE_PX &&
         Math.abs(gesture.velocityX) >= FAST_VELOCITY_PX_MS;
       const farEnough = absX >= COMPLETE_DISTANCE_PX;
-      const shouldNavigate =
-        gesture.axis === "horizontal" &&
-        Boolean(gesture.target) &&
-        Boolean(gesture.direction) &&
-        (farEnough || fastEnough);
       const target = gesture.target;
-      const direction = gesture.direction;
 
       gestureRef.current = emptyGesture();
 
-      if (shouldNavigate && target && direction) {
-        navigateTo(
-          target,
-          direction,
-          clampProgress((absX - AXIS_LOCK_PX) / PREVIEW_DISTANCE_PX),
-        );
-      } else {
-        hidePreview();
+      if (gesture.axis === "horizontal" && target && (farEnough || fastEnough)) {
+        navigateTo(target);
       }
     };
 
     const cancelGesture = () => {
       gestureRef.current = emptyGesture();
-      hidePreview();
     };
 
     document.addEventListener("touchstart", onTouchStart, {
@@ -832,99 +421,14 @@ export default function MobileCategorySwipe() {
       passive: true,
       capture: true,
     });
+
     return () => {
       document.removeEventListener("touchstart", onTouchStart, true);
       document.removeEventListener("touchmove", onTouchMove, true);
       document.removeEventListener("touchend", finishGesture, true);
       document.removeEventListener("touchcancel", cancelGesture, true);
-      const keepCommittedPreview =
-        overlay?.dataset.committed === "true" &&
-        resetTimerRef.current !== null;
-
-      if (!keepCommittedPreview) {
-        if (resetTimerRef.current !== null) {
-          window.clearTimeout(resetTimerRef.current);
-          resetTimerRef.current = null;
-        }
-
-        hidePreview(true);
-      }
     };
   }, [currentKey, pathname, router, searchKey]);
 
-  return (
-    <div
-      ref={overlayRef}
-      aria-hidden="true"
-      className="bb-mobile-category-swipe bb-mobile-category-swipe--pro"
-      data-enabled="true"
-      data-visible="false"
-      data-committed="false"
-      data-dragging="false"
-      data-direction="next"
-      data-category="burger"
-      data-style="edge-glow"
-      data-theme="classic"
-      data-label-enabled="true"
-      data-instant="false"
-      data-video-ready="false"
-    >
-      <div className="bb-mobile-category-swipe-real__scene">
-        <div className="bb-mobile-category-swipe-real__fallback" />
-
-        <video
-          ref={videoRef}
-          className="bb-mobile-category-swipe-real__video"
-          muted
-          loop
-          playsInline
-          preload="none"
-          aria-hidden="true"
-          onLoadedData={() => {
-            if (overlayRef.current) {
-              overlayRef.current.dataset.videoReady = "true";
-            }
-          }}
-          onCanPlay={() => {
-            if (overlayRef.current) {
-              overlayRef.current.dataset.videoReady = "true";
-            }
-          }}
-          onWaiting={() => {
-            if (overlayRef.current) {
-              overlayRef.current.dataset.videoReady = "false";
-            }
-          }}
-          onError={() => {
-            if (overlayRef.current) {
-              overlayRef.current.dataset.videoReady = "false";
-            }
-          }}
-        />
-
-        <div className="bb-mobile-category-swipe-real__grade" />
-      </div>
-
-      <span
-        ref={labelRef}
-        className="bb-mobile-category-swipe-real__label"
-      />
-
-      <svg
-        className="bb-mobile-category-swipe-real__edge-lines"
-        viewBox="0 0 100 100"
-        preserveAspectRatio="none"
-        aria-hidden="true"
-      >
-        <path
-          ref={edgeGlowRef}
-          className="bb-mobile-category-swipe-real__edge-glow"
-        />
-        <path
-          ref={edgeCoreRef}
-          className="bb-mobile-category-swipe-real__edge-core"
-        />
-      </svg>
-    </div>
-  );
+  return null;
 }

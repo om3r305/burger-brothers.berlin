@@ -875,7 +875,8 @@ export default function MenuPage() {
     sp.set("cat", t);
     sp.delete("tab");
 
-    router.replace(`${pathname}?${sp.toString()}`);
+    // Aynı sayfa içinde sekme değişimi: sunucuya RSC isteği atmadan URL güncellenir.
+    window.history.replaceState(null, "", `${pathname}?${sp.toString()}`);
   };
 
   const tabsWrapRef = useRef<HTMLDivElement | null>(null);

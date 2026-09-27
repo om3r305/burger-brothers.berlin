@@ -12,7 +12,6 @@ import {
 } from "react";
 import { useCart } from "@/components/store";
 import { startAppNavigation } from "@/components/AppRouteTransition";
-import MobileCategorySwipe from "@/components/menu/MobileCategorySwipe";
 import { warmCategoryData } from "@/lib/public-data-cache";
 import {
   MENU_NAV_ITEMS,
@@ -320,11 +319,22 @@ export default function NavBar(props: {
         return;
       }
 
+      // Burger ↔ Vegan aynı sayfa (/menu?cat=…): sekme anında değişir, route
+      // bekleme durumuna (progress çizgisi, dokunma kilidi) gerek yok.
+      if (
+        typeof onTabChange === "function" &&
+        href.split("?")[0] === window.location.pathname
+      ) {
+        onTabChange(key);
+        window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+        return;
+      }
+
       if (!beginNavigation(href)) return;
 
       /*
-       * Üst kategori butonları normal route geçişini kullanır. Mobil özel
-       * renk efekti yalnızca sağ/sol parmak hareketinde çalışır.
+       * Üst kategori butonları normal route geçişini kullanır. Sağ/sol parmak
+       * hareketi (layout'taki MobileCategorySwipe) aynı kategorilere gider.
        */
       if (typeof onTabChange === "function") {
         onTabChange(key);
@@ -464,8 +474,6 @@ export default function NavBar(props: {
           </button>
         </div>
       </nav>
-
-      <MobileCategorySwipe />
     </>
   );
 }

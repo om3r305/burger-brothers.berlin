@@ -30,17 +30,9 @@ assert.match(variantModal, /Hinzufügen – \{totals\.count\} Artikel/);
 assert.match(css, /\.bb-product-modal[\s\S]*?height: 100dvh !important/);
 assert.match(css, /\.bb-product-modal \.bb-modal-scroll[\s\S]*?touch-action: pan-y/);
 
-// Swipe bırakıldığında video %100'e büyümemeli, parmak genişliğini korumalı.
-assert.match(swipe, /const COMMIT_SETTLE_MS = 180/);
-assert.match(
-  swipe,
-  /style === "cinematic-video" \? previewWidths\[style\] : previewWidths\[style\] \+ 4/,
-);
-assert.doesNotMatch(swipe, /style === "cinematic-video" \? 100/);
-assert.match(swipe, /const committedProgress = clampProgress\(releaseProgress\)/);
-assert.match(swipe, /showPreview\(target, direction, committedProgress, false\)/);
-assert.match(swipe, /setReveal\(committedProgress, direction, style, true\)/);
-assert.match(swipe, /\}, COMMIT_SETTLE_MS\)/);
-assert.doesNotMatch(swipe, /durationMs \+ 480/);
+// Swipe sade: kenar şeridi/video yok; içerik transform almadan yalnızca opacity ile geçer.
+assert.doesNotMatch(swipe, /cinematic-video|edgeRevealGeometry|<video/);
+assert.match(swipe, /return null;/);
+assert.doesNotMatch(css, /\.bb-swipe-leaving[^{]*\{[^}]*transform/);
 
 console.log("modal + swipe regression tests: OK");

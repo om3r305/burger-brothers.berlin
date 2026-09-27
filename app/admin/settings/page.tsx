@@ -1910,9 +1910,7 @@ export default function AdminSettingsPage() {
           <div className="mb-4">
             <div className="text-lg font-medium">Mobil Menü Geçişleri</div>
             <div className="mt-1 text-xs leading-relaxed text-stone-400">
-              Kategori kaydırmalarının şeklini, hızını ve renklerini yönetir. Üst ve alt
-              köşeler sabit kalır; BB Signature Yay yalnızca orta bölümü doğal bir yay
-              olarak açar.
+              Telefonda sağa/sola kaydırarak kategori değiştirirken kısa ve sade geçiş.
             </div>
           </div>
 

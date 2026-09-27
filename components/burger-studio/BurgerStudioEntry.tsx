@@ -16,13 +16,16 @@ const CUSTOMER_MENU_PATHS = new Set([
   "/bubble-tea",
 ]);
 
-const POSITION_KEY = "bb_burger_studio_floating_position_v1";
+// v2: eski kayıtlı konumlar (sol üstte kategori sekmelerini kapatan) sıfırlanır.
+const POSITION_KEY = "bb_burger_studio_floating_position_v2";
 const COLLAPSE_DELAY_MS = 4_500;
 const EDGE_GAP_PX = 10;
-const MOBILE_SAFE_TOP_PX = 88;
+// Mobilde başlık + kategori sekmelerinin altında kalır.
+const MOBILE_SAFE_TOP_PX = 150;
 const MOBILE_SAFE_BOTTOM_PX = 96;
 const SNAP_AFTER_COLLAPSE_MS = 340;
-const PROMO_FIRST_REVEAL_MS = 1_200;
+// Menü açıldıktan sonra ilk 5 saniye hiç görünmez, sonra sessizce belirir.
+const FIRST_APPEAR_MS = 5_000;
 const PROMO_INTERVAL_MS = 20_000;
 
 type Position = { x: number; y: number };
@@ -89,6 +92,7 @@ export default function BurgerStudioEntry() {
   const isCheckoutPath = pathname === "/checkout";
   const [enabled, setEnabled] = useState(false);
   const [expanded, setExpanded] = useState(true);
+  const [appeared, setAppeared] = useState(false);
   const [position, setPosition] = useState<Position | null>(null);
   const [edge, setEdge] = useState<Edge>(null);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
@@ -98,6 +102,8 @@ export default function BurgerStudioEntry() {
   const snapTimerRef = useRef<number | null>(null);
   const promoFirstTimerRef = useRef<number | null>(null);
   const promoIntervalRef = useRef<number | null>(null);
+  const positionRef = useRef<Position | null>(null);
+  positionRef.current = position;
 
   const persistPosition = useCallback((next: Position, nextEdge?: Edge) => {
     setPosition((current) => {
@@ -120,8 +126,12 @@ export default function BurgerStudioEntry() {
 
   const snapCurrentButtonToEdge = useCallback(() => {
     const button = buttonRef.current;
-    if (!button) return;
+    // Kullanıcı hiç sürüklemediyse varsayılan yerinde (sağ orta) kalır.
+    if (!button || !positionRef.current) return;
     const rect = button.getBoundingClientRect();
+    // Bir pencerenin arkasında gizliyken (display:none) ölçüm 0 döner; o an
+    // snap yapılırsa buton sol üste yapışıp kaydediliyordu.
+    if (!rect.width || !rect.height) return;
     const snapped = snapPositionToNearestEdge(
       { x: rect.left, y: rect.top },
       rect.width,
@@ -207,7 +217,7 @@ export default function BurgerStudioEntry() {
         snapTimerRef.current = window.setTimeout(() => {
           snapTimerRef.current = null;
           const rect = buttonRef.current?.getBoundingClientRect();
-          if (!rect) return;
+          if (!rect || !rect.width || !rect.height) return;
           const snapped = snapPositionToNearestEdge(
             { x: Number(parsed.x), y: Number(parsed.y) },
             rect.width,
@@ -250,14 +260,21 @@ export default function BurgerStudioEntry() {
       window.clearInterval(promoIntervalRef.current);
     }
 
-    promoFirstTimerRef.current = window.setTimeout(() => {
-      promoFirstTimerRef.current = null;
-      revealTemporarily();
-    }, PROMO_FIRST_REVEAL_MS);
+    const startPromo = () => {
+      promoIntervalRef.current = window.setInterval(() => {
+        revealTemporarily();
+      }, PROMO_INTERVAL_MS);
+    };
 
-    promoIntervalRef.current = window.setInterval(() => {
-      revealTemporarily();
-    }, PROMO_INTERVAL_MS);
+    if (appeared) {
+      startPromo();
+    } else {
+      promoFirstTimerRef.current = window.setTimeout(() => {
+        promoFirstTimerRef.current = null;
+        setAppeared(true);
+        revealTemporarily();
+      }, FIRST_APPEAR_MS);
+    }
 
     return () => {
       if (promoFirstTimerRef.current) {
@@ -269,13 +286,14 @@ export default function BurgerStudioEntry() {
         promoIntervalRef.current = null;
       }
     };
-  }, [enabled, isMenuPath, revealTemporarily]);
+  }, [appeared, enabled, isMenuPath, revealTemporarily]);
 
   useEffect(() => {
     const onResize = () => {
       const button = buttonRef.current;
       if (!button || !position) return;
       const rect = button.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
       const snapped = snapPositionToNearestEdge(position, rect.width, rect.height);
       persistPosition(snapped.position, snapped.edge);
     };
@@ -334,6 +352,33 @@ export default function BurgerStudioEntry() {
           [data-bb-assistant="1"] {
           display: none !important;
         }
+
+        [data-bb-burger-studio="1"][data-appeared="false"] {
+          visibility: hidden;
+          opacity: 0;
+          pointer-events: none;
+        }
+
+        [data-bb-burger-studio="1"][data-appeared="true"] {
+          animation: bbStudioPop 280ms cubic-bezier(0.34, 1.4, 0.64, 1) both;
+        }
+
+        @keyframes bbStudioPop {
+          from {
+            opacity: 0;
+            scale: 0.6;
+          }
+          to {
+            opacity: 1;
+            scale: 1;
+          }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          [data-bb-burger-studio="1"][data-appeared="true"] {
+            animation: none;
+          }
+        }
       `}</style>
 
       <DeliveryAddressEntry />
@@ -344,6 +389,7 @@ export default function BurgerStudioEntry() {
           type="button"
           data-bb-swipe-ignore
           data-bb-burger-studio="1"
+          data-appeared={appeared ? "true" : "false"}
           aria-label="Burger Studio öffnen oder verschieben"
           title="Burger Studio – gedrückt halten und verschieben"
           onPointerDown={(event) => {
@@ -427,7 +473,7 @@ export default function BurgerStudioEntry() {
           className={`group fixed z-[48] flex min-h-12 min-w-12 select-none items-center rounded-full border border-amber-300/45 bg-black/92 py-2 text-xs font-black text-white shadow-[0_12px_38px_rgba(0,0,0,.5),0_0_30px_rgba(245,158,11,.2)] ring-1 ring-amber-300/10 backdrop-blur-xl transition-[padding,border-color,box-shadow] duration-300 hover:border-amber-300/70 ${
             position
               ? ""
-              : "right-3 top-[calc(env(safe-area-inset-top)+78px)] sm:right-5 sm:top-[calc(env(safe-area-inset-top)+86px)]"
+              : "right-3 top-1/2 -translate-y-1/2 sm:right-5"
           } ${expanded ? "gap-2 px-3 sm:px-4 sm:text-sm" : "justify-center gap-0 px-2.5"}`}
         >
           <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-amber-400 text-lg text-black shadow-[0_0_20px_rgba(245,158,11,.36)] transition group-hover:scale-105">
