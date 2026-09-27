@@ -1627,9 +1627,46 @@
   }
 }
 
-@container (min-aspect-ratio: 16/9) {
+/* Yatay ekranda görsel ve yazı yan yana: isim burgerin üstüne binmez. */
+@container (min-aspect-ratio: 4/3) {
   .productSpotlight {
-    grid-template-rows: minmax(0, 59%) minmax(0, 41%);
+    grid-template-rows: none;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+    align-items: center;
+    gap: 3cqw;
+    padding: 8cqh 6cqw 10cqh;
+    text-align: left;
+  }
+
+  .productSpotlightVisual {
+    width: 100%;
+    height: 84cqh;
+  }
+
+  .productSpotlightInfo {
+    width: 100%;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 1.6cqh;
+  }
+
+  .productSpotlightInfo h2 {
+    max-width: 11ch;
+    font-size: clamp(42px, 6.4cqw, 130px);
+    text-align: left;
+  }
+
+  .productSpotlightInfo .productIngredientSummary,
+  .productSpotlightSubtitle,
+  .productSpotlightMeta {
+    justify-content: flex-start;
+    text-align: left;
+    margin-inline: 0;
+  }
+
+  .productSpotlightInfo .productPriceLarge {
+    align-items: flex-start;
+    justify-content: flex-start;
   }
 }
 

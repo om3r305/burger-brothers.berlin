@@ -20,6 +20,11 @@ import type {
 } from "@/lib/showcase/types";
 import { resolveWeatherMessage, SPECIAL_DAY_PRESETS } from "@/lib/showcase/presets";
 import WeatherExperience from "./WeatherExperience";
+import SignatureProduct from "./SignatureProduct";
+import {
+  resolveProductAnimation,
+  signatureLayersForProduct,
+} from "@/lib/showcase/signature";
 import styles from "./ShowcaseStage.module.css";
 
 type Props = {
@@ -436,6 +441,31 @@ function ProductFlowScene({
   );
   const imageUrl = product.imageUrl || scene.mediaUrl;
   const modeLabel = campaignModeLabel(product);
+  const signatureLayers = signatureLayersForProduct(scene, product);
+  const animation = resolveProductAnimation(
+    scene,
+    product,
+    productIndex,
+    signatureLayers.length > 2,
+  );
+
+  if (animation !== "classic") {
+    return (
+      <SignatureProduct
+        key={`${product.id}:${productIndex}:${animation}`}
+        animation={animation}
+        name={product.name}
+        imageUrl={imageUrl}
+        layers={signatureLayers}
+        seconds={Math.max(6, Number(scene.productSeconds || 12))}
+        eyebrow={visibleText(scene.title) || undefined}
+        ingredients={ingredients}
+        price={scene.showPrice !== false ? <ProductPrice product={product} large /> : null}
+        badge={product.campaignBadge || modeLabel || undefined}
+        counter={products.length > 1 ? `${productIndex + 1} / ${products.length}` : undefined}
+      />
+    );
+  }
   const productImageFit = scene.productImageFit === "cover" ? "cover" : "contain";
   const productImageScale =
     Math.max(35, Math.min(130, Number(scene.productImageScale || 82))) / 100;

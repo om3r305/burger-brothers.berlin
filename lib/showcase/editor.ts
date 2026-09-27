@@ -113,6 +113,7 @@ export function createShowcaseScene(
         productLimit: 8,
         productMaxTotalSeconds: 90,
         productImageFit: "contain",
+        productAnimation: "mix",
         productImageScale: 82,
         productImageX: 0,
         productImageY: 0,

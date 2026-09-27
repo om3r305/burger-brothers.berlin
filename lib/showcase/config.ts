@@ -6,6 +6,12 @@ import type {
   ShowcaseTransition,
 } from "./types";
 import { normalizeShowcaseCategory } from "./runtime";
+import {
+  isProductAnimation,
+  normalizeSignatureLayers,
+  type ShowcaseProductAnimationOverride,
+  type SignatureLayerKey,
+} from "./signature";
 import { canonicalSceneType } from "./editor";
 import { specialDayPresetIsActive, type WeatherCopyKey } from "./presets";
 import { DEFAULT_SHOWCASE_WEEKDAYS, SHOWCASE_SCHEDULE_TIMEZONE, weeklyScheduleIsActive } from "./schedule";
@@ -54,6 +60,33 @@ function cleanStringList(value: any, maxItems: number, maxLength = 120) {
         .filter(Boolean),
     ),
   );
+}
+
+const MAX_PRODUCT_SETTINGS = 50;
+
+function productSettingEntries(value: any) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  return Object.entries(value)
+    .map(([key, item]) => [cleanText(key, 120), item] as const)
+    .filter(([key]) => Boolean(key))
+    .slice(0, MAX_PRODUCT_SETTINGS);
+}
+
+function cleanProductAnimations(value: any) {
+  const out: Record<string, ShowcaseProductAnimationOverride> = {};
+  for (const [key, item] of productSettingEntries(value)) {
+    if (isProductAnimation(item)) out[key] = item;
+  }
+  return out;
+}
+
+function cleanProductLayers(value: any) {
+  const out: Record<string, SignatureLayerKey[]> = {};
+  for (const [key, item] of productSettingEntries(value)) {
+    const layers = normalizeSignatureLayers(item);
+    if (layers.length) out[key] = layers;
+  }
+  return out;
 }
 
 function cleanUrl(value: any, max = 2_000) {
@@ -259,6 +292,9 @@ export function normalizeShowcaseScene(value: any, fallbackDuration = 45): Showc
     productImageScale: numberInRange(value?.productImageScale, 78, 35, 130),
     productImageX: numberInRange(value?.productImageX, 0, -40, 40),
     productImageY: numberInRange(value?.productImageY, 0, -40, 40),
+    productAnimation: isProductAnimation(value?.productAnimation) ? value.productAnimation : "classic",
+    productAnimations: cleanProductAnimations(value?.productAnimations),
+    productLayers: cleanProductLayers(value?.productLayers),
     menuCategories,
     menuItemsPerPage: numberInRange(value?.menuItemsPerPage, 8, 4, 24),
     menuPageSeconds: numberInRange(value?.menuPageSeconds, 12, 6, 120),

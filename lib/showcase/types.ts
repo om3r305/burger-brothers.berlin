@@ -1,3 +1,9 @@
+import type {
+  ShowcaseProductAnimation,
+  ShowcaseProductAnimationOverride,
+  SignatureLayerKey,
+} from "@/lib/showcase/signature";
+
 export type ShowcaseSceneType =
   | "hero"
   | "video"
@@ -113,6 +119,12 @@ export type ShowcaseScene = {
   productImageScale?: number;
   productImageX?: number;
   productImageY?: number;
+  /** Ürün akışı animasyonu: klasik kart, karışık veya tek bir imza animasyonu. */
+  productAnimation?: ShowcaseProductAnimation;
+  /** Ürün bazında animasyon seçimi; "auto" sahne ayarını kullanır. */
+  productAnimations?: Record<string, ShowcaseProductAnimationOverride>;
+  /** Ürün bazında katman tarifi (yukarıdan aşağıya); boşsa otomatik tahmin. */
+  productLayers?: Record<string, SignatureLayerKey[]>;
 
   /** Dijital menüde gösterilecek DB kategori anahtarları. */
   menuCategories?: string[];

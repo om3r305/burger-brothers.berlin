@@ -51,6 +51,15 @@ function loadShowcaseConfig() {
           return ({ "review-qr": "qr", "social-video": "video", countdown: "campaign", "special-day": "message" })[value] || value;
         } };
       }
+      if (request === "./signature") {
+        const signature = { exports: {} };
+        new Function("module", "exports", "require", transpile("lib/showcase/signature.ts"))(
+          signature,
+          signature.exports,
+          require,
+        );
+        return signature.exports;
+      }
       if (request === "./presets") {
         return { specialDayPresetIsActive() { return true; } };
       }

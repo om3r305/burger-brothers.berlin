@@ -1,6 +1,27 @@
 "use client";
 
 import type { ShowcaseProduct, ShowcaseScene } from "@/lib/showcase/types";
+import {
+  PRODUCT_ANIMATION_LABELS,
+  SIGNATURE_LAYER_KEYS,
+  SIGNATURE_LAYER_LABELS,
+  autoSignatureLayers,
+  isProductAnimation,
+  normalizeSignatureLayers,
+  signatureLayerUrl,
+  signatureLayersForProduct,
+  type ShowcaseProductAnimation,
+  type ShowcaseProductAnimationOverride,
+  type SignatureLayerKey,
+} from "@/lib/showcase/signature";
+
+const ANIMATION_OPTIONS = Object.keys(PRODUCT_ANIMATION_LABELS) as ShowcaseProductAnimation[];
+const FILLING_KEYS = SIGNATURE_LAYER_KEYS.filter((key) => !key.startsWith("bun-"));
+const TOP_BUN_KEYS = SIGNATURE_LAYER_KEYS.filter((key) => key.startsWith("bun-") && key !== "bun-bottom");
+
+function layerLabel(key: SignatureLayerKey) {
+  return SIGNATURE_LAYER_LABELS[key] || "Alt ekmek";
+}
 
 type Props = {
   scene: ShowcaseScene;
@@ -18,9 +39,55 @@ function Field({ label, children, hint }: { label: string; children: React.React
   return <label className="block space-y-1.5"><span className="text-sm font-semibold text-stone-200">{label}</span>{children}{hint ? <span className="block text-xs text-stone-500">{hint}</span> : null}</label>;
 }
 
+function LayerRecipe({ scene, product, onChange }: { scene: ShowcaseScene; product: ShowcaseProduct; onChange: Props["onChange"] }) {
+  const custom = normalizeSignatureLayers(scene.productLayers?.[product.id]);
+  const layers = signatureLayersForProduct(scene, product);
+  const auto = autoSignatureLayers(product);
+  const save = (next: SignatureLayerKey[] | null) => {
+    const map = { ...(scene.productLayers || {}) };
+    if (next && next.length > 2) map[product.id] = normalizeSignatureLayers(next);
+    else delete map[product.id];
+    onChange({ productLayers: map }, true);
+  };
+  const fillings = layers.slice(1, -1);
+  const top = layers[0] || "bun-classic";
+
+  return (
+    <div className="mt-3 rounded-xl border border-stone-800 bg-black/30 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-xs font-bold text-stone-300">Burger katmanları {custom.length ? "· elle ayarlandı" : auto.length ? "· otomatik tahmin" : "· tarif yok (fotoğraflı animasyon kullanılır)"}</span>
+        {custom.length ? <button type="button" onClick={() => save(null)} className="rounded-lg border border-stone-700 px-2 py-1 text-[11px] font-bold text-stone-300 hover:bg-stone-800">Otomatiğe dön</button> : null}
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        <select className="rounded-lg border border-stone-700 bg-stone-900 px-2 py-1 text-xs" value={top} onChange={(event) => save([event.target.value as SignatureLayerKey, ...fillings, "bun-bottom"])}>
+          {TOP_BUN_KEYS.map((key) => <option key={key} value={key}>{layerLabel(key)}</option>)}
+        </select>
+        {fillings.map((key, index) => (
+          <span key={`${key}-${index}`} className="inline-flex items-center gap-1 rounded-full border border-orange-800/50 bg-orange-950/40 py-0.5 pl-1 pr-2 text-xs text-orange-100">
+            <img src={signatureLayerUrl(key)} alt="" className="h-5 w-8 object-contain" />
+            {layerLabel(key)}
+            <button type="button" aria-label={`${layerLabel(key)} kaldır`} onClick={() => save([top, ...fillings.filter((_, i) => i !== index), "bun-bottom"])} className="ml-0.5 text-orange-300 hover:text-white">×</button>
+          </span>
+        ))}
+        <select className="rounded-lg border border-dashed border-stone-600 bg-transparent px-2 py-1 text-xs text-stone-300" value="" onChange={(event) => { const key = event.target.value as SignatureLayerKey; if (key) save([top, ...fillings, key, "bun-bottom"]); }}>
+          <option value="">+ Malzeme ekle</option>
+          {FILLING_KEYS.filter((key) => key !== "bun-bottom").map((key) => <option key={key} value={key}>{layerLabel(key)}</option>)}
+        </select>
+      </div>
+    </div>
+  );
+}
+
 export default function ProductSceneEditor({ scene, allProducts, selectedProducts, sceneDuration, inputClass, onChange, onAdd, onRemove, onMove }: Props) {
   if (scene.type !== "product") return null;
   const limit = Math.max(1, Math.min(20, Number(scene.productLimit || 8)));
+  const sceneAnimation: ShowcaseProductAnimation = isProductAnimation(scene.productAnimation) ? scene.productAnimation : "classic";
+  const setProductAnimation = (productId: string, value: ShowcaseProductAnimationOverride) => {
+    const map = { ...(scene.productAnimations || {}) };
+    if (value === "auto") delete map[productId];
+    else map[productId] = value;
+    onChange({ productAnimations: map }, true);
+  };
   return (
     <section className="rounded-2xl border border-orange-700/40 bg-orange-950/20 p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -35,6 +102,12 @@ export default function ProductSceneEditor({ scene, allProducts, selectedProduct
         <Field label="Maksimum toplam süre" hint="Önerilen: 90 saniye"><input type="number" min={15} max={300} className={inputClass} value={scene.productMaxTotalSeconds || 90} onChange={(event) => onChange({ productMaxTotalSeconds: Number(event.target.value) }, true)} /></Field>
       </div>
 
+      <div className="mt-4 rounded-2xl border border-orange-700/40 bg-black/30 p-4">
+        <h4 className="font-black text-white">Reklam animasyonu</h4>
+        <p className="mt-1 text-xs leading-relaxed text-stone-400">Karışık seçilirse her ürün farklı bir animasyonla gelir. Katmanlı animasyonlar (malzeme şovu, katman yağmuru, kapak açılışı) burgerlerde çalışır; tarifi olmayan ürünler otomatik olarak fotoğraflı bir animasyona geçer. Ürün başına 12–14 saniye önerilir.</p>
+        <div className="mt-3 max-w-md"><Field label="Sahne animasyonu"><select className={inputClass} value={sceneAnimation} onChange={(event) => onChange({ productAnimation: event.target.value as ShowcaseProductAnimation }, true)}>{ANIMATION_OPTIONS.map((key) => <option key={key} value={key}>{PRODUCT_ANIMATION_LABELS[key]}</option>)}</select></Field></div>
+      </div>
+
       <div className="mt-4 rounded-2xl border border-stone-800 bg-stone-950/55 p-4">
         <div className="flex flex-wrap items-center justify-between gap-2"><div><h4 className="font-black text-white">Ürün görseli yerleşimi</h4><p className="text-xs text-stone-400">Görsel boyutunu ve merkezini ayarla.</p></div><button type="button" onClick={() => onChange({ productImageFit: "contain", productImageScale: 82, productImageX: 0, productImageY: 0 }, true)} className="rounded-lg border border-stone-700 px-3 py-1.5 text-xs font-bold text-stone-200 hover:bg-stone-800">Varsayılana dön</button></div>
         <div className="mt-4 grid gap-4 md:grid-cols-2">
@@ -46,10 +119,13 @@ export default function ProductSceneEditor({ scene, allProducts, selectedProduct
       </div>
 
       <div className="mt-4 space-y-2">
-        {selectedProducts.length ? selectedProducts.map((product, index) => <div key={product.id} className="flex items-center gap-3 rounded-xl border border-stone-800 bg-stone-950/70 p-3">
+        {selectedProducts.length ? selectedProducts.map((product, index) => <div key={product.id} className="rounded-xl border border-stone-800 bg-stone-950/70 p-3"><div className="flex flex-wrap items-center gap-3">
           <div className="h-14 w-14 shrink-0 overflow-hidden rounded-lg bg-black">{product.imageUrl ? <img src={product.imageUrl} alt="" className="h-full w-full object-contain" /> : <div className="grid h-full place-items-center text-2xl">🍔</div>}</div>
           <div className="min-w-0 flex-1"><strong className="truncate text-sm text-white">{index + 1}. {product.name}</strong><div className="mt-1 text-xs text-stone-400"><span className="font-bold text-orange-200">{(product.displayPrice ?? product.price).toFixed(2)} €</span>{product.campaignBadge ? ` · ${product.campaignBadge}` : ""}</div></div>
+          <select aria-label={`${product.name} animasyonu`} className="w-44 shrink-0 rounded-lg border border-stone-700 bg-stone-900 px-2 py-1.5 text-xs" value={scene.productAnimations?.[product.id] || "auto"} onChange={(event) => setProductAnimation(product.id, event.target.value as ShowcaseProductAnimationOverride)}><option value="auto">Sahne ayarı</option>{ANIMATION_OPTIONS.map((key) => <option key={key} value={key}>{PRODUCT_ANIMATION_LABELS[key].split(" – ")[0]}</option>)}</select>
           <div className="flex shrink-0 gap-1"><button type="button" onClick={() => onMove(product.id, -1)} disabled={index === 0} className="rounded-lg bg-stone-800 px-2 py-1.5 text-xs disabled:opacity-30">↑</button><button type="button" onClick={() => onMove(product.id, 1)} disabled={index === selectedProducts.length - 1} className="rounded-lg bg-stone-800 px-2 py-1.5 text-xs disabled:opacity-30">↓</button><button type="button" onClick={() => onRemove(product.id)} className="rounded-lg bg-red-950 px-2 py-1.5 text-xs text-red-300">Sil</button></div>
+          </div>
+          {sceneAnimation !== "classic" && (autoSignatureLayers(product).length || scene.productLayers?.[product.id]) ? <LayerRecipe scene={scene} product={product} onChange={onChange} /> : null}
         </div>) : <div className="rounded-xl border border-dashed border-stone-700 p-5 text-center text-sm text-stone-400">Henüz ürün seçilmedi.</div>}
       </div>
     </section>

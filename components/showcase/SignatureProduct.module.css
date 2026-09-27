@@ -1,0 +1,522 @@
+/*
+ * Vitrin imza animasyonları.
+ * Tüm zamanlama ürün süresine (--dur) göre yüzdedir; yalnızca transform ve
+ * opacity animasyonu yapılır (TV tarayıcılarında akıcı kalsın diye).
+ * Dikey ekran varsayılan düzendir; yatayda görsel solda, yazı sağda.
+ */
+
+.root {
+  --accent: var(--showcase-accent, #ff9d2e);
+  --area: 58cqh;
+  --maxw: 74cqw;
+  --spread: 0.16;
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  padding: 7cqh 7cqw 9cqh;
+  overflow: hidden;
+  color: #fff;
+  text-align: center;
+}
+
+.glow {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(60cqw 42cqh at 50% 40%, color-mix(in srgb, var(--accent) 34%, transparent), transparent 70%),
+    radial-gradient(90cqw 60cqh at 50% 110%, rgba(0, 0, 0, 0.75), transparent 70%);
+  animation: sgGlow calc(var(--dur) / 2) ease-in-out infinite alternate;
+}
+
+.fx {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.visual {
+  position: relative;
+  z-index: 2;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+}
+
+/* ---------- Katmanlı burger ---------- */
+
+.stack {
+  --w: min(var(--maxw), calc(var(--area) / var(--fit)));
+  position: relative;
+  width: var(--w);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.root[data-anim="explode"] .visual,
+.root[data-anim="drop"] .visual,
+.root[data-anim="lid"] .visual {
+  animation: sgBreath calc(var(--dur) * 0.5) calc(var(--dur) * 0.5) ease-in-out both;
+}
+
+.layer {
+  position: relative;
+  width: 100%;
+  margin-top: var(--sink);
+  will-change: transform;
+}
+
+.layer img {
+  display: block;
+  width: 100%;
+  height: auto;
+  filter: drop-shadow(0 1.1cqh 1.2cqh rgba(0, 0, 0, 0.6));
+  user-select: none;
+}
+
+.label {
+  position: absolute;
+  top: 38%;
+  display: flex;
+  align-items: center;
+  gap: 1.2cqw;
+  white-space: nowrap;
+  font-size: clamp(12px, 1.45cqh, 30px);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #fde7b0;
+  opacity: 0;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.8);
+}
+
+.label::before {
+  content: "";
+  width: 4cqw;
+  height: 2px;
+  background: var(--accent);
+}
+
+.label[data-side="right"] { left: 100%; }
+.label[data-side="left"] { right: 100%; flex-direction: row-reverse; }
+
+.impact {
+  position: absolute;
+  left: 50%;
+  bottom: -2%;
+  width: 120%;
+  height: 18%;
+  translate: -50% 0;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--accent) 70%, #fff 10%), transparent);
+  opacity: 0;
+  pointer-events: none;
+  z-index: -1;
+}
+
+.crumbs,
+.lidSteam {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* ---------- Fotoğraflı ürün ---------- */
+
+.photoWrap {
+  position: relative;
+  width: min(100cqw, 60cqh);
+  aspect-ratio: 1;
+  perspective: 120cqw;
+}
+
+.photo,
+.photoMissing {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  filter: drop-shadow(0 2cqh 2.4cqh rgba(0, 0, 0, 0.65));
+  will-change: transform;
+}
+
+.photoMissing {
+  display: grid;
+  place-items: center;
+  font-size: 20cqh;
+}
+
+.sweep {
+  position: absolute;
+  inset: 0;
+  mask-size: contain;
+  mask-repeat: no-repeat;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  background: linear-gradient(105deg, transparent 38%, rgba(255, 255, 255, 0.55) 50%, transparent 62%);
+  background-size: 300% 100%;
+  background-position: 120% 0;
+  mix-blend-mode: soft-light;
+  pointer-events: none;
+}
+
+.badge {
+  position: absolute;
+  top: 4%;
+  right: 4%;
+  padding: 0.8cqh 2.4cqw;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #1a0d02;
+  font-size: clamp(14px, 1.8cqh, 40px);
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  rotate: 6deg;
+}
+
+/* ---------- Yazılar: küçük, zarif, görselin içine oturur ---------- */
+
+.copy {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1cqh;
+}
+
+.eyebrow {
+  font-size: clamp(11px, 1.25cqh, 28px);
+  font-weight: 800;
+  letter-spacing: 0.38em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.copy h2 {
+  margin: 0;
+  max-width: 14ch;
+  font-size: clamp(34px, 6cqh, 150px);
+  font-weight: 950;
+  line-height: 0.9;
+  letter-spacing: -0.045em;
+  text-transform: uppercase;
+  text-wrap: balance;
+  text-shadow: 0 0.6cqh 2.4cqh rgba(0, 0, 0, 0.6);
+}
+
+.ingredients {
+  margin: 0;
+  max-width: 70cqw;
+  font-size: clamp(13px, 1.6cqh, 36px);
+  font-weight: 500;
+  color: #e7e5e4;
+  opacity: 0.86;
+}
+
+.price {
+  margin-top: 0.6cqh;
+}
+
+.price :global(*) {
+  font-variant-numeric: tabular-nums;
+}
+
+.counter {
+  position: absolute;
+  right: 4cqw;
+  bottom: 3cqh;
+  z-index: 3;
+  font-size: clamp(11px, 1.1cqh, 22px);
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+/* ---------- Parçacıklar ---------- */
+
+.ember {
+  position: absolute;
+  left: var(--x);
+  bottom: -2cqh;
+  width: calc(0.35cqh + var(--size) * 0.5cqh);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: #ffb347;
+  box-shadow: 0 0 1cqh #ff7a1a;
+  opacity: 0;
+  animation: sgEmber calc(5s + var(--size) * 4s) var(--delay) linear infinite;
+}
+
+.steam {
+  position: absolute;
+  left: calc(30% + var(--size) * 40%);
+  top: 34%;
+  width: calc(14cqw + var(--size) * 10cqw);
+  aspect-ratio: 0.8;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(255, 255, 255, 0.2), transparent);
+  opacity: 0;
+  animation: sgSteam 3.4s var(--delay) ease-out infinite;
+}
+
+.lidSteam .steam {
+  top: 12%;
+  left: calc(22% + var(--size) * 40%);
+  animation: sgSteam 2.6s calc(var(--dur) * 0.2 + var(--delay) * 0.3) ease-out 3;
+}
+
+.crumb {
+  position: absolute;
+  left: 50%;
+  top: 8%;
+  width: calc(0.6cqh + var(--size) * 0.5cqh);
+  aspect-ratio: 1.8;
+  border-radius: 50%;
+  background: #f3dfb0;
+  opacity: 0;
+  rotate: var(--angle);
+}
+
+/* ================= Animasyonlar ================= */
+
+/* Malzeme şovu: ayrılır → etiketler → "tak" diye birleşir */
+.root[data-anim="explode"] .stack { animation: sgStackExplode var(--dur) both; }
+.root[data-anim="explode"] .layer { animation: sgExplode var(--dur) both; }
+.root[data-anim="explode"] .label { animation: sgLabel var(--dur) both; }
+.root[data-anim="explode"] .impact { animation: sgImpact var(--dur) both; }
+.root[data-anim="explode"] .crumb { animation: sgCrumbExplode var(--dur) both; }
+
+/* Katman yağmuru: alttan üste tek tek düşer, en son üst ekmek oturur */
+.root[data-anim="drop"] .layer {
+  animation: sgDrop calc(var(--dur) * 0.085) cubic-bezier(0.45, 0, 0.6, 1) both;
+  animation-delay: calc(var(--dur) * (0.03 + var(--fb) * 0.034));
+}
+.root[data-anim="drop"] .impact { animation: sgImpactDrop var(--dur) both; }
+.root[data-anim="drop"] .crumb { animation: sgCrumbDrop var(--dur) both; }
+
+/* Kapak açılışı: üst ekmek kalkar, buhar yükselir, iç malzemeler görünür */
+.root[data-anim="lid"] .stack { animation: sgStackLid var(--dur) both; }
+.root[data-anim="lid"] .layer[data-lid] { animation: sgLid var(--dur) both; transform-origin: 20% 90%; }
+.root[data-anim="lid"] .label { animation: sgLabelLid var(--dur) both; }
+.root[data-anim="lid"] .impact { animation: sgImpactLid var(--dur) both; }
+
+/* Cızırtı: yavaş yaklaşma, buhar ve kıvılcım */
+.root[data-anim="sizzle"] .photo { animation: sgSizzle var(--dur) linear both; }
+.root[data-anim="sizzle"] .glow { animation-duration: 1.6s; }
+
+/* Sahne ışığı: 3D dönerek gelir, parlak ışık geçer, havada süzülür */
+.root[data-anim="spin"] .photoWrap { animation: sgFloat 4s calc(var(--dur) * 0.24) ease-in-out infinite alternate; }
+.root[data-anim="spin"] .photo { animation: sgSpin var(--dur) both; }
+.root[data-anim="spin"] .sweep { animation: sgSweep var(--dur) both; }
+
+/* Yakın plan: malzeme detayından geri çekilerek bütün ürün görünür */
+.root[data-anim="macro"] .photo { animation: sgMacro var(--dur) both; }
+
+/* Yazı zamanlaması */
+.root[data-anim="explode"] .copy,
+.root[data-anim="drop"] .copy,
+.root[data-anim="lid"] .copy { animation: sgCopyLate var(--dur) both; }
+.root[data-anim="sizzle"] .copy,
+.root[data-anim="spin"] .copy { animation: sgCopyEarly var(--dur) both; }
+.root[data-anim="macro"] .copy { animation: sgCopyMacro var(--dur) both; }
+
+@keyframes sgExplode {
+  0%, 5% { transform: translateY(0) rotate(0deg); animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1); }
+  22% { transform: translateY(calc(var(--c) * var(--spread) * var(--w))) rotate(calc(var(--c) * 0.7deg)); }
+  40% { transform: translateY(calc(var(--c) * var(--spread) * 1.06 * var(--w))) rotate(calc(var(--c) * 0.7deg)); animation-timing-function: cubic-bezier(0.55, 0, 0.85, 0.25); }
+  47% { transform: translateY(0) rotate(0deg); }
+  49% { transform: translateY(calc(var(--c) * -0.12%)) scaleY(0.985); }
+  52%, 100% { transform: translateY(0) rotate(0deg); }
+}
+
+@keyframes sgStackExplode {
+  0%, 5% { scale: 1; translate: 0 0; animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1); }
+  22%, 40% { scale: var(--xs); translate: 0 0; animation-timing-function: cubic-bezier(0.55, 0, 0.85, 0.25); }
+  47%, 100% { scale: 1; translate: 0 0; }
+}
+
+@keyframes sgStackLid {
+  0%, 8% { scale: 1; translate: 0 0; animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1); }
+  20%, 40% { scale: var(--xs); translate: 0 calc((1 - var(--xs)) * 50%); animation-timing-function: cubic-bezier(0.55, 0, 0.85, 0.25); }
+  46%, 100% { scale: 1; translate: 0 0; }
+}
+
+@keyframes sgLabel {
+  0%, 17% { opacity: 0; translate: 0 0; }
+  24%, 37% { opacity: 1; translate: 0 0; }
+  42%, 100% { opacity: 0; translate: 0 0; }
+}
+
+@keyframes sgImpact {
+  0%, 46% { opacity: 0; scale: 0.6; }
+  48% { opacity: 0.9; scale: 1; }
+  60%, 100% { opacity: 0; scale: 1.3; }
+}
+
+@keyframes sgCrumbExplode {
+  0%, 46% { opacity: 0; transform: translate(0, 0); }
+  48% { opacity: 1; transform: translate(0, 0); }
+  58%, 100% {
+    opacity: 0;
+    transform: rotate(var(--angle)) translateX(calc(10cqw + var(--size) * 16cqw)) translateY(4cqh);
+  }
+}
+
+@keyframes sgDrop {
+  0% { transform: translateY(-130cqh); }
+  72% { transform: translateY(1.2%); }
+  86% { transform: translateY(-2.5%); }
+  100% { transform: translateY(0); }
+}
+
+@keyframes sgImpactDrop {
+  0%, 38% { opacity: 0; scale: 0.6; }
+  41% { opacity: 0.9; scale: 1; }
+  54%, 100% { opacity: 0; scale: 1.3; }
+}
+
+@keyframes sgCrumbDrop {
+  0%, 39% { opacity: 0; transform: translate(0, 0); }
+  41% { opacity: 1; transform: translate(0, 0); }
+  52%, 100% {
+    opacity: 0;
+    transform: rotate(var(--angle)) translateX(calc(10cqw + var(--size) * 18cqw)) translateY(5cqh);
+  }
+}
+
+@keyframes sgLid {
+  0%, 8% { transform: translate(0, 0) rotate(0deg); animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1); }
+  20% { transform: translate(-6%, -70%) rotate(-11deg); }
+  40% { transform: translate(-6%, -74%) rotate(-12deg); animation-timing-function: cubic-bezier(0.55, 0, 0.85, 0.25); }
+  46% { transform: translate(0, 0) rotate(0deg); }
+  48% { transform: translate(0, -4%) rotate(0deg); }
+  51%, 100% { transform: translate(0, 0) rotate(0deg); }
+}
+
+@keyframes sgLabelLid {
+  0%, 16% { opacity: 0; }
+  22%, 38% { opacity: 1; }
+  43%, 100% { opacity: 0; }
+}
+
+@keyframes sgImpactLid {
+  0%, 45% { opacity: 0; scale: 0.6; }
+  47% { opacity: 0.7; scale: 1; }
+  58%, 100% { opacity: 0; scale: 1.2; }
+}
+
+@keyframes sgBreath {
+  from { scale: 1; }
+  to { scale: 1.035; }
+}
+
+@keyframes sgSizzle {
+  from { transform: scale(0.94) translateY(1%); }
+  to { transform: scale(1.08) translateY(-1%); }
+}
+
+@keyframes sgSpin {
+  0% { transform: rotateY(-85deg) scale(0.55); opacity: 0; }
+  14% { transform: rotateY(10deg) scale(1.03); opacity: 1; }
+  20%, 100% { transform: rotateY(0deg) scale(1); opacity: 1; }
+}
+
+@keyframes sgSweep {
+  0%, 22% { background-position: 120% 0; opacity: 1; }
+  36% { background-position: -20% 0; opacity: 1; }
+  37%, 100% { background-position: -20% 0; opacity: 0; }
+}
+
+@keyframes sgFloat {
+  from { translate: 0 0; }
+  to { translate: 0 -1.4cqh; }
+}
+
+@keyframes sgMacro {
+  0% { transform: scale(2.7) translateY(4%); animation-timing-function: cubic-bezier(0.3, 0, 0.2, 1); }
+  52% { transform: scale(1) translateY(0); }
+  100% { transform: scale(1.04) translateY(0); }
+}
+
+@keyframes sgCopyLate {
+  0%, 44% { opacity: 0; transform: translateY(3cqh); }
+  52%, 100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes sgCopyEarly {
+  0%, 10% { opacity: 0; transform: translateY(3cqh); }
+  20%, 100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes sgCopyMacro {
+  0%, 40% { opacity: 0; transform: translateY(3cqh); }
+  52%, 100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes sgEmber {
+  0% { opacity: 0; transform: translate(0, 0); }
+  10% { opacity: 0.9; }
+  80% { opacity: 0.5; }
+  100% { opacity: 0; transform: translate(var(--drift), -80cqh); }
+}
+
+@keyframes sgSteam {
+  0% { opacity: 0; transform: translateY(0) scale(0.6); }
+  30% { opacity: 1; }
+  100% { opacity: 0; transform: translateY(-22cqh) scale(1.5); }
+}
+
+@keyframes sgGlow {
+  from { opacity: 0.75; }
+  to { opacity: 1; }
+}
+
+/* ---------- Yatay ekran: görsel solda, yazı sağda ---------- */
+
+@container (min-aspect-ratio: 4/3) {
+  .root {
+    --area: 80cqh;
+    --maxw: 46cqw;
+    grid-template-rows: none;
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+    align-items: center;
+    gap: 4cqw;
+    padding: 8cqh 6cqw 9cqh;
+    text-align: left;
+  }
+
+  .glow {
+    background:
+      radial-gradient(44cqw 60cqh at 30% 50%, color-mix(in srgb, var(--accent) 34%, transparent), transparent 70%),
+      radial-gradient(90cqw 60cqh at 50% 110%, rgba(0, 0, 0, 0.75), transparent 70%);
+  }
+
+  .photoWrap { width: min(52cqw, 84cqh); }
+
+  .copy { align-items: flex-start; gap: 1.6cqh; }
+  .copy h2 { font-size: clamp(34px, 8.5cqh, 150px); }
+  .eyebrow { font-size: clamp(11px, 1.8cqh, 28px); }
+  .ingredients { font-size: clamp(13px, 2.4cqh, 36px); max-width: 40cqw; }
+  .label { font-size: clamp(12px, 2cqh, 30px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .root *,
+  .root *::before {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+/* Etiketler yığınla birlikte küçülmesin: ayrışma anında okunur boyutta kalır. */
+.root[data-anim="explode"] .label {
+  scale: calc(1 / var(--xs));
+}
+.label[data-side="right"] { transform-origin: left center; }
+.label[data-side="left"] { transform-origin: right center; }
