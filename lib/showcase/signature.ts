@@ -172,10 +172,14 @@ export function isLayerAnimation(value: ShowcaseProductAnimation) {
 }
 
 /**
- * Yukarıdan aşağıya kanonik burger sırası; tek üst ekmek ve tek alt ekmek
- * garanti edilir. Tekrarlar (çift köfte, çift cheddar) korunur.
+ * Tek üst ekmek ve tek alt ekmek garanti edilir; tekrarlar (çift köfte, çift
+ * cheddar) korunur. Admin'in elle girdiği sıra olduğu gibi kalır; yalnızca
+ * otomatik tahmin `sort: true` ile kanonik burger sırasına dizilir.
  */
-export function normalizeSignatureLayers(value: unknown): SignatureLayerKey[] {
+export function normalizeSignatureLayers(
+  value: unknown,
+  { sort = false }: { sort?: boolean } = {},
+): SignatureLayerKey[] {
   if (!Array.isArray(value)) return [];
   const fillings = value
     .filter(isSignatureLayerKey)
@@ -183,7 +187,7 @@ export function normalizeSignatureLayers(value: unknown): SignatureLayerKey[] {
     .slice(0, MAX_LAYERS - 2);
   if (!fillings.length) return [];
   const top = value.find((key): key is SignatureLayerKey => TOP_BUNS.has(key as SignatureLayerKey)) || "bun-classic";
-  fillings.sort((a, b) => (LAYER_ORDER.get(a) ?? 0) - (LAYER_ORDER.get(b) ?? 0));
+  if (sort) fillings.sort((a, b) => (LAYER_ORDER.get(a) ?? 0) - (LAYER_ORDER.get(b) ?? 0));
   return [top, ...fillings, "bun-bottom"];
 }
 
@@ -250,7 +254,7 @@ export function autoSignatureLayers(product: ShowcaseProduct): SignatureLayerKey
   else if (patty === "vegan" || /vegan/.test(text)) layers.push("vegan-mayo");
   else layers.push("bb-sauce");
 
-  return normalizeSignatureLayers([...layers, "bun-bottom"]);
+  return normalizeSignatureLayers([...layers, "bun-bottom"], { sort: true });
 }
 
 export function signatureLayersForProduct(

@@ -56,10 +56,26 @@ assert.deepEqual(sig.autoSignatureLayers(product("Vegetarian Halloumi", "mit Ruc
 assert.deepEqual(sig.autoSignatureLayers(product("Black Class", "Glasur: Zartbitterschokolade", "donuts")), []);
 assert.deepEqual(sig.autoSignatureLayers(product("Burger Studio – Freestyle Base", "Internal canonical Burger Studio base.")), []);
 
-// Elle girilen tarif: tek üst/alt ekmek, geçersiz anahtarlar atılır, kanonik sıra.
+// Elle girilen tarif: tek üst/alt ekmek, geçersiz anahtarlar atılır,
+// admin'in girdiği sıra AYNEN korunur (yer değiştirmez).
 assert.deepEqual(
   sig.normalizeSignatureLayers(["bun-bottom", "tomato", "bun-smash", "evil<script>", "beef", "bun-classic", "cheddar"]),
-  ["bun-smash", "cheddar", "beef", "tomato", "bun-bottom"],
+  ["bun-smash", "tomato", "beef", "cheddar", "bun-bottom"],
+);
+assert.deepEqual(
+  sig.normalizeSignatureLayers(["bun-classic", "lettuce", "pickle", "beef", "bb-sauce", "bun-bottom"]),
+  ["bun-classic", "lettuce", "pickle", "beef", "bb-sauce", "bun-bottom"],
+);
+// Otomatik tahmin kanonik burger sırasına dizilir.
+assert.deepEqual(
+  sig.normalizeSignatureLayers(["bun-classic", "lettuce", "beef", "cheddar", "bun-bottom"], { sort: true }),
+  ["bun-classic", "cheddar", "beef", "lettuce", "bun-bottom"],
+);
+// Elle kaydedilen tarif ekranda da aynı sırayla çıkar.
+const ordered = ["bun-classic", "tomato", "cheddar", "beef", "lettuce", "bun-bottom"];
+assert.deepEqual(
+  sig.signatureLayersForProduct({ productLayers: { [product("X", "").id]: ordered } }, product("X", "")),
+  ordered,
 );
 assert.deepEqual(sig.normalizeSignatureLayers(["bun-classic", "bun-bottom"]), []);
 assert.deepEqual(sig.normalizeSignatureLayers("beef"), []);

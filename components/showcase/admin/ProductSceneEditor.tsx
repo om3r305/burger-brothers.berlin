@@ -56,20 +56,32 @@ function LayerRecipe({ scene, product, onChange }: { scene: ShowcaseScene; produ
   return (
     <div className="mt-3 rounded-xl border border-stone-800 bg-black/30 p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className="text-xs font-bold text-stone-300">Burger katmanları {custom.length ? "· elle ayarlandı" : auto.length ? "· otomatik tahmin" : "· tarif yok (fotoğraflı animasyon kullanılır)"}</span>
+        <span className="text-xs font-bold text-stone-300">Burger katmanları {custom.length ? "· elle ayarlandı" : auto.length ? "· otomatik tahmin" : "· tarif yok (fotoğraflı animasyon kullanılır)"}<span className="block font-normal text-stone-500">Ekrandaki sıra: yukarıdan aşağıya. Yeni malzeme en alta (alt ekmeğin üstüne) eklenir; ↑ ↓ ile yerini değiştir.</span></span>
         {custom.length ? <button type="button" onClick={() => save(null)} className="rounded-lg border border-stone-700 px-2 py-1 text-[11px] font-bold text-stone-300 hover:bg-stone-800">Otomatiğe dön</button> : null}
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
         <select className="rounded-lg border border-stone-700 bg-stone-900 px-2 py-1 text-xs" value={top} onChange={(event) => save([event.target.value as SignatureLayerKey, ...fillings, "bun-bottom"])}>
           {TOP_BUN_KEYS.map((key) => <option key={key} value={key}>{layerLabel(key)}</option>)}
         </select>
-        {fillings.map((key, index) => (
-          <span key={`${key}-${index}`} className="inline-flex items-center gap-1 rounded-full border border-orange-800/50 bg-orange-950/40 py-0.5 pl-1 pr-2 text-xs text-orange-100">
-            {isSignatureSauce(key) ? <span className="h-2 w-6 rounded-full bg-gradient-to-r from-amber-600 to-amber-300" /> : <img src={signatureLayerUrl(key)} alt="" className="h-5 w-8 object-contain" />}
-            {layerLabel(key)}
-            <button type="button" aria-label={`${layerLabel(key)} kaldır`} onClick={() => save([top, ...fillings.filter((_, i) => i !== index), "bun-bottom"])} className="ml-0.5 text-orange-300 hover:text-white">×</button>
-          </span>
-        ))}
+        {fillings.map((key, index) => {
+          const move = (delta: -1 | 1) => {
+            const next = [...fillings];
+            const target = index + delta;
+            if (target < 0 || target >= next.length) return;
+            [next[index], next[target]] = [next[target], next[index]];
+            save([top, ...next, "bun-bottom"]);
+          };
+          return (
+            <span key={`${key}-${index}`} className="inline-flex items-center gap-1 rounded-full border border-orange-800/50 bg-orange-950/40 py-0.5 pl-1 pr-2 text-xs text-orange-100">
+              <span className="mr-0.5 w-4 text-center text-[10px] font-bold text-orange-300/80">{index + 1}</span>
+              {isSignatureSauce(key) ? <span className="h-2 w-6 rounded-full bg-gradient-to-r from-amber-600 to-amber-300" /> : <img src={signatureLayerUrl(key)} alt="" className="h-5 w-8 object-contain" />}
+              {layerLabel(key)}
+              <button type="button" aria-label={`${layerLabel(key)} yukarı taşı`} disabled={index === 0} onClick={() => move(-1)} className="ml-0.5 px-0.5 text-orange-300 hover:text-white disabled:opacity-25">↑</button>
+              <button type="button" aria-label={`${layerLabel(key)} aşağı taşı`} disabled={index === fillings.length - 1} onClick={() => move(1)} className="px-0.5 text-orange-300 hover:text-white disabled:opacity-25">↓</button>
+              <button type="button" aria-label={`${layerLabel(key)} kaldır`} onClick={() => save([top, ...fillings.filter((_, i) => i !== index), "bun-bottom"])} className="ml-0.5 text-orange-300 hover:text-white">×</button>
+            </span>
+          );
+        })}
         <select className="rounded-lg border border-dashed border-stone-600 bg-transparent px-2 py-1 text-xs text-stone-300" value="" onChange={(event) => { const key = event.target.value as SignatureLayerKey; if (key) save([top, ...fillings, key, "bun-bottom"]); }}>
           <option value="">+ Malzeme ekle</option>
           {FILLING_KEYS.filter((key) => key !== "bun-bottom").map((key) => <option key={key} value={key}>{layerLabel(key)}</option>)}
