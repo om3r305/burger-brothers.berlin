@@ -5,7 +5,7 @@ import type { ShowcaseProduct, ShowcaseScene } from "@/lib/showcase/types";
  * açıyla kesilmiş malzeme fotoğraflarını kullanır; fotoğraflı olanlar her
  * ürünün kendi görseliyle çalışır (içecek, donut vb. dahil).
  */
-export const SIGNATURE_LAYER_ANIMATIONS = ["explode", "drop", "lid"] as const;
+export const SIGNATURE_LAYER_ANIMATIONS = ["explode", "open", "drop", "lid"] as const;
 export const SIGNATURE_PHOTO_ANIMATIONS = ["sizzle", "spin", "macro"] as const;
 export const SIGNATURE_ANIMATIONS = [
   ...SIGNATURE_LAYER_ANIMATIONS,
@@ -20,6 +20,7 @@ export const PRODUCT_ANIMATION_LABELS: Record<ShowcaseProductAnimation, string> 
   classic: "Klasik kart (animasyonsuz)",
   mix: "Karışık – her ürün farklı",
   explode: "Malzeme şovu – ayrılıp birleşir",
+  open: "Açılış – fotoğraftan katmanlara açılır",
   drop: "Katman yağmuru – tek tek düşüp oturur",
   lid: "Kapak açılışı – buharlı iç görünüm",
   sizzle: "Cızırtı – buhar ve kıvılcım",
@@ -27,10 +28,20 @@ export const PRODUCT_ANIMATION_LABELS: Record<ShowcaseProductAnimation, string> 
   macro: "Yakın plan – detaydan geri çekilir",
 };
 
+export const SIGNATURE_SAUCE_KEYS = [
+  "bb-sauce",
+  "avocado-sauce",
+  "bbq-sauce",
+  "hot-sauce",
+  "mustard",
+  "vegan-mayo",
+] as const;
+
 export const SIGNATURE_LAYER_KEYS = [
   "bun-classic",
   "bun-smash",
   "bun-gluten-free",
+  ...SIGNATURE_SAUCE_KEYS,
   "guacamole",
   "cheddar",
   "gouda",
@@ -58,13 +69,19 @@ export const SIGNATURE_LAYER_LABELS: Record<SignatureLayerKey, string> = {
   "bun-classic": "Sesam-Bun",
   "bun-smash": "Smash Bun",
   "bun-gluten-free": "Glutenfreies Bun",
+  "bb-sauce": "BB Special Sauce",
+  "avocado-sauce": "Avocado-Sauce",
+  "bbq-sauce": "BBQ-Sauce",
+  "hot-sauce": "Scharfe Sauce",
+  mustard: "Senf",
+  "vegan-mayo": "Vegane Mayo",
   guacamole: "Guacamole",
   cheddar: "Cheddar",
   gouda: "Gouda",
   mozzarella: "Mozzarella",
   gorgonzola: "Gorgonzola",
   jalapeno: "Jalapeños",
-  bacon: "Knuspriger Bacon",
+  bacon: "Bacon",
   beef: "Rindfleisch",
   "black-angus": "Black Angus",
   "chicken-breast": "Hähnchenbrust",
@@ -82,6 +99,8 @@ export const SIGNATURE_LAYER_LABELS: Record<SignatureLayerKey, string> = {
 /** Görsel yükseklik / genişlik oranı (public/images/burger-studio). */
 export const SIGNATURE_LAYER_ASPECT: Record<SignatureLayerKey, number> = {
   "bun-classic": 0.469, "bun-smash": 0.445, "bun-gluten-free": 0.423,
+  "bb-sauce": 0.075, "avocado-sauce": 0.075, "bbq-sauce": 0.075,
+  "hot-sauce": 0.075, mustard: 0.075, "vegan-mayo": 0.075,
   guacamole: 0.287, cheddar: 0.344, gouda: 0.35, mozzarella: 0.345,
   gorgonzola: 0.298, jalapeno: 0.288, bacon: 0.419, beef: 0.403,
   "black-angus": 0.47, "chicken-breast": 0.383, crispy: 0.416, vegan: 0.404,
@@ -96,6 +115,10 @@ export const SIGNATURE_LAYER_ASPECT: Record<SignatureLayerKey, number> = {
  */
 export const SIGNATURE_LAYER_SINK: Record<SignatureLayerKey, number> = {
   "bun-classic": 0.235, "bun-smash": 0.22, "bun-gluten-free": 0.21,
+  // Sos ekmeğin hemen altında ince bir şerit olarak görünür; altındaki katman
+  // ekmek + sos kadar içeri girer.
+  "bb-sauce": 0.2, "avocado-sauce": 0.2, "bbq-sauce": 0.2,
+  "hot-sauce": 0.2, mustard: 0.2, "vegan-mayo": 0.2,
   guacamole: 0.13, cheddar: 0.17, gouda: 0.17, mozzarella: 0.17,
   gorgonzola: 0.14, jalapeno: 0.14, bacon: 0.19, beef: 0.14,
   "black-angus": 0.16, "chicken-breast": 0.13, crispy: 0.14, vegan: 0.14,
@@ -103,11 +126,24 @@ export const SIGNATURE_LAYER_SINK: Record<SignatureLayerKey, number> = {
   tomato: 0.14, lettuce: 0.2, "bun-bottom": 0,
 };
 
+const SAUCE_SET = new Set<string>(SIGNATURE_SAUCE_KEYS);
+
+export function isSignatureSauce(key: SignatureLayerKey) {
+  return SAUCE_SET.has(key);
+}
+
+/** Bir katmanın üstündeki katmanın altına ne kadar girdiği (genişliğe oranla). */
+export function signatureLayerOverlap(layers: SignatureLayerKey[], index: number) {
+  if (index <= 0) return 0;
+  // Sos ekmeğin kenarında görünsün diye yalnızca biraz içeri girer.
+  if (isSignatureSauce(layers[index])) return 0.06;
+  return SIGNATURE_LAYER_SINK[layers[index - 1]];
+}
+
 /** Birleşik burger yüksekliği, genişliğin katı olarak. */
 export function signatureStackHeightFactor(layers: SignatureLayerKey[]) {
   return layers.reduce(
-    (sum, key, index) =>
-      sum + SIGNATURE_LAYER_ASPECT[key] - (index > 0 ? SIGNATURE_LAYER_SINK[layers[index - 1]] : 0),
+    (sum, key, index) => sum + SIGNATURE_LAYER_ASPECT[key] - signatureLayerOverlap(layers, index),
     0,
   );
 }
@@ -168,7 +204,7 @@ function times(text: string, key: string) {
  */
 export function autoSignatureLayers(product: ShowcaseProduct): SignatureLayerKey[] {
   if (!isBurgerProduct(product)) return [];
-  const text = `${product.name} ${product.ingredientsText || ""} ${product.description || ""}`
+  const text = `${product.name} ${product.ingredientsText || ""} ${product.description || ""} ${product.imageUrl || ""}`
     .toLowerCase();
   if (/internal|nicht als normales/.test(text)) return [];
   // Halloumi-Patty için ayrı fotoğraf yok; yanlış etiket göstermek yerine
@@ -206,6 +242,14 @@ export function autoSignatureLayers(product: ShowcaseProduct): SignatureLayerKey
   if (/mozzarella/.test(text) && patty !== "mozzarella") layers.push("mozzarella");
   if (/avocado|guacamole/.test(text)) layers.push("guacamole");
 
+  // Her burgerin sosu: özel soslar yoksa BB Special Sauce.
+  if (/avocado/.test(text)) layers.push("avocado-sauce");
+  else if (/smash/.test(text)) layers.push("mustard");
+  else if (/hot stuff|scharf|jalape/.test(text)) layers.push("hot-sauce");
+  else if (/bbq/.test(text)) layers.push("bbq-sauce");
+  else if (patty === "vegan" || /vegan/.test(text)) layers.push("vegan-mayo");
+  else layers.push("bb-sauce");
+
   return normalizeSignatureLayers([...layers, "bun-bottom"]);
 }
 
@@ -217,7 +261,7 @@ export function signatureLayersForProduct(
   return custom.length ? custom : autoSignatureLayers(product);
 }
 
-const MIX_LAYER_SEQUENCE: SignatureAnimation[] = ["explode", "sizzle", "drop", "spin", "lid", "macro"];
+const MIX_LAYER_SEQUENCE: SignatureAnimation[] = ["open", "explode", "sizzle", "drop", "spin", "lid", "macro"];
 const MIX_PHOTO_SEQUENCE: SignatureAnimation[] = ["sizzle", "spin", "macro"];
 
 /**
@@ -240,7 +284,7 @@ export function resolveProductAnimation(
     return sequence[Math.abs(productIndex) % sequence.length];
   }
   if (isLayerAnimation(chosen) && !hasLayers) {
-    return chosen === "explode" ? "spin" : chosen === "drop" ? "macro" : "sizzle";
+    return chosen === "explode" || chosen === "open" ? "spin" : chosen === "drop" ? "macro" : "sizzle";
   }
   return chosen;
 }

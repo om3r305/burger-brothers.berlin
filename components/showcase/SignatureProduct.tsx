@@ -7,8 +7,9 @@ import {
 } from "@/lib/media/local-optimized-image";
 import {
   SIGNATURE_LAYER_LABELS,
-  SIGNATURE_LAYER_SINK,
   isLayerAnimation,
+  isSignatureSauce,
+  signatureLayerOverlap,
   signatureLayerUrl,
   signatureStackHeightFactor,
   type SignatureAnimation,
@@ -57,6 +58,44 @@ function Particles({ kind, count }: { kind: "ember" | "steam" | "crumb"; count: 
   );
 }
 
+// Sos renkleri: [koyu kenar, orta, açık ton]. Burger Studio sos şeritleriyle
+// aynı dil; üstte ince bir parlaklık çizgisi.
+const SAUCE_COLORS: Partial<Record<SignatureLayerKey, [string, string, string]>> = {
+  "bb-sauce": ["#c9803a", "#eeaa5c", "#f8cf8c"],
+  "avocado-sauce": ["#5f8a2b", "#9dc55a", "#c9e48f"],
+  "bbq-sauce": ["#3f140c", "#7b2d1d", "#a8472e"],
+  "hot-sauce": ["#8f150a", "#d3361a", "#f06a3a"],
+  mustard: ["#b88600", "#e8b914", "#f7d95a"],
+  "vegan-mayo": ["#d8c792", "#efe4c2", "#fbf6e6"],
+};
+
+function SauceLayer({ sauce }: { sauce: SignatureLayerKey }) {
+  const [edge, mid, light] = SAUCE_COLORS[sauce] || SAUCE_COLORS["bb-sauce"]!;
+  const id = `bb-sauce-${sauce}`;
+  return (
+    <svg className={styles.sauce} viewBox="0 0 100 9" preserveAspectRatio="none" aria-hidden="true">
+      <defs>
+        <linearGradient id={id} x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0" stopColor={light} />
+          <stop offset="0.45" stopColor={mid} />
+          <stop offset="1" stopColor={edge} />
+        </linearGradient>
+      </defs>
+      <path
+        d="M1 3.2C8 1.2 13 4.6 20 2.6S31 1 38 3.1 50 4.4 57 2.4 69 1.3 76 3.2 88 4.2 99 2.6L98.4 5.6C92 7.9 86 5.2 79 7.2S66 8.6 59 6.4 46 5.1 39 7.3 26 8.5 19 6.3 7 5.2 1.6 6.9Z"
+        fill={`url(#${id})`}
+      />
+      <path
+        d="M14 3.6C24 2.2 31 3.9 40 3.1S60 2.3 70 3.3"
+        fill="none"
+        stroke="rgba(255,255,255,.55)"
+        strokeWidth="0.7"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 function LayerStack({ animation, layers }: { animation: SignatureAnimation; layers: SignatureLayerKey[] }) {
   const count = layers.length;
   const middle = (count - 1) / 2;
@@ -64,7 +103,7 @@ function LayerStack({ animation, layers }: { animation: SignatureAnimation; laye
   // Birleşik burger alanı doldurur; ayrışırken/kapak kalkarken tüm yığın
   // ekrana sığacak kadar küçülür (--xs), birleşince tam boyuna döner.
   const fit = heightFactor + 0.06;
-  const extra = animation === "explode" ? (count - 1) * 0.16 : animation === "lid" ? 0.6 : 0;
+  const extra = animation === "explode" || animation === "open" ? (count - 1) * 0.16 : animation === "lid" ? 0.6 : 0;
   const explodeScale = fit / (fit + extra);
   const totals = new Map<SignatureLayerKey, number>();
   layers.forEach((key) => totals.set(key, (totals.get(key) || 0) + 1));
@@ -93,12 +132,16 @@ function LayerStack({ animation, layers }: { animation: SignatureAnimation; laye
             style={{
               "--c": (index - middle).toFixed(2),
               "--fb": count - 1 - index,
-              "--sink": index > 0 ? `${-SIGNATURE_LAYER_SINK[layers[index - 1]] * 100}%` : "0%",
+              "--sink": `${-signatureLayerOverlap(layers, index) * 100}%`,
               zIndex: count - index,
             } as Vars}
           >
-            <img src={signatureLayerUrl(key)} alt="" draggable={false} />
-            {label && (animation === "explode" || (animation === "lid" && !isLid)) ? (
+            {isSignatureSauce(key) ? (
+              <SauceLayer sauce={key} />
+            ) : (
+              <img src={signatureLayerUrl(key)} alt="" draggable={false} />
+            )}
+            {label && (animation === "explode" || animation === "open" || (animation === "lid" && !isLid)) ? (
               <span
                 className={styles.label}
                 data-side={index % 2 ? "left" : "right"}
@@ -116,7 +159,7 @@ function LayerStack({ animation, layers }: { animation: SignatureAnimation; laye
           <Particles kind="steam" count={4} />
         </div>
       ) : null}
-      {animation === "drop" ? (
+      {animation === "drop" || animation === "explode" ? (
         <div className={styles.crumbs}>
           <Particles kind="crumb" count={12} />
         </div>

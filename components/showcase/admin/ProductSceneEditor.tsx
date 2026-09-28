@@ -7,6 +7,7 @@ import {
   SIGNATURE_LAYER_LABELS,
   autoSignatureLayers,
   isProductAnimation,
+  isSignatureSauce,
   normalizeSignatureLayers,
   signatureLayerUrl,
   signatureLayersForProduct,
@@ -64,7 +65,7 @@ function LayerRecipe({ scene, product, onChange }: { scene: ShowcaseScene; produ
         </select>
         {fillings.map((key, index) => (
           <span key={`${key}-${index}`} className="inline-flex items-center gap-1 rounded-full border border-orange-800/50 bg-orange-950/40 py-0.5 pl-1 pr-2 text-xs text-orange-100">
-            <img src={signatureLayerUrl(key)} alt="" className="h-5 w-8 object-contain" />
+            {isSignatureSauce(key) ? <span className="h-2 w-6 rounded-full bg-gradient-to-r from-amber-600 to-amber-300" /> : <img src={signatureLayerUrl(key)} alt="" className="h-5 w-8 object-contain" />}
             {layerLabel(key)}
             <button type="button" aria-label={`${layerLabel(key)} kaldır`} onClick={() => save([top, ...fillings.filter((_, i) => i !== index), "bun-bottom"])} className="ml-0.5 text-orange-300 hover:text-white">×</button>
           </span>

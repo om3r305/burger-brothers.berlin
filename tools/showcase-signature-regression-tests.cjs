@@ -26,18 +26,31 @@ const product = (name, text, category = "burger") => ({
 // Otomatik katman tahmini: menüdeki gerçek açıklamalar.
 assert.deepEqual(
   sig.autoSignatureLayers(product("Big Daddy", "mit Salat, doppelt Bacon, doppelt Fleisch, doppelt Cheddarkäse")),
-  ["bun-classic", "cheddar", "cheddar", "bacon", "bacon", "beef", "beef", "onion", "tomato", "lettuce", "bun-bottom"],
+  ["bun-classic", "bb-sauce", "cheddar", "cheddar", "bacon", "bacon", "beef", "beef", "onion", "tomato", "lettuce", "bun-bottom"],
 );
 assert.deepEqual(
   sig.autoSignatureLayers(product("Smashburger", "2×80g Rinderhack, 2× Cheddar & karamellisierte Zwiebeln")),
-  ["bun-smash", "cheddar", "cheddar", "beef", "beef", "fried-onion", "tomato", "lettuce", "bun-bottom"],
+  ["bun-smash", "mustard", "cheddar", "cheddar", "beef", "beef", "fried-onion", "tomato", "lettuce", "bun-bottom"],
 );
 assert.deepEqual(
   sig.autoSignatureLayers(product("Montana Blue", "mit Beef, Rucola & Gorgonzola")),
-  ["bun-classic", "gorgonzola", "beef", "onion", "tomato", "lettuce", "bun-bottom"],
+  ["bun-classic", "bb-sauce", "gorgonzola", "beef", "onion", "tomato", "lettuce", "bun-bottom"],
 );
 assert.ok(sig.autoSignatureLayers(product("Black Angus Burger", "aus 200g Black-Angus-Hackfleisch")).includes("black-angus"));
 assert.ok(sig.autoSignatureLayers(product("Vegan Hot Stuff", "mit Jalapeños", "vegan")).includes("vegan"));
+
+// Soslar: her burgerde bir sos, ekmeğin hemen altında.
+const sauceOf = (name, text, category = "burger", imageUrl = "") =>
+  sig.autoSignatureLayers({ ...product(name, text, category), imageUrl })[1];
+assert.equal(sauceOf("Avocado Burger", "Saftiges Rindfleisch, würziger Rucola und feine Avocado."), "avocado-sauce");
+assert.equal(sauceOf("Beef & Bacon", "Zartes Rindfleisch & knuspriger Bacon.", "burger", "/images/burgers/BBQ.png"), "bbq-sauce");
+assert.equal(sauceOf("Hot Stuff", "mit Jalapeños & Cheddarkäse"), "hot-sauce");
+assert.equal(sauceOf("Smashburger", "2×80g Rinderhack"), "mustard");
+assert.equal(sauceOf("Bio Vegan – Vegan All American", "mit Tofu, Bio", "vegan"), "vegan-mayo");
+assert.equal(sauceOf("All American", "Der Klassiker unter den Klassikern!"), "bb-sauce");
+assert.equal(sig.SIGNATURE_LAYER_LABELS["bb-sauce"], "BB Special Sauce");
+assert.equal(sig.SIGNATURE_LAYER_LABELS.mustard, "Senf");
+assert.equal(sig.SIGNATURE_LAYER_LABELS["vegan-mayo"], "Vegane Mayo");
 // Fotoğrafı olmayan malzeme için yanlış etiket gösterilmez.
 assert.deepEqual(sig.autoSignatureLayers(product("Vegetarian Halloumi", "mit Rucola", "vegan")), []);
 assert.deepEqual(sig.autoSignatureLayers(product("Black Class", "Glasur: Zartbitterschokolade", "donuts")), []);
@@ -66,8 +79,10 @@ assert.equal(
   sig.resolveProductAnimation({ productAnimation: "sizzle", productAnimations: { [burger.id]: "auto" } }, burger, 0, true),
   "sizzle",
 );
-const mixed = [0, 1, 2, 3, 4, 5].map((index) => sig.resolveProductAnimation({ productAnimation: "mix" }, burger, index, true));
-assert.equal(new Set(mixed).size, 6, "karışık mod her üründe farklı animasyon verir");
+const mixed = [0, 1, 2, 3, 4, 5, 6].map((index) => sig.resolveProductAnimation({ productAnimation: "mix" }, burger, index, true));
+assert.equal(new Set(mixed).size, 7, "karışık mod her üründe farklı animasyon verir");
+assert.equal(sig.resolveProductAnimation({ productAnimation: "open" }, burger, 0, true), "open");
+assert.equal(sig.resolveProductAnimation({ productAnimation: "open" }, burger, 0, false), "spin");
 for (let index = 0; index < 6; index += 1) {
   const photoOnly = sig.resolveProductAnimation({ productAnimation: "mix" }, burger, index, false);
   assert.ok(["sizzle", "spin", "macro"].includes(photoOnly), "katmansız ürün katmanlı animasyon almaz");
@@ -76,6 +91,7 @@ for (let index = 0; index < 6; index += 1) {
 // Her katman için ölçü ve görsel dosyası var.
 for (const key of sig.SIGNATURE_LAYER_KEYS) {
   assert.ok(sig.SIGNATURE_LAYER_ASPECT[key] > 0, `${key} oranı`);
+  if (sig.isSignatureSauce(key)) continue; // soslar SVG şerit olarak çizilir
   assert.ok(fs.existsSync(path.join(root, "public", sig.signatureLayerUrl(key))), `${key} görseli`);
 }
 
@@ -94,10 +110,13 @@ assert.match(component, /const revealSource = layered && imageUrl/);
 assert.match(css, /@keyframes sgStackOut \{\s*0%, 51% \{ opacity: 1; \}\s*54%, 100% \{ opacity: 0; \}/);
 assert.match(css, /@keyframes sgRevealIn \{\s*0%, 54% \{ opacity: 0;/);
 assert.doesNotMatch(css, /sgDrip|sgMelt/, "çizim peynir animasyonu geri gelmesin");
-// Malzeme şovu: önce ürün fotoğrafı, sonra burger birden açılır ve açık kalır.
+// Malzeme şovu (eski hali) korunur: ayrılır, birleşir, sonda fotoğrafa geçer.
+assert.match(css, /@keyframes sgExplode \{\s*0%, 5% \{ transform: translateY\(0\)/);
+assert.match(css, /\.root\[data-anim="explode"\] \.reveal,/);
+// Açılış: önce ürün fotoğrafı, sonra burger birden açılır ve açık kalır.
 assert.match(css, /@keyframes sgOpenPhoto \{\s*0% \{ opacity: 0;[\s\S]*?31%, 100% \{ opacity: 0;/);
-assert.match(css, /@keyframes sgExplode \{\s*0%, 29% \{ transform: translateY\(0\)[\s\S]*?100% \{ transform: translateY\(calc\(var\(--c\) \* var\(--spread\)/);
-assert.match(css, /\.root\[data-anim="explode"\] \.copy \{ animation: sgCopyEarly/);
+assert.match(css, /@keyframes sgOpenLayer \{\s*0%, 29% \{ transform: translateY\(0\)[\s\S]*?100% \{ transform: translateY\(calc\(var\(--c\) \* var\(--spread\)/);
+assert.match(css, /\.root\[data-anim="open"\] \.copy \{ animation: sgCopyEarly/);
 const classicCss = read("components/showcase/ShowcaseStage.module.css");
 assert.match(classicCss, /@container \(min-aspect-ratio: 4\/3\) \{\s*\.productSpotlight \{\s*grid-template-rows: none;\s*grid-template-columns/);
 
