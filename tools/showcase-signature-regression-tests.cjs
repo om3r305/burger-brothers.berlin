@@ -88,6 +88,12 @@ assert.match(stage, /if \(animation !== "classic"\) \{\s*return \(\s*<SignatureP
 const css = read("components/showcase/SignatureProduct.module.css");
 assert.doesNotMatch(css, /animation:[^;]*(width|height|top|left)\b/, "yalnızca transform/opacity animasyonu");
 assert.match(css, /@container \(min-aspect-ratio: 4\/3\)/);
+// Final: katmanlar oturunca ürünün gerçek fotoğrafına üst üste binmeden geçilir.
+const component = read("components/showcase/SignatureProduct.tsx");
+assert.match(component, /const revealSource = layered && imageUrl/);
+assert.match(css, /@keyframes sgStackOut \{\s*0%, 51% \{ opacity: 1; \}\s*54%, 100% \{ opacity: 0; \}/);
+assert.match(css, /@keyframes sgRevealIn \{\s*0%, 54% \{ opacity: 0;/);
+assert.doesNotMatch(css, /sgDrip|sgMelt/, "çizim peynir animasyonu geri gelmesin");
 const classicCss = read("components/showcase/ShowcaseStage.module.css");
 assert.match(classicCss, /@container \(min-aspect-ratio: 4\/3\) \{\s*\.productSpotlight \{\s*grid-template-rows: none;\s*grid-template-columns/);
 

@@ -123,6 +123,66 @@
   pointer-events: none;
 }
 
+/* ---------- Gerçek fotoğrafa geçiş ----------
+ * Katmanlar oturduktan sonra (~%50) katmanlı burger sakince kaybolur, ürünün
+ * kendi fotoğrafı aynı yerde belirir ve süre sonuna kadar çok yavaş yaklaşır.
+ */
+.stackFade {
+  grid-area: 1 / 1;
+  display: grid;
+  place-items: center;
+}
+
+.visual > .stackFade,
+.visual > .reveal {
+  grid-area: 1 / 1;
+}
+
+.reveal {
+  position: relative;
+  width: min(100cqw, 60cqh);
+  aspect-ratio: 1;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.reveal img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  filter: drop-shadow(0 2cqh 2.4cqh rgba(0, 0, 0, 0.65));
+}
+
+.root[data-anim="explode"] .stackFade[data-reveal],
+.root[data-anim="drop"] .stackFade[data-reveal],
+.root[data-anim="lid"] .stackFade[data-reveal] {
+  animation: sgStackOut var(--dur) ease-in-out both;
+}
+
+.root[data-anim="explode"] .reveal,
+.root[data-anim="drop"] .reveal,
+.root[data-anim="lid"] .reveal {
+  animation: sgRevealIn var(--dur) ease-in-out both;
+}
+
+/* Üst üste binme yok: önce katmanlar söner, hemen ardından fotoğraf gelir. */
+@keyframes sgStackOut {
+  0%, 51% { opacity: 1; }
+  54%, 100% { opacity: 0; }
+}
+
+@keyframes sgRevealIn {
+  0%, 54% { opacity: 0; scale: 0.98; }
+  58.5% { opacity: 1; scale: 1; }
+  100% { opacity: 1; scale: 1.05; }
+}
+
+@container (min-aspect-ratio: 4/3) {
+  .reveal { width: min(52cqw, 84cqh); }
+}
+
 /* ---------- Fotoğraflı ürün ---------- */
 
 .photoWrap {

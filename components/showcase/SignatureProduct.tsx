@@ -158,6 +158,7 @@ export default function SignatureProduct({
   counter,
 }: Props) {
   const layered = isLayerAnimation(animation) && layers.length > 2;
+  const revealSource = layered && imageUrl ? optimizedLocalImageUrl(imageUrl) || imageUrl : "";
 
   return (
     <div
@@ -179,7 +180,21 @@ export default function SignatureProduct({
 
       <div className={styles.visual}>
         {layered ? (
-          <LayerStack animation={animation} layers={layers} />
+          <>
+            <div className={styles.stackFade} data-reveal={revealSource ? "1" : undefined}>
+              <LayerStack animation={animation} layers={layers} />
+            </div>
+            {/* Katmanlar oturunca ürünün gerçek fotoğrafına yumuşak geçiş. */}
+            {revealSource ? (
+              <div className={styles.reveal}>
+                <img
+                  src={revealSource}
+                  alt={name}
+                  onError={(event) => imageUrl && restoreLocalImageFallback(event.currentTarget, imageUrl)}
+                />
+              </div>
+            ) : null}
+          </>
         ) : (
           <Photo animation={animation} imageUrl={imageUrl} name={name} />
         )}
