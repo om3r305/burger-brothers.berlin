@@ -58,40 +58,44 @@ function Particles({ kind, count }: { kind: "ember" | "steam" | "crumb"; count: 
   );
 }
 
-// Sos renkleri: [koyu kenar, orta, açık ton]. Burger Studio sos şeritleriyle
-// aynı dil; üstte ince bir parlaklık çizgisi.
+// Sos renkleri gerçek soslara göre: [alt/gölge, gövde, ışık alan üst yüz].
 const SAUCE_COLORS: Partial<Record<SignatureLayerKey, [string, string, string]>> = {
-  "bb-sauce": ["#c9803a", "#eeaa5c", "#f8cf8c"],
-  "avocado-sauce": ["#5f8a2b", "#9dc55a", "#c9e48f"],
-  "bbq-sauce": ["#3f140c", "#7b2d1d", "#a8472e"],
-  "hot-sauce": ["#8f150a", "#d3361a", "#f06a3a"],
-  mustard: ["#b88600", "#e8b914", "#f7d95a"],
-  "vegan-mayo": ["#d8c792", "#efe4c2", "#fbf6e6"],
+  "bb-sauce": ["#b85a30", "#e8915e", "#f7c49b"], // kremsi burger sosu
+  "avocado-sauce": ["#4f7a24", "#86b848", "#bfe084"],
+  "bbq-sauce": ["#320c05", "#6a1d0b", "#a53d19"], // koyu maun, parlak
+  "hot-sauce": ["#850f05", "#cf240d", "#f05a38"], // sriracha kırmızısı
+  mustard: ["#b88a00", "#ecbf0c", "#fde46e"], // limon sarısı hardal
+  "vegan-mayo": ["#cfbd8c", "#eee4c4", "#fffaf0"],
 };
 
+// Burgerin kenarından hafifçe taşan, parlak bir sos tabakası; alt kenarda
+// küçük doğal sarkmalar.
 function SauceLayer({ sauce }: { sauce: SignatureLayerKey }) {
-  const [edge, mid, light] = SAUCE_COLORS[sauce] || SAUCE_COLORS["bb-sauce"]!;
+  const [edge, body, light] = SAUCE_COLORS[sauce] || SAUCE_COLORS["bb-sauce"]!;
   const id = `bb-sauce-${sauce}`;
   return (
-    <svg className={styles.sauce} viewBox="0 0 100 9" preserveAspectRatio="none" aria-hidden="true">
+    <svg className={styles.sauce} viewBox="0 0 100 14" preserveAspectRatio="none" aria-hidden="true">
       <defs>
         <linearGradient id={id} x1="0" x2="0" y1="0" y2="1">
           <stop offset="0" stopColor={light} />
-          <stop offset="0.45" stopColor={mid} />
+          <stop offset="0.35" stopColor={body} />
+          <stop offset="0.8" stopColor={body} />
           <stop offset="1" stopColor={edge} />
         </linearGradient>
       </defs>
       <path
-        d="M1 3.2C8 1.2 13 4.6 20 2.6S31 1 38 3.1 50 4.4 57 2.4 69 1.3 76 3.2 88 4.2 99 2.6L98.4 5.6C92 7.9 86 5.2 79 7.2S66 8.6 59 6.4 46 5.1 39 7.3 26 8.5 19 6.3 7 5.2 1.6 6.9Z"
+        d="M2 5C10 2 18 4 26 3S42 1.5 50 3 66 4.5 74 2.8 90 2 98 4.5C100 6 99.4 8 97 8.6C92 9 88 8.6 84 9.4C82.4 11.6 79.4 11.9 78.4 9.6C70 9 62 10 55.4 9.2C53.6 12.2 49.8 12.5 48.8 9.6C40 9.2 30 10 22.6 9.2C20.8 11.2 17.6 11.3 16.8 9.4C10 9 5 9.4 3 8.2C0.6 7.4 0.6 5.8 2 5Z"
         fill={`url(#${id})`}
       />
       <path
-        d="M14 3.6C24 2.2 31 3.9 40 3.1S60 2.3 70 3.3"
+        d="M9 4.4C18 3 27 4.4 36 3.4S55 2.6 63 3.8"
         fill="none"
-        stroke="rgba(255,255,255,.55)"
-        strokeWidth="0.7"
+        stroke="rgba(255,255,255,.5)"
+        strokeWidth="0.8"
         strokeLinecap="round"
       />
+      <ellipse cx="72" cy="4.3" rx="3" ry="0.7" fill="rgba(255,255,255,.45)" />
+      <ellipse cx="22" cy="6.4" rx="1.6" ry="0.5" fill="rgba(255,255,255,.3)" />
     </svg>
   );
 }

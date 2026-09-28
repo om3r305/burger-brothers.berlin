@@ -99,8 +99,8 @@ export const SIGNATURE_LAYER_LABELS: Record<SignatureLayerKey, string> = {
 /** Görsel yükseklik / genişlik oranı (public/images/burger-studio). */
 export const SIGNATURE_LAYER_ASPECT: Record<SignatureLayerKey, number> = {
   "bun-classic": 0.469, "bun-smash": 0.445, "bun-gluten-free": 0.423,
-  "bb-sauce": 0.075, "avocado-sauce": 0.075, "bbq-sauce": 0.075,
-  "hot-sauce": 0.075, mustard: 0.075, "vegan-mayo": 0.075,
+  "bb-sauce": 0.12, "avocado-sauce": 0.12, "bbq-sauce": 0.12,
+  "hot-sauce": 0.12, mustard: 0.12, "vegan-mayo": 0.12,
   guacamole: 0.287, cheddar: 0.344, gouda: 0.35, mozzarella: 0.345,
   gorgonzola: 0.298, jalapeno: 0.288, bacon: 0.419, beef: 0.403,
   "black-angus": 0.47, "chicken-breast": 0.383, crispy: 0.416, vegan: 0.404,
