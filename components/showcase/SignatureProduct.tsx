@@ -29,8 +29,6 @@ type Props = {
   counter?: string;
 };
 
-const CHEESE_KEYS = new Set<SignatureLayerKey>(["cheddar", "gouda", "mozzarella", "gorgonzola"]);
-
 type Vars = CSSProperties & Record<`--${string}`, string | number>;
 
 // Deterministik "rastgele": her yüklemede aynı parçacık düzeni.
@@ -59,33 +57,6 @@ function Particles({ kind, count }: { kind: "ember" | "steam" | "crumb"; count: 
   );
 }
 
-// Üstte geniş, aşağı doğru incelip ucunda damla toplanan eriyik peynir.
-function CheeseDrip({ x, length }: { x: string; length: number }) {
-  return (
-    <svg
-      className={styles.drip}
-      style={{ "--x": x, "--len": length } as Vars}
-      viewBox="0 0 20 60"
-      preserveAspectRatio="none"
-      aria-hidden="true"
-    >
-      <defs>
-        <linearGradient id="bb-cheese-drip" x1="0" x2="1" y1="0" y2="0">
-          <stop offset="0" stopColor="#e3940c" />
-          <stop offset="0.4" stopColor="#ffc53a" />
-          <stop offset="0.6" stopColor="#ffd35e" />
-          <stop offset="1" stopColor="#ec9f14" />
-        </linearGradient>
-      </defs>
-      <path
-        d="M0 0H20C17 7 13.5 13 13.2 27C13 38 15.8 44 15.8 50.5A5.8 5.8 0 1 1 4.2 50.5C4.2 44 7 38 6.8 27C6.5 13 3 7 0 0Z"
-        fill="url(#bb-cheese-drip)"
-      />
-      <ellipse cx="8" cy="50" rx="1.6" ry="3" fill="rgba(255,250,225,.75)" />
-    </svg>
-  );
-}
-
 function LayerStack({ animation, layers }: { animation: SignatureAnimation; layers: SignatureLayerKey[] }) {
   const count = layers.length;
   const middle = (count - 1) / 2;
@@ -98,8 +69,6 @@ function LayerStack({ animation, layers }: { animation: SignatureAnimation; laye
   const totals = new Map<SignatureLayerKey, number>();
   layers.forEach((key) => totals.set(key, (totals.get(key) || 0) + 1));
   const seen = new Set<SignatureLayerKey>();
-  // Eriyen damlalar yalnızca en üstteki peynirde görünür.
-  const firstCheese = layers.findIndex((key) => CHEESE_KEYS.has(key));
 
   return (
     <div
@@ -121,7 +90,6 @@ function LayerStack({ animation, layers }: { animation: SignatureAnimation; laye
             className={styles.layer}
             data-lid={isLid ? "1" : undefined}
             data-bottom={isBottom ? "1" : undefined}
-            data-cheese={CHEESE_KEYS.has(key) ? "1" : undefined}
             style={{
               "--c": (index - middle).toFixed(2),
               "--fb": count - 1 - index,
@@ -130,13 +98,6 @@ function LayerStack({ animation, layers }: { animation: SignatureAnimation; laye
             } as Vars}
           >
             <img src={signatureLayerUrl(key)} alt="" draggable={false} />
-            {index === firstCheese ? (
-              <>
-                <CheeseDrip x="17%" length={1} />
-                <CheeseDrip x="53%" length={1.5} />
-                <CheeseDrip x="80%" length={0.8} />
-              </>
-            ) : null}
             {label && (animation === "explode" || (animation === "lid" && !isLid)) ? (
               <span className={styles.label} data-side={index % 2 ? "left" : "right"}>
                 {label}
@@ -146,10 +107,6 @@ function LayerStack({ animation, layers }: { animation: SignatureAnimation; laye
         );
       })}
       <span className={styles.impact} />
-      {/* Final: "pat" diye oturduktan sonra burgerden sıcak buhar yükselir. */}
-      <div className={styles.finaleSteam}>
-        <Particles kind="steam" count={6} />
-      </div>
       {animation === "lid" ? (
         <div className={styles.lidSteam}>
           <Particles kind="steam" count={4} />

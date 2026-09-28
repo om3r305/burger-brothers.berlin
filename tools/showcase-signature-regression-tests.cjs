@@ -88,15 +88,6 @@ assert.match(stage, /if \(animation !== "classic"\) \{\s*return \(\s*<SignatureP
 const css = read("components/showcase/SignatureProduct.module.css");
 assert.doesNotMatch(css, /animation:[^;]*(width|height|top|left)\b/, "yalnızca transform/opacity animasyonu");
 assert.match(css, /@container \(min-aspect-ratio: 4\/3\)/);
-// Final: katmanlar "pat" diye sıkışır, peynir akar, buhar yükselir.
-assert.match(css, /\.root\[data-anim="explode"\] \.layer \{\s*animation: sgExplode var\(--dur\) both, sgPress var\(--dur\) both;/);
-assert.match(css, /@keyframes sgPress \{[\s\S]*?translate: 0 calc\(var\(--c\) \* -1 \* var\(--press\) \* var\(--w\)\)/);
-assert.match(css, /@keyframes sgMelt/);
-assert.match(css, /@keyframes sgDrip/);
-assert.match(css, /\.finaleSteam \.steam/);
-const component = read("components/showcase/SignatureProduct.tsx");
-assert.match(component, /index === firstCheese \? \(/);
-assert.match(component, /<div className=\{styles\.finaleSteam\}>/);
 const classicCss = read("components/showcase/ShowcaseStage.module.css");
 assert.match(classicCss, /@container \(min-aspect-ratio: 4\/3\) \{\s*\.productSpotlight \{\s*grid-template-rows: none;\s*grid-template-columns/);
 
