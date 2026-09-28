@@ -99,7 +99,11 @@ function LayerStack({ animation, layers }: { animation: SignatureAnimation; laye
           >
             <img src={signatureLayerUrl(key)} alt="" draggable={false} />
             {label && (animation === "explode" || (animation === "lid" && !isLid)) ? (
-              <span className={styles.label} data-side={index % 2 ? "left" : "right"}>
+              <span
+                className={styles.label}
+                data-side={index % 2 ? "left" : "right"}
+                style={{ "--i": index } as Vars}
+              >
                 {label}
               </span>
             ) : null}
@@ -112,7 +116,7 @@ function LayerStack({ animation, layers }: { animation: SignatureAnimation; laye
           <Particles kind="steam" count={4} />
         </div>
       ) : null}
-      {animation === "drop" || animation === "explode" ? (
+      {animation === "drop" ? (
         <div className={styles.crumbs}>
           <Particles kind="crumb" count={12} />
         </div>

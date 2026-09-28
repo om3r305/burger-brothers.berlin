@@ -94,6 +94,10 @@ assert.match(component, /const revealSource = layered && imageUrl/);
 assert.match(css, /@keyframes sgStackOut \{\s*0%, 51% \{ opacity: 1; \}\s*54%, 100% \{ opacity: 0; \}/);
 assert.match(css, /@keyframes sgRevealIn \{\s*0%, 54% \{ opacity: 0;/);
 assert.doesNotMatch(css, /sgDrip|sgMelt/, "çizim peynir animasyonu geri gelmesin");
+// Malzeme şovu: önce ürün fotoğrafı, sonra burger birden açılır ve açık kalır.
+assert.match(css, /@keyframes sgOpenPhoto \{\s*0% \{ opacity: 0;[\s\S]*?31%, 100% \{ opacity: 0;/);
+assert.match(css, /@keyframes sgExplode \{\s*0%, 29% \{ transform: translateY\(0\)[\s\S]*?100% \{ transform: translateY\(calc\(var\(--c\) \* var\(--spread\)/);
+assert.match(css, /\.root\[data-anim="explode"\] \.copy \{ animation: sgCopyEarly/);
 const classicCss = read("components/showcase/ShowcaseStage.module.css");
 assert.match(classicCss, /@container \(min-aspect-ratio: 4\/3\) \{\s*\.productSpotlight \{\s*grid-template-rows: none;\s*grid-template-columns/);
 
