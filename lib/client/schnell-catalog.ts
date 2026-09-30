@@ -145,18 +145,18 @@ export function loadSchnellCatalog<T>(options: {
 
   const promise = requestCatalog<T>(options.cacheMode || "default")
     .then((envelope) => {
-      state.__bbSchnellCatalogResult = {
-        savedAt: Date.now(),
-        envelope: envelope as CatalogEnvelope<unknown>,
-      };
+      state.__bbSchnellCatalogResult = envelope.ok
+        ? {
+            savedAt: Date.now(),
+            envelope: envelope as CatalogEnvelope<unknown>,
+          }
+        : undefined;
       return envelope;
     })
     .finally(() => {
-      window.setTimeout(() => {
-        if (state.__bbSchnellCatalogPromise === promise) {
-          state.__bbSchnellCatalogPromise = undefined;
-        }
-      }, IN_MEMORY_RESULT_MAX_AGE_MS);
+      if (state.__bbSchnellCatalogPromise === promise) {
+        state.__bbSchnellCatalogPromise = undefined;
+      }
     });
 
   state.__bbSchnellCatalogPromise =

@@ -1937,6 +1937,12 @@
 .reviewCard blockquote { margin:18px 0; font-size:clamp(24px,3.2cqw,54px); font-weight:900; line-height:1.08; overflow-wrap:anywhere; }
 .reviewCard strong { display:block; font-size:clamp(18px,2cqw,32px); }
 .reviewCard span { color:#666; }
+.reviewWithoutPhoto { grid-template-columns: minmax(0, 1fr); justify-items: center; }
+.reviewWithoutPhoto .reviewCard { width: min(100%, 1200px); }
+.reviewSource { display: flex; align-items: center; gap: .7em; margin-bottom: 2cqh; font-size: clamp(15px, 1.6cqw, 26px); font-weight: 800; }
+.reviewSource b { display: grid; place-items: center; width: 1.8em; height: 1.8em; border-radius: 50%; background: #fff; color: #4285f4; box-shadow: 0 3px 12px #0001; }
+.reviewCard blockquote { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 5; overflow: hidden; line-height: 1.18; text-wrap: pretty; }
+.reviewFooter { margin-top: 2cqh; padding-top: 1.6cqh; border-top: 1px solid #17100b18; color: #76614d; font-size: clamp(11px, 1.1cqw, 20px); font-weight: 800; letter-spacing: .12em; }
 .reviewQrScene {
   position:absolute;
   inset:0;

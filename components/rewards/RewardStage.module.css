@@ -53,7 +53,7 @@
     rgba(255, 205, 112, .34) 0deg 4deg,
     transparent 4deg 16deg
   );
-  animation: rewardRays 42s linear infinite;
+  /* A static light field avoids continuously compositing a 1600px TV layer. */
 }
 
 .halo {
@@ -242,6 +242,7 @@
     0 28px 70px rgba(0, 0, 0, .36),
     inset 0 1px rgba(255, 255, 255, .12);
   text-align: left;
+  animation: rewardCardIn .55s .12s cubic-bezier(.2, .8, .2, 1) both;
 }
 
 .prizeIcon {
@@ -253,6 +254,7 @@
   color: #1a0b05;
   background: linear-gradient(145deg, #ffe29d, #d49a32);
   box-shadow: 0 13px 30px rgba(0, 0, 0, .28);
+  animation: rewardGiftIn .65s .2s cubic-bezier(.2, .8, .2, 1) both;
 }
 
 .prizeIcon svg {
@@ -289,6 +291,7 @@
   font-size: clamp(25px, 3.7vw, 65px);
   font-weight: 950;
   line-height: 1;
+  text-wrap: balance;
 }
 
 .orderNumber {
@@ -398,6 +401,16 @@
   to { transform: translate(-50%, -50%) rotate(360deg); }
 }
 
+@keyframes rewardCardIn {
+  from { opacity: 0; transform: translateY(18px) scale(.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes rewardGiftIn {
+  from { transform: rotate(-12deg) scale(.8); }
+  to { transform: rotate(0) scale(1); }
+}
+
 @keyframes rewardLogoIn {
   from { opacity: 0; transform: scale(.7); }
   to { opacity: 1; transform: scale(1); }
@@ -406,7 +419,9 @@
 @media (prefers-reduced-motion: reduce) {
   .rays,
   .confetti i,
-  .logoRing {
+  .logoRing,
+  .prizeCard,
+  .prizeIcon {
     animation: none !important;
   }
 

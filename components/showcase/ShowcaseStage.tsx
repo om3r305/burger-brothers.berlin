@@ -877,13 +877,14 @@ function PremiumScene({ scene, snapshot, contentIndex }: { scene: ShowcaseScene;
     const reviews = showcaseReviewsForScene(scene, snapshot.reviews || []);
     const review = reviews.length ? reviews[contentIndex % reviews.length] : undefined;
     return (
-      <div className={styles.reviewScene}>
+      <div className={`${styles.reviewScene} ${review?.photoUrls?.[0] ? "" : styles.reviewWithoutPhoto}`}>
         {review?.photoUrls?.[0] ? <img src={review.photoUrls[0]} alt="Kundenfoto" className={styles.reviewPhoto} /> : null}
         <div className={styles.reviewCard}>
-          <div className={styles.reviewStars}>{"★".repeat(Math.round(review?.rating || 5))}</div>
-          <blockquote>{review?.comment || body || "Vielen Dank für eure großartige Bewertung!"}</blockquote>
-          <strong>{review?.authorName || "Google Bewertung"}</strong>
-          <span>Google</span>
+          <div className={styles.reviewSource}><b aria-hidden="true">G</b><span>Google Bewertungen</span></div>
+          {review ? <div className={styles.reviewStars} aria-label={`${review.rating} von 5 Sternen`}>{"★".repeat(Math.max(0, Math.min(5, Math.round(review.rating || 0))))}</div> : null}
+          <blockquote>{review?.comment || body || "Wie hat es dir bei uns geschmeckt?"}</blockquote>
+          <strong>{review?.authorName || "Teile dein Burger-Erlebnis auf Google"}</strong>
+          <div className={styles.reviewFooter}>BURGER BROTHERS · BERLIN-TEGEL</div>
         </div>
       </div>
     );

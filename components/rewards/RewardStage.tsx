@@ -81,7 +81,7 @@ export default function RewardStage({
         <div className={`${styles.presentation} ${photoUrl ? styles.withPhoto : ""}`}>
           {photoUrl ? (
             <div className={styles.photoFrame}>
-              <img src={photoUrl} alt={photoAlt} />
+              <img src={photoUrl} alt={photoAlt} decoding="async" />
               <div className={styles.photoSeal}>BB</div>
             </div>
           ) : null}

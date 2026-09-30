@@ -875,6 +875,7 @@ function SchnellOrderClient() {
     let cancelled = false;
 
     const refreshCatalog = async () => {
+      if (document.visibilityState === "hidden") return;
       try {
         const envelope = await loadSchnellCatalog<CatalogResponse>({
           forceRefresh: true,
@@ -911,10 +912,15 @@ function SchnellOrderClient() {
     const timer = window.setInterval(() => {
       void refreshCatalog();
     }, 60_000);
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") void refreshCatalog();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
 
     return () => {
       cancelled = true;
       window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibility);
     };
   }, []);
 
@@ -1301,6 +1307,8 @@ function SchnellOrderClient() {
               type="button"
               onPointerDown={() => preloadCatalogImages(products, item.key, 6)}
               onMouseEnter={() => preloadCatalogImages(products, item.key, 4)}
+              onFocus={() => preloadCatalogImages(products, item.key, 4)}
+              aria-pressed={category === item.key}
               onClick={() => setCategory(item.key)}
               className={`bb-schnell-category whitespace-nowrap rounded-full px-4 py-2 text-sm font-bold ${
                 category === item.key
@@ -1347,7 +1355,7 @@ function SchnellOrderClient() {
           >
             {product.campaignBadge &&
             !(isComplimentaryTableSauceProduct(product) && !takeaway) ? (
-              <span className="absolute right-2 top-2 z-10 animate-pulse rounded-full border border-yellow-200/70 bg-gradient-to-r from-red-600 via-orange-500 to-amber-400 px-2.5 py-1 text-[11px] font-black text-white shadow-[0_0_22px_rgba(251,146,60,0.75)]">
+              <span className="bb-schnell-deal-badge absolute right-2 top-2 z-10 rounded-full px-2.5 py-1 text-[11px] font-black">
                 {formatCampaignBadge(product.campaignBadge)}
               </span>
             ) : null}
