@@ -838,6 +838,7 @@ html[data-bb-theme] :is(
 }
 
 .bb-schnell-card {
+  transition: border-color .16s ease, transform .16s ease;
   border-color: var(--bb-border) !important;
   background:
     linear-gradient(155deg, rgba(255,255,255,.025), transparent 45%),
@@ -845,6 +846,23 @@ html[data-bb-theme] :is(
   box-shadow:
     0 16px 36px rgba(0, 0, 0, .24),
     0 0 24px var(--bb-muted-glow);
+}
+
+.bb-schnell-deal-badge {
+  color: #241306;
+  border: 1px solid #fff0bc;
+  background: linear-gradient(120deg, #fff0bc, #ffc15a);
+  box-shadow: 0 4px 14px #0005;
+  max-width: calc(100% - 1rem);
+  overflow-wrap: anywhere;
+}
+
+.bb-schnell-card:active { transform: scale(.985); }
+.bb-schnell-card:focus-visible { outline: 2px solid var(--bb-accent, #fbbf24); outline-offset: 3px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .bb-schnell-card { transition: none; }
+  .bb-schnell-card:active { transform: none; }
 }
 
 .bb-schnell-product-media {

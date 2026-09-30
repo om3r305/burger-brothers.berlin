@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState } from "react";
 import ConfirmModal, { EMPTY_CONFIRM_STATE, type ShowcaseConfirmState } from "@/components/showcase/admin/ConfirmModal";
 import PremiumSceneSettings from "@/components/showcase/admin/PremiumSceneSettings";
@@ -11,7 +12,6 @@ import MediaLibraryPanel from "@/components/showcase/admin/MediaLibraryPanel";
 import ShowcaseAdminHeader from "@/components/showcase/admin/ShowcaseAdminHeader";
 import ReviewModerationPanel from "@/components/showcase/admin/ReviewModerationPanel";
 import RewardModerationPanel from "@/components/rewards/admin/RewardModerationPanel";
-import ShowcasePreviewSidebar from "@/components/showcase/admin/ShowcasePreviewSidebar";
 import { inspectShowcaseFile, uploadShowcaseMediaWithProgress } from "@/lib/showcase/client-upload";
 import { useShowcaseEditor } from "@/hooks/showcase/use-showcase-editor";
 import {
@@ -53,6 +53,15 @@ type StorageState = {
   cloudName: string;
   maxUploadBytes: number;
 };
+
+// Keep the TV renderer and its animation code out of the editor's initial bundle.
+const ShowcasePreviewSidebar = dynamic(
+  () => import("@/components/showcase/admin/ShowcasePreviewSidebar"),
+  {
+    ssr: false,
+    loading: () => <aside className="min-h-80 rounded-2xl border border-stone-800 bg-stone-900/55 p-4" role="status">Önizleme yükleniyor…</aside>,
+  },
+);
 
 type AdminPayload = {
   draft: ShowcaseDocument;
