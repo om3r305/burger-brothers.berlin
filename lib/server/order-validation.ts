@@ -298,6 +298,7 @@ export async function validateOrderForCheckout(params: {
   order: any;
   settings: any;
   pricing: any;
+  trustedStaffSource?: boolean;
 }) {
   const paymentLocked =
     params.pricing?.pricingMeta?.source === "payment_locked" &&
@@ -326,7 +327,11 @@ export async function validateOrderForCheckout(params: {
   }
 
   const mode = modeFrom(params.pricing?.mode ?? params.order?.mode);
-  const customer = validateCustomer(params.order, params.settings, mode);
+  // Trust comes from the route's verified staff session, never from the payload.
+  const customer = validateCustomer(
+    params.trustedStaffSource ? params.order : { ...params.order, source: "web", channel: "web" },
+    params.settings, mode,
+  );
   validateMinimum(params.pricing, customer);
 
   const pause = await readPauseState(params.tenantId);

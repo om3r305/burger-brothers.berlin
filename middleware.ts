@@ -88,6 +88,10 @@ export function apiAccess(path: string, methodRaw: string): Access {
 
   if (PUBLIC_PATHS.has(path)) return "public";
 
+  if (["/api/public/eta", "/api/catalog/popularity", "/api/customer-identity/session"].includes(path) && readOnly) return "public";
+  // These routes own signed customer sessions, origin checks and SMS rate limits.
+  if (path === "/api/customer-identity/addresses" && ["POST", "PATCH", "DELETE"].includes(method)) return "public";
+  if (["/api/customer-identity/verification/start", "/api/customer-identity/verification/confirm"].includes(path) && method === "POST") return "public";
   if (path === "/api/settings" && readOnly) return "public";
   if (path === "/api/showcase" && readOnly) return "public";
   if (

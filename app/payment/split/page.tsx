@@ -195,7 +195,7 @@ function SplitCenterContent() {
     <main className="mx-auto min-h-[100dvh] max-w-3xl px-4 py-8 text-stone-100 sm:px-6">
       <div className="rounded-3xl border border-stone-700/60 bg-stone-950/90 p-5 shadow-2xl sm:p-7">
         <div className="text-xs font-black uppercase tracking-[0.24em] text-amber-300">
-          Split Center
+          Getrennt zahlen
         </div>
         {state.status === "loading" ? (
           <div className="mt-6 text-center text-stone-300">
@@ -262,7 +262,8 @@ function SplitCenterContent() {
                 </div>
               )}
             </div>
-            <div className="mt-6 grid gap-4">
+            <p className="mt-3 text-sm text-stone-400">Teile die Links. Sobald alle bezahlt haben, wird die Bestellung gesendet.</p>
+            <div className="mt-5 grid gap-3">
               {shares.map((share) => {
                 const paid = share.status === "paid";
                 return (
@@ -284,7 +285,7 @@ function SplitCenterContent() {
                       </div>
                     </div>
                     {!paid && share.shareUrl && (
-                      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                      <div className="mt-4 flex flex-wrap gap-2">
                         <button
                           onClick={() =>
                             window.location.assign(String(share.shareUrl))
@@ -309,12 +310,15 @@ function SplitCenterContent() {
                             WhatsApp
                           </button>
                         )}
+                        <details className="w-full text-sm">
+                          <summary className="cursor-pointer py-2 text-stone-400">Weitere Optionen</summary>
                         <button
                           onClick={() => email(share)}
                           className="rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-sm font-bold text-sky-100"
                         >
-                          E-Mail
+                          Per E-Mail teilen
                         </button>
+                        </details>
                       </div>
                     )}
                   </article>
@@ -340,7 +344,7 @@ export default function SplitCenterPage() {
     <Suspense
       fallback={
         <main className="p-8 text-center text-stone-200">
-          Split Center wird geladen …
+          Getrennt zahlen wird geladen …
         </main>
       }
     >

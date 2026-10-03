@@ -11,6 +11,7 @@ const originalResolveFilename = Module._resolveFilename;
 const originalTsLoader = require.extensions[".ts"];
 
 const state = {
+  reads: 0,
   value: [
     {
       id: "driver-1",
@@ -22,7 +23,7 @@ const state = {
 };
 
 const settingApi = {
-  findFirst: async () => ({ id: "setting-1", value: state.value }),
+  findFirst: async () => { state.reads++; return { id: "setting-1", value: state.value }; },
   update: async ({ data }) => {
     state.value = data.value;
     return { id: "setting-1", value: state.value };
@@ -108,6 +109,7 @@ Module._load = function patchedLoad(request, parent, isMain) {
 
   if (request === "@/lib/server/session") {
     return {
+      readSessionToken: async (token, role) => role === "driver" && token === "current-driver-token" ? state.testSession : null,
       createSessionToken: async (role) => `${role}:signed-test-token`,
       verifySessionToken: async (token, role) =>
         token === "valid-admin-token" && role === "admin",
@@ -157,6 +159,29 @@ async function main() {
   );
   assert.equal(loginResponse.status, 200);
   assert.match(loginResponse.headers.get("set-cookie") || "", /bb_driver_sess=/);
+
+  const { driverCredentialVersion, driverSessionIsCurrent } = require(path.join(root, "lib/server/driver-session.ts"));
+  const saved = state.value[0];
+  const session = { role: "driver", sub: saved.id, credential: driverCredentialVersion(saved) };
+  assert.equal(await driverSessionIsCurrent(session), true);
+  assert.equal(await driverSessionIsCurrent({ ...session, credential: undefined }), false);
+  state.value = [{ ...saved, passwordHash: saved.passwordHash + "changed" }];
+  assert.equal(await driverSessionIsCurrent(session), false, "password change revokes old session");
+  state.value = [];
+  assert.equal(await driverSessionIsCurrent(session), false, "deletion revokes old session");
+  state.value = [saved];
+  state.testSession = session;
+  const security = require(path.join(root, "lib/server/request-security.ts"));
+  const currentRequest = new Request("https://example.test/api/orders/list", { headers: { cookie: "bb_driver_sess=current-driver-token" } });
+  state.reads = 0;
+  assert.equal(await security.hasSessionRole(currentRequest, "driver"), true);
+  assert.equal(await security.getSessionSubject(currentRequest, "driver"), saved.id);
+  assert.equal(state.reads, 1, "one credential query per request");
+  state.value = [];
+  const revokedRequest = new Request("https://example.test/api/orders/list", { headers: { cookie: "bb_driver_sess=current-driver-token" } });
+  assert.equal(await security.hasSessionRole(revokedRequest, "driver"), false);
+  assert.equal(await security.getSessionSubject(revokedRequest, "driver"), "");
+  state.value = [saved];
 
   const badLoginResponse = await route.POST(
     new Request("https://example.test/api/drivers", {

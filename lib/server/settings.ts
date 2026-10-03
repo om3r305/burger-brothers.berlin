@@ -443,7 +443,7 @@ async function readSettingsFromDb(): Promise<ServerSettings> {
   let wholeSettings: ServerSettings = {};
 
   for (const row of rows) {
-    if (!isSafeKey(row.key)) continue;
+    if (!isSafeKey(row.key) || row.key.startsWith("kv:")) continue;
 
     const value = sanitizeJson(row.value);
 

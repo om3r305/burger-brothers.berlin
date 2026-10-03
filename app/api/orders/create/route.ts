@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { createHash } from "node:crypto";
 import { runAfterResponse } from "@/lib/server/after-response";
 import { prisma, getTenantId } from "@/lib/db";
-import { enforceRateLimit, forbiddenResponse, hasTrustedMutationOrigin } from "@/lib/server/request-security";
+import { enforceRateLimit, forbiddenResponse, hasTrustedMutationOrigin, hasAnySessionRole } from "@/lib/server/request-security";
 import { createTrackingToken, readOrderTrackingToken } from "@/lib/server/public-order";
 import {
   OrderPricingError,
@@ -1673,7 +1673,7 @@ async function databaseUnavailableForEmergency() {
 
   try {
     const reachable = await Promise.race([
-      getTenantId().then(() => true).catch(() => false),
+      prisma.$queryRaw`SELECT 1`.then(() => true).catch(() => false),
       new Promise<boolean>((resolve) => {
         timeout = setTimeout(() => resolve(false), 2_500);
       }),
@@ -1831,6 +1831,14 @@ export async function POST(req: Request) {
     );
   }
 
+  // Public customers cannot impersonate POS/import channels to bypass SMS or deduplication.
+  const trustedStaffSource = await hasAnySessionRole(req, ["admin", "tv"]);
+  const authoritativeSource = trustedStaffSource
+    ? normalizeSource(order?.source ?? order?.channel, normalizeMode(order?.mode))
+    : "web";
+  order.source = authoritativeSource;
+  order.channel = authoritativeSource;
+
   if (body?.emergencyMode === true || body?.notfallMode === true) {
     const emergencyRateError = await enforceRateLimit(
       req,
@@ -1941,6 +1949,7 @@ export async function POST(req: Request) {
       order,
       settings,
       pricing: rebuiltPricing,
+      trustedStaffSource,
     });
 
     if ((!incomingPaymentMethod || incomingPaymentMethod === "cash") && !readCashPaymentEnabled(settings)) {

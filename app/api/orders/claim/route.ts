@@ -1,3 +1,4 @@
+import { isPaymentDraft } from "@/lib/server/payment-draft";
 // app/api/orders/claim/route.ts
 import { NextResponse } from "next/server";
 import { prisma, getTenantId } from "@/lib/db";
@@ -887,7 +888,7 @@ export async function POST(req: Request) {
       }
 
       if (
-        rawStatus.startsWith("payment_") ||
+        isPaymentDraft(row) ||
         !["new", "preparing", "ready"].includes(status)
       ) {
         return {

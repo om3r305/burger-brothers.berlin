@@ -1,3 +1,4 @@
+import { isPaymentDraft, PAYMENT_DRAFT_STATUSES } from "@/lib/server/payment-draft";
 // app/api/orders/list/route.ts
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
@@ -853,7 +854,7 @@ export async function GET(req: Request) {
       // Ödeme henüz tamamlanmamış Stripe taslakları operasyon ekranına sipariş
       // gibi düşmemelidir.
       status: {
-        not: "payment_pending",
+        notIn: PAYMENT_DRAFT_STATUSES,
       },
     };
 
@@ -907,9 +908,7 @@ export async function GET(req: Request) {
     let allOrders = rows
       .filter(
         (row: any) =>
-          !String(row?.status || "")
-            .toLowerCase()
-            .startsWith("payment_"),
+          !isPaymentDraft(row),
       )
       .map(serializeOrder);
 

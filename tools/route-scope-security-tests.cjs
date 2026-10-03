@@ -65,7 +65,7 @@ for (const route of [
 ]) {
   assert.match(
     source(route),
-    /startsWith\("payment_"\)/,
+    /isPaymentDraft\(row\)/,
     `${route} must reject every internal payment-session status`,
   );
 }

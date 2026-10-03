@@ -1,3 +1,4 @@
+import { enforceRateLimit } from "@/lib/server/request-security";
 import { NextResponse } from "next/server";
 import { prisma, getTenantId } from "@/lib/db";
 import { getServerSettings } from "@/lib/server/settings";
@@ -51,7 +52,9 @@ async function loadEta() {
   });
 }
 
-export async function GET() {
+export async function GET(req: Request) {
+  const rateError = await enforceRateLimit(req, "public:eta", 120, 60_000);
+  if (rateError) return rateError;
   const now = Date.now();
 
   try {

@@ -425,7 +425,7 @@ export async function POST(req: Request) {
     });
     await validateOrderForCheckout({
       tenantId,
-      order,
+      order: { ...order, source: "web", channel: "web" },
       settings,
       pricing: rebuiltPricing,
     });

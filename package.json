@@ -46,7 +46,8 @@
     "notifications:test": "node tools/general-notifications-regression-tests.cjs && node tools/nearby-delivery-matcher-tests.cjs && node tools/route-deal-lifecycle-regression-tests.cjs && node tools/nearby-push-campaign-create-regression-tests.cjs",
     "brian:test": "node tools/brian-export-regression-tests.cjs",
     "secrets:generate": "node tools/generate-production-secrets.mjs",
-    "regression:test:all": "node tools/run-all-regression-checks.mjs"
+    "regression:test:all": "node tools/run-all-regression-checks.mjs",
+    "postinstall": "node tools/patch-braces-depth.cjs"
   },
   "dependencies": {
     "@prisma/client": "6.19.3",
@@ -94,6 +95,8 @@
     "three-mesh-bvh": "0.8.3",
     "defu": "6.1.7",
     "postcss": "$postcss",
-    "deepmerge-ts": "8.0.2"
+    "deepmerge-ts": "8.0.2",
+    "fflate": "0.8.3",
+    "postcss-selector-parser": "6.1.4"
   }
 }
