@@ -113,7 +113,7 @@ function SplitCenterContent() {
           return;
         }
         if (
-          ["expired", "failed", "refunded", "cancelled"].includes(
+          ["expired", "failed", "refunded", "refund_pending", "cancelled"].includes(
             String(p?.status || ""),
           )
         ) {
@@ -185,7 +185,7 @@ function SplitCenterContent() {
   }
 
   const shares = Array.isArray(state.shares) ? state.shares : [];
-  const terminal = ["expired", "failed", "refunded", "cancelled"].includes(
+  const terminal = ["expired", "failed", "refunded", "refund_pending", "cancelled"].includes(
     String(state.status || ""),
   );
   const trackHref = state.trackingToken

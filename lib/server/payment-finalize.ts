@@ -3,6 +3,7 @@ import { prisma, getTenantId } from "@/lib/db";
 import { readOrderTrackingToken } from "@/lib/server/public-order";
 import { getStripeClient, resolveBaseUrl } from "@/lib/server/stripe-client";
 import { signPaymentFinalize } from "@/lib/server/payment-signature";
+import { refundOutcome } from "@/lib/server/refund-outcome";
 
 function ensureObj(value: any): Record<string, any> {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -147,6 +148,11 @@ export async function recordPaymentIntentEvent(intent: Stripe.PaymentIntent) {
   const paymentSession = ensureObj(meta.paymentSession);
   if (String(paymentSession.finalOrderId || "") !== finalOrderId) return false;
 
+  // Stripe can deliver an old succeeded event after an order was refunded.
+  // Keep the refund decision authoritative instead of reopening the payment.
+  if (["refunded", "refund_failed", "refund_pending"].includes(String(paymentSession.state)) ||
+      ["payment_refunded", "refund_failed", "refund_pending"].includes(pending.status)) return true;
+
   const storedShares = Array.isArray(paymentSession.shares)
     ? paymentSession.shares
     : [];
@@ -193,7 +199,7 @@ export async function recordPaymentIntentEvent(intent: Stripe.PaymentIntent) {
         ...meta,
         paymentSession: {
           ...paymentSession,
-          state: "waiting_payment",
+          state: paymentSession.state || "waiting_payment",
           shares: nextShares,
           lastStripeEventAt: new Date().toISOString(),
         },
@@ -335,6 +341,7 @@ export type FinalizePaymentResult = {
     | "finalized"
     | "expired"
     | "failed"
+    | "refund_pending"
     | "refunded";
   finalized: boolean;
   finalOrderId?: string;
@@ -455,6 +462,48 @@ export async function finalizePaymentSession(
   const storedShares = Array.isArray(paymentSession.shares)
     ? paymentSession.shares
     : [];
+
+  let refundState = String(paymentSession.state || "");
+  if (!["refunded", "refund_failed", "refund_pending"].includes(refundState)) {
+    refundState = pending.status === "payment_refunded" ? "refunded" : pending.status;
+  }
+  if (["refunded", "refund_failed", "refund_pending"].includes(refundState) ||
+      ["payment_refunded", "refund_failed", "refund_pending"].includes(pending.status)) {
+    if (refundState !== "refunded" && Array.isArray(paymentSession.autoRefunds) && paymentSession.autoRefunds.length) {
+      const stripe = getStripeClient();
+      const refunds = await Promise.all(paymentSession.autoRefunds.map(async (record: any) => {
+        if (!record.refundId) return record;
+        try {
+          const refund = await stripe.refunds.retrieve(record.refundId);
+          return { ...record, status: refund.status, error: undefined };
+        } catch { return record; }
+      }));
+      const outcome = refundOutcome(refunds);
+      refundState = outcome.state;
+      await prisma.order.update({
+        where: { id: pending.id },
+        data: {
+          status: outcome.state === "refunded" ? "payment_refunded" : outcome.state,
+          meta: sanitizeJson({ ...meta, paymentSession: { ...paymentSession, state: outcome.state, autoRefunds: refunds } }),
+        },
+      });
+    }
+    const outcome = refundState === "refund_failed"
+      ? "failed" : refundState === "refund_pending"
+        ? "refund_pending" : "refunded";
+    return {
+      ok: outcome !== "failed", paymentSessionId, paymentKind,
+      status: outcome, finalized: false, finalOrderId: finalOrderId || undefined,
+      paidCount: Number(paymentSession.paidCount || 0), totalCount: storedShares.length,
+      shares: storedShares, nextUrl: null, nextShareIndex: null,
+      error: outcome === "failed" ? "AUTO_REFUND_FAILED" : outcome === "refund_pending" ? "AUTO_REFUND_PENDING" : undefined,
+      message: outcome === "failed"
+        ? "Die Rückerstattung konnte nicht bestätigt werden. Bitte Burger Brothers kontaktieren. Es wird keine neue Zahlung gestartet."
+        : outcome === "refund_pending"
+          ? "Die Rückerstattung wurde veranlasst und wird vom Zahlungsanbieter noch bearbeitet."
+          : "Die Rückerstattung wurde vom Zahlungsanbieter bestätigt.",
+    };
+  }
 
   if (!storedShares.length) {
     return {
@@ -759,25 +808,22 @@ export async function finalizePaymentSession(
       intents: paidShares.map((share) => share.paymentIntentId).filter(Boolean),
       reason: "payment_cancelled",
     });
-    const refundFailed = refunds.some((refund) => refund?.error);
+    const outcome = refundOutcome(refunds);
+    const refundFailed = outcome.status === "failed";
 
     await prisma.order
       .update({
         where: { id: pending.id },
         data: {
           status: paidShares.length
-            ? refundFailed
-              ? "payment_failed"
-              : "payment_refunded"
+            ? outcome.state === "refunded" ? "payment_refunded" : outcome.state
             : "payment_cancelled",
           meta: sanitizeJson({
             ...nextMeta,
             paymentSession: {
               ...ensureObj(nextMeta.paymentSession),
               state: paidShares.length
-                ? refundFailed
-                  ? "refund_failed"
-                  : "refunded"
+                ? outcome.state
                 : "cancelled",
               terminalAt: new Date().toISOString(),
               autoRefunds: refunds,
@@ -791,7 +837,7 @@ export async function finalizePaymentSession(
       ok: false,
       paymentSessionId,
       paymentKind,
-      status: paidShares.length ? "refunded" : "failed",
+      status: paidShares.length ? outcome.status : "failed",
       finalized: false,
       finalOrderId: finalOrderId || undefined,
       paidCount: paidShares.length,
@@ -799,11 +845,13 @@ export async function finalizePaymentSession(
       nextUrl: null,
       nextShareIndex: null,
       shares,
-      error: refundFailed ? "AUTO_REFUND_FAILED" : "PAYMENT_CANCELLED",
+      error: paidShares.length ? outcome.error || "PAYMENT_CANCELLED" : "PAYMENT_CANCELLED",
       message: paidShares.length
         ? refundFailed
           ? "Die Zahlung wurde abgebrochen. Mindestens eine Rückerstattung muss manuell geprüft werden."
-          : "Die Zahlung wurde abgebrochen und bereits bezahlte Anteile wurden automatisch zurückerstattet."
+          : outcome.status === "refund_pending"
+            ? "Die Zahlung wurde abgebrochen. Die Rückerstattung wird vom Zahlungsanbieter noch bearbeitet."
+            : "Die Zahlung wurde abgebrochen und die Rückerstattung wurde bestätigt."
         : "Die Zahlung wurde abgebrochen. Es wurde nichts berechnet.",
     };
   }
@@ -815,7 +863,8 @@ export async function finalizePaymentSession(
       intents: paidShares.map((share) => share.paymentIntentId).filter(Boolean),
       reason: expired ? "split_payment_expired" : "payment_integrity_invalid",
     });
-    const refundFailed = refunds.some((refund) => refund?.error);
+    const outcome = refundOutcome(refunds);
+    const refundFailed = outcome.status === "failed";
 
     await prisma.order
       .update({
@@ -823,12 +872,12 @@ export async function finalizePaymentSession(
           id: pending.id,
         },
         data: {
-          status: refundFailed ? "refund_failed" : "payment_refunded",
+          status: outcome.state === "refunded" ? "payment_refunded" : outcome.state,
           meta: sanitizeJson({
             ...nextMeta,
             paymentSession: {
               ...ensureObj(nextMeta.paymentSession),
-              state: refundFailed ? "refund_failed" : "refunded",
+              state: outcome.state,
               terminalAt: new Date().toISOString(),
               terminalReason: expired ? "expired" : "integrity_invalid",
               autoRefunds: refunds,
@@ -842,7 +891,7 @@ export async function finalizePaymentSession(
       ok: !refundFailed,
       paymentSessionId,
       paymentKind,
-      status: refundFailed ? "failed" : "refunded",
+      status: outcome.status,
       finalized: false,
       finalOrderId: finalOrderId || undefined,
       paidCount: paidShares.length,
@@ -850,10 +899,12 @@ export async function finalizePaymentSession(
       nextUrl: null,
       nextShareIndex: null,
       shares,
-      error: refundFailed ? "AUTO_REFUND_FAILED" : undefined,
+      error: outcome.error,
       message: refundFailed
         ? "Mindestens eine Teilzahlung konnte nicht automatisch zurückerstattet werden. Bitte Burger Brothers kontaktieren."
-        : "Die bereits bezahlten Teilbeträge wurden automatisch zurückerstattet, weil die Bestellung nicht vollständig bezahlt wurde.",
+        : outcome.status === "refund_pending"
+          ? "Die Rückerstattung der Teilbeträge wird vom Zahlungsanbieter noch bearbeitet."
+          : "Die Rückerstattung der bereits bezahlten Teilbeträge wurde bestätigt, weil die Bestellung nicht vollständig bezahlt wurde.",
     };
   }
 
@@ -1145,6 +1196,7 @@ export async function finalizePaymentSession(
       intents: paymentIntentIds,
       reason: "order_finalize_failed",
     });
+    const outcome = refundOutcome(refunds);
 
     await prisma.order
       .update({
@@ -1152,7 +1204,7 @@ export async function finalizePaymentSession(
           id: pending.id,
         },
         data: {
-          status: "payment_failed",
+          status: outcome.state === "refunded" ? "payment_refunded" : outcome.state,
           meta: sanitizeJson({
             ...nextMeta,
             paymentSession: {
@@ -1160,7 +1212,8 @@ export async function finalizePaymentSession(
               finalizeError: error?.message || "ORDER_FINALIZE_FAILED",
               finalizeFailedAt: new Date().toISOString(),
               autoRefunds: refunds,
-              state: "refunded",
+              state: outcome.state,
+              terminalAt: new Date().toISOString(),
             },
           }),
         },
@@ -1171,15 +1224,18 @@ export async function finalizePaymentSession(
       ok: false,
       paymentSessionId,
       paymentKind,
-      status: "refunded",
+      status: outcome.status,
       finalized: false,
       finalOrderId,
       paidCount: shares.length,
       totalCount: shares.length,
       shares,
-      error: error?.message || "ORDER_FINALIZE_FAILED",
-      message:
-        "Die Zahlung wurde zurückerstattet, weil die Bestellung nicht erstellt werden konnte.",
+      error: outcome.error || "ORDER_FINALIZE_FAILED",
+      message: outcome.status === "failed"
+        ? "Die Bestellung konnte nicht erstellt und die Rückerstattung nicht bestätigt werden. Bitte Burger Brothers kontaktieren."
+        : outcome.status === "refund_pending"
+          ? "Die Bestellung konnte nicht erstellt werden. Die Rückerstattung wird vom Zahlungsanbieter noch bearbeitet."
+          : "Die Rückerstattung wurde bestätigt, weil die Bestellung nicht erstellt werden konnte.",
     };
   }
 

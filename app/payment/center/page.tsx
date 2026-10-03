@@ -126,10 +126,12 @@ function PaymentCenterContent() {
           return;
         }
         if (
-          ["expired", "refunded", "cancelled"].includes(
+          ["expired", "refunded", "refund_pending", "cancelled"].includes(
             String(payload?.status || ""),
           ) ||
           [
+            "AUTO_REFUND_FAILED",
+            "AUTO_REFUND_PENDING",
             "PAYMENT_INTEGRITY_INVALID",
             "PAYMENT_SHARES_MISSING",
             "FINAL_ORDER_PAYLOAD_MISSING",
@@ -214,8 +216,10 @@ function PaymentCenterContent() {
 
   const finalized = state.finalized === true;
   const terminal =
-    ["expired", "refunded", "cancelled"].includes(String(state.status || "")) ||
+    ["expired", "refunded", "refund_pending", "cancelled"].includes(String(state.status || "")) ||
     [
+      "AUTO_REFUND_FAILED",
+      "AUTO_REFUND_PENDING",
       "PAYMENT_INTEGRITY_INVALID",
       "PAYMENT_SHARES_MISSING",
       "FINAL_ORDER_PAYLOAD_MISSING",
