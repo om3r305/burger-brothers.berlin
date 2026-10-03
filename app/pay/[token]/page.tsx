@@ -224,7 +224,7 @@ function SharePaymentContent() {
   const share = state.share;
   const shares = Array.isArray(state.shares) ? state.shares : [];
   const paid = share?.status === "paid";
-  const terminal = ["failed", "expired", "refunded"].includes(
+  const terminal = ["failed", "expired", "refunded", "refund_pending"].includes(
     String(state.sessionStatus || ""),
   );
   const trackHref = state.trackingToken

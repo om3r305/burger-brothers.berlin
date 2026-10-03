@@ -65,6 +65,7 @@ import {
   useEligibleRouteDeal,
 } from "@/lib/client/route-deal";
 import CheckoutToastViewport from "@/components/checkout/CheckoutToastViewport";
+import { checkoutAttemptFingerprint } from "@/lib/checkout/attempt";
 import {
   OrderModeChoice,
   OrderModeSummary,
@@ -2409,6 +2410,9 @@ export default function CheckoutPage() {
 
   const [lsTick, setLsTick] = useState(0);
   const [submitBusy, setSubmitBusy] = useState(false);
+  const submitLockRef = useRef(false);
+  const cashAttemptRef = useRef<{ fingerprint: string; key: string } | null>(null);
+  const paymentAttemptRef = useRef<{ fingerprint: string; requestId: string; recoveryToken: string } | null>(null);
   const [submitted, setSubmitted] = useState(false);
   const [confirm, setConfirm] = useState<{
     id?: string;
@@ -5139,6 +5143,9 @@ export default function CheckoutPage() {
   async function startStripeCheckout(
     method: "online" | "split_contactless",
   ) {
+    if (submitLockRef.current || submitted) return;
+    submitLockRef.current = true;
+    setSubmitBusy(true);
     try {
       const existingRecovery = readActivePaymentRecovery();
       if (existingRecovery) {
@@ -5156,17 +5163,28 @@ export default function CheckoutPage() {
             "Der frühere Zahlungsstatus konnte noch nicht geprüft werden. Bitte erneut versuchen.",
           );
         }
+        paymentAttemptRef.current = null;
       }
-
-      setSubmitBusy(true);
-      const paymentRequestId = browserOpaqueToken();
-      const recoveryToken = browserOpaqueToken();
 
       const orderBase = await buildCheckoutOrderDraft({
         method,
         status: "pending",
         testMode: false,
       });
+      const fingerprint = JSON.stringify({
+        order: checkoutAttemptFingerprint(orderBase),
+        shares: method === "split_contactless" ? splitShares : undefined,
+        savedPaymentMethodId: method === "online" ? selectedSavedPaymentMethodId : "",
+        rememberPaymentMethod,
+      });
+      if (paymentAttemptRef.current && paymentAttemptRef.current.fingerprint !== fingerprint) {
+        throw new Error("Der Status des vorherigen Zahlungsversuchs ist noch unklar. Bitte die ursprünglichen Bestelldaten wiederherstellen und erneut versuchen oder Burger Brothers kontaktieren.");
+      }
+      if (!paymentAttemptRef.current) paymentAttemptRef.current = {
+        fingerprint, requestId: browserOpaqueToken(), recoveryToken: browserOpaqueToken(),
+      };
+      const paymentRequestId = paymentAttemptRef.current.requestId;
+      const recoveryToken = paymentAttemptRef.current.recoveryToken;
 
       const shares =
         method === "split_contactless"
@@ -5203,6 +5221,11 @@ export default function CheckoutPage() {
 
       const raw: unknown = await response.json().catch(() => null);
       const payload = parsePaymentPrepareResponse(raw, recoveryToken);
+      // These responses reject the request before a payment is created.
+      // An uncertain network/server failure must retain the same request ID.
+      if (!response.ok && [400, 401, 403, 422].includes(response.status)) {
+        paymentAttemptRef.current = null;
+      }
       const destination =
         method === "split_contactless"
           ? payload.manageUrl || payload.url
@@ -5270,6 +5293,7 @@ export default function CheckoutPage() {
         "error",
       );
       setSubmitBusy(false);
+      submitLockRef.current = false;
     }
   }
 
@@ -5278,6 +5302,9 @@ export default function CheckoutPage() {
     status: "pending" | "paid" | "failed";
     testMode: boolean;
   }) {
+    if (submitLockRef.current || submitted) return;
+    submitLockRef.current = true;
+    setSubmitBusy(true);
     try {
       const existingRecovery = readActivePaymentRecovery();
       if (existingRecovery) {
@@ -5301,6 +5328,7 @@ export default function CheckoutPage() {
 
       const orderBase = await buildCheckoutOrderDraft(payment);
       const result = await createOrderWithRetryAndEmergency(orderBase);
+      cashAttemptRef.current = null;
 
       const submittedRouteDeal = recordValue(recordValue(orderBase.meta).routeDeal);
       if (submittedRouteDeal.id) {
@@ -5365,6 +5393,7 @@ export default function CheckoutPage() {
     } finally {
       setOrderRetryState(null);
       setSubmitBusy(false);
+      submitLockRef.current = false;
     }
   }
 
@@ -5801,7 +5830,11 @@ export default function CheckoutPage() {
     orderBase: CheckoutOrderDraft,
   ): Promise<OrderCreateResult> {
     const startedAt = Date.now();
-    const idempotencyKey = createCheckoutIdempotencyKey();
+    const fingerprint = checkoutAttemptFingerprint(orderBase);
+    if (!cashAttemptRef.current || cashAttemptRef.current.fingerprint !== fingerprint) {
+      cashAttemptRef.current = { fingerprint, key: createCheckoutIdempotencyKey() };
+    }
+    const idempotencyKey = cashAttemptRef.current.key;
     let attempt = 1;
     let lastError: unknown = null;
 
@@ -5989,4 +6022,3 @@ function FieldGroup({
     </fieldset>
   );
 }
-

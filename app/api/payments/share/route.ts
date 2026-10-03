@@ -159,6 +159,7 @@ function shareActionUrl(baseUrl: string, token: string) {
 
 function isTerminalFinalizeFailure(result: any) {
   return (
+    (result?.status === "refund_pending" || result?.error === "AUTO_REFUND_FAILED") ||
     result?.status === "failed" &&
     [
       "PAYMENT_INTEGRITY_INVALID",

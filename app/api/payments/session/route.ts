@@ -168,6 +168,7 @@ function actionUrl(params: {
 
 function isTerminalFinalizeFailure(result: any) {
   return (
+    (result?.status === "refund_pending" || result?.error === "AUTO_REFUND_FAILED") ||
     result?.status === "failed" &&
     [
       "PAYMENT_INTEGRITY_INVALID",
@@ -524,6 +525,12 @@ export async function POST(req: Request) {
           409,
         );
       }
+      if (isTerminalFinalizeFailure(checkedAfterClose)) {
+        return json({ ...publicResult(checkedAfterClose, loaded.paymentSession), cancelled: false }, 409);
+      }
+      if (checkedAfterClose.status === "refunded") {
+        return json({ ...publicResult(checkedAfterClose, loaded.paymentSession), cancelled: true });
+      }
       if (!closed.allClosed) {
         return json(
           {
@@ -537,15 +544,19 @@ export async function POST(req: Request) {
           409,
         );
       }
+      const latest = await loadRecoveryAccess(paymentSessionId, recoveryToken);
+      if (latest.paymentSession.finalizedAt) {
+        return json({ ok: false, cancelled: false, error: "PAYMENT_ALREADY_FINALIZED" }, 409);
+      }
       const cancelledAt = new Date().toISOString();
       await prisma.order.update({
         where: { id: loaded.pending.id },
         data: {
           status: "payment_cancelled",
           meta: sanitizeJson({
-            ...loaded.meta,
+            ...latest.meta,
             paymentSession: {
-              ...loaded.paymentSession,
+              ...latest.paymentSession,
               state: "cancelled",
               cancelledAt,
             },
@@ -553,6 +564,9 @@ export async function POST(req: Request) {
         },
       });
       const result = await finalizePaymentSession(paymentSessionId, req.url);
+      if (isTerminalFinalizeFailure(result)) {
+        return json({ ...publicResult(result, loaded.paymentSession), cancelled: false }, 409);
+      }
       return json({
         ...publicResult(result, { ...loaded.paymentSession, cancelledAt }),
         ok: true,

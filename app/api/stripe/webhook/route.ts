@@ -50,6 +50,7 @@ export async function POST(req: Request) {
       "payment_intent.processing",
       "payment_intent.payment_failed",
       "payment_intent.canceled",
+      "refund.updated",
     ]);
 
     if (supported.has(event.type)) {
