@@ -24,6 +24,15 @@ let calls=0, unavailable=false;
 const probeCtx = {setTimeout,clearTimeout,Promise,prisma:{$queryRaw:async()=>{calls++;if(unavailable) throw Error('database down');return [{one:1}];}},getTenantId:()=>{throw Error('must not use cached tenant');}};
 vm.runInNewContext(compile(probe),probeCtx);
 (async()=>{
+  const payloadGuard = create.slice(create.indexOf('  const order = body?.order'), create.indexOf('  const rawIdempotencyKey'));
+  const payloadCtx = {NextResponse:require('next/server').NextResponse};
+  vm.runInNewContext(compile('function validatePayload(body) { '+payloadGuard+' return null; }'), payloadCtx);
+  for (const body of [null, false, 1, "text", [], {order:[]}]) {
+    const result = payloadCtx.validatePayload(body);
+    assert.equal(result.status,400);
+    assert.equal((await result.json()).error,'INVALID_ORDER_PAYLOAD');
+  }
+  assert.equal(payloadCtx.validatePayload({order:{items:[]}}), null);
   assert.equal(await probeCtx.databaseUnavailableForEmergency(),false);
   unavailable=true;
   assert.equal(await probeCtx.databaseUnavailableForEmergency(),true);

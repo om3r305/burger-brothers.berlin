@@ -4248,9 +4248,9 @@ export default function CheckoutPage() {
           <div className="mb-3">
             <div className="text-sm font-semibold text-stone-100">Zahlungsart</div>
             <div className="mt-1 text-xs text-stone-400">
-              Wähle Barzahlung, sichere Stripe Online-Zahlung oder – wenn aktiviert –
-              Getrennt zahlen. Online bezahlte Bestellungen werden erst nach erfolgreicher
-              Zahlungsbestätigung an die Küche gesendet.
+              {paymentSettings.online
+                ? "Wähle deine Zahlungsart. Online-Bestellungen werden nach bestätigter Zahlung gesendet."
+                : "Du bezahlst bar bei Abholung oder Lieferung."}
             </div>
           </div>
 

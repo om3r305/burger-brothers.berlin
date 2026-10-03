@@ -1762,6 +1762,11 @@ export async function POST(req: Request) {
 
   const body = await req.json().catch(() => ({} as any));
   const order = body?.order && typeof body.order === "object" ? body.order : body;
+  if (!order || typeof order !== "object" || Array.isArray(order)) {
+    return NextResponse.json({ ok: false, error: "INVALID_ORDER_PAYLOAD" }, {
+      status: 400, headers: { "Cache-Control": "no-store" },
+    });
+  }
   const rawIdempotencyKey =
     req.headers.get("idempotency-key") ??
     req.headers.get("x-idempotency-key") ??
