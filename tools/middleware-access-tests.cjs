@@ -55,6 +55,14 @@ try {
   } = require(path.join(root, "middleware.ts"));
 
   const matrix = [
+    ["/api/public/eta", "GET", "public"],
+    ["/api/public/eta", "POST", "admin"],
+    ["/api/catalog/popularity", "GET", "public"],
+    ["/api/catalog/popularity", "POST", "admin"],
+    ["/api/customer-identity/session", "GET", "public"],
+    ["/api/customer-identity/addresses", "PATCH", "public"],
+    ["/api/customer-identity/addresses", "GET", "admin"],
+    ["/api/customer-identity/private", "GET", "admin"],
     ["/api/schnellbestellung/manifest", "GET", "public"],
     ["/api/payments/profile", "GET", "public"],
     ["/api/payments/profile", "POST", "public"],

@@ -4,6 +4,7 @@ import {
   readSessionToken,
   verifySessionToken,
   type SessionRole,
+  type SessionPayload,
 } from "@/lib/server/session";
 
 const ADMIN_COOKIE = process.env.ADMIN_COOKIE_NAME || "bb_admin_sess";
@@ -162,16 +163,31 @@ export function readRequestCookie(req: Request, name: string) {
   return "";
 }
 
+const driverSessionsByRequest = new WeakMap<Request, Promise<SessionPayload | null>>();
+
+function authorizedDriverSession(req: Request) {
+  let pending = driverSessionsByRequest.get(req);
+  if (!pending) {
+    pending = (async () => {
+      const payload = await readSessionToken(readRequestCookie(req, DRIVER_COOKIE), "driver");
+      if (!payload) return null;
+      const { driverSessionIsCurrent } = await import("@/lib/server/driver-session");
+      return await driverSessionIsCurrent(payload) ? payload : null;
+    })();
+    driverSessionsByRequest.set(req, pending);
+  }
+  return pending;
+}
+
 export async function hasSessionRole(req: Request, role: SessionRole) {
+  if (role === "driver") return Boolean(await authorizedDriverSession(req));
   return verifySessionToken(readRequestCookie(req, COOKIE_BY_ROLE[role]), role);
 }
 
 export async function getSessionSubject(req: Request, role: SessionRole) {
-  const payload = await readSessionToken(
-    readRequestCookie(req, COOKIE_BY_ROLE[role]),
-    role,
-  );
-
+  const payload = role === "driver"
+    ? await authorizedDriverSession(req)
+    : await readSessionToken(readRequestCookie(req, COOKIE_BY_ROLE[role]), role);
   return payload?.sub || "";
 }
 

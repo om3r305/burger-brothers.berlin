@@ -1,6 +1,7 @@
 import { randomBytes, scryptSync, timingSafeEqual } from "crypto";
 import { NextResponse } from "next/server";
 import { prisma, getTenantId } from "@/lib/db";
+import { driverCredentialVersion } from "@/lib/server/driver-session";
 import { createSessionToken } from "@/lib/server/session";
 import {
   enforceRateLimit,
@@ -245,7 +246,7 @@ export async function POST(req: Request) {
         password: "",
       },
     });
-    const token = await createSessionToken("driver", maxAge, driver.id);
+    const token = await createSessionToken("driver", maxAge, driver.id, driverCredentialVersion(driver));
 
     response.cookies.set(DRIVER_COOKIE, token, {
       httpOnly: true,

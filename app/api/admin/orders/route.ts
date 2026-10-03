@@ -1,3 +1,4 @@
+import { isPaymentDraft } from "@/lib/server/payment-draft";
 // app/api/admin/orders/route.ts
 import { NextResponse } from "next/server";
 import { runAfterResponse } from "@/lib/server/after-response";
@@ -942,7 +943,7 @@ async function listOrders(tenantId: string, req?: Request) {
     select: buildOrderSelect() as any,
   });
 
-  return rows.map(serializeOrder);
+  return rows.filter((row: any) => !isPaymentDraft(row)).map(serializeOrder);
 }
 
 

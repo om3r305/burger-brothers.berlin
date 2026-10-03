@@ -10,6 +10,8 @@ const originalResolveFilename = Module._resolveFilename;
 const originalTsLoader = require.extensions[".ts"];
 let pause = { pickup: false, delivery: false };
 let shopClosed = false;
+let identityEnabled = false;
+let proofValid = false;
 
 function resolveAlias(request) {
   if (!request.startsWith("@/")) return null;
@@ -73,6 +75,11 @@ Module._load = function patchedLoad(request, parent, isMain) {
     };
   }
 
+  if (request === "@/lib/server/customer-identity") return {
+    customerIdentityConfigured: () => identityEnabled,
+    normalizeGermanPhone: () => "01512345678",
+  };
+  if (request === "@/lib/server/customer-order-proof") return { verifyCustomerOrderProof: () => proofValid };
   if (request === "node:fs") {
     return {
       ...fs,
@@ -199,6 +206,18 @@ async function main() {
     settings,
     pricing,
   });
+
+  identityEnabled = true;
+  for (const source of ["web", "lieferando", "apollo", "", "pickup"]) {
+    await expectValidationError(validation.validateOrderForCheckout({
+      tenantId: "tenant-1", order: { ...baseOrder, source }, settings, pricing,
+    }), "ORDER_PHONE_VERIFICATION_REQUIRED");
+  }
+  proofValid = true;
+  await validation.validateOrderForCheckout({ tenantId: "tenant-1", order: baseOrder, settings, pricing });
+  proofValid = false;
+  await validation.validateOrderForCheckout({ tenantId: "tenant-1", order: { ...baseOrder, source: "lieferando" }, settings, pricing, trustedStaffSource: true });
+  identityEnabled = false;
 
   shopClosed = true;
   await expectValidationError(

@@ -403,7 +403,7 @@ export default function DeliveryAddressEntry() {
           return;
         }
 
-        const response = await fetch("/api/customer-identity/addresses", {
+        const response = await fetch("/customer-identity/addresses", {
           method: "PATCH",
           credentials: "same-origin",
           cache: "no-store",

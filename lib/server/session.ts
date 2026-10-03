@@ -7,6 +7,7 @@ export type SessionPayload = {
   nonce: string;
   ver: string;
   sub?: string;
+  credential?: string;
 };
 
 function b64url(bytes: Uint8Array) {
@@ -73,6 +74,7 @@ export async function createSessionToken(
   role: SessionRole,
   maxAgeSeconds: number,
   subject?: string,
+  credential?: string,
 ) {
   const payload: SessionPayload = {
     role,
@@ -80,6 +82,7 @@ export async function createSessionToken(
     nonce: crypto.randomUUID(),
     ver: sessionVersion(role),
     ...(subject ? { sub: String(subject).slice(0, 160) } : {}),
+    ...(credential ? { credential } : {}),
   };
   const encoded = b64url(encoder.encode(JSON.stringify(payload)));
   const signature = new Uint8Array(

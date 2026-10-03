@@ -1,3 +1,4 @@
+import { isPaymentDraft } from "@/lib/server/payment-draft";
 // app/api/orders/status/route.ts
 import { NextResponse } from "next/server";
 import { runAfterResponse } from "@/lib/server/after-response";
@@ -1265,7 +1266,7 @@ async function handleStatusUpdate(req: Request) {
     }
 
     if (
-      String((row as any)?.status || "").toLowerCase().startsWith("payment_") &&
+      isPaymentDraft(row) &&
       !isAdmin
     ) {
       return securityJson({ ok: false, error: "payment_session_not_operational_order" }, 403);
@@ -1565,7 +1566,7 @@ export async function GET(req: Request) {
 
     if (
       !isAdmin &&
-      String((row as any)?.status || "").toLowerCase().startsWith("payment_")
+      isPaymentDraft(row)
     ) {
       return securityJson({ ok: false, error: "payment_session_not_operational_order" }, 403);
     }

@@ -4248,9 +4248,9 @@ export default function CheckoutPage() {
           <div className="mb-3">
             <div className="text-sm font-semibold text-stone-100">Zahlungsart</div>
             <div className="mt-1 text-xs text-stone-400">
-              Wähle Barzahlung, sichere Stripe Online-Zahlung oder – wenn aktiviert –
-              Getrennt zahlen. Online bezahlte Bestellungen werden erst nach erfolgreicher
-              Zahlungsbestätigung an die Küche gesendet.
+              {paymentSettings.online
+                ? "Wähle deine Zahlungsart. Online-Bestellungen werden nach bestätigter Zahlung gesendet."
+                : "Du bezahlst bar bei Abholung oder Lieferung."}
             </div>
           </div>
 
@@ -4533,13 +4533,11 @@ export default function CheckoutPage() {
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <div className="font-semibold text-amber-100">
-                    Getrennt zahlen – Produkte verteilen
+                    Wer bezahlt was?
                   </div>
                   <div className="mt-1 text-xs text-stone-400">
-                    Jede Person muss mindestens einen Artikel übernehmen. Danach erhält
-                    jede Person einen eigenen Link für ihr Handy{paymentSettings.whatsappShareEnabled
-                      ? "; die Links können direkt per WhatsApp gesendet werden"
-                      : ""}. Rabatte, Aufschläge und Trinkgeld werden anteilig verteilt.
+                    Personen wählen, Artikel zuordnen, Zahlungslinks teilen.
+                    Rabatte und Trinkgeld werden automatisch verteilt.
                   </div>
                 </div>
 
@@ -4550,6 +4548,7 @@ export default function CheckoutPage() {
                     onClick={() =>
                       setSplitPeople((current) => Math.max(2, current - 1))
                     }
+                    aria-label="Eine Person weniger"
                     disabled={splitPeople <= 2}
                   >
                     −
@@ -4562,10 +4561,11 @@ export default function CheckoutPage() {
                     className="h-9 w-9 rounded-full bg-stone-800 text-lg"
                     onClick={() =>
                       setSplitPeople((current) =>
-                        Math.min(paymentSettings.splitMaxPeople, current + 1),
+                        Math.min(paymentSettings.splitMaxPeople, splitUnits.length, current + 1),
                       )
                     }
-                    disabled={splitPeople >= paymentSettings.splitMaxPeople}
+                    aria-label="Eine Person mehr"
+                    disabled={splitPeople >= Math.min(paymentSettings.splitMaxPeople, splitUnits.length)}
                   >
                     +
                   </button>
@@ -4582,6 +4582,7 @@ export default function CheckoutPage() {
                       {unit.label}
                     </span>
                     <select
+                      aria-label={`Wer bezahlt ${unit.label}?`}
                       value={String(splitAssignments[unit.key] ?? 0)}
                       onChange={(event) =>
                         setSplitAssignments((current) => ({
@@ -4621,11 +4622,12 @@ export default function CheckoutPage() {
                       Anteil {fmt(share.baseAmountCents / 100)} + Service{" "}
                       {fmt(share.serviceFeeCents / 100)}
                     </div>
-                    <div className="mt-2 text-xs text-stone-300">
-                      {share.items.length > 0
+                    <details className="mt-2 text-xs text-stone-300">
+                      <summary className="cursor-pointer">{share.items.length} Artikel ansehen</summary>
+                      <p className="mt-1">{share.items.length > 0
                         ? share.items.map((item) => item.label).join(", ")
-                        : "Noch kein Artikel zugeordnet"}
-                    </div>
+                        : "Noch kein Artikel zugeordnet"}</p>
+                    </details>
                   </div>
                 ))}
               </div>

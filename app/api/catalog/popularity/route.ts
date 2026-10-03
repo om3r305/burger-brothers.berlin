@@ -1,3 +1,5 @@
+import { enforceRateLimit } from "@/lib/server/request-security";
+import { isPaymentDraft } from "@/lib/server/payment-draft";
 import { NextResponse } from "next/server";
 import { prisma, getTenantId } from "@/lib/db";
 
@@ -151,7 +153,7 @@ async function computePopularityRanks(tenantId: string) {
 
   const counts = new Map<string, number>();
   for (const order of orders) {
-    if (isCancelledOrder(order)) continue;
+    if (isPaymentDraft(order) || isCancelledOrder(order)) continue;
     for (const line of orderItems(order.items)) {
       const productId = lineKeys(line)
         .map((key) => keyToProductId.get(key))
@@ -180,7 +182,9 @@ async function computePopularityRanks(tenantId: string) {
   return ranks;
 }
 
-export async function GET() {
+export async function GET(req: Request) {
+  const rateError = await enforceRateLimit(req, "catalog:popularity", 120, 60_000);
+  if (rateError) return rateError;
   try {
     const tenantId = await getTenantId();
     if (

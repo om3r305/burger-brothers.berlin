@@ -175,6 +175,15 @@ async function main() {
   assert.equal((await pending.json()).error, "not_claimable");
   assert.equal(updateCount, 0);
 
+  for (const status of ["refund_pending", "refund_failed", "payment_completed"]) {
+    row = freshRow(status);
+    updateCount = 0;
+    const blocked = await route.POST(request({}));
+    assert.equal(blocked.status, 409, status);
+    assert.equal((await blocked.json()).error, "not_claimable");
+    assert.equal(updateCount, 0);
+  }
+
   row = freshRow();
   const deletedDriver = await route.POST(request({}, "driver-deleted"));
   assert.equal(deletedDriver.status, 403);

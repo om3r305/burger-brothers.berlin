@@ -1,3 +1,4 @@
+import { isPaymentDraft, PAYMENT_DRAFT_STATUSES } from "@/lib/server/payment-draft";
 // app/api/orders/route.ts
 import { NextResponse } from "next/server";
 import { prisma, getTenantId } from "@/lib/db";
@@ -1002,7 +1003,7 @@ async function listOrders(
 
   if (!includePaymentSessions) {
     where.status = {
-      notIn: ["payment_pending", "payment_completed"],
+      notIn: PAYMENT_DRAFT_STATUSES,
     };
   }
 
@@ -1023,9 +1024,7 @@ async function listOrders(
     .filter(
       (row: any) =>
         includePaymentSessions ||
-        !String(row?.status || "")
-          .toLowerCase()
-          .startsWith("payment_"),
+        !isPaymentDraft(row),
     )
     .map(serializeOrder);
 }
@@ -1084,9 +1083,7 @@ export async function GET(req: Request) {
       if (
         row &&
         !isAdmin &&
-        String((row as any)?.status || "")
-          .toLowerCase()
-          .startsWith("payment_")
+        isPaymentDraft(row)
       ) {
         return securityJson(
           { ok: false, error: "payment_session_not_operational_order" },

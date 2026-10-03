@@ -106,7 +106,7 @@ assert(
   "normal Payment Center is mixed with split sharing",
 );
 assert(
-  split.includes("Split Center") &&
+  split.includes("Getrennt zahlen") &&
     split.includes("Link kopieren") &&
     split.includes("WhatsApp") &&
     split.includes("E-Mail"),
