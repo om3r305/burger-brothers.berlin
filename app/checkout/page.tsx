@@ -1937,6 +1937,24 @@ function computeCouponDiscount(
 /* ───────── component ───────── */
 
 export default function CheckoutPage() {
+  // Device cart, cached settings and local time cannot be the server snapshot.
+  const [ready, setReady] = useState(false);
+  useEffect(() => setReady(true), []);
+  if (!ready) {
+    return (
+      <main className="mx-auto max-w-5xl space-y-6 px-4 pb-6 sm:px-6" aria-busy="true">
+        <Link href="/menu" className="text-sm text-stone-300">← Zurück zum Menü</Link>
+        <h1 className="mt-3 text-2xl font-semibold">Checkout</h1>
+        <div role="status" className="rounded-2xl border border-stone-700/60 bg-stone-950/40 p-4 text-stone-300">
+          Deine Bestellung wird geladen …
+        </div>
+      </main>
+    );
+  }
+  return <CheckoutContent />;
+}
+
+function CheckoutContent() {
   const addToCart = useCart((state) => state.addToCart);
   const items = useCart((state) => state.items);
   const clear = useCart((state) => state.clear);
