@@ -1940,6 +1940,9 @@ export async function createCashSchnellOrder(params: {
   });
   if (existingBeforeTransaction) {
     const meta = obj(existingBeforeTransaction.meta);
+    if (String(meta.deviceId || "") !== params.deviceId) {
+      throw new Error("IDEMPOTENCY_CONFLICT");
+    }
     return {
       order: existingBeforeTransaction,
       customerNumber: Number(meta.customerNumber),
@@ -1976,6 +1979,9 @@ export async function createCashSchnellOrder(params: {
 
           if (existing) {
             const meta = obj(existing.meta);
+            if (String(meta.deviceId || "") !== params.deviceId) {
+              throw new Error("IDEMPOTENCY_CONFLICT");
+            }
             return {
               order: existing,
               customerNumber: Number(meta.customerNumber),

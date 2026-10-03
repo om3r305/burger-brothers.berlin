@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import NormalizedProductImage from "@/components/menu/NormalizedProductImage";
 import {
   localImageFallbackUrl,
   optimizedLocalImageUrl,
 } from "@/lib/media/local-optimized-image";
+import { schnellStorage } from "@/lib/client/schnell-storage";
 import { saveSchnellActiveOrder } from "@/lib/client/schnell-active-order";
 import {
   prewarmRewardCelebration,
@@ -520,7 +521,7 @@ function getStableIdempotencyKey(cart: CartLine[], takeaway: boolean) {
   const fingerprint = orderFingerprint(cart, takeaway);
 
   try {
-    const current = JSON.parse(localStorage.getItem(storageKey) || "null") as
+    const current = JSON.parse(schnellStorage.getItem(storageKey) || "null") as
       | { key?: string; fingerprint?: string; createdAt?: number }
       | null;
     const fresh =
@@ -530,11 +531,11 @@ function getStableIdempotencyKey(cart: CartLine[], takeaway: boolean) {
 
     if (fresh) return current.key as string;
   } catch {
-    localStorage.removeItem(storageKey);
+    schnellStorage.removeItem(storageKey);
   }
 
   const key = crypto.randomUUID();
-  localStorage.setItem(
+  schnellStorage.setItem(
     storageKey,
     JSON.stringify({ key, fingerprint, createdAt: Date.now() }),
   );
@@ -583,7 +584,7 @@ function normalizeCatalogSettings(
 function readCachedCatalog(): CachedCatalog | null {
   try {
     const parsed = JSON.parse(
-      window.localStorage.getItem(CATALOG_CACHE_KEY) || "null",
+      schnellStorage.getItem(CATALOG_CACHE_KEY) || "null",
     ) as CachedCatalog | null;
 
     if (
@@ -610,7 +611,7 @@ function writeCachedCatalog(
   settings: CatalogSettings,
 ) {
   try {
-    window.localStorage.setItem(
+    schnellStorage.setItem(
       CATALOG_CACHE_KEY,
       JSON.stringify({ savedAt: Date.now(), products, categories, settings }),
     );
@@ -624,7 +625,7 @@ function readHistory(settings: CatalogSettings) {
 
   try {
     const history = JSON.parse(
-      localStorage.getItem(HISTORY_KEY) || "[]",
+      schnellStorage.getItem(HISTORY_KEY) || "[]",
     ) as HistoryEntry[];
     const minimumTime = Date.now() - settings.historyDays * 24 * 60 * 60_000;
 
@@ -637,7 +638,7 @@ function readHistory(settings: CatalogSettings) {
       )
       .slice(0, settings.historyMaxOrders);
   } catch {
-    localStorage.removeItem(HISTORY_KEY);
+    schnellStorage.removeItem(HISTORY_KEY);
     return [];
   }
 }
@@ -671,7 +672,7 @@ function saveHistoryEntry(
     0,
     settings.historyMaxOrders,
   );
-  localStorage.setItem(HISTORY_KEY, JSON.stringify(next));
+  schnellStorage.setItem(HISTORY_KEY, JSON.stringify(next));
 }
 
 function playOrderConfirmationSoundOnce() {
@@ -761,6 +762,7 @@ function SchnellOrderClient() {
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [takeaway, setTakeaway] = useState(false);
   const [busy, setBusy] = useState(false);
+  const orderSubmitLockRef = useRef(false);
   const [loading, setLoading] = useState(true);
   const [clockMs, setClockMs] = useState(() => Date.now());
   const [error, setError] = useState("");
@@ -775,13 +777,13 @@ function SchnellOrderClient() {
   }, []);
 
   useEffect(() => {
-    const saved = localStorage.getItem("bb_schnell_cart");
+    const saved = schnellStorage.getItem("bb_schnell_cart");
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) setCart(parsed);
       } catch {
-        localStorage.removeItem("bb_schnell_cart");
+        schnellStorage.removeItem("bb_schnell_cart");
       }
     }
 
@@ -863,7 +865,7 @@ function SchnellOrderClient() {
   }, []);
 
   useEffect(() => {
-    localStorage.setItem("bb_schnell_cart", JSON.stringify(cart));
+    schnellStorage.setItem("bb_schnell_cart", JSON.stringify(cart));
   }, [cart]);
 
   useEffect(() => {
@@ -1089,7 +1091,7 @@ function SchnellOrderClient() {
     setConfirmOpen(false);
     setCartOpen(false);
     try {
-      window.localStorage.removeItem("bb_schnell_cart");
+      schnellStorage.removeItem("bb_schnell_cart");
     } catch {
       // React state remains the source of truth when storage is unavailable.
     }
@@ -1156,7 +1158,7 @@ function SchnellOrderClient() {
   }
 
   async function placeOrder() {
-    if (!cart.length || busy) return;
+    if (!cart.length || busy || orderSubmitLockRef.current) return;
 
     const missingDoneness = cart.find(
       (line) =>
@@ -1172,15 +1174,19 @@ function SchnellOrderClient() {
       return;
     }
 
+    orderSubmitLockRef.current = true;
     setBusy(true);
     setError("");
     stopRewardCelebrationSound();
     prewarmRewardCelebration();
+    const requestController = new AbortController();
+    const requestTimeout = window.setTimeout(() => requestController.abort(), 30_000);
 
     try {
       const idempotencyKey = getStableIdempotencyKey(cart, takeaway);
       const response = await fetch("/api/schnellbestellung/orders", {
         method: "POST",
+        signal: requestController.signal,
         headers: {
           "content-type": "application/json",
           "idempotency-key": idempotencyKey,
@@ -1201,6 +1207,10 @@ function SchnellOrderClient() {
       const data = await response.json().catch(() => ({}));
 
       if (!response.ok) {
+        if (data.error === "session_expired") {
+          router.replace("/schnellbestellung/enter");
+          throw new Error("Bitte scannen Sie den aktuellen QR-Code erneut.");
+        }
         if (data.error === "android_install_required") {
           router.replace("/schnellbestellung/enter?homescreen=1");
           throw new Error(
@@ -1224,8 +1234,16 @@ function SchnellOrderClient() {
                     ? "Das Mittagsmenü ist leider nicht mehr verfügbar. Bitte aktualisieren Sie Ihre Bestellung."
                     : data.error === "SCHNELL_UNAVAILABLE"
                       ? "Schnellbestellung ist momentan pausiert."
-                      : "Die Bestellung konnte nicht gesendet werden.";
+                      : data.error === "SHOP_CLOSED" || data.error === "SHOP_STATUS_UNAVAILABLE"
+                        ? String(data.message || "Der Online-Shop ist vorübergehend nicht verfügbar.")
+                        : data.error === "DB_BUSY"
+                          ? "Es gibt gerade viele Bestellungen. Bitte versuchen Sie es in wenigen Sekunden erneut."
+                          : "Die Bestellung konnte nicht gesendet werden.";
         throw new Error(message);
+      }
+
+      if (data.ok !== true || !String(data.orderId || "").trim()) {
+        throw new Error("Die Bestellung konnte noch nicht bestätigt werden. Bitte erneut versuchen.");
       }
 
       saveHistoryEntry(
@@ -1236,8 +1254,8 @@ function SchnellOrderClient() {
         Number(data.total || total),
       );
 
-      localStorage.removeItem("bb_schnell_cart");
-      localStorage.removeItem("bb_schnell_pending_order");
+      schnellStorage.removeItem("bb_schnell_cart");
+      schnellStorage.removeItem("bb_schnell_pending_order");
       setCart([]);
       const createdOrderId = String(data.orderId || "");
       const createdCustomerNumber = Number(data.customerNumber || 0);
@@ -1266,12 +1284,16 @@ function SchnellOrderClient() {
     } catch (caught) {
       stopRewardCelebrationSound();
       setError(
-        caught instanceof Error
+        caught instanceof Error && caught.name === "AbortError"
+          ? "Die Verbindung hat zu lange gedauert. Bitte erneut versuchen; der bestehende Bestellversuch wird überprüft."
+          : caught instanceof Error
           ? caught.message
           : "Die Bestellung konnte nicht gesendet werden.",
       );
       setConfirmOpen(false);
     } finally {
+      window.clearTimeout(requestTimeout);
+      orderSubmitLockRef.current = false;
       setBusy(false);
     }
   }
