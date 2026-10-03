@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 const securityHeaders = [
   { key: "X-Content-Type-Options", value: "nosniff" },
-  { key: "X-Frame-Options", value: process.env.VERCEL_ENV === "preview" ? "SAMEORIGIN" : "DENY" },
+  { key: "X-Frame-Options", value: "DENY" },
   { key: "Referrer-Policy", value: "no-referrer" },
   {
     key: "Permissions-Policy",

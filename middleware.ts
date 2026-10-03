@@ -274,7 +274,7 @@ export function contentSecurityPolicy(
     "default-src 'self'",
     "base-uri 'self'",
     "form-action 'self' https://checkout.stripe.com",
-    process.env.VERCEL_ENV === "preview" ? "frame-ancestors 'self'" : "frame-ancestors 'none'",
+    "frame-ancestors 'none'",
     "object-src 'none'",
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${developmentEval} https://js.stripe.com`,
     "script-src-attr 'none'",

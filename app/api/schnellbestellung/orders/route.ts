@@ -95,7 +95,13 @@ export async function POST(req: Request) {
     );
   }
 
-  const body = await req.json().catch(() => ({}));
+  const body = await req.json().catch(() => null);
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return NextResponse.json(
+      { ok: false, error: "INVALID_ORDER_PAYLOAD" },
+      { status: 400, headers: { "Cache-Control": "no-store" } },
+    );
+  }
 
   if (String(body.paymentMethod || "cash") !== "cash") {
     return NextResponse.json(
@@ -154,7 +160,9 @@ export async function POST(req: Request) {
   } catch (error: any) {
     const code = String(error?.message || "order_failed");
     const status =
-      code === "DEVICE_RATE_LIMIT"
+      code === "IDEMPOTENCY_CONFLICT"
+        ? 409
+        : code === "DEVICE_RATE_LIMIT"
         ? 429
         : code === "SCHNELL_UNAVAILABLE" || code === "DB_BUSY"
           ? 503

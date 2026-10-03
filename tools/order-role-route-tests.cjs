@@ -211,6 +211,20 @@ async function main() {
   assert.equal(refundCount, 1);
   assert.equal(row.status, "cancelled");
 
+  // Exercise the real TV route through the full pickup and Schnell lifecycle.
+  for (const mode of ["pickup", "dine_in"]) {
+    row = { ...freshRow(), mode, channel: mode === "dine_in" ? "schnellbestellung" : "web",
+      status: "new", driver: null,
+      meta: mode === "dine_in" ? { source: "qr_quick_order", customerNumber: 1, deviceId: "device-1", paymentMethod: "cash", paymentStatus: "pay_at_counter" } : { paymentMethod: "online", payment: { method: "online", status: "paid" } } };
+    for (const next of ["preparing", "ready", "done"]) {
+      const response = await route.POST(request("tv", { status: next, etaMin: mode === "pickup" ? 15 : 0, accepted: next === "preparing" }));
+      assert.equal(response.status, 200, `${mode}: ${next}`);
+      assert.equal(row.status, next);
+      if (next === "preparing") assert.equal(row.meta.acceptedBy, "tv");
+      if (mode === "dine_in" && next === "ready") assert.ok(row.meta.readyEventId, "ready transition must create the phone alert event");
+    }
+  }
+
   for (const status of ["payment_pending", "payment_completed", "refund_pending", "refund_failed"]) {
     row = { ...freshRow(), status, meta: { paymentSession: { state: status } } };
     updateCount = 0;
