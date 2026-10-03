@@ -1,9 +1,9 @@
 const fs = require('node:fs');
 const vm = require('node:vm');
 const assert = require('node:assert/strict');
-const { stripTypeScriptTypes } = require('node:module');
+const typescript = require('typescript');
 const read = p => fs.readFileSync(p, 'utf8');
-const ts = s => stripTypeScriptTypes(s);
+const ts = s => typescript.transpileModule(s, { compilerOptions: { target: typescript.ScriptTarget.ES2022, module: typescript.ModuleKind.CommonJS } }).outputText;
 
 async function checkoutTest(responses, expectedCalls, failure) {
   const page = read('app/checkout/page.tsx');
@@ -12,6 +12,7 @@ async function checkoutTest(responses, expectedCalls, failure) {
   const ctx = { Error, Date, Math, String, AbortSignal,
     ORDER_RETRY_TOTAL_MS: 300000, ORDER_RETRY_INTERVAL_MS: 30000,
     createCheckoutIdempotencyKey: () => 'stable-test-key',
+    cashAttemptRef: { current: null }, checkoutAttemptFingerprint: JSON.stringify,
     reportCheckoutError() {}, clearActiveCoupon() {},
     parseOrderCreateEnvelope: x => x, recordValue: x => x || {},
     stringValue: x => typeof x === 'string' ? x : '', toNum: (x,d) => x ?? d,
