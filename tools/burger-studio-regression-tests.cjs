@@ -100,14 +100,14 @@ assert(admin.includes("Hazır Burger Şablonları"));
 assert(admin.includes("Opsiyonel"));
 assert(!admin.includes("scratchEnabled: false"));
 
-// Canonical sync must happen before public settings save. Freestyle receives an
+// The canonical sync atomically saves public settings. Freestyle receives an
 // internal canonical Product that is not meant for normal customer surfaces.
 const syncIndex = admin.indexOf('fetch("/api/admin/burger-studio/sync"');
-const settingsIndex = admin.indexOf('fetch("/api/settings"', syncIndex + 1);
+const settingsIndex = admin.indexOf('fetch("/api/settings?fresh=1"', syncIndex + 1);
 assert(syncIndex >= 0, "Admin must call canonical Burger Studio sync");
 assert(
   settingsIndex > syncIndex,
-  "Canonical Burger Studio data must sync before saving public activation settings",
+  "Admin refreshes settings only after the atomic canonical save",
 );
 assert(syncRoute.includes('requireMutationRole(req, ["admin"])'));
 assert(syncRoute.includes("BURGER_STUDIO_SCRATCH_SKU"));

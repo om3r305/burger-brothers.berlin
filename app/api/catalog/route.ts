@@ -1065,9 +1065,10 @@ async function readBody(req: Request) {
   }
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
-    const cached = readCatalogMemoryCache();
+    const forceFresh = req && new URL(req.url).searchParams.get("fresh") === "1";
+    const cached = forceFresh ? null : readCatalogMemoryCache();
 
     if (cached) {
       return jsonResponse({

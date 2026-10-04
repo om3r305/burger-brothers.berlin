@@ -11,6 +11,7 @@ import {
   BURGER_STUDIO_SCRATCH_SKU,
   createDefaultBurgerStudioV2Config,
   normalizeBurgerStudioV2Config,
+  burgerStudioRecipeCompletion,
   type BurgerStudioV2Config,
 } from "@/lib/burger-studio-v2";
 
@@ -80,6 +81,7 @@ export default function BurgerStudioAdminV2() {
   const [catalog, setCatalog] = useState<CatalogProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [loadedSuccessfully, setLoadedSuccessfully] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [openTemplateId, setOpenTemplateId] = useState<string | null>(null);
@@ -90,11 +92,21 @@ export default function BurgerStudioAdminV2() {
       fetch("/api/settings", {
         cache: "no-store",
         credentials: "same-origin",
-      }).then((res) => res.json()),
-      fetch("/api/catalog", {
+      }).then(async (res) => {
+        if (!res.ok) throw new Error("Studio-Daten konnten nicht geladen werden.");
+        const body = await res.json();
+        if (body?.ok === false) throw new Error("Studio-Daten konnten nicht geladen werden.");
+        return body;
+      }),
+      fetch("/api/catalog?fresh=1", {
         cache: "no-store",
         credentials: "same-origin",
-      }).then((res) => res.json()),
+      }).then(async (res) => {
+        if (!res.ok) throw new Error("Studio-Daten konnten nicht geladen werden.");
+        const body = await res.json();
+        if (body?.ok === false) throw new Error("Studio-Daten konnten nicht geladen werden.");
+        return body;
+      }),
     ])
       .then(([settingsRaw, catalogRaw]) => {
         if (!alive) return;
@@ -107,6 +119,7 @@ export default function BurgerStudioAdminV2() {
             ? catalogRaw.data.products
             : [];
         setCatalog(products);
+        setLoadedSuccessfully(true);
       })
       .catch((cause) =>
         setError(
@@ -243,6 +256,7 @@ export default function BurgerStudioAdminV2() {
   }
 
   async function save() {
+    if (!loadedSuccessfully) return;
     setSaving(true);
     setError("");
     setMessage("");
@@ -258,6 +272,7 @@ export default function BurgerStudioAdminV2() {
       }
 
       if (clean.scratchEnabled) {
+        if (clean.maxIngredients < 2) throw new Error("Freestyle için malzeme sınırı en az 2 olmalı.");
         if (!clean.ingredients.some((item) => item.active && item.group === "bun")) {
           throw new Error("Freestyle için en az bir aktif Bun gerekli.");
         }
@@ -277,6 +292,9 @@ export default function BurgerStudioAdminV2() {
               : sum,
           0,
         );
+        if (!burgerStudioRecipeCompletion(clean, { version: 1, templateId: template.id, ingredients: template.recipe }).complete) {
+          throw new Error(`${template.name}: bir Bun, Protein ve geçerli malzeme sınırı gerekli.`);
+        }
         if (proteinQty <= 0) {
           throw new Error(`${template.name}: reçetede en az bir protein olmalı.`);
         }
@@ -303,33 +321,17 @@ export default function BurgerStudioAdminV2() {
         );
       }
 
-      const response = await fetch("/api/settings", {
-        method: "POST",
-        credentials: "same-origin",
-        cache: "no-store",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-        body: JSON.stringify({ key: "menu.burgerStudio", value: clean }),
-      });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok || body?.ok === false) {
-        throw new Error(
-          String(body?.message || body?.error || "Burger Studio kaydedilemedi."),
-        );
-      }
-
       setConfig(clean);
       setMessage(
         `Burger Studio V2 kaydedildi ✓ · ${syncBody?.updated ?? 0} ürün senkronlandı${syncBody?.scratchReady ? " · Freestyle hazır" : ""}.`,
       );
 
       try {
-        const settingsResponse = await fetch("/api/settings", {
+        const settingsResponse = await fetch("/api/settings?fresh=1", {
           cache: "no-store",
           credentials: "same-origin",
         });
+        if (!settingsResponse.ok) throw new Error("SETTINGS_REFRESH_FAILED");
         const settings = await settingsResponse.json();
         const next = settings?.settings ?? settings?.data ?? settings;
         localStorage.setItem("bb_settings_v6", JSON.stringify(next));
@@ -378,7 +380,7 @@ export default function BurgerStudioAdminV2() {
           <button
             type="button"
             onClick={save}
-            disabled={saving}
+            disabled={saving || !loadedSuccessfully}
             className="rounded-xl bg-amber-400 px-5 py-2 text-sm font-black text-black disabled:opacity-50"
           >
             {saving ? "Kaydediliyor…" : "Kaydet"}
@@ -611,7 +613,7 @@ export default function BurgerStudioAdminV2() {
       </section>
 
       <div className="sticky bottom-[calc(env(safe-area-inset-bottom)+5.2rem)] z-20 flex justify-end lg:bottom-4">
-        <button type="button" onClick={save} disabled={saving} className="rounded-2xl bg-amber-400 px-6 py-3 font-black text-black shadow-2xl disabled:opacity-50">
+        <button type="button" onClick={save} disabled={saving || !loadedSuccessfully} className="rounded-2xl bg-amber-400 px-6 py-3 font-black text-black shadow-2xl disabled:opacity-50">
           {saving ? "Kaydediliyor…" : "Burger Studio V2’yi Kaydet"}
         </button>
       </div>

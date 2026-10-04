@@ -4,6 +4,7 @@ import { prisma, getTenantId } from "@/lib/db";
 import {
   BURGER_STUDIO_SCRATCH_NAME,
   BURGER_STUDIO_SCRATCH_SKU,
+  burgerStudioRecipeCompletion,
   normalizeBurgerStudioV2Config,
 } from "@/lib/burger-studio-v2";
 import { requireMutationRole } from "@/lib/server/request-security";
@@ -76,8 +77,25 @@ export async function POST(req: Request) {
   if (authError) return authError;
 
   try {
-    const body = await req.json().catch(() => ({}));
+    const body = await req.json().catch(() => null);
+    if (!body?.config || typeof body.config !== "object" || Array.isArray(body.config) ||
+      body.config.version !== 2 || typeof body.config.enabled !== "boolean") {
+      return NextResponse.json({ ok: false, error: "INVALID_STUDIO_CONFIG" }, { status: 400 });
+    }
     const config = normalizeBurgerStudioV2Config(body?.config ?? body);
+    if (config.enabled && (
+      (!config.scratchEnabled && !config.templates.some((item) => item.active)) ||
+      (config.scratchEnabled && (
+        config.maxIngredients < 2 ||
+        !config.ingredients.some((item) => item.active && item.group === "bun") ||
+        !config.ingredients.some((item) => item.active && item.group === "protein")
+      )) ||
+      config.templates.some((item) => item.active && !burgerStudioRecipeCompletion(config, {
+        version: 1, templateId: item.id, ingredients: item.recipe,
+      }).complete)
+    )) {
+      return NextResponse.json({ ok: false, error: "INVALID_STUDIO_RECIPE", message: "Aktif burgerler için bir Bun, Protein ve geçerli malzeme sınırı gerekli." }, { status: 400 });
+    }
     const tenantId = await getTenantId();
     const products = await prisma.product.findMany({
       where: { tenantId },
@@ -195,7 +213,29 @@ export async function POST(req: Request) {
         });
         updated += 1;
       }
-    });
+
+      // Commit the public configuration with its canonical prices. An error in
+      // either write rolls back the entire save. SQL merges only this subtree,
+      // preserving unrelated payment, opening-hours and menu settings.
+      await tx.setting.upsert({
+        where: { tenantId_key: { tenantId, key: "bb_settings_v6" } },
+        create: { tenantId, key: "bb_settings_v6", value: {} },
+        update: {},
+      });
+      const studioJson = JSON.stringify(config);
+      await tx.$executeRaw`
+        UPDATE "Setting"
+        SET value = jsonb_set(value, '{menu}',
+          COALESCE(value->'menu', '{}'::jsonb) || jsonb_build_object('burgerStudio', ${studioJson}::jsonb)),
+          "updatedAt" = NOW()
+        WHERE "tenantId" = ${tenantId} AND key IN ('bb_settings_v6', 'settings', 'app:settings')
+      `;
+      await tx.$executeRaw`
+        UPDATE "Setting"
+        SET value = value || jsonb_build_object('burgerStudio', ${studioJson}::jsonb), "updatedAt" = NOW()
+        WHERE "tenantId" = ${tenantId} AND key = 'menu'
+      `;
+    }, { maxWait: 15_000, timeout: 30_000 });
 
     return NextResponse.json({
       ok: true,
