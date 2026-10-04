@@ -511,6 +511,28 @@ async function main() {
     (error) => error && error.code === "PAYMENT_TOTAL_MISMATCH",
   );
 
+  // Studio plans must survive the real canonical pricing rebuild, including
+  // premium ingredients and malicious client prices.
+  resetState();
+  const { createDefaultBurgerStudioV2Config } = require(path.join(root, "lib/burger-studio-v2.ts"));
+  const { planBurgerStudioV2Order } = require(path.join(root, "lib/burger-studio-v2-order-plan.ts"));
+  const studio = createDefaultBurgerStudioV2Config();
+  Object.assign(studio, { enabled: true, scratchEnabled: true, templates: [], scratchBasePrice: 3.5 });
+  const studioExtras = [{ id: "bstudio:marker", sku: "bstudio:marker", name: "Studio", price: 0 },
+    ...studio.ingredients.filter(i => i.active).map(i => ({ id: `bstudio:add:${i.id}`, sku: `bstudio:add:${i.id}`, name: i.name, price: i.addPrice }))];
+  state.products.push(product({ sku: "BSTUDIO-SCRATCH-BASE", price: 3.5, extrasJson: studioExtras }));
+  for (const id of ["black-angus", "chicken-breast", "farmers-market"]) {
+    const ingredient = studio.ingredients.find(i => i.id === id);
+    const plan = planBurgerStudioV2Order({ config: studio, recipe: { version: 1, templateId: null,
+      ingredients: { brioche: 1, [id]: 1, ...(ingredient.group === "topping" ? { beef: 1 } : {}) } } });
+    const canonical = await rebuildOrderPricingFromDatabase({ tenantId: "tenant-1",
+      settings: { menu: { burgerStudio: studio }, freebies: { enabled: false }, pfand: { enabled: false } },
+      order: { mode: "pickup", total: 0.01, items: [{ sku: "BSTUDIO-SCRATCH-BASE", qty: 1, price: 0.01,
+        add: plan.add.map(extra => ({ ...extra, price: 0.01 })) }] } });
+    assert.equal(canonical.merchandiseCents, Math.round(plan.total * 100));
+    assert.equal(canonical.payableCents, Math.round(plan.total * 100));
+  }
+
   console.log("Order pricing tests passed.");
 }
 

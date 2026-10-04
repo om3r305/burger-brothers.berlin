@@ -104,7 +104,10 @@ function readSaved(): SavedBurger[] {
 function writeSaved(items: SavedBurger[]) {
   try {
     localStorage.setItem(SAVED_KEY, JSON.stringify(items));
-  } catch {}
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function productRefMatches(product: CatalogProduct, ref: string) {
@@ -138,7 +141,7 @@ export default function BurgerStudioV2() {
   const addToCart = useCart((state: any) => state.addToCart);
 
   const [config, setConfig] = useState<BurgerStudioV2Config>(
-    createDefaultBurgerStudioV2Config(),
+    createDefaultBurgerStudioV2Config,
   );
   const [catalog, setCatalog] = useState<CatalogProduct[]>([]);
   const [recipe, setRecipe] = useState<BurgerStudioRecipe>(emptyRecipe());
@@ -148,18 +151,32 @@ export default function BurgerStudioV2() {
   const [assembled, setAssembled] = useState(false);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState("");
+  const [loadError, setLoadError] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
 
   useEffect(() => {
     let alive = true;
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 15_000);
+    setLoading(true);
+    setLoadError(false);
+    const readResponse = async (res: Response) => {
+      if (!res.ok) throw new Error("STUDIO_LOAD_FAILED");
+      const body = await res.json();
+      if (body?.ok === false) throw new Error("STUDIO_LOAD_FAILED");
+      return body;
+    };
     Promise.all([
-      fetch("/api/settings", {
+      fetch("/api/settings?fresh=1", {
         cache: "no-store",
         credentials: "same-origin",
-      }).then((res) => res.json()),
-      fetch("/api/catalog", {
+        signal: controller.signal,
+      }).then(readResponse),
+      fetch("/api/catalog?fresh=1", {
         cache: "no-store",
         credentials: "same-origin",
-      }).then((res) => res.json()),
+        signal: controller.signal,
+      }).then(readResponse),
     ])
       .then(([settingsRaw, catalogRaw]) => {
         if (!alive) return;
@@ -193,16 +210,19 @@ export default function BurgerStudioV2() {
           }
         }
       })
-      .catch(() => {})
+      .catch(() => { if (alive) setLoadError(true); })
       .finally(() => {
+        window.clearTimeout(timeout);
         if (alive) setLoading(false);
       });
 
     setSaved(readSaved());
     return () => {
       alive = false;
+      window.clearTimeout(timeout);
+      controller.abort();
     };
-  }, []);
+  }, [loadAttempt]);
 
   const template = useMemo<BurgerStudioTemplate | null>(() => {
     if (!recipe.templateId) return null;
@@ -218,7 +238,7 @@ export default function BurgerStudioV2() {
     return catalog.find((item) => productRefMatches(item, template.productRef)) || null;
   }, [catalog, template]);
 
-  const plan = useMemo(() => {
+  const validPlan = useMemo(() => {
     try {
       return planBurgerStudioV2Order({
         config,
@@ -230,9 +250,11 @@ export default function BurgerStudioV2() {
         ),
       });
     } catch {
-      return emptyPlan(config);
+      return null;
     }
   }, [config, linkedProduct, recipe, template]);
+
+  const plan = validPlan ?? emptyPlan(config);
 
   const completion = useMemo(
     () => burgerStudioRecipeCompletion(config, recipe),
@@ -244,7 +266,7 @@ export default function BurgerStudioV2() {
   const sourceAllowed = recipe.templateId
     ? Boolean(template && linkedProduct && linkedProduct.active !== false)
     : config.scratchEnabled;
-  const canFinish = completion.complete && sourceAllowed;
+  const canFinish = completion.complete && sourceAllowed && Boolean(validPlan);
   const canOrder = Boolean(
     config.enabled && modeAllowed && canFinish && assembled,
   );
@@ -326,8 +348,11 @@ export default function BurgerStudioV2() {
       savedAt: Date.now(),
     };
     const next = [item, ...saved].slice(0, config.maxSavedBurgers);
+    if (!writeSaved(next)) {
+      flash("Speichern nicht möglich. Bitte Browser-Speicher erlauben.");
+      return;
+    }
     setSaved(next);
-    writeSaved(next);
     flash("Burger gespeichert ✓");
   }
 
@@ -346,6 +371,13 @@ export default function BurgerStudioV2() {
       flash("Freestyle ist aktuell deaktiviert.");
       return;
     }
+    if (Object.entries(nextRecipe.ingredients).some(([id, qty]) => {
+      const ingredient = config.ingredients.find((entry) => entry.id === id && entry.active);
+      return !ingredient || qty > ingredient.max;
+    })) {
+      flash("Diese Zutaten sind nicht mehr verfügbar. Bitte neu zusammenstellen.");
+      return;
+    }
     setRecipe(nextRecipe);
     setCreationName(item.name);
     setAssembled(false);
@@ -354,8 +386,11 @@ export default function BurgerStudioV2() {
 
   function removeSavedBurger(id: string) {
     const next = saved.filter((item) => item.id !== id);
+    if (!writeSaved(next)) {
+      flash("Löschen nicht möglich. Bitte Browser-Speicher erlauben.");
+      return;
+    }
     setSaved(next);
-    writeSaved(next);
   }
 
   function addBurgerToCart() {
@@ -415,6 +450,19 @@ export default function BurgerStudioV2() {
     );
   }
 
+  if (loadError) {
+    return (
+      <main className="min-h-dvh bg-[#070707] p-6 text-white">
+        <div role="alert" className="mx-auto max-w-xl rounded-3xl border border-white/10 p-8 text-center">
+          <h1 className="text-2xl font-black">Burger Studio konnte nicht geladen werden</h1>
+          <p className="mt-3 text-stone-400">Bitte prüfe deine Verbindung und versuche es erneut.</p>
+          <button type="button" onClick={() => setLoadAttempt((value) => value + 1)} className="mt-6 rounded-2xl bg-amber-400 px-5 py-3 font-black text-black">Erneut versuchen</button>
+          <Link href="/menu" className="ml-4 inline-block py-3">Zum Menü</Link>
+        </div>
+      </main>
+    );
+  }
+
   if (!config.enabled && !preview) {
     return (
       <main className="min-h-dvh bg-[#070707] p-6 text-white">
@@ -433,7 +481,7 @@ export default function BurgerStudioV2() {
   const sourceName = recipe.templateId ? template?.name || "Burger-Basis" : "Freestyle";
 
   return (
-    <main className="min-h-dvh bg-[#070707] pb-32 text-white">
+    <main className="min-h-dvh bg-[#070707] pb-40 text-white">
       <div className="sticky top-0 z-40 border-b border-white/10 bg-[#070707]/92 px-3 py-3 backdrop-blur-xl sm:px-6">
         <div className="mx-auto max-w-7xl">
           <NavBar variant="plain" showLocationCaption={false} />
@@ -462,7 +510,7 @@ export default function BurgerStudioV2() {
           <section className="space-y-5">
             <BurgerStackV2 config={config} recipe={recipe} assembled={assembled} />
 
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="hidden gap-3 lg:grid sm:grid-cols-2">
               <button
                 type="button"
                 onClick={finishBurger}
@@ -564,13 +612,14 @@ export default function BurgerStudioV2() {
                         <div className="text-xs text-stone-500">{detail}</div>
                       </div>
                       <div className="flex items-center gap-2 rounded-xl bg-black/40 p-1">
-                        <button type="button" onClick={() => setIngredientQty(ingredient.id, qty - 1)} className="grid h-9 w-9 place-items-center rounded-lg bg-white/[0.07] text-lg font-black">−</button>
+                        <button type="button" aria-label={`${ingredient.name} reduzieren`} disabled={qty <= 0} onClick={() => setIngredientQty(ingredient.id, qty - 1)} className="grid h-11 w-11 place-items-center rounded-lg bg-white/[0.07] text-lg font-black">−</button>
                         <span className="w-6 text-center font-black">{qty}</span>
                         <button
                           type="button"
+                          aria-label={`${ingredient.name} hinzufügen`}
                           onClick={() => setIngredientQty(ingredient.id, qty + 1)}
                           disabled={qty >= ingredient.max || (ingredient.group === "bun" && qty >= 1)}
-                          className="grid h-9 w-9 place-items-center rounded-lg bg-amber-400 text-lg font-black text-black disabled:opacity-30"
+                          className="grid h-11 w-11 place-items-center rounded-lg bg-amber-400 text-lg font-black text-black disabled:opacity-30"
                         >+
                         </button>
                       </div>
@@ -581,8 +630,9 @@ export default function BurgerStudioV2() {
             </div>
 
             <div className="rounded-3xl border border-white/10 bg-white/[0.035] p-4 sm:p-5">
-              <label className="text-xs font-black uppercase tracking-widest text-stone-500">Deine Kreation</label>
+              <label htmlFor="studio-creation-name" className="text-xs font-black uppercase tracking-widest text-stone-500">Deine Kreation</label>
               <input
+                id="studio-creation-name"
                 value={creationName}
                 onChange={(event) => setCreationName(event.target.value.slice(0, 50))}
                 placeholder="z.B. Ömer Special"
@@ -620,7 +670,7 @@ export default function BurgerStudioV2() {
                   type="button"
                   onClick={addBurgerToCart}
                   disabled={!canOrder}
-                  className="rounded-2xl bg-amber-400 px-4 py-3 font-black text-black shadow-[0_12px_35px_rgba(245,158,11,.2)] disabled:cursor-not-allowed disabled:opacity-35"
+                  className="hidden rounded-2xl bg-amber-400 px-4 py-3 font-black text-black shadow-[0_12px_35px_rgba(245,158,11,.2)] disabled:cursor-not-allowed disabled:opacity-35 lg:block"
                 >
                   {assembled ? "In den Warenkorb" : "Erst Burger fertig machen"}
                 </button>
@@ -640,7 +690,7 @@ export default function BurgerStudioV2() {
                         <div className="truncate font-bold">{item.name}</div>
                         <div className="text-xs text-stone-500">Mit aktuellen Preisen neu bauen</div>
                       </button>
-                      <button type="button" onClick={() => removeSavedBurger(item.id)} className="rounded-lg px-2 py-1 text-stone-500 hover:bg-white/10 hover:text-white">✕</button>
+                      <button type="button" aria-label={`${item.name} löschen`} onClick={() => removeSavedBurger(item.id)} className="rounded-lg px-2 py-1 text-stone-500 hover:bg-white/10 hover:text-white">✕</button>
                     </div>
                   ))}
                 </div>
@@ -650,8 +700,21 @@ export default function BurgerStudioV2() {
         </div>
       </div>
 
+      <div className="fixed inset-x-0 bottom-0 z-50 border-t border-white/10 bg-[#070707]/95 px-3 pt-3 pb-[max(12px,env(safe-area-inset-bottom))] backdrop-blur-xl lg:hidden">
+        <div className="mx-auto flex max-w-3xl items-center gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="text-lg font-black text-amber-300">{fmt(plan.total)}</div>
+            <div className="text-xs text-stone-400">{!modeAllowed ? "Für diese Bestellart nicht verfügbar" : !sourceAllowed ? "Diese Basis ist nicht verfügbar" : !completion.hasExactlyOneBun ? "Wähle ein Bun" : !completion.hasProtein ? "Wähle ein Protein" : !completion.withinLimit ? "Zu viele Zutaten" : !validPlan ? "Bitte Zutaten prüfen" : assembled ? "Dein Burger ist fertig" : "Bereit zum Fertigmachen"}</div>
+          </div>
+          <button type="button" onClick={assembled ? addBurgerToCart : finishBurger} disabled={assembled ? !canOrder : !canFinish}
+            className="min-h-12 rounded-2xl bg-amber-400 px-4 py-3 text-sm font-black text-black disabled:opacity-35">
+            {assembled ? "In den Warenkorb" : "🔥 Burger fertig machen"}
+          </button>
+        </div>
+      </div>
+
       {toast ? (
-        <div className="fixed bottom-24 left-1/2 z-[100] -translate-x-1/2 rounded-full border border-amber-300/30 bg-stone-950 px-5 py-3 text-sm font-black shadow-2xl">{toast}</div>
+        <div role="status" aria-live="polite" className="fixed bottom-28 left-1/2 z-[100] -translate-x-1/2 rounded-full border border-amber-300/30 bg-stone-950 px-5 py-3 text-sm font-black shadow-2xl">{toast}</div>
       ) : null}
     </main>
   );

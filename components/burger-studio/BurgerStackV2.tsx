@@ -148,6 +148,7 @@ export default function BurgerStackV2({ config, recipe, assembled }: {
   const stackStyle = {
     "--bsv2-count": Math.max(1, count),
     "--bsv2-stage-height": `${stageHeight}px`,
+    "--bsv2-mobile-scale": Math.min(1, 292 / Math.max(1, stageHeight - 48)),
     "--bsv2-gap": `${buildGap}px`,
     "--bsv2-top-bottom": `${finalTopBottom}px`,
   } as CSSProperties;
@@ -305,7 +306,7 @@ export default function BurgerStackV2({ config, recipe, assembled }: {
         @keyframes bsv2-steam-rise{0%{opacity:0;transform:translateY(12px) scale(.82)}22%{opacity:.48}70%{opacity:.25}100%{opacity:0;transform:translateY(-42px) translateX(8px) scale(1.15)}}
         @keyframes bsv2-heat{0%{opacity:0;transform:translateX(-50%) scale(.85)}28%{opacity:.95}100%{opacity:0;transform:translateX(-50%) scale(1.08)}}
         @keyframes bsv2-warm-settle{0%{opacity:.78}28%{opacity:1}100%{opacity:.76}}
-        @media(max-width:720px){.bsv2-stage{border-radius:24px}.bsv2-stack{width:min(91vw,345px)}.bsv2-piece-label{display:block;left:auto;right:6px;max-width:46%;overflow:hidden;text-overflow:ellipsis;padding:4px 6px;font-size:8px;letter-spacing:.01em}.is-building .bsv2-layer{top:calc(78px + (var(--bsv2-r) * var(--bsv2-gap)))}}
+        @media(max-width:1023px){.bsv2-stage{height:min(340px,var(--bsv2-stage-height));min-height:300px;border-radius:24px}.bsv2-stack{width:min(91vw,345px);transform:perspective(950px) rotateX(4deg) scale(var(--bsv2-mobile-scale));transform-origin:center center}.bsv2-piece-label{display:block;left:auto;right:6px;max-width:46%;overflow:hidden;text-overflow:ellipsis;padding:4px 6px;font-size:8px;letter-spacing:.01em}.is-building .bsv2-layer{top:calc(78px + (var(--bsv2-r) * var(--bsv2-gap)))}}
         @media(prefers-reduced-motion:reduce){.bsv2-stage,.bsv2-piece{transition:none!important}.bsv2-assembly-flash,.bsv2-steam,.bsv2-heat-glow{display:none!important}.is-assembled .bsv2-layer,.is-assembled .bsv2-bun-top,.is-assembled .bsv2-stage-light,.is-assembled .bsv2-layer:after,.is-assembled .bsv2-food-detail{animation:none!important}.bsv2-stage-light{filter:none;opacity:.18}}
         @media(prefers-reduced-motion:reduce){.bsv2-cheese-flow{display:none!important}.bsv2-cheese-flow i,.bsv2-steam span{animation:none!important}}
       `}</style>
