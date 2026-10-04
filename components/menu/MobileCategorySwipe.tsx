@@ -308,6 +308,7 @@ export default function MobileCategorySwipe() {
 
     const onTouchStart = (event: TouchEvent) => {
       if (
+        event.defaultPrevented ||
         navigationLockedRef.current ||
         !supportsMobileSwipe() ||
         event.touches.length !== 1 ||
@@ -423,6 +424,7 @@ export default function MobileCategorySwipe() {
     });
 
     return () => {
+      gestureRef.current = emptyGesture();
       document.removeEventListener("touchstart", onTouchStart, true);
       document.removeEventListener("touchmove", onTouchMove, true);
       document.removeEventListener("touchend", finishGesture, true);

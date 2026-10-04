@@ -55,7 +55,8 @@ struct BurgerWebView: UIViewRepresentable {
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator
-        webView.allowsBackForwardNavigationGestures = true
+        // Horizontal swipes belong to the web menu, never page history.
+        webView.allowsBackForwardNavigationGestures = false
         webView.customUserAgent = "BurgerBrothers-iOS/\(AppConfig.appKind)"
 
         let refresh = UIRefreshControl()

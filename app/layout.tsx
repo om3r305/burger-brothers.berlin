@@ -13,6 +13,7 @@ import CatalogProvider from "@/components/catalog/CatalogProvider";
 import CustomerAppBootstrap from "@/components/CustomerAppBootstrap";
 import PrivacyConsent from "@/components/PrivacyConsent";
 import MobileCategorySwipe from "@/components/menu/MobileCategorySwipe";
+import BrowserHistorySwipeGuard from "@/components/BrowserHistorySwipeGuard";
 import BurgerAssistant from "@/components/assistant/BurgerAssistant";
 import BurgerStudioEntry from "@/components/burger-studio/BurgerStudioEntry";
 import DeliveryCheckoutGate from "@/components/customer/DeliveryCheckoutGate";
@@ -294,6 +295,9 @@ body:has(#bb-landing-page) .bb-mobile-footer-gap {
 
         {/* Uygulama hissi veren merkezi route geçiş katmanı */}
         <AppRouteTransition />
+
+        {/* Tarayıcı geçmiş kaydırması kategori hareketini devralmasın. */}
+        <BrowserHistorySwipeGuard />
 
         {/* Mobil menü kategorileri arasında hızlı sağ/sol kaydırma */}
         <MobileCategorySwipe />
