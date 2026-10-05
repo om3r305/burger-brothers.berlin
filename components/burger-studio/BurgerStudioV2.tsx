@@ -586,7 +586,7 @@ export default function BurgerStudioV2() {
                 {GROUPS.find((entry) => entry.key === group)?.helper}
               </div>
 
-              <div className="mt-3 space-y-2">
+              <div className="mt-3 grid grid-cols-1 gap-2 min-[375px]:grid-cols-2 sm:grid-cols-1">
                 {visibleIngredients.map((ingredient) => {
                   const qty = Number(recipe.ingredients[ingredient.id] || 0);
                   const baseQty = Number(template?.recipe?.[ingredient.id] || 0);
@@ -605,13 +605,13 @@ export default function BurgerStudioV2() {
                   return (
                     <div
                       key={ingredient.id}
-                      className={`flex items-center gap-3 rounded-2xl border p-3 ${qty > 0 ? "border-amber-400/30 bg-amber-400/[0.06]" : "border-white/10 bg-black/20"}`}
+                      className={`flex min-w-0 flex-col items-stretch gap-2 rounded-2xl border p-2.5 sm:flex-row sm:items-center sm:gap-3 sm:p-3 ${qty > 0 ? "border-amber-400/30 bg-amber-400/[0.06]" : "border-white/10 bg-black/20"}`}
                     >
                       <div className="min-w-0 flex-1">
-                        <div className="truncate font-bold">{ingredient.name}</div>
+                        <div className="break-words text-sm font-bold sm:text-base">{ingredient.name}</div>
                         <div className="text-xs text-stone-500">{detail}</div>
                       </div>
-                      <div className="flex items-center gap-2 rounded-xl bg-black/40 p-1">
+                      <div className="flex shrink-0 items-center justify-between gap-1 rounded-xl bg-black/40 p-1 sm:gap-2">
                         <button type="button" aria-label={`${ingredient.name} reduzieren`} disabled={qty <= 0} onClick={() => setIngredientQty(ingredient.id, qty - 1)} className="grid h-11 w-11 place-items-center rounded-lg bg-white/[0.07] text-lg font-black">−</button>
                         <span className="w-6 text-center font-black">{qty}</span>
                         <button
