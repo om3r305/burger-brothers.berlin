@@ -449,26 +449,16 @@ export default function DeliveryAddressEntry() {
   }, [isCheckoutPath, router]);
 
   useEffect(() => {
-    if (!isMenuPath) {
-      setCompactAddressBar(false);
-      return;
-    }
+    if (!isMenuPath) return;
 
-    let frame = 0;
     const syncAddressBar = () => {
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => {
-        setCompactAddressBar(window.scrollY > 96);
-      });
+      setCompactAddressBar(window.scrollY > 96);
     };
 
     syncAddressBar();
     window.addEventListener("scroll", syncAddressBar, { passive: true });
 
-    return () => {
-      cancelAnimationFrame(frame);
-      window.removeEventListener("scroll", syncAddressBar);
-    };
+    return () => window.removeEventListener("scroll", syncAddressBar);
   }, [isMenuPath]);
 
   useEffect(() => {
