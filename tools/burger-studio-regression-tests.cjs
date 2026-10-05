@@ -172,8 +172,8 @@ assert(!stack.includes("@react-three/drei"));
 assert(!stack.includes("THREE."));
 assert(!stack.includes("<Canvas"));
 
-// V2 polish keeps the food stack deterministic and lets the DOM stage grow with
-// the recipe instead of compressing ingredients into a fixed-height viewport.
+// Desktop keeps its growing canvas; phone layout packs vertical positions
+// separately so the food width stays constant.
 assert(stack.includes("function foodPriority"));
 assert(stack.includes("layers.sort((a, b) => a.order - b.order"));
 assert(stack.includes("218 + count * buildGap"));
@@ -192,7 +192,7 @@ assert(stack.includes('if (key.includes("italian")) return "italian"'));
 // assembled burger instead of reversing low-priority layers toward the top bun.
 assert(stack.includes('"--bsv2-r": count - index'));
 assert(stack.includes("top:calc(82px + (var(--bsv2-r) * var(--bsv2-gap)))"));
-assert(stack.includes("top:calc(78px + (var(--bsv2-r) * var(--bsv2-gap)))"));
+assert(stack.includes("bottom:var(--bsv2-mobile-build-bottom)"));
 
 // Only the Classic top bun receives sesame. Smash and gluten-free selectors
 // explicitly suppress seeds, including both bottom bun variants.

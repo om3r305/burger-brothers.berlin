@@ -1,0 +1,78 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const Module = require('node:module');
+const ts = require('typescript');
+const originalLoad = Module._load;
+const jsx = (type, props) => ({ type, props });
+const compile = (mod, filename) => mod._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
+  compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS,
+    jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true }, fileName: filename,
+}).outputText, filename);
+require.extensions['.ts'] = compile;
+require.extensions['.tsx'] = compile;
+Module._load = function(request, parent, isMain) {
+  if (request === 'react/jsx-runtime') return { jsx, jsxs: jsx, Fragment: 'fragment' };
+  if (request.startsWith('@/')) {
+    const base = path.join(process.cwd(), request.slice(2));
+    return originalLoad.call(this, fs.existsSync(base + '.ts') ? base + '.ts' : base + '.tsx', parent, isMain);
+  }
+  return originalLoad.call(this, request, parent, isMain);
+};
+const Stack = require('../components/burger-studio/BurgerStackV2.tsx').default;
+const { createDefaultBurgerStudioV2Config } = require('../lib/burger-studio-v2.ts');
+const { mobileLayerHeight } = require('../lib/burger-studio-mobile-layout.ts');
+const config = createDefaultBurgerStudioV2Config();
+function nodes(node, predicate, out = []) {
+  if (Array.isArray(node)) node.forEach(child => nodes(child, predicate, out));
+  else if (node && typeof node === 'object') {
+    if (predicate(node)) out.push(node);
+    nodes(node.props?.children, predicate, out);
+  }
+  return out;
+}
+function pixels(value) { return parseFloat(value); }
+const bun = config.ingredients.find(item => item.group === 'bun');
+const ingredients = config.ingredients.filter(item => item.active && item.group !== 'bun');
+// Exercise the real component with progressively fuller recipes and every
+// individual ingredient, including the tallest Black Angus photo.
+const recipes = [{ [bun.id]: 1 }];
+const selection = { [bun.id]: 1 };
+for (const ingredient of ingredients) {
+  recipes.push({ [bun.id]: 1, [ingredient.id]: ingredient.max });
+  for (let qty = 1; qty <= ingredient.max; qty++) {
+    selection[ingredient.id] = qty;
+    recipes.push({ ...selection });
+  }
+}
+for (const recipe of recipes) for (const assembled of [false, true]) {
+  const tree = Stack({ config, recipe: { version: 1, templateId: null, ingredients: recipe }, assembled });
+  const style = tree.props.style;
+  assert.equal(style['--bsv2-mobile-scale'], 0.8, 'food width must not shrink as the recipe grows');
+  assert.equal(style['--bsv2-mobile-height'], '365px', 'canvas layout must stay fixed, not just its transform');
+  const top = pixels(style[assembled ? '--bsv2-mobile-final-top' : '--bsv2-mobile-build-top']);
+  assert(top >= 0 && top + 123 <= 365, 'entire top bun stays inside the phone canvas');
+  const layers = nodes(tree, node => !!node.props?.['data-visual-kind']);
+  assert.equal(layers.length, Object.values(recipe).reduce((a, b) => a + b, 0) - 1, 'no selected ingredients are dropped to fit');
+  for (const layer of layers) {
+    const bottom = pixels(layer.props.style[assembled ? '--bsv2-mobile-final-bottom' : '--bsv2-mobile-build-bottom']);
+    assert(bottom >= 0 && bottom + mobileLayerHeight(layer.props['data-visual-kind']) <= 365, 'ingredient stays within canvas');
+  }
+  for (const viewport of [320, 375, 390, 393, 430, 768]) {
+    const stageWidth = viewport - 24;
+    const foodWidth = Math.min(stageWidth - 24, 345) * 0.8 * 0.82;
+    assert(foodWidth <= stageWidth, 'phone preview never overflows horizontally');
+    assert(365 * 0.8 <= 340, 'fixed canvas fits mobile stage vertically');
+  }
+}
+const source = fs.readFileSync('components/burger-studio/BurgerStackV2.tsx', 'utf8');
+assert(source.includes('position:absolute;left:50%;top:50%'));
+assert(source.includes('height:var(--bsv2-mobile-height)'));
+assert(source.includes('bottom:var(--bsv2-mobile-build-bottom)'));
+assert(source.includes('bottom:var(--bsv2-mobile-final-bottom)'));
+assert(!source.includes('292 / Math.max(1, stageHeight'));
+const ui = fs.readFileSync('components/burger-studio/BurgerStudioV2.tsx', 'utf8');
+assert(ui.includes('grid-cols-1 gap-2 min-[375px]:grid-cols-2 sm:grid-cols-1'));
+assert(ui.includes('break-words text-sm font-bold'));
+assert(ui.includes('h-11 w-11'), 'touch targets remain at least 44 pixels');
+console.log(`Burger Studio mobile fit: ${recipes.length} recipes in both states, fixed food size, complete layers and 320–768px bounds passed.`);

@@ -1,6 +1,7 @@
 "use client";
 
 import type { CSSProperties } from "react";
+import { MOBILE_STACK_HEIGHT, MOBILE_STACK_SCALE, mobileLayerHeight, mobileStackLayout } from "@/lib/burger-studio-mobile-layout";
 import type { BurgerStudioRecipe } from "@/lib/burger-studio";
 import type { BurgerStudioV2Config } from "@/lib/burger-studio-v2";
 
@@ -144,11 +145,15 @@ export default function BurgerStackV2({ config, recipe, assembled }: {
   const finalTopBottom = Math.max(90, finalCursor + 1);
   const finalHeight = Math.max(470, finalTopBottom + 265);
 
+  const mobileLayout = mobileStackLayout(layers.map(layer => mobileLayerHeight(layer.kind)), finalBottoms, finalTopBottom);
   const stageHeight = assembled ? finalHeight : buildHeight;
   const stackStyle = {
     "--bsv2-count": Math.max(1, count),
     "--bsv2-stage-height": `${stageHeight}px`,
-    "--bsv2-mobile-scale": Math.min(1, 292 / Math.max(1, stageHeight - 48)),
+    "--bsv2-mobile-scale": MOBILE_STACK_SCALE,
+    "--bsv2-mobile-height": `${MOBILE_STACK_HEIGHT}px`,
+    "--bsv2-mobile-build-top": `${mobileLayout.buildTop}px`,
+    "--bsv2-mobile-final-top": `${mobileLayout.finalTop}px`,
     "--bsv2-gap": `${buildGap}px`,
     "--bsv2-top-bottom": `${finalTopBottom}px`,
   } as CSSProperties;
@@ -176,6 +181,8 @@ export default function BurgerStackV2({ config, recipe, assembled }: {
               "--bsv2-i": index + 1,
               "--bsv2-r": count - index,
               "--bsv2-final-bottom": `${finalBottoms[index]}px`,
+              "--bsv2-mobile-build-bottom": `${mobileLayout.buildBottoms[index]}px`,
+              "--bsv2-mobile-final-bottom": `${mobileLayout.finalBottoms[index]}px`,
               "--bsv2-photo": PHOTO_KINDS.has(layer.kind) ? `url(/images/burger-studio/${layer.kind}.webp)` : undefined,
             } as CSSProperties} title={layer.name}>
             {CHEESE_KINDS.has(layer.kind) ? <span className="bsv2-cheese-flow" aria-hidden="true"><i /><i /><i /></span> : null}
@@ -306,7 +313,7 @@ export default function BurgerStackV2({ config, recipe, assembled }: {
         @keyframes bsv2-steam-rise{0%{opacity:0;transform:translateY(12px) scale(.82)}22%{opacity:.48}70%{opacity:.25}100%{opacity:0;transform:translateY(-42px) translateX(8px) scale(1.15)}}
         @keyframes bsv2-heat{0%{opacity:0;transform:translateX(-50%) scale(.85)}28%{opacity:.95}100%{opacity:0;transform:translateX(-50%) scale(1.08)}}
         @keyframes bsv2-warm-settle{0%{opacity:.78}28%{opacity:1}100%{opacity:.76}}
-        @media(max-width:1023px){.bsv2-stage{height:min(340px,var(--bsv2-stage-height));min-height:300px;border-radius:24px}.bsv2-stack{width:min(91vw,345px);transform:perspective(950px) rotateX(4deg) scale(var(--bsv2-mobile-scale));transform-origin:center center}.bsv2-piece-label{display:block;left:auto;right:6px;max-width:46%;overflow:hidden;text-overflow:ellipsis;padding:4px 6px;font-size:8px;letter-spacing:.01em}.is-building .bsv2-layer{top:calc(78px + (var(--bsv2-r) * var(--bsv2-gap)))}}
+        @media(max-width:1023px){.bsv2-stage{height:min(340px,var(--bsv2-stage-height));min-height:300px;border-radius:24px}.bsv2-stack{position:absolute;left:50%;top:50%;width:min(calc(100% - 24px),345px);height:var(--bsv2-mobile-height);transform:translate(-50%,-50%) scale(var(--bsv2-mobile-scale));transform-origin:center center}.bsv2-piece-label{display:block;left:auto;right:6px;max-width:46%;overflow:hidden;text-overflow:ellipsis;padding:4px 6px;font-size:8px;letter-spacing:.01em}.is-building .bsv2-layer{top:auto;bottom:var(--bsv2-mobile-build-bottom);transform:translateX(-50%) scale(.97)}.is-building .bsv2-bun-top{top:auto;bottom:var(--bsv2-mobile-build-top)}.is-assembled .bsv2-layer{bottom:var(--bsv2-mobile-final-bottom)}.is-assembled .bsv2-bun-top{bottom:var(--bsv2-mobile-final-top)}.bsv2-stage .bsv2-steam,.bsv2-heat-glow{--bsv2-top-bottom:var(--bsv2-mobile-final-top)}}
         @media(prefers-reduced-motion:reduce){.bsv2-stage,.bsv2-piece{transition:none!important}.bsv2-assembly-flash,.bsv2-steam,.bsv2-heat-glow{display:none!important}.is-assembled .bsv2-layer,.is-assembled .bsv2-bun-top,.is-assembled .bsv2-stage-light,.is-assembled .bsv2-layer:after,.is-assembled .bsv2-food-detail{animation:none!important}.bsv2-stage-light{filter:none;opacity:.18}}
         @media(prefers-reduced-motion:reduce){.bsv2-cheese-flow{display:none!important}.bsv2-cheese-flow i,.bsv2-steam span{animation:none!important}}
       `}</style>
