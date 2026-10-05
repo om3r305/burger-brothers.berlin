@@ -595,7 +595,7 @@ export default function DeliveryAddressEntry() {
             <span aria-hidden className="ml-1 shrink-0 text-amber-300">⌄</span>
           </button>
         </div>
-      ))}
+      )}
 
       {isCheckoutPath && checkoutHost &&
         createPortal(
