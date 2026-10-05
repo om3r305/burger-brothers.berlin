@@ -80,7 +80,223 @@ function normalizeKey(value: unknown) {
 }
 
 function emptyRecipe(): BurgerStudioRecipe {
-  return { ver…1709 tokens truncated…ig.templates.find(
+  return { version: 1, templateId: null, ingredients: {} };
+}
+
+function readSaved(): SavedBurger[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const value = JSON.parse(localStorage.getItem(SAVED_KEY) || "[]");
+    if (!Array.isArray(value)) return [];
+    return value
+      .filter(Boolean)
+      .map((item: any) => ({
+        id: String(item.id || `${Date.now()}`),
+        name: String(item.name || "Mein Burger").slice(0, 50),
+        recipe: normalizeBurgerStudioV2Recipe(item.recipe),
+        savedAt: Number(item.savedAt) || Date.now(),
+      }));
+  } catch {
+    return [];
+  }
+}
+
+function writeSaved(items: SavedBurger[]) {
+  try {
+    localStorage.setItem(SAVED_KEY, JSON.stringify(items));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function productRefMatches(product: CatalogProduct, ref: string) {
+  const target = normalizeKey(ref);
+  return [product.id, product.sku, product.code, product.name].some(
+    (value) => normalizeKey(value) === target,
+  );
+}
+
+function emptyPlan(config: BurgerStudioV2Config): BurgerStudioV2Plan {
+  return {
+    mode: "freestyle",
+    canonicalSku: BURGER_STUDIO_SCRATCH_SKU,
+    basePrice: config.scratchBasePrice,
+    delta: 0,
+    total: config.scratchBasePrice,
+    add: [],
+    rm: [],
+    selected: [],
+    removed: [],
+    lines: [],
+  };
+}
+
+export default function BurgerStudioV2() {
+  const searchParams = useSearchParams();
+  const preview = searchParams?.get("preview") === "1";
+  const orderMode = useCart((state: any) => state.orderMode) as
+    | "pickup"
+    | "delivery";
+  const addToCart = useCart((state: any) => state.addToCart);
+
+  const [config, setConfig] = useState<BurgerStudioV2Config>(
+    createDefaultBurgerStudioV2Config,
+  );
+  const [catalog, setCatalog] = useState<CatalogProduct[]>([]);
+  const [recipe, setRecipe] = useState<BurgerStudioRecipe>(emptyRecipe());
+  const [group, setGroup] = useState<BurgerStudioGroup>("bun");
+  const [creationName, setCreationName] = useState("Mein Burger");
+  const [saved, setSaved] = useState<SavedBurger[]>([]);
+  const [assembled, setAssembled] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [toast, setToast] = useState("");
+  const [loadError, setLoadError] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
+
+  useEffect(() => {
+    let alive = true;
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 15_000);
+    setLoading(true);
+    setLoadError(false);
+    const readResponse = async (res: Response) => {
+      if (!res.ok) throw new Error("STUDIO_LOAD_FAILED");
+      const body = await res.json();
+      if (body?.ok === false) throw new Error("STUDIO_LOAD_FAILED");
+      return body;
+    };
+    Promise.all([
+      fetch("/api/settings?fresh=1", {
+        cache: "no-store",
+        credentials: "same-origin",
+        signal: controller.signal,
+      }).then(readResponse),
+      fetch("/api/catalog?fresh=1", {
+        cache: "no-store",
+        credentials: "same-origin",
+        signal: controller.signal,
+      }).then(readResponse),
+    ])
+      .then(([settingsRaw, catalogRaw]) => {
+        if (!alive) return;
+        const settings =
+          settingsRaw?.settings ?? settingsRaw?.data ?? settingsRaw ?? {};
+        const nextConfig = normalizeBurgerStudioV2Config(
+          settings?.menu?.burgerStudio,
+        );
+        const products = Array.isArray(catalogRaw?.products)
+          ? catalogRaw.products
+          : Array.isArray(catalogRaw?.data?.products)
+            ? catalogRaw.data.products
+            : [];
+
+        setConfig(nextConfig);
+        setCatalog(products);
+
+        if (nextConfig.scratchEnabled) {
+          setRecipe(emptyRecipe());
+          setCreationName("Mein Burger");
+          setGroup("bun");
+        } else {
+          const firstTemplate = nextConfig.templates.find((item) => item.active);
+          if (firstTemplate) {
+            setRecipe({
+              version: 1,
+              templateId: firstTemplate.id,
+              ingredients: { ...firstTemplate.recipe },
+            });
+            setCreationName(firstTemplate.name);
+          }
+        }
+      })
+      .catch(() => { if (alive) setLoadError(true); })
+      .finally(() => {
+        window.clearTimeout(timeout);
+        if (alive) setLoading(false);
+      });
+
+    setSaved(readSaved());
+    return () => {
+      alive = false;
+      window.clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [loadAttempt]);
+
+  const template = useMemo<BurgerStudioTemplate | null>(() => {
+    if (!recipe.templateId) return null;
+    return (
+      config.templates.find(
+        (item) => item.id === recipe.templateId && item.active,
+      ) || null
+    );
+  }, [config.templates, recipe.templateId]);
+
+  const linkedProduct = useMemo(() => {
+    if (!template) return null;
+    return catalog.find((item) => productRefMatches(item, template.productRef)) || null;
+  }, [catalog, template]);
+
+  const validPlan = useMemo(() => {
+    try {
+      return planBurgerStudioV2Order({
+        config,
+        recipe,
+        template,
+        templateBasePrice: Number(linkedProduct?.price) || 0,
+        templateSku: String(
+          linkedProduct?.sku || linkedProduct?.code || linkedProduct?.id || "",
+        ),
+      });
+    } catch {
+      return null;
+    }
+  }, [config, linkedProduct, recipe, template]);
+
+  const plan = validPlan ?? emptyPlan(config);
+
+  const completion = useMemo(
+    () => burgerStudioRecipeCompletion(config, recipe),
+    [config, recipe],
+  );
+
+  const modeAllowed =
+    orderMode === "pickup" ? config.pickupEnabled : config.deliveryEnabled;
+  const sourceAllowed = recipe.templateId
+    ? Boolean(template && linkedProduct && linkedProduct.active !== false)
+    : config.scratchEnabled;
+  const canFinish = completion.complete && sourceAllowed && Boolean(validPlan);
+  const canOrder = Boolean(
+    config.enabled && modeAllowed && canFinish && assembled,
+  );
+
+  const visibleIngredients = useMemo(
+    () =>
+      config.ingredients.filter(
+        (ingredient) => ingredient.active && ingredient.group === group,
+      ),
+    [config.ingredients, group],
+  );
+
+  function flash(message: string) {
+    setToast(message);
+    window.setTimeout(() => setToast(""), 2200);
+  }
+
+  function resetAssembly() {
+    if (assembled) setAssembled(false);
+  }
+
+  function chooseFreestyle() {
+    setRecipe(emptyRecipe());
+    setCreationName("Mein Burger");
+    setGroup("bun");
+    setAssembled(false);
+  }
+
+  function chooseTemplate(templateId: string) {
+    const next = config.templates.find(
       (item) => item.id === templateId && item.active,
     );
     if (!next) return;
