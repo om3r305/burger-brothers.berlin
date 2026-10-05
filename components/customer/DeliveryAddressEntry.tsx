@@ -241,6 +241,7 @@ export default function DeliveryAddressEntry() {
   const [labelBusy, setLabelBusy] = useState(false);
   const [checkoutManualAddress, setCheckoutManualAddress] = useState(false);
   const [checkoutHost, setCheckoutHost] = useState<HTMLElement | null>(null);
+  const [compactAddressBar, setCompactAddressBar] = useState(false);
 
   const selectAddress = useCallback(
     (address: SavedAddress, confirmNow = false) => {
@@ -448,6 +449,29 @@ export default function DeliveryAddressEntry() {
   }, [isCheckoutPath, router]);
 
   useEffect(() => {
+    if (!isMenuPath) {
+      setCompactAddressBar(false);
+      return;
+    }
+
+    let frame = 0;
+    const syncAddressBar = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        setCompactAddressBar(window.scrollY > 96);
+      });
+    };
+
+    syncAddressBar();
+    window.addEventListener("scroll", syncAddressBar, { passive: true });
+
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("scroll", syncAddressBar);
+    };
+  }, [isMenuPath]);
+
+  useEffect(() => {
     const openChooser = () => setChooserOpen(true);
     window.addEventListener(
       "bb:open-delivery-address-chooser",
@@ -538,27 +562,50 @@ export default function DeliveryAddressEntry() {
         <div
           data-bb-swipe-ignore
           data-bb-delivery-address-entry="1"
-          className="fixed left-1/2 top-[calc(env(safe-area-inset-top)+142px)] z-[44] w-[min(92vw,460px)] -translate-x-1/2 sm:top-[calc(env(safe-area-inset-top)+98px)]"
+          data-bb-delivery-address-compact={compactAddressBar ? "1" : "0"}
+          className={`fixed left-1/2 z-[70] -translate-x-1/2 transition-all duration-200 ease-out ${
+            compactAddressBar
+              ? "top-[calc(env(safe-area-inset-top)+8px)] w-[min(94vw,520px)] sm:top-[calc(env(safe-area-inset-top)+10px)]"
+              : "top-[calc(env(safe-area-inset-top)+142px)] w-[min(92vw,460px)] sm:top-[calc(env(safe-area-inset-top)+98px)]"
+          }`}
         >
           <button
             type="button"
             onClick={() => setChooserOpen(true)}
-            className="mx-auto flex max-w-full items-center gap-2 rounded-full border border-white/10 bg-black/88 px-3 py-2 text-left text-xs text-white shadow-[0_12px_34px_rgba(0,0,0,.4)] backdrop-blur-xl transition hover:border-amber-300/40"
+            className={`mx-auto flex max-w-full items-center gap-2 rounded-full border border-white/10 bg-black/88 text-left text-white shadow-[0_12px_34px_rgba(0,0,0,.4)] backdrop-blur-xl transition-all duration-200 hover:border-amber-300/40 ${
+              compactAddressBar
+                ? "h-11 px-3 text-xs shadow-[0_8px_24px_rgba(0,0,0,.42)]"
+                : "px-3 py-2 text-xs"
+            }`}
             aria-label="Lieferadresse auswählen"
           >
-            <span aria-hidden className="text-sm">{addressIcon(selected.label)}</span>
-            <span className="min-w-0">
-              <span className="block truncate font-extrabold text-amber-200">
+            <span aria-hidden className={compactAddressBar ? "text-base" : "text-sm"}>
+              {addressIcon(selected.label)}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span
+                className={
+                  compactAddressBar
+                    ? "sr-only"
+                    : "block truncate font-extrabold text-amber-200"
+                }
+              >
                 {selected.label || "Lieferadresse"}
               </span>
-              <span className="block max-w-[68vw] truncate text-[11px] text-zinc-300 sm:max-w-[330px]">
+              <span
+                className={
+                  compactAddressBar
+                    ? "block max-w-[76vw] truncate text-[12px] font-bold text-zinc-100 sm:max-w-[430px]"
+                    : "block max-w-[68vw] truncate text-[11px] text-zinc-300 sm:max-w-[330px]"
+                }
+              >
                 {addressLabel(selected)}
               </span>
             </span>
-            <span aria-hidden className="ml-1 text-amber-300">⌄</span>
+            <span aria-hidden className="ml-1 shrink-0 text-amber-300">⌄</span>
           </button>
         </div>
-      )}
+      ))}
 
       {isCheckoutPath && checkoutHost &&
         createPortal(
