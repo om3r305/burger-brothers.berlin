@@ -81,7 +81,7 @@ must(
 must(
   themes.includes('"autumn"') &&
   themes.includes("localDateTime(year, 9, 1)") &&
-  themes.includes("localDateTime(year, 11, 15, 23, 59)"),
+  themes.includes("localDateTime(year, 11, 19, 23, 59)"),
   "Herbst düşük öncelikli yıllık zemin teması olarak planlı",
 );
 must(

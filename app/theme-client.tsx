@@ -66,7 +66,7 @@ function applyRootTheme(
   const showSnow =
     !fixedClassic &&
     settings.snow &&
-    (activeTheme === "christmas" || activeTheme === "winter");
+    (["christmas", "weihnachten", "winter"].includes(activeTheme));
 
   root.setAttribute("data-bb-theme", activeTheme);
   const preset = getThemePreset(activeTheme);
@@ -133,24 +133,31 @@ function applyRootTheme(
 }
 
 function motifStyle(index: number): CSSProperties {
-  const left = (index * 23 + 7) % 94;
   const top = (index * 37 + 11) % 86;
   const delay = -((index * 1.17) % 8);
   const duration = 8 + (index % 4) * 1.8;
   const size = 13 + (index % 4) * 3;
 
   return {
-    left: `${left}%`,
+    left: `${index % 2 === 0 ? 1 : 94}%`,
+    "--bb-flight-direction": index % 2 === 0 ? 1 : -1,
     top: `${top}%`,
     animationDelay: `${delay}s`,
-    animationDuration: `${duration}s`,
+    animationDuration: `${duration + 6}s`,
     fontSize: `${size}px`,
-  };
+  } as CSSProperties;
 }
 
 export default function ThemeClient() {
   const pathname = usePathname();
   const [resolved, setResolved] = useState<ResolvedTheme | null>(null);
+
+  useEffect(() => {
+    const syncVisibility = () => document.documentElement.setAttribute("data-bb-page-visible", document.hidden ? "0" : "1");
+    syncVisibility();
+    document.addEventListener("visibilitychange", syncVisibility);
+    return () => document.removeEventListener("visibilitychange", syncVisibility);
+  }, []);
 
   useEffect(() => {
     const sync = (input?: any) => {
@@ -204,7 +211,8 @@ export default function ThemeClient() {
       !resolved.settings.motionEnabled ||
       isAdminPath(pathname) ||
       isThemeIsolatedPath(pathname) ||
-      hasRouteOwnedDecorations(pathname)
+      hasRouteOwnedDecorations(pathname) ||
+      pathname.startsWith("/checkout")
     ) {
       return;
     }
@@ -217,9 +225,9 @@ export default function ThemeClient() {
       const source = event.target;
       if (!(source instanceof Element)) return;
       const target = source.closest(
-        ".card-cta,.bb-theme-primary,.bb-btn,.nav-pill,[data-bb-theme-action='primary']",
+        "[data-bb-theme-celebrate='true']",
       );
-      if (!(target instanceof HTMLElement) || target.closest("[aria-disabled='true']")) return;
+      if (!(target instanceof HTMLElement) || target.closest("[aria-disabled='true'],:disabled")) return;
 
       lastBurstAt = Date.now();
       const preset = getThemePreset(resolved.theme);
@@ -259,7 +267,8 @@ export default function ThemeClient() {
       !resolved ||
       isAdminPath(pathname) ||
       isThemeIsolatedPath(pathname) ||
-      hasRouteOwnedDecorations(pathname)
+      hasRouteOwnedDecorations(pathname) ||
+      pathname.startsWith("/checkout")
     ) {
       return null;
     }
@@ -268,7 +277,7 @@ export default function ThemeClient() {
     const preset = getThemePreset(resolved.theme);
     const showSnow =
       resolved.settings.snow &&
-      (resolved.theme === "christmas" || resolved.theme === "winter");
+      (["christmas", "weihnachten", "winter"].includes(resolved.theme));
     const motifs = showSnow
       ? ["❄", "·", "✦"]
       : preset.motifs;
@@ -319,9 +328,15 @@ export default function ThemeClient() {
       className="bb-theme-decorations"
       data-theme={decoration.preset.id}
       data-effect={decoration.preset.effect}
+      data-snow={resolved?.settings.snow ? "1" : "0"}
       aria-hidden="true"
     >
       <div className="bb-theme-garland" />
+      {["christmas", "weihnachten", "lights"].includes(decoration.preset.id) && (
+        <div className="bb-theme-fairy-lights">
+          {Array.from({ length: 12 }, (_, index) => <i key={index} style={{ animationDelay: `${-index * .47}s` }} />)}
+        </div>
+      )}
       <div className="bb-theme-atmosphere bb-theme-atmosphere--one" />
       <div className="bb-theme-atmosphere bb-theme-atmosphere--two" />
       <div className="bb-theme-orbit" />
@@ -336,10 +351,17 @@ export default function ThemeClient() {
         {Array.from({ length: decoration.count }, (_, index) => (
           <span
             key={`${decoration.preset.id}-${index}`}
-            className="bb-theme-motif"
+            className={`bb-theme-motif ${decoration.preset.id === "halloween" ? "bb-theme-bat" : ""}`}
             style={motifStyle(index)}
           >
-            {decoration.motifs.length
+            {decoration.preset.id === "halloween" ? (
+              <svg viewBox="0 0 100 48" className="bb-bat" focusable="false">
+                <path className="bb-bat-wing bb-bat-wing--left" d="M49 23 Q30 4 2 5 L12 22 Q21 13 26 30 Q34 20 43 36 L50 29Z" />
+                <path className="bb-bat-wing bb-bat-wing--right" d="M51 23 Q70 4 98 5 L88 22 Q79 13 74 30 Q66 20 57 36 L50 29Z" />
+                <path d="M43 18 L42 6 L49 12 L56 6 L57 18 Q65 33 50 42 Q35 33 43 18Z" />
+                <circle cx="46" cy="21" r="1.5" fill="#ffc465" /><circle cx="54" cy="21" r="1.5" fill="#ffc465" />
+              </svg>
+            ) : decoration.motifs.length
               ? decoration.motifs[index % decoration.motifs.length]
               : ""}
           </span>

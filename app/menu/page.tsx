@@ -1162,7 +1162,7 @@ export default function MenuPage() {
       <CartSummaryMobile />
 
       <style jsx global>{`
-        /* Food presentation stays consistent while seasonal accent tokens change. */
+        /* Warm food light stays consistent; seasonal light lives at the edges. */
         html[data-bb-theme] .bb-menu-page .grid-cards .product-card {
           padding: 18px;
           border-color: color-mix(in srgb, var(--bb-accent) 22%, transparent);
@@ -1172,7 +1172,7 @@ export default function MenuPage() {
           border: 0 !important;
           border-radius: 14px;
           background-color: #151414 !important;
-          background-image: radial-gradient(ellipse at 50% 42%, #35302a 0%, #1c1917 48%, #111112 100%) !important;
+          background-image: radial-gradient(ellipse at 50% 42%, rgba(79, 56, 32, .66) 0%, transparent 62%), radial-gradient(ellipse at 90% 8%, var(--bb-food-halo, rgba(255, 184, 69, .12)), transparent 52%), linear-gradient(160deg, #201b17, #111112) !important;
           box-shadow: none;
           margin: -6px -6px 18px;
         }
