@@ -1,17 +1,25 @@
 "use client";
 
 import { useId } from "react";
+import type { BrosAction } from "./useBrosCompanion";
+import type { BrosEffect } from "@/lib/assistant/bros-themes";
 
 /** Rigged vector character: no video download, canvas loop or extra image requests. */
-export default function BrosAvatar({ state = "idle", size = 72 }: {
+export default function BrosAvatar({ state = "idle", size = 72, action = "idle", effect = "confetti" }: {
   state?: "idle" | "greeting" | "speaking" | "thinking" | "listening";
   size?: number;
+  action?: BrosAction;
+  effect?: BrosEffect;
 }) {
   const id = useId().replace(/:/g, "");
   return (
-    <span className="bb-bros" data-state={state} aria-hidden="true" style={{ width:size, height:size }}>
+    <span className="bb-bros" data-state={state} data-action={action} data-effect={effect} aria-hidden="true" style={{ width:size, height:size }}>
       <span className="bb-bros-aura" />
       <span className="bb-bros-laser bb-bros-laser-one" /><span className="bb-bros-laser bb-bros-laser-two" />
+      {action === "showcase" ? <span className="bb-bros-show" aria-hidden="true">
+        {effect==="fireworks" ? <span className="bb-bros-rocket">🚀</span> : null}
+        {Array.from({length:6},(_,i)=><i key={i} style={{"--bros-particle":i} as React.CSSProperties}>{effect==="bats"?<svg viewBox="0 0 32 20"><path className="bb-bros-bat-wing" d="M16 9 4 1 1 12 7 10 11 16Z" fill="#a78ad9"/><path className="bb-bros-bat-wing" d="M16 9 28 1 31 12 25 10 21 16Z" fill="#a78ad9"/><path d="m12 6 1-5 3 4 3-4 1 5v8l-4 5-4-5Z" fill="#594277"/></svg>:effect==="leaves"?"🍃":effect==="snow"?"❄":effect==="hearts"?"♥":effect==="beam"?"": "✦"}</i>)}
+      </span> : null}
       <span className="bb-bros-character">
         <svg viewBox="0 0 200 210" fill="none" focusable="false">
           <defs>
@@ -23,7 +31,7 @@ export default function BrosAvatar({ state = "idle", size = 72 }: {
           <g className="bb-bros-leg-left"><path d="M75 155 69 181" stroke="#653d23" strokeWidth="12" strokeLinecap="round"/><path d="M67 177c-15-2-22 6-23 13 10 7 25 7 38 2l-3-11Z" fill="#ef6548" stroke="#462e29" strokeWidth="3"/><path d="m46 190 35 2" stroke="#fff4de" strokeWidth="5" strokeLinecap="round"/></g>
           <g className="bb-bros-leg-right"><path d="m126 155 7 26" stroke="#653d23" strokeWidth="12" strokeLinecap="round"/><path d="M133 177c15-2 22 6 23 13-10 7-25 7-38 2l3-11Z" fill="#ef6548" stroke="#462e29" strokeWidth="3"/><path d="m120 192 35-2" stroke="#fff4de" strokeWidth="5" strokeLinecap="round"/></g>
           <g className="bb-bros-wave"><path d="M47 113c-14 2-20-6-20-20" stroke="#744a2b" strokeWidth="9" strokeLinecap="round"/><path d="M29 94c-7 2-12-1-15-8L8 74c-2-5 4-8 7-3l4 6-5-17c-1-5 5-7 7-2l5 14-1-18c0-5 6-5 7 0l1 19 5-13c2-5 8-2 6 3l-6 16c9-6 15 0 8 6l-9 8Z" fill="#fff9e9" stroke="#bba586" strokeWidth="2.5"/></g>
-          <g className="bb-bros-arm-right"><path d="M153 114c17 2 19 13 17 24" stroke="#744a2b" strokeWidth="9" strokeLinecap="round"/><path d="M164 132c-11-3-16 7-8 14l7 7c6 6 20-1 20-11 0-7-6-12-10-7" fill="#fff9e9" stroke="#bba586" strokeWidth="2.5"/></g>
+          <g className="bb-bros-arm-right">{action === "showcase" && effect === "beam" ? <g><path d="m169 139 5-39" stroke="#474257" strokeWidth="7" strokeLinecap="round"/><path d="m173 105 2-12" stroke="#7deafa" strokeWidth="5" strokeLinecap="round"/><circle cx="175" cy="94" r="4" fill="#ddfaff"/></g> : null}<path d="M153 114c17 2 19 13 17 24" stroke="#744a2b" strokeWidth="9" strokeLinecap="round"/><path d="M164 132c-11-3-16 7-8 14l7 7c6 6 20-1 20-11 0-7-6-12-10-7" fill="#fff9e9" stroke="#bba586" strokeWidth="2.5"/></g>
           <path d="M45 139h110c0 17-13 25-55 25s-55-8-55-25Z" fill={`url(#${id}-base)`} stroke="#8a461d" strokeWidth="3"/>
           <rect x="40" y="120" width="120" height="21" rx="10" fill="#603120" stroke="#392319" strokeWidth="3"/>
           <path d="m42 118 25-6 29 4 30-4 30 7-17 14-18-7-18 13-18-11-25 4Z" fill="#ffc831" stroke="#d88e1f" strokeWidth="2"/>
