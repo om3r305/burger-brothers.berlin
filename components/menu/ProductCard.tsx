@@ -23,6 +23,7 @@ type Props = {
   images?: string[];
   coverRatio?: string;
   normalizeTransparentImage?: boolean;
+  imagePriority?: boolean;
   compact?: boolean;
   category?: "burger" | "vegan" | "extras" | "sauces" | "drinks" | "hotdogs";
   outOfStock?: boolean;
@@ -246,6 +247,7 @@ export default function ProductCard({
   images,
   coverRatio = "16/10",
   normalizeTransparentImage = false,
+  imagePriority = false,
   compact = false,
   category,
   outOfStock = false,
@@ -485,7 +487,7 @@ export default function ProductCard({
     .filter(Boolean)
     .slice(0, 3);
 
-  const CoverSingle = ({ src }: { src: string }) => {
+  const renderCover = (src: string) => {
     const optimizedSrc = optimizedLocalImageUrl(src) || src;
     if (normalizeTransparentImage) {
       if (useNativeImg) {
@@ -493,7 +495,7 @@ export default function ProductCard({
           <img
             src={src}
             alt={name}
-            loading="lazy"
+            loading={imagePriority ? "eager" : "lazy"}
             decoding="async"
             className="absolute inset-0 h-full w-full object-contain"
           />
@@ -504,18 +506,21 @@ export default function ProductCard({
         <NormalizedProductImage
           src={optimizedSrc}
           alt={name}
+          eager={imagePriority}
+          fetchPriority={imagePriority ? "high" : "auto"}
           onError={() => setUseNativeImg(true)}
         />
       );
     }
 
     return useNativeImg ? (
-      <img src={src} alt={name} loading="lazy" decoding="async" className="absolute inset-0 h-full w-full object-cover" />
+      <img src={src} alt={name} loading={imagePriority ? "eager" : "lazy"} decoding="async" className="absolute inset-0 h-full w-full object-cover" />
     ) : (
       <Image
         src={optimizedSrc}
         alt={name}
         fill
+        priority={imagePriority}
         sizes="(max-width: 639px) 46vw, (max-width: 1023px) 33vw, 25vw"
         className="object-cover"
         onError={() => setUseNativeImg(true)}
@@ -523,13 +528,13 @@ export default function ProductCard({
     );
   };
 
-  const CoverCollage = () => {
+  const renderCollage = () => {
     if (imgs.length === 2) {
       return (
         <div className="absolute inset-0 grid h-full w-full grid-cols-2 gap-1">
           {imgs.map((src, i) => (
             <div key={i} className="relative">
-              <CoverSingle src={src} />
+              {renderCover(src)}
             </div>
           ))}
         </div>
@@ -538,13 +543,13 @@ export default function ProductCard({
     return (
       <div className="absolute inset-0 grid h-full w-full grid-cols-2 grid-rows-2 gap-1">
         <div className="relative col-span-1 row-span-2">
-          <CoverSingle src={imgs[0]} />
+          {renderCover(imgs[0])}
         </div>
         <div className="relative">
-          <CoverSingle src={imgs[1]} />
+          {renderCover(imgs[1])}
         </div>
         <div className="relative">
-          <CoverSingle src={imgs[2]} />
+          {renderCover(imgs[2])}
         </div>
       </div>
     );
@@ -573,9 +578,9 @@ export default function ProductCard({
           {imgs.length === 0 ? (
             <div className="absolute inset-0 grid place-items-center text-stone-400">Kein Bild</div>
           ) : imgs.length === 1 ? (
-            <CoverSingle src={imgs[0]} />
+            renderCover(imgs[0])
           ) : (
-            <CoverCollage />
+            renderCollage()
           )}
 
           {/* Sol-üst: Kampanya etiketi */}
