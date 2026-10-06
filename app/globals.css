@@ -1076,26 +1076,6 @@ html[data-bb-theme="fan"] .product-card {
     linear-gradient(180deg, rgba(255,255,255,.025), transparent 38%);
 }
 
-/* Halloween fog and spider-web corner */
-html[data-bb-theme="halloween"] .product-card::after {
-  content:"";
-  position:absolute;
-  top:0;
-  right:0;
-  width:52px;
-  height:52px;
-  opacity:.16;
-  pointer-events:none;
-  background:repeating-radial-gradient(circle at 100% 0, transparent 0 8px, #fff 9px 10px);
-  border-radius:0 1rem 0 100%;
-}
-
-/* Festival lights animated edge */
-html[data-bb-theme="lights"][data-bb-motion="1"] .card-cta,
-html[data-bb-theme="lights"][data-bb-motion="1"] .nav-pill--active {
-  animation:bbLightPulse 2.8s ease-in-out infinite;
-}
-
 /* Black Week premium edge */
 html[data-bb-theme="blackweek"] .card,
 html[data-bb-theme="blackweek"] .product-card {
@@ -2746,4 +2726,79 @@ html.bb-swipe-arriving .bb-route-view {
     transition: none;
     animation: none;
   }
+}
+
+/* Living seasons: small compositor animations at the edges, warm food light. */
+html[data-bb-theme="lights"] { --bb-food-halo:rgba(126,106,255,.24); }
+html[data-bb-theme="halloween"] { --bb-food-halo:rgba(255,125,24,.28); }
+html[data-bb-theme="veganweek"] { --bb-food-halo:rgba(116,185,86,.20); }
+html[data-bb-theme="autumn"] { --bb-food-halo:rgba(220,139,55,.23); }
+html[data-bb-theme="blackweek"],html[data-bb-theme="newyear"] { --bb-food-halo:rgba(234,188,92,.22); }
+html[data-bb-theme="christmas"],html[data-bb-theme="weihnachten"] { --bb-food-halo:rgba(255,209,113,.25); }
+html[data-bb-theme="winter"] { --bb-food-halo:rgba(151,197,235,.16); }
+.bb-theme-fairy-lights {
+  position:absolute; top:max(8px,env(safe-area-inset-top)); left:12px; right:12px;
+  display:flex; justify-content:space-between; border-top:1px solid rgba(218,189,123,.24);
+}
+.bb-theme-fairy-lights i {
+  width:6px; height:10px; border-radius:45%; background:#ffe3a0;
+  box-shadow:0 0 9px 3px rgba(255,203,104,.34); transform-origin:top;
+  animation:bbFairyGlow 4.8s ease-in-out infinite;
+}
+.bb-theme-fairy-lights i:nth-child(3n) { background:#e67857; }
+.bb-theme-decorations[data-theme="lights"] .bb-theme-fairy-lights i:nth-child(2n) { background:#b6a0ff; }
+.bb-theme-decorations[data-theme="halloween"] .bb-theme-corner--left {
+  animation:bbPumpkinGlow 4s ease-in-out infinite;
+}
+.bb-theme-decorations[data-theme="halloween"] .bb-theme-corner--right { display:none; }
+.bb-theme-decorations[data-theme="halloween"] .bb-theme-bat {
+  width:40px; height:24px; opacity:0; animation-name:bbBatFlight;
+  animation-direction:normal; animation-timing-function:linear;
+}
+.bb-bat { width:100%; height:100%; fill:#482849; filter:drop-shadow(0 1px 1px rgba(255,178,87,.4)); }
+.bb-bat-wing { transform-box:view-box; transform-origin:50px 24px; animation:bbBatFlap .42s ease-in-out infinite alternate; }
+.bb-bat-wing--right { animation-delay:-.21s; }
+.bb-theme-decorations[data-theme="veganweek"] .bb-theme-motif {
+  opacity:.65; animation-name:bbLeafBreeze; animation-direction:normal;
+}
+.bb-theme-decorations[data-theme="autumn"] .bb-theme-motif { animation-name:bbLeafBreeze; animation-direction:normal; }
+.bb-theme-decorations[data-snow="1"]:is([data-theme="christmas"],[data-theme="weihnachten"],[data-theme="winter"]) .bb-theme-motif {
+  color:#fff4dd; opacity:0; animation-name:bbEdgeSnow; animation-timing-function:linear; animation-direction:normal;
+}
+.bb-theme-decorations[data-theme="newyear"] .bb-theme-motif {
+  animation:bbNewYearWelcome 3s ease-out both !important; animation-delay:0s !important;
+}
+html[data-bb-performance="lite"] .bb-theme-motif:nth-child(n+4) { display:none; }
+html[data-bb-performance="lite"] .bb-theme-atmosphere { filter:none; animation:none; opacity:.12; will-change:auto; }
+@keyframes bbBatFlight {
+  0%,100% { opacity:0; transform:translate(0,5vh) rotate(-12deg); }
+  8% { opacity:.8; }
+  28% { opacity:.8; transform:translate(calc(var(--bb-flight-direction) * 4vw),-8vh) rotate(14deg); }
+  54% { opacity:.75; transform:translate(calc(var(--bb-flight-direction) * 1vw),-25vh) rotate(-10deg); }
+  78% { opacity:.8; transform:translate(calc(var(--bb-flight-direction) * 5vw),-42vh) rotate(8deg); }
+  94% { opacity:0; transform:translate(0,-60vh) rotate(-14deg); }
+}
+@keyframes bbBatFlap { from { transform:scaleY(.42); } to { transform:scaleY(1); } }
+@keyframes bbPumpkinGlow { 0%,100% { filter:drop-shadow(0 0 4px rgba(255,126,25,.3)); transform:rotate(-6deg); } 50% { filter:drop-shadow(0 0 13px rgba(255,126,25,.65)); transform:rotate(3deg); } }
+@keyframes bbFairyGlow { 0%,100% { opacity:.6; transform:rotate(-5deg); } 50% { opacity:1; transform:rotate(5deg); } }
+@keyframes bbLeafBreeze { 0%,100% { opacity:0; transform:translate(0,18vh) rotate(-25deg); } 20% { opacity:.6; } 50% { opacity:.7; transform:translate(calc(var(--bb-flight-direction) * 3vw),-8vh) rotate(25deg); } 80% { opacity:.5; } 95% { opacity:0; transform:translate(0,-38vh) rotate(70deg); } }
+@keyframes bbEdgeSnow { from { opacity:0; transform:translate(0,-90vh); } 15%,80% { opacity:.65; } to { opacity:0; transform:translate(calc(var(--bb-flight-direction) * 2vw),100vh) rotate(90deg); } }
+@keyframes bbNewYearWelcome { 0% { opacity:0; transform:scale(.4); } 25% { opacity:.75; } 100% { opacity:0; transform:translateY(-35px) scale(1.4); } }
+html[data-bb-page-visible="0"] .bb-theme-decorations *,html[data-bb-page-visible="0"] .bb-theme-burst * { animation-play-state:paused !important; }
+html[data-bb-motion="0"] .bb-theme-decorations * { animation:none !important; }
+html[data-bb-motion="0"] .bb-theme-bat { opacity:.65 !important; }
+@media (max-width:639px) {
+  .bb-theme-motif:nth-child(n+4) { display:none; }
+  .bb-theme-decorations[data-theme="halloween"] .bb-theme-bat { width:30px; }
+  .bb-theme-corner { font-size:22px; opacity:.65; }
+  .bb-theme-atmosphere { filter:none !important; animation:none !important; will-change:auto; }
+}
+@media (prefers-reduced-motion:reduce) {
+  .bb-theme-decorations * { animation:none !important; transition:none !important; }
+  .bb-theme-decorations .bb-theme-bat { opacity:.65; }
+}
+
+html[data-bb-motion="0"] .bb-theme-decorations .bb-theme-motif { animation:none !important; }
+@media (prefers-reduced-motion:reduce) {
+  html .bb-theme-decorations .bb-theme-motif { animation:none !important; }
 }
