@@ -28,13 +28,13 @@ export function buildRealtimeV2Config(env = process.env) {
     ? requestedModel
     : "gpt-realtime-2.1";
 
-  // Realtime output budget includes audio/tool output. 220 was small enough to
-  // truncate otherwise healthy spoken replies. The limit is only a ceiling;
+  // Realtime output budget includes reasoning, audio and tool output. Allow
+  // complete short replies at medium reasoning. The limit is only a ceiling;
   // concise replies still pay only for tokens actually produced.
   const maxOutputTokens = clampInt(
     env.OPENAI_REALTIME_V2_MAX_OUTPUT_TOKENS,
-    1200,
-    400,
+    2400,
+    1600,
     4096,
   );
 

@@ -24,8 +24,10 @@ import type {
 } from "@/lib/assistant/types";
 import { resolveKitchenNote, sanitizeKitchenNote } from "@/lib/assistant/kitchen-note";
 
+import { createRealtimeResponseGate } from "@/lib/assistant/realtime-response-gate";
+import type { VoiceLanguage } from "@/lib/assistant/voice-language";
+
 const CUSTOMER_ASSISTANT_PATHS = new Set([
-  "/",
   "/checkout",
   "/menu",
   "/extras",
@@ -900,6 +902,9 @@ export default function BurgerAssistant({ guideEnabled = true }: { guideEnabled?
   const [busy, setBusy] = useState(false);
   const [lastSuggestedProductIds, setLastSuggestedProductIds] = useState<string[]>([]);
   const [voiceState, setVoiceState] = useState<VoiceState>("idle");
+  const [voiceLanguage, setVoiceLanguage] = useState<VoiceLanguage>("auto");
+  const voiceStartingRef = useRef(false);
+  const voiceSessionRef = useRef(0);
   const [voiceError, setVoiceError] = useState("");
   const [voiceLevel, setVoiceLevel] = useState(0);
   const [voiceConfirmation, setVoiceConfirmation] = useState("");
@@ -962,6 +967,7 @@ export default function BurgerAssistant({ guideEnabled = true }: { guideEnabled?
   );
 
   const stopVoice = useCallback(() => {
+    voiceSessionRef.current++;
     pendingVoiceCheckoutRef.current = false;
 
     if (meterFrameRef.current != null) cancelAnimationFrame(meterFrameRef.current);
@@ -1471,11 +1477,14 @@ export default function BurgerAssistant({ guideEnabled = true }: { guideEnabled?
   );
 
   const startVoice = useCallback(async () => {
-    if (voiceActive) return;
+    if (voiceActive || voiceStartingRef.current) return;
+    voiceStartingRef.current = true;
+    const voiceSession = ++voiceSessionRef.current;
 
     setVoiceError("");
 
     if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+      voiceStartingRef.current = false;
       setVoiceState("error");
       setVoiceError(
         "Sprachchat braucht HTTPS. Lokal funktioniert er am PC über localhost; auf dem iPhone testen wir ihn nach dem HTTPS-Deploy.",
@@ -1485,7 +1494,9 @@ export default function BurgerAssistant({ guideEnabled = true }: { guideEnabled?
 
     let currentCatalog = catalog;
     if (!currentCatalog.length) currentCatalog = await loadCatalog();
+    if (voiceSession !== voiceSessionRef.current) { voiceStartingRef.current = false; return; }
     if (!currentCatalog.length) {
+      voiceStartingRef.current = false;
       setVoiceState("error");
       setVoiceError("Das aktuelle Menü konnte nicht geladen werden.");
       return;
@@ -1501,6 +1512,7 @@ export default function BurgerAssistant({ guideEnabled = true }: { guideEnabled?
           autoGainControl: true,
         },
       });
+      if (voiceSession !== voiceSessionRef.current) { stream.getTracks().forEach(track=>track.stop()); return; }
       mediaStreamRef.current = stream;
 
       const AudioContextClass = window.AudioContext;
@@ -1537,10 +1549,13 @@ export default function BurgerAssistant({ guideEnabled = true }: { guideEnabled?
       dataChannelRef.current = channel;
 
       const sendRealtimeEvent = (payload: unknown) => {
-        if (channel.readyState !== "open") return false;
+        if (dataChannelRef.current !== channel || channel.readyState !== "open") return false;
         channel.send(JSON.stringify(payload));
         return true;
       };
+
+      const responseGate = createRealtimeResponseGate(() => sendRealtimeEvent({ type: "response.create" }));
+      let playbackActive = false;
 
       const armVoiceIdleStop = () => {
         if (voiceIdleTimerRef.current != null) {
@@ -1557,37 +1572,53 @@ export default function BurgerAssistant({ guideEnabled = true }: { guideEnabled?
         armVoiceIdleStop();
       };
       channel.onerror = () => {
+        if (dataChannelRef.current !== channel) return;
+        stopVoice();
         setVoiceState("error");
         setVoiceError("Sprachverbindung konnte nicht stabil aufgebaut werden.");
       };
 
-      channel.onmessage = (messageEvent) => {
-        let event: any;
-        try {
-          event = JSON.parse(String(messageEvent.data || "{}"));
-        } catch {
+      const handleVoiceEvent = (event: any) => {
+        if (dataChannelRef.current !== channel) return;
+        if (event?.type === "response.created") {
+          responseGate.created(event?.response?.id || "server-busy");
+          armVoiceIdleStop();
+          setVoiceError("");
+          if (!playbackActive) setVoiceState("thinking");
+          return;
+        }
+        if (event?.type === "response.done") {
+          armVoiceIdleStop();
+          const calls = responseGate.done(event.response || {});
+          for (const call of calls) handleVoiceEvent({ ...call, type: "bb.function_call.ready" });
+          if (!playbackActive && !responseGate.busy()) setVoiceState("listening");
+          if (event?.response?.status === "incomplete" || event?.response?.status === "failed") {
+            setVoiceError("Die Antwort konnte nicht vollständig beendet werden. Bitte frage noch einmal kurz nach.");
+          }
           return;
         }
 
         if (event?.type === "input_audio_buffer.speech_started") {
           armVoiceIdleStop();
-          setVoiceState("listening");
+          if (!playbackActive) setVoiceState("listening");
           return;
         }
 
         if (event?.type === "input_audio_buffer.speech_stopped") {
           armVoiceIdleStop();
-          setVoiceState("thinking");
+          if (!playbackActive) setVoiceState("thinking");
           return;
         }
 
         if (event?.type === "output_audio_buffer.started") {
+          playbackActive = true;
           armVoiceIdleStop();
           setVoiceState("speaking");
           return;
         }
 
         if (event?.type === "output_audio_buffer.stopped") {
+          playbackActive = false;
           armVoiceIdleStop();
           if (pendingVoiceCheckoutRef.current) {
             pendingVoiceCheckoutRef.current = false;
@@ -1597,7 +1628,7 @@ export default function BurgerAssistant({ guideEnabled = true }: { guideEnabled?
               router.push("/checkout");
             }, 120);
           } else {
-            setVoiceState("listening");
+            setVoiceState(responseGate.busy() ? "thinking" : "listening");
           }
           return;
         }
@@ -1624,7 +1655,7 @@ export default function BurgerAssistant({ guideEnabled = true }: { guideEnabled?
           return;
         }
 
-        if (event?.type === "response.function_call_arguments.done") {
+        if (event?.type === "bb.function_call.ready") {
           let args: any = {};
           try {
             args = JSON.parse(String(event?.arguments || "{}"));
@@ -1654,7 +1685,7 @@ export default function BurgerAssistant({ guideEnabled = true }: { guideEnabled?
                 }),
               },
             });
-            sendRealtimeEvent({ type: "response.create" });
+            responseGate.toolFinished(event.call_id);
             return;
           }
 
@@ -1669,7 +1700,7 @@ export default function BurgerAssistant({ guideEnabled = true }: { guideEnabled?
                 output: JSON.stringify({ ok: Boolean(listing.category), ...listing }),
               },
             });
-            sendRealtimeEvent({ type: "response.create" });
+            responseGate.toolFinished(event.call_id);
             return;
           }
 
@@ -1682,7 +1713,7 @@ export default function BurgerAssistant({ guideEnabled = true }: { guideEnabled?
                 output: JSON.stringify({ ok: true, cart: readLiveCartContext() }),
               },
             });
-            sendRealtimeEvent({ type: "response.create" });
+            responseGate.toolFinished(event.call_id);
             return;
           }
 
@@ -1721,7 +1752,7 @@ export default function BurgerAssistant({ guideEnabled = true }: { guideEnabled?
                 }),
               },
             });
-            sendRealtimeEvent({ type: "response.create" });
+            responseGate.toolFinished(event.call_id);
             return;
           }
 
@@ -1769,7 +1800,7 @@ export default function BurgerAssistant({ guideEnabled = true }: { guideEnabled?
                 }),
               },
             });
-            sendRealtimeEvent({ type: "response.create" });
+            responseGate.toolFinished(event.call_id);
             return;
           }
 
@@ -1788,6 +1819,7 @@ export default function BurgerAssistant({ guideEnabled = true }: { guideEnabled?
               })
               .catch(() => ({ ok: false, error: "delivery_lookup_failed" }))
               .then((result) => {
+                if (dataChannelRef.current !== channel) return;
                 sendRealtimeEvent({
                   type: "conversation.item.create",
                   item: {
@@ -1796,7 +1828,7 @@ export default function BurgerAssistant({ guideEnabled = true }: { guideEnabled?
                     output: JSON.stringify(result),
                   },
                 });
-                sendRealtimeEvent({ type: "response.create" });
+                responseGate.toolFinished(event.call_id);
               });
             return;
           }
@@ -1811,26 +1843,49 @@ export default function BurgerAssistant({ guideEnabled = true }: { guideEnabled?
                 output: JSON.stringify({ ok: true, message: "Checkout navigation approved." }),
               },
             });
-            sendRealtimeEvent({ type: "response.create" });
+            responseGate.toolFinished(event.call_id);
             return;
           }
+          sendRealtimeEvent({type:"conversation.item.create",item:{type:"function_call_output",call_id:event.call_id,output:JSON.stringify({ok:false,error:"unsupported_tool"})}});
+          responseGate.toolFinished(event.call_id);
+          return;
         }
 
         if (event?.type === "error") {
           console.error("[assistant/realtime]", event?.error || event);
+          if (event?.error?.code === "conversation_already_has_active_response" || /already has an active response/i.test(String(event?.error?.message || ""))) {
+            responseGate.conflict();
+            return;
+          }
+          stopVoice();
           setVoiceState("error");
-          setVoiceError(
-            cleanString(event?.error?.message, "Sprachchat hat einen Fehler gemeldet."),
-          );
+          setVoiceError("Die Sprachverbindung hat ein Problem. Bitte beende sie und starte erneut.");
         }
       };
 
+      channel.onmessage = (messageEvent) => {
+        try { handleVoiceEvent(JSON.parse(String(messageEvent.data || "{}"))); }
+        catch (error) { console.error("[assistant/realtime] event failed", error); }
+      };
+
+      let disconnectTimer: ReturnType<typeof setTimeout> | undefined;
       peer.onconnectionstatechange = () => {
-        if (["failed", "disconnected", "closed"].includes(peer.connectionState)) {
-          if (peer.connectionState !== "closed") {
-            setVoiceState("error");
-            setVoiceError("Die Sprachverbindung wurde unterbrochen.");
-          }
+        if (peerRef.current !== peer) return;
+        if (peer.connectionState === "disconnected") {
+          if (!disconnectTimer) disconnectTimer = setTimeout(() => {
+            if (peerRef.current === peer && peer.connectionState === "disconnected") {
+              stopVoice();
+              setVoiceState("error");
+              setVoiceError("Die Sprachverbindung wurde unterbrochen. Bitte starte sie erneut.");
+            }
+          }, 5000);
+          return;
+        }
+        if (disconnectTimer) { clearTimeout(disconnectTimer); disconnectTimer = undefined; }
+        if (peer.connectionState === "failed") {
+          stopVoice();
+          setVoiceState("error");
+          setVoiceError("Die Sprachverbindung wurde unterbrochen. Bitte starte sie erneut.");
         }
       };
 
@@ -1843,6 +1898,7 @@ export default function BurgerAssistant({ guideEnabled = true }: { guideEnabled?
       const localSdp = peer.localDescription?.sdp || offer.sdp || "";
       if (!localSdp.trim()) throw new Error("VOICE_EMPTY_LOCAL_SDP");
 
+      if (voiceSession !== voiceSessionRef.current) return;
       const response = await fetch("/api/assistant/realtime", {
         method: "POST",
         credentials: "same-origin",
@@ -1856,11 +1912,13 @@ export default function BurgerAssistant({ guideEnabled = true }: { guideEnabled?
           cart: cartContext,
           checkoutContext: contextRef.current,
             companionTheme: companion.theme,
+          language: voiceLanguage,
           orderMode,
         }),
       });
 
       const answerSdp = await response.text();
+      if (voiceSession !== voiceSessionRef.current) return;
       if (!response.ok || !answerSdp.trim()) {
         let reason = `VOICE_${response.status}`;
         try {
@@ -1872,6 +1930,7 @@ export default function BurgerAssistant({ guideEnabled = true }: { guideEnabled?
 
       await peer.setRemoteDescription({ type: "answer", sdp: answerSdp });
     } catch (error) {
+      if (voiceSession !== voiceSessionRef.current) return;
       console.error("[assistant/realtime] start failed", error);
       stopVoice();
       setVoiceState("error");
@@ -1880,6 +1939,8 @@ export default function BurgerAssistant({ guideEnabled = true }: { guideEnabled?
           ? "Mikrofon izni verilmedi. Safari ayarlarından mikrofon iznini açabilirsin."
           : "Sprachchat konnte gerade nicht gestartet werden. Bitte versuche es erneut.",
       );
+    } finally {
+      voiceStartingRef.current = false;
     }
   }, [
     cartContext,
@@ -1892,6 +1953,7 @@ export default function BurgerAssistant({ guideEnabled = true }: { guideEnabled?
     updateExistingCartLine,
     voiceActive,
     companion.theme,
+    voiceLanguage,
   ]);
 
   const closeAssistant = useCallback(() => {
@@ -2193,6 +2255,13 @@ export default function BurgerAssistant({ guideEnabled = true }: { guideEnabled?
                 </div>
 
                 <div className="shrink-0 px-4 pb-[calc(env(safe-area-inset-bottom)+16px)] pt-3 backdrop-blur-xl">
+                  <label className="mx-auto mb-3 flex max-w-md items-center justify-center gap-2 text-xs text-stone-300">
+                    Sprache
+                    <select aria-label="Sprache für Sprachchat" value={voiceLanguage} onChange={event=>{stopVoice();setVoiceLanguage(event.target.value as VoiceLanguage);}} className="rounded-lg border border-white/20 bg-stone-900 px-3 py-2 text-sm">
+                      <option value="auto">Automatisch</option><option value="de">Deutsch</option><option value="tr">Türkçe</option><option value="en">English</option>
+                    </select>
+                  </label>
+                  {!voiceActive ? <button type="button" onClick={()=>void startVoice()} aria-label="Sprachchat starten" className="mx-auto mb-3 block rounded-xl bg-amber-400 px-5 py-2 text-sm font-semibold text-black">Gespräch starten</button> : null}
                   <div className="mx-auto grid max-w-md grid-cols-3 gap-3">
                     <button type="button" onClick={() => switchMode("chat")} aria-label="Zum Schreiben wechseln" className="rounded-2xl border border-white/10 bg-white/[.055] px-3 py-3 text-sm font-semibold">Schreiben</button>
                     <button type="button" onClick={() => { stopVoice(); setOpen(false); router.push("/checkout"); }} aria-label="Warenkorb öffnen" className="rounded-2xl border border-amber-300/20 bg-amber-400/10 px-3 py-3 text-sm font-semibold text-amber-100">Warenkorb</button>
