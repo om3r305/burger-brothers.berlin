@@ -1816,6 +1816,7 @@ export async function POST(req: Request) {
       paymentSessionId,
       requestedFinalOrderId,
       finalizeSignature,
+      order,
     );
 
   if (protectedOnlinePayment && !verifiedPaymentFinalize) {

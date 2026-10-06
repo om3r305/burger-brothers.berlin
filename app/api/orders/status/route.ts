@@ -1266,8 +1266,7 @@ async function handleStatusUpdate(req: Request) {
     }
 
     if (
-      isPaymentDraft(row) &&
-      !isAdmin
+      isPaymentDraft(row)
     ) {
       return securityJson({ ok: false, error: "payment_session_not_operational_order" }, 403);
     }
