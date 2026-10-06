@@ -57,6 +57,7 @@ export type AssistantResult = {
 };
 
 export type AssistantRequest = {
+  companionTheme?: import("./bros-themes").BrosTheme;
   checkoutContext?: import("./bros").BrosContext;
   message: string;
   history?: AssistantConversationMessage[];

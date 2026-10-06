@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import BrosAvatar from "./BrosAvatar";
-import { BROS_WELCOME, brosCheckoutHint, normalizeBrosContext, type BrosContext } from "@/lib/assistant/bros";
+import { useBrosCompanion } from "./useBrosCompanion";
+import { brosCheckoutHint, normalizeBrosContext, type BrosContext } from "@/lib/assistant/bros";
 import { usePathname, useRouter } from "next/navigation";
 import { loadNormalizedCampaigns } from "@/lib/campaigns-compat";
 import {
@@ -924,6 +925,7 @@ export default function BurgerAssistant({ guideEnabled = true }: { guideEnabled?
   const normalizedPathname =
     pathname && pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;
   const visible = CUSTOMER_ASSISTANT_PATHS.has(normalizedPathname);
+  const companion = useBrosCompanion(visible && !open && normalizedPathname !== "/checkout", guideEnabled, Boolean(guide));
 
   useEffect(() => {
     if (!visible) { setGuide(""); return; }
@@ -934,9 +936,6 @@ export default function BurgerAssistant({ guideEnabled = true }: { guideEnabled?
     onContext(new CustomEvent("bb:bros-context", { detail:(window as Window & { bbBrosContext?: BrosContext }).bbBrosContext }));
     window.addEventListener("bb:bros-context", onContext);
     if (!guideEnabled) { setGuide(""); return () => window.removeEventListener("bb:bros-context", onContext); }
-    let seen = introducedRef.current;
-    try { seen ||= localStorage.getItem("bb_bros_introduced_v1") === "1"; } catch {}
-    if (!seen && normalizedPathname !== "/checkout") setGuide(BROS_WELCOME);
     const timer = window.setTimeout(() => {
       if (normalizedPathname !== "/checkout" || checkoutHintShownRef.current || !contextRef.current || document.activeElement?.matches("input,textarea,select")) return;
       checkoutHintShownRef.current = true;
@@ -944,6 +943,12 @@ export default function BurgerAssistant({ guideEnabled = true }: { guideEnabled?
     }, 8000);
     return () => { window.clearTimeout(timer); window.removeEventListener("bb:bros-context", onContext); };
   }, [visible, normalizedPathname, guideEnabled]);
+
+  useEffect(() => {
+    if (!guide || open) return;
+    const timer=window.setTimeout(dismissGuide,8500);
+    return ()=>window.clearTimeout(timer);
+  },[guide,open,dismissGuide]);
 
   useEffect(() => {
     if (!visible) return;
@@ -1378,6 +1383,7 @@ export default function BurgerAssistant({ guideEnabled = true }: { guideEnabled?
             orderMode,
             lastSuggestedProductIds,
             checkoutContext: brosContext,
+            companionTheme: companion.theme,
           }),
         });
 
@@ -1454,6 +1460,7 @@ export default function BurgerAssistant({ guideEnabled = true }: { guideEnabled?
       busy,
       cartContext,
       brosContext,
+      companion.theme,
       catalog,
       executeAction,
       historyForServer,
@@ -1848,6 +1855,7 @@ export default function BurgerAssistant({ guideEnabled = true }: { guideEnabled?
           sdp: localSdp,
           cart: cartContext,
           checkoutContext: contextRef.current,
+            companionTheme: companion.theme,
           orderMode,
         }),
       });
@@ -1883,6 +1891,7 @@ export default function BurgerAssistant({ guideEnabled = true }: { guideEnabled?
     stopVoice,
     updateExistingCartLine,
     voiceActive,
+    companion.theme,
   ]);
 
   const closeAssistant = useCallback(() => {
@@ -1929,32 +1938,19 @@ export default function BurgerAssistant({ guideEnabled = true }: { guideEnabled?
 
   return (
     <>
-      {!open && guideEnabled && guide ? (
-        <aside className="bb-bros-guide" aria-label="Bros Bestellhilfe">
-          <button type="button" className="bb-bros-guide-close" aria-label="Bros Hinweis schließen" onClick={dismissGuide}>×</button>
-          <strong>Hallo, ich bin Bros!</strong>
-          <p>{guide}</p>
-          <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={() => { dismissGuide(); setOpen(true); }}>Hilfe öffnen</button>
-            {normalizedPathname === "/" ? <button type="button" onClick={() => { dismissGuide(); router.push("/menu"); }}>Menü öffnen</button> : null}
-            {normalizedPathname === "/checkout" ? <button type="button" onClick={() => { dismissGuide(); document.getElementById(orderMode === "delivery" ? "checkout-zip" : "checkout-name")?.focus(); }}>Angaben prüfen</button> : null}
-            <button type="button" onClick={dismissGuide}>Alles klar</button>
-          </div>
-        </aside>
-      ) : null}
       {!open ? (
-        <button
-          type="button"
-          onClick={() => { dismissGuide(); setOpen(true); }}
-          className="fixed bottom-[calc(env(safe-area-inset-bottom)+142px)] right-4 z-[70] flex items-center gap-2 rounded-full border border-amber-300/25 bg-black/88 p-1.5 pr-3.5 text-sm font-semibold text-white shadow-[0_12px_38px_rgba(0,0,0,.65)] backdrop-blur-xl transition active:scale-[0.97] sm:bottom-6 sm:right-6"
-          aria-label="Bros Bestellhilfe öffnen"
-        >
-          <AssistantOrbIcon greeting={Boolean(guide)} />
-          <span className="leading-none">
-            <span className="block text-[10px] uppercase tracking-[0.16em] text-amber-300/70">Dein Bestellhelfer</span>
-            <span className="mt-1 block">Bros</span>
-          </span>
-        </button>
+        <div className="bb-bros-companion" data-action={companion.action}>
+          {guideEnabled && (guide || companion.bubble) ? (
+            <aside className="bb-bros-guide bb-bros-speech" aria-label="Bros Bestellhilfe">
+              <button type="button" className="bb-bros-guide-close" aria-label="Bros Hinweis schließen" onClick={()=>{dismissGuide();companion.hideBubble();}}>×</button>
+              <button type="button" className="bb-bros-bubble-message" aria-label="Mit Bros sprechen" onClick={()=>{dismissGuide();companion.hideBubble();setMode("chat");setOpen(true);}}>{guide || companion.bubble}</button>
+            </aside>
+          ) : null}
+          <button type="button" className="bb-bros-character-button" aria-label="Bros Bestellhilfe öffnen"
+            onClick={()=>{dismissGuide();companion.hideBubble();setMode("chat");setOpen(true);}}>
+            <BrosAvatar size={88} action={companion.action} effect={companion.effect} state={guide || companion.bubble ? "greeting" : "idle"} />
+          </button>
+        </div>
       ) : null}
 
       {open ? (
