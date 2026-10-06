@@ -1,0 +1,35 @@
+const fs=require('node:fs');
+const vm=require('node:vm');
+const assert=require('node:assert/strict');
+const ts=require('typescript');
+const React=require('react');
+const {renderToStaticMarkup}=require('react-dom/server');
+function load(path,requireFn=require){const m={exports:{}};vm.runInNewContext(ts.transpileModule(fs.readFileSync(path,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020,jsx:ts.JsxEmit.ReactJSX}}).outputText,{module:m,exports:m.exports,require:requireFn,Intl,Date});return m.exports;}
+const themes=load('lib/assistant/bros-themes.ts');
+const props=load('components/assistant/BrosThemeProps.tsx');
+const show=load('components/assistant/BrosThemeShow.tsx');
+const avatar=load('components/assistant/BrosAvatar.tsx',n=>n==='./BrosThemeProps'?props:n==='./BrosThemeShow'?show:require(n));
+const css=fs.readFileSync('app/globals.css','utf8');
+assert.deepEqual(Object.keys(props.BROS_THEME_GESTURES).sort(),Object.keys(themes.BROS_THEME_NOTES).sort());
+assert.equal(new Set(Object.values(props.BROS_THEME_GESTURES)).size,27);
+for(const theme of Object.keys(themes.BROS_THEME_NOTES)){
+ const render=action=>renderToStaticMarkup(React.createElement(avatar.default,{theme,action,effect:themes.brosThemeNote(theme).effect}));
+ const idle=render('idle'), performing=render('showcase');
+ assert.ok(!idle.includes('data-gesture='),'props are not stuck on screen while idle');
+ assert.ok(performing.includes('<svg'));
+ assert.ok(!performing.includes('<img')&&!performing.includes('<video'),'no image/video downloads for calendar performances');
+ if(theme==='lights') assert.ok(performing.includes('bb-bros-light-stage'));
+ else assert.ok(performing.includes(`data-gesture="${props.BROS_THEME_GESTURES[theme]}"`),`${theme} has a real drawn prop`);
+ assert.ok(!performing.includes('bb-bros-scene-motif'),'theme centrepiece is the character, not an emoji');
+ assert.ok(themes.brosThemeNote(theme).text.length<260,'short bubble text');
+}
+const medical=renderToStaticMarkup(React.createElement(props.default,{theme:'medicine',performing:true}));
+assert.ok(medical.includes('data-costume="doctor"')&&medical.includes('bb-bros-heartbeat'));
+const love=renderToStaticMarkup(React.createElement(props.default,{theme:'valentines',performing:true}));
+assert.ok(love.includes('bb-bros-drawn-heart')&&love.includes('bb-bros-heart-eyes'));
+const school=renderToStaticMarkup(React.createElement(props.default,{theme:'school',performing:true}));
+assert.ok(school.includes('data-costume="backpack"')&&school.includes('bb-bros-report'));
+assert.ok(css.includes(':not([data-effect="beam"]) .bb-bros-character'));
+assert.ok(css.includes('bbBrosFlowers')&&css.includes('bbBrosReportOpen')&&css.includes('bbBrosDrawHeart'));
+assert.ok(css.includes('html[data-bb-motion="0"] .bb-bros-theme-gesture'));
+console.log('Calendar gestures PASS: all 27 themes, unique gestures, rigged vector props, doctor outfit, heart eyes, report opening, compact greetings, no emoji replacement, reduced-motion support.');
