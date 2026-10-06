@@ -342,6 +342,7 @@ export default function BurgerStudioEntry() {
   return (
     <>
       <style jsx global>{`
+        @media (max-width: 639px) {
         body:has([role="dialog"][aria-label="Bestellübersicht"])
           [data-bb-burger-studio="1"],
         body:has([role="dialog"][aria-label="Bestellübersicht"])
@@ -351,6 +352,7 @@ export default function BurgerStudioEntry() {
         body:has([role="dialog"][aria-label="Bestellart wählen"])
           [data-bb-assistant="1"] {
           display: none !important;
+        }
         }
 
         [data-bb-burger-studio="1"][data-appeared="false"] {
