@@ -7,11 +7,13 @@ import BurgerAssistantCore from "./BurgerAssistantCore";
 type AiControls = {
   assistantEnabled: boolean;
   voiceEnabled: boolean;
+  guideEnabled: boolean;
 };
 
 const DEFAULT_CONTROLS: AiControls = {
   assistantEnabled: true,
   voiceEnabled: true,
+  guideEnabled: true,
 };
 
 function readAiControls(value: any): AiControls {
@@ -21,6 +23,7 @@ function readAiControls(value: any): AiControls {
       typeof ai?.assistantEnabled === "boolean"
         ? ai.assistantEnabled
         : DEFAULT_CONTROLS.assistantEnabled,
+    guideEnabled: ai?.guideEnabled !== false,
     voiceEnabled:
       typeof ai?.voiceEnabled === "boolean"
         ? ai.voiceEnabled
@@ -286,7 +289,7 @@ export default function BurgerAssistant() {
         event.stopPropagation();
       }}
     >
-      <BurgerAssistantCore key={voiceEnabled ? "voice-on" : "voice-off"} />
+      <BurgerAssistantCore key={voiceEnabled ? "voice-on" : "voice-off"} guideEnabled={controls.guideEnabled} />
     </div>
   );
 }

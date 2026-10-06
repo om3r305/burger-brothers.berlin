@@ -57,6 +57,7 @@ export type AssistantResult = {
 };
 
 export type AssistantRequest = {
+  checkoutContext?: import("./bros").BrosContext;
   message: string;
   history?: AssistantConversationMessage[];
   catalog?: AssistantCatalogProduct[];

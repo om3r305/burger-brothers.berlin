@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
+import { BROS_WELCOME, brosCheckoutHint, normalizeBrosContext, type BrosContext } from "@/lib/assistant/bros";
 import { usePathname, useRouter } from "next/navigation";
 import { loadNormalizedCampaigns } from "@/lib/campaigns-compat";
 import {
@@ -23,6 +24,8 @@ import type {
 import { resolveKitchenNote, sanitizeKitchenNote } from "@/lib/assistant/kitchen-note";
 
 const CUSTOMER_ASSISTANT_PATHS = new Set([
+  "/",
+  "/checkout",
   "/menu",
   "/extras",
   "/drinks",
@@ -34,7 +37,7 @@ const CUSTOMER_ASSISTANT_PATHS = new Set([
 
 const MAX_CLIENT_PRODUCTS = 1200;
 const INITIAL_ASSISTANT_TEXT =
-  "Hallo! Was möchtest du bestellen? Sag einfach Burger, Pommes/Fries, Getränk, Bubble Tea, Extras oder Soße – ich prüfe das aktuelle Menü und lege es in den Warenkorb.";
+  "Hallo! Ich bin Bros, dein Bestellhelfer. Was möchtest du bestellen? Sag einfach Burger, Pommes/Fries, Getränk, Bubble Tea, Extras oder Soße – ich prüfe das aktuelle Menü und lege es in den Warenkorb.";
 
 type CatalogPayload = {
   ok?: boolean;
@@ -865,24 +868,13 @@ function plainAssistantText(value: unknown) {
 }
 
 function AssistantOrbIcon({ active = false }: { active?: boolean }) {
-  return (
-    <span
-      aria-hidden
-      className={`relative grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-full border shadow-[0_0_24px_rgba(245,158,11,0.28)] ${
-        active
-          ? "border-amber-300/80 bg-amber-400/15"
-          : "border-amber-300/40 bg-black/80"
-      }`}
-    >
-      <span className="absolute inset-[5px] rounded-full bg-[radial-gradient(circle_at_35%_30%,rgba(255,225,138,.95),rgba(245,158,11,.56)_30%,rgba(113,63,18,.18)_60%,transparent_72%)]" />
-      <span className={`absolute inset-[10px] rounded-full border border-amber-200/45 ${active ? "animate-ping" : ""}`} />
-      <span className="relative text-[17px] font-black tracking-[-0.08em] text-white drop-shadow">✦</span>
-    </span>
-  );
+  return <span aria-hidden className={`relative block h-14 w-14 shrink-0 ${active ? "bb-bros-speaking" : ""}`}>
+    <Image src="/images/assistant/bros.webp" alt="" fill sizes="56px" className="object-contain" />
+  </span>;
 }
 
 type VoiceState = "idle" | "connecting" | "listening" | "thinking" | "tool" | "speaking" | "error";
-export default function BurgerAssistant() {
+export default function BurgerAssistant({ guideEnabled = true }: { guideEnabled?: boolean }) {
   const pathname = usePathname();
   const router = useRouter();
 
@@ -892,6 +884,15 @@ export default function BurgerAssistant() {
   const removeFromCart = useCart((state) => state.remove);
 
   const [open, setOpen] = useState(false);
+  const [guide, setGuide] = useState("");
+  const [brosContext, setBrosContext] = useState<BrosContext | undefined>();
+  const contextRef = useRef<BrosContext | undefined>(undefined);
+  const introducedRef = useRef(false);
+  const checkoutHintShownRef = useRef(false);
+  const dismissGuide = useCallback(() => {
+    setGuide(""); introducedRef.current = true;
+    try { localStorage.setItem("bb_bros_introduced_v1", "1"); } catch {}
+  }, []);
   const [mode, setMode] = useState<"chat" | "voice">("chat");
   const [catalog, setCatalog] = useState<AssistantCatalogProductRuntime[]>([]);
   const [catalogBusy, setCatalogBusy] = useState(false);
@@ -925,6 +926,33 @@ export default function BurgerAssistant() {
   const normalizedPathname =
     pathname && pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;
   const visible = CUSTOMER_ASSISTANT_PATHS.has(normalizedPathname);
+
+  useEffect(() => {
+    if (!visible) { setGuide(""); return; }
+    const onContext = (event: Event) => {
+      const next = normalizeBrosContext((event as CustomEvent).detail);
+      contextRef.current = next; setBrosContext(next);
+    };
+    onContext(new CustomEvent("bb:bros-context", { detail:(window as Window & { bbBrosContext?: BrosContext }).bbBrosContext }));
+    window.addEventListener("bb:bros-context", onContext);
+    if (!guideEnabled) { setGuide(""); return () => window.removeEventListener("bb:bros-context", onContext); }
+    let seen = introducedRef.current;
+    try { seen ||= localStorage.getItem("bb_bros_introduced_v1") === "1"; } catch {}
+    if (!seen && normalizedPathname !== "/checkout") setGuide(BROS_WELCOME);
+    const timer = window.setTimeout(() => {
+      if (normalizedPathname !== "/checkout" || checkoutHintShownRef.current || !contextRef.current || document.activeElement?.matches("input,textarea,select")) return;
+      checkoutHintShownRef.current = true;
+      setGuide(brosCheckoutHint(contextRef.current));
+    }, 8000);
+    return () => { window.clearTimeout(timer); window.removeEventListener("bb:bros-context", onContext); };
+  }, [visible, normalizedPathname, guideEnabled]);
+
+  useEffect(() => {
+    if (!visible) return;
+    const onOpen = () => { dismissGuide(); setMode("chat"); setOpen(true); };
+    window.addEventListener("bb:bros-open", onOpen);
+    return () => window.removeEventListener("bb:bros-open", onOpen);
+  }, [visible, dismissGuide]);
 
   const voiceActive = ["connecting", "listening", "thinking", "tool", "speaking"].includes(
     voiceState,
@@ -1351,6 +1379,7 @@ export default function BurgerAssistant() {
             cart: cartContext,
             orderMode,
             lastSuggestedProductIds,
+            checkoutContext: brosContext,
           }),
         });
 
@@ -1426,6 +1455,7 @@ export default function BurgerAssistant() {
     [
       busy,
       cartContext,
+      brosContext,
       catalog,
       executeAction,
       historyForServer,
@@ -1819,6 +1849,7 @@ export default function BurgerAssistant() {
         body: JSON.stringify({
           sdp: localSdp,
           cart: cartContext,
+          checkoutContext: contextRef.current,
           orderMode,
         }),
       });
@@ -1887,7 +1918,7 @@ export default function BurgerAssistant() {
           : voiceState === "tool"
             ? "Ich prüfe die Karte …"
           : voiceState === "speaking"
-            ? "Burger Brothers AI spricht"
+            ? "Bros spricht"
             : voiceState === "error"
               ? "Sprachchat pausiert"
               : "Bereit, wenn du es bist";
@@ -1900,17 +1931,30 @@ export default function BurgerAssistant() {
 
   return (
     <>
+      {!open && guideEnabled && guide ? (
+        <aside className="bb-bros-guide" aria-label="Bros Bestellhilfe">
+          <button type="button" className="bb-bros-guide-close" aria-label="Bros Hinweis schließen" onClick={dismissGuide}>×</button>
+          <strong>Hallo, ich bin Bros!</strong>
+          <p>{guide}</p>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => { dismissGuide(); setOpen(true); }}>Hilfe öffnen</button>
+            {normalizedPathname === "/" ? <button type="button" onClick={() => { dismissGuide(); router.push("/menu"); }}>Menü öffnen</button> : null}
+            {normalizedPathname === "/checkout" ? <button type="button" onClick={() => { dismissGuide(); document.getElementById(orderMode === "delivery" ? "checkout-zip" : "checkout-name")?.focus(); }}>Angaben prüfen</button> : null}
+            <button type="button" onClick={dismissGuide}>Alles klar</button>
+          </div>
+        </aside>
+      ) : null}
       {!open ? (
         <button
           type="button"
-          onClick={() => setOpen(true)}
+          onClick={() => { dismissGuide(); setOpen(true); }}
           className="fixed bottom-[calc(env(safe-area-inset-bottom)+142px)] right-4 z-[70] flex items-center gap-2 rounded-full border border-amber-300/25 bg-black/88 p-1.5 pr-3.5 text-sm font-semibold text-white shadow-[0_12px_38px_rgba(0,0,0,.65)] backdrop-blur-xl transition active:scale-[0.97] sm:bottom-6 sm:right-6"
-          aria-label="Burger Brothers AI öffnen"
+          aria-label="Bros Bestellhilfe öffnen"
         >
           <AssistantOrbIcon />
           <span className="leading-none">
-            <span className="block text-[10px] uppercase tracking-[0.16em] text-amber-300/70">Burger Brothers</span>
-            <span className="mt-1 block">AI Assistent</span>
+            <span className="block text-[10px] uppercase tracking-[0.16em] text-amber-300/70">Dein Bestellhelfer</span>
+            <span className="mt-1 block">Bros</span>
           </span>
         </button>
       ) : null}
@@ -1930,8 +1974,8 @@ export default function BurgerAssistant() {
               <div className="flex min-w-0 items-center gap-3">
                 <div className="relative h-11 w-11 overflow-hidden rounded-full border border-amber-300/20 bg-black/50 shadow-[0_0_22px_rgba(245,158,11,.14)]">
                   <Image
-                    src="/logo-burger-brothers.webp"
-                    alt="Burger Brothers"
+                    src="/images/assistant/bros.webp"
+                    alt="Bros"
                     fill
                     sizes="44px"
                     className="object-contain p-1"
@@ -1940,7 +1984,7 @@ export default function BurgerAssistant() {
                 </div>
                 <div className="min-w-0">
                   <div className="truncate text-lg font-bold tracking-tight sm:text-xl">
-                    Burger Brothers AI
+                    Bros · Dein Bestellhelfer
                   </div>
                   <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-stone-400">
                     <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(74,222,128,.6)]" />
@@ -1993,6 +2037,7 @@ export default function BurgerAssistant() {
                   ref={scrollRef}
                   className="mx-auto min-h-0 w-full max-w-3xl flex-1 space-y-4 overflow-y-auto overscroll-contain px-4 py-5 sm:px-6"
                 >
+                  {normalizedPathname === "/checkout" ? <button type="button" disabled={busy} onClick={() => void send("Ich brauche Hilfe beim Bestellen")} className="rounded-xl border border-amber-300/30 bg-amber-400/10 px-4 py-3 text-sm text-amber-100">Hilfe zu diesem Bestellschritt</button> : null}
                   {messages.map((message) => (
                     <div
                       key={message.id}
@@ -2005,7 +2050,7 @@ export default function BurgerAssistant() {
                       {message.role === "assistant" ? (
                         <div className="mb-1.5 flex items-center gap-2 px-1 text-[10px] uppercase tracking-[0.15em] text-amber-300/60">
                           <AssistantOrbIcon />
-                          <span>AI Assistent</span>
+                          <span>Bros</span>
                         </div>
                       ) : null}
 
