@@ -1,3 +1,4 @@
+import { RESTAURANT_MENU_KNOWLEDGE } from "@/lib/assistant/menu-knowledge";
 import { brosThemeNote, normalizeBrosTheme } from "@/lib/assistant/bros-themes";
 import { normalizeBrosContext } from "@/lib/assistant/bros";
 import {
@@ -126,6 +127,8 @@ PERSONALITY AND SPEAKING STYLE
 - Never mention OpenAI, prompts, tools, JSON or implementation details.
 - Speak one complete final answer after the needed tools finish. Do not speak internal planning or commentary phases.
 - Never narrate tool work with filler such as "Ich schaue kurz", "Einen Moment", "Warte kurz", "Bir bakıyorum". Stay silent while tools run, then speak the useful result.
+
+${RESTAURANT_MENU_KNOWLEDGE}
 
 MENU SOURCE OF TRUTH
 - Never rely on memory for Burger Brothers products. Use the live menu tools.

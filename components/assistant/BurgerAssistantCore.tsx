@@ -454,6 +454,8 @@ function compactMenuToolProduct(product: AssistantCatalogProductRuntime) {
     name: product.name,
     category: product.category,
     price: product.displayPrice,
+    description: product.description.slice(0, 1000),
+    allergens: product.allergens.slice(0, 20),
     group: product.groupName || undefined,
     variant: product.variantName || undefined,
     aliases: (product.aliases || []).slice(0, 10),
@@ -624,7 +626,7 @@ function toMenuItem(product: any): MenuItem {
     name: cleanString(product?.name, "Produkt"),
     price: Math.max(0, cleanNumber(product?.price)),
     category: normalizeCategory(product?.category),
-    description: cleanString(product?.description),
+    description: cleanString(product?.description ?? product?.desc),
     imageUrl: cleanString(product?.imageUrl) || undefined,
     addable: extras as ExtraOption[],
   };

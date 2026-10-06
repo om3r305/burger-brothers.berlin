@@ -2,16 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
-type CategoryKey = "burger" | "vegan" | "hotdogs";
-
-const BLURBS_DE: Record<CategoryKey, string> = {
-  burger:
-    "Jeder Burger wird mit Brötchen und Rinderhackfleisch aus der Region, Tomaten, Zwiebeln, Eisbergsalat und Gewürzgurken zubereitet und mit Ketchup oder Mayonnaise serviert. Allergene: Gluten, Milch, Senf, Sesam.",
-  vegan:
-    "Pflanzliche Patties, Tomaten, Zwiebeln, Salat, Gurken. Vegane Mayo/Ketchup. Allergene: Gluten, Soja, Senf.",
-  hotdogs:
-    "Rind-Wurst im Brötchen, Röstzwiebeln, Gurken-Relish, Ketchup/Senf. Allergene: Gluten, Senf, Sellerie.",
-};
+import { BLURBS_DE, type CategoryKey } from "@/lib/menu-descriptions";
 
 export default function CategoryBlurb({
   category,
