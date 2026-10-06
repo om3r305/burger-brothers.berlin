@@ -703,21 +703,21 @@ export default function MenuPage() {
   const reloadDbFirst = async () => {
     const seq = ++loadSeq.current;
 
-    const [catalog, flags, ranks] = await Promise.all([
-      dbLoadCatalog(),
-      dbLoadFeatureFlags(),
-      dbLoadPopularity(),
+    // The catalog is sufficient to paint product images. Auxiliary requests
+    // must not hold the first frame on slow mobile connections.
+    await Promise.all([
+      dbLoadCatalog().then((catalog) => {
+        if (seq !== loadSeq.current) return;
+        setProducts(catalog.products);
+        setCampaigns(catalog.campaigns);
+      }),
+      dbLoadFeatureFlags().then((flags) => {
+        if (seq === loadSeq.current && flags) setFeatures(flags);
+      }),
+      dbLoadPopularity().then((ranks) => {
+        if (seq === loadSeq.current) setPopularityRanks(ranks);
+      }),
     ]);
-
-    if (seq !== loadSeq.current) return;
-
-    setProducts(catalog.products);
-    setCampaigns(catalog.campaigns);
-    setPopularityRanks(ranks);
-
-    if (flags) {
-      setFeatures(flags);
-    }
   };
 
   /* URL’den tab seçimi + dış rotalar */
@@ -821,6 +821,7 @@ export default function MenuPage() {
 
     return () => {
       alive = false;
+      loadSeq.current += 1;
       window.removeEventListener("storage", onStorage);
       window.removeEventListener("focus", onFocus);
       window.removeEventListener(
@@ -1113,7 +1114,7 @@ export default function MenuPage() {
                   badge,
                   countdown,
                   topSellerRank,
-                }) => {
+                }, index) => {
                   const guessedCategory = guessCategory(p);
 
                   return (
@@ -1142,6 +1143,7 @@ export default function MenuPage() {
                         }
                         coverRatio="3/2"
                         normalizeTransparentImage
+                        imagePriority={index < 4}
                         topSellerRank={topSellerRank}
                       />
                     </div>
