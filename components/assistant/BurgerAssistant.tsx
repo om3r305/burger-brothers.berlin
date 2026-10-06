@@ -157,6 +157,14 @@ export default function BurgerAssistant() {
 
   useEffect(() => {
     if (!assistantEnabled) return;
+    const syncMotion = () => hostRef.current?.setAttribute("data-bb-assistant-paused", document.hidden ? "1" : "0");
+    syncMotion();
+    document.addEventListener("visibilitychange", syncMotion);
+    return () => document.removeEventListener("visibilitychange", syncMotion);
+  }, [assistantEnabled]);
+
+  useEffect(() => {
+    if (!assistantEnabled) return;
 
     const root = hostRef.current;
     if (!root) return;
