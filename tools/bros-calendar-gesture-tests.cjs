@@ -25,6 +25,15 @@ for(const theme of Object.keys(themes.BROS_THEME_NOTES)){
 }
 const medical=renderToStaticMarkup(React.createElement(props.default,{theme:'medicine',performing:true}));
 assert.ok(medical.includes('data-costume="doctor"')&&medical.includes('bb-bros-heartbeat'));
+const ramadan=renderToStaticMarkup(React.createElement(props.default,{theme:'ramadan',performing:false}));
+assert.ok(ramadan.includes('data-costume="ramadan-fez"'));
+assert.ok(!ramadan.includes('data-costume="doctor"')&&!ramadan.includes('data-gesture='));
+const gala=renderToStaticMarkup(React.createElement(props.default,{theme:'newyear',performing:false}));
+assert.ok(gala.includes('data-costume="newyear-gala"'));
+const base=renderToStaticMarkup(React.createElement(avatar.default,{theme:'weihnachten'}));
+assert.equal((base.match(/class="bb-bros-shoe"/g)||[]).length,2);
+assert.equal((base.match(/class="bb-bros-sleeve"/g)||[]).length,2);
+assert.ok(css.includes('.bb-bros-glove { fill:#d64c50'));
 const love=renderToStaticMarkup(React.createElement(props.default,{theme:'valentines',performing:true}));
 assert.ok(love.includes('bb-bros-drawn-heart')&&love.includes('bb-bros-heart-eyes'));
 const school=renderToStaticMarkup(React.createElement(props.default,{theme:'school',performing:true}));

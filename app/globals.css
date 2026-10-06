@@ -3061,3 +3061,15 @@ html[data-bb-motion="0"] .bb-bros-theme-gesture * { animation:none!important;opa
  .bb-bros-theme-gesture,.bb-bros-theme-gesture * { animation:none!important;opacity:1!important;transform:none!important; }
  .bb-bros-drawn-heart { stroke-dashoffset:0!important; }
 }
+
+/* Seasonal sleeves and shoes leave Bros' burger face and ingredients visible. */
+html:is([data-bb-theme="christmas"],[data-bb-theme="weihnachten"]) .bb-bros-sleeve { stroke:#c63f43;stroke-width:12; }
+html:is([data-bb-theme="christmas"],[data-bb-theme="weihnachten"]) .bb-bros-glove { fill:#d64c50;stroke:#8f3037; }
+html:is([data-bb-theme="christmas"],[data-bb-theme="weihnachten"]) .bb-bros-shoe { fill:#493334;stroke:#2c2429; }
+html[data-bb-theme="ramadan"] .bb-bros-sleeve { stroke:#38786e;stroke-width:12; }
+html[data-bb-theme="ramadan"] .bb-bros-shoe { fill:#38786e;stroke:#244c47; }
+html[data-bb-theme="ramadan"] .bb-bros-crescent { transform:translate(18px,9px); }
+html[data-bb-theme="halloween"] .bb-bros-sleeve { stroke:#6539a1;stroke-width:12; }
+html[data-bb-theme="halloween"] .bb-bros-shoe { fill:#6539a1;stroke:#442763; }
+html[data-bb-theme="newyear"] .bb-bros-sleeve { stroke:#34324f;stroke-width:12; }
+html[data-bb-theme="newyear"] .bb-bros-shoe { fill:#e2bd75;stroke:#997844; }
