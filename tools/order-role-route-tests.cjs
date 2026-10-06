@@ -228,10 +228,12 @@ async function main() {
   for (const status of ["payment_pending", "payment_completed", "refund_pending", "refund_failed"]) {
     row = { ...freshRow(), status, meta: { paymentSession: { state: status } } };
     updateCount = 0;
-    const blocked = await route.POST(request("tv", { status: "preparing" }));
-    assert.equal(blocked.status, 403, status);
-    assert.equal((await blocked.json()).error, "payment_session_not_operational_order");
-    assert.equal(updateCount, 0);
+    for (const role of ["tv", "admin"]) {
+      const blocked = await route.POST(request(role, { status: "preparing" }));
+      assert.equal(blocked.status, 403, `${status}: ${role}`);
+      assert.equal((await blocked.json()).error, "payment_session_not_operational_order");
+      assert.equal(updateCount, 0);
+    }
   }
   console.log("Order role transition route tests passed.");
 }

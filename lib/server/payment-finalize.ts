@@ -102,6 +102,38 @@ function expectedAmountCents(value: any) {
   return Math.max(0, Math.round(Number(value || 0) * 100));
 }
 
+function paymentModeMatches(session: Record<string, any>, livemode: boolean) {
+  // Legacy drafts did not store the mode. New drafts must match their provider mode.
+  return !session.stripeMode || session.stripeMode === (livemode ? "live" : "test");
+}
+
+function paymentCollectionMatches(session: Record<string, any>, order: Record<string, any>, shares: FinalizePaymentResult["shares"]) {
+  const cents = (value: any) => {
+    const amount = Number(value);
+    return Number.isFinite(amount) && amount >= 0 ? Math.round(amount * 100) : -1;
+  };
+  const orderTotal = cents(order.total);
+  const storedTotal = cents(session.orderTotal ?? session.baseTotal ?? order.total);
+  const fee = cents(session.serviceFeeTotal ?? 0);
+  const collected = cents(session.collectedTotal ?? session.total ?? (Number(order.total) + Number(session.serviceFeeTotal ?? 0)));
+  const indexes = new Set<number>();
+  const intents = new Set<string>();
+  const checkouts = new Set<string>();
+  let sum = 0;
+  for (const share of shares) {
+    const amount = cents(share.amount);
+    if (amount < 50 || !Number.isInteger(share.index) || share.index < 0 || indexes.has(share.index) ||
+        !share.paymentIntentId || intents.has(share.paymentIntentId) ||
+        (share.checkoutSessionId && checkouts.has(share.checkoutSessionId))) return false;
+    indexes.add(share.index);
+    intents.add(share.paymentIntentId);
+    if (share.checkoutSessionId) checkouts.add(share.checkoutSessionId);
+    sum += amount;
+  }
+  return orderTotal >= 0 && orderTotal === storedTotal && fee >= 0 &&
+    collected === orderTotal + fee && sum === collected;
+}
+
 function paymentMetadataMatches(params: {
   metadata: Record<string, string> | null | undefined;
   paymentSessionId: string;
@@ -164,7 +196,9 @@ export async function recordPaymentIntentEvent(intent: Stripe.PaymentIntent) {
   const stored = ensureObj(storedShares[position]);
   const amountOk =
     intent.currency === "eur" &&
-    Number(intent.amount) === expectedAmountCents(stored.amount);
+    Number(intent.amount) === expectedAmountCents(stored.amount) &&
+    (intent.status !== "succeeded" || Number(intent.amount_received) === expectedAmountCents(stored.amount)) &&
+    paymentModeMatches(paymentSession, intent.livemode);
   if (!amountOk) return false;
 
   const existingPaymentIntentId = String(stored.paymentIntentId || "").trim();
@@ -547,7 +581,10 @@ export async function finalizePaymentSession(
         });
         const amountOk =
           intent.currency === "eur" &&
-          Number(intent.amount) === expectedAmountCents(stored?.amount);
+          Number(intent.amount) === expectedAmountCents(stored?.amount) &&
+          (intent.status !== "succeeded" || Number(intent.amount_received) === expectedAmountCents(stored?.amount)) &&
+          intent.id === storedPaymentIntentId &&
+          paymentModeMatches(paymentSession, intent.livemode);
         const expectedCustomerId = String(
           stored?.stripeCustomerId || "",
         ).trim();
@@ -687,7 +724,17 @@ export async function finalizePaymentSession(
       const amountOk =
         checkout.currency === "eur" &&
         Number(checkout.amount_total) === expectedAmountCents(stored?.amount);
-      if (!metadataOk || !amountOk) checkoutState = "invalid";
+      const paidIntent = checkout.payment_intent && typeof checkout.payment_intent === "object"
+        ? checkout.payment_intent : null;
+      const paidProofOk = checkoutState !== "paid" || Boolean(
+        paidIntent && paidIntent.status === "succeeded" && paidIntent.currency === "eur" &&
+        Number(paidIntent.amount) === expectedAmountCents(stored?.amount) &&
+        Number(paidIntent.amount_received) === expectedAmountCents(stored?.amount) &&
+        paymentMetadataMatches({ metadata: paidIntent.metadata, paymentSessionId, finalOrderId, shareIndex }) &&
+        paymentModeMatches(paymentSession, paidIntent.livemode),
+      );
+      if (!metadataOk || !amountOk || !paidProofOk || checkout.id !== checkoutSessionId ||
+          !paymentModeMatches(paymentSession, checkout.livemode)) checkoutState = "invalid";
 
       const checkoutPaymentMethod = sessionPaymentMethod(checkout);
       const checkoutIntent =
@@ -774,7 +821,7 @@ export async function finalizePaymentSession(
     ) || null;
   const integrityInvalid = unpaidShares.some(
     (share) => share.status === "invalid" || share.status === "missing",
-  );
+  ) || (paidShares.length === shares.length && !paymentCollectionMatches(paymentSession, pendingOrder, shares));
 
   const nextMeta = {
     ...meta,
@@ -1126,7 +1173,7 @@ export async function finalizePaymentSession(
   };
 
   const baseUrl = resolveBaseUrl(requestUrl);
-  const signature = signPaymentFinalize(paymentSessionId, finalOrderId);
+  const signature = signPaymentFinalize(paymentSessionId, finalOrderId, finalOrder);
 
   let response: Response;
   let created: any = null;

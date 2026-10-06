@@ -18,7 +18,7 @@ function load(file, dependencies = {}) {
 const { refundOutcome } = load('lib/server/refund-outcome.ts');
 function fixture({ cancelled = false, refundStatus = 'succeeded', refundThrows = false, state = '', expiry = false } = {}) {
   const calls = { create: 0, refund: 0, retrieve: 0, updates: 0 };
-  const intent = { id: 'pi_paid', currency: 'eur', amount: 1200, status: 'succeeded',
+  const intent = { id: 'pi_paid', currency: 'eur', amount: 1200, amount_received: 1200, livemode: false, status: 'succeeded',
     metadata: { burger_payment_session: 'PAY-test', burger_order_id: 'FINAL', share_index: '0' } };
   let pending = { id: 'PAY-test', status: cancelled ? 'payment_cancelled' : 'payment_pending',
     meta: { pendingOrder: { total: 12 }, paymentSession: { finalOrderId: 'FINAL', kind: 'online',
