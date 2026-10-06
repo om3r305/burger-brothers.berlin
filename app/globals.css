@@ -2943,3 +2943,55 @@ html[data-bb-motion="0"] .bb-bros-show,html[data-bb-motion="0"] .bb-bros-laser {
   .bb-bros-smile { opacity:1!important; }
   .bb-bros-show,.bb-bros-laser { display:none!important; }
 }
+
+/* A quiet living companion: explicit actions replace the permanent hand loop. */
+.bb-bros-wave { animation:none; transform:rotate(-85deg); }
+.bb-bros[data-state="greeting"] .bb-bros-wave { animation:bbBrosHelloWave 1s ease-in-out 2; transform:none; }
+.bb-bros[data-action="wave"] .bb-bros-wave { animation:bbBrosHelloWave 1s ease-in-out 3; transform:none; }
+.bb-bros[data-action="look"] .bb-bros-pupils { animation:bbBrosPeek 3.2s ease-in-out both; }
+.bb-bros[data-action="stretch"] .bb-bros-character { animation:bbBrosStretch 3.2s ease-in-out both; }
+.bb-bros[data-action="walk"] .bb-bros-character { animation:bbBrosStroll 3.2s ease-in-out both; }
+.bb-bros[data-action="showcase"] .bb-bros-character { animation:bbBrosLeaveReturn 7s ease-in-out both; }
+.bb-bros[data-action="showcase"] .bb-bros-aura { animation:bbBrosLeaveReturn 7s ease-in-out both; }
+.bb-bros[data-action="showcase"][data-effect] .bb-bros-laser { display:none!important; }
+html[data-bb-theme="veganweek"] :is(.bb-bros-bun-top,.bb-bros-bun-base) { fill:#86c65b; stroke:#3b792e; }
+html[data-bb-theme="veganweek"] .bb-bros-aura { background:radial-gradient(ellipse,#8bea6955,transparent 70%); }
+.bb-bros-scene { position:absolute; width:140px; height:130px; bottom:0; right:0; z-index:3; pointer-events:none; animation:bbBrosScene 7s ease-in-out both; }
+.bb-bros-scene-floor { position:absolute; bottom:4px; left:30px; width:90px; height:12px; border-radius:50%; background:radial-gradient(ellipse,var(--bb-accent-2,#ffc977),transparent 70%); opacity:.3; }
+.bb-bros-scene-motif { position:absolute; left:58px; bottom:20px; font-size:48px; line-height:1.2; animation:bbBrosSceneDance 2s ease-in-out 3; }
+.bb-bros-scene[data-scene="veganweek"] .bb-bros-scene-motif { animation:bbBrosSprout 5s ease-out both; }
+.bb-bros-scene[data-scene="fan"] .bb-bros-scene-motif { animation:bbBrosBall 2s ease-in-out 3; }
+.bb-bros-scene[data-scene="arcade"] .bb-bros-scene-motif { animation:bbBrosArcade 2s steps(4) 3; }
+.bb-bros-scene-tree { position:absolute; width:58px!important; height:88px!important; left:19px; bottom:9px; }
+.bb-bros-scene[data-scene="winter"] .bb-bros-scene-tree { display:none; }
+.bb-bros-light-stage { width:100%; height:100%; }
+.bb-bros-stage-beam { transform-origin:80px 111px; animation:bbBrosLightSweep 2.3s ease-in-out 3 alternate; }
+.bb-bros-stage-beam-two { animation-direction:alternate-reverse; }
+.bb-bros-stage-beam-three { animation-duration:1.8s; }
+.bb-bros-scene-particle { position:absolute; left:78px; top:55px; font-style:normal; font-size:17px; color:var(--bb-accent-2,#ffe292); opacity:0; animation:bbBrosSceneBurst 2s calc(.6s + var(--bros-particle) * .1s) ease-out 2; }
+.bb-bros-scene-particle svg { width:24px; height:18px; }
+.bb-bros-scene[data-effect="bats"] .bb-bros-scene-particle { animation-name:bbBrosSceneBat; }
+.bb-bros-scene[data-effect="snow"] .bb-bros-scene-particle,.bb-bros-scene[data-effect="leaves"] .bb-bros-scene-particle { animation-name:bbBrosSceneFall; }
+.bb-bros-scene-rocket { position:absolute; left:78px; bottom:18px; font-size:25px; opacity:0; animation:bbBrosSceneRocket 2.4s .5s ease-out 2; }
+@keyframes bbBrosPeek { 20%,35% { transform:translateX(-3px); } 65%,80% { transform:translateX(3px); } 0%,100% { transform:none; } }
+@keyframes bbBrosStretch { 25%,55% { transform:rotate(-7deg) scaleY(1.04); } 75% { transform:rotate(4deg); } 0%,100% { transform:none; } }
+@keyframes bbBrosStroll { 0%,100% { transform:translateX(0); } 25% { transform:translate(-24px,-2px) rotate(-3deg); } 50% { transform:translateX(-32px); } 75% { transform:translate(-12px,-2px) rotate(3deg); } }
+@keyframes bbBrosLeaveReturn { 0%,100% { opacity:1; transform:none; } 9%,85% { opacity:0; transform:translateY(8px) scale(.55); } 95% { opacity:1; transform:translateY(-3px) scale(1.03); } }
+@keyframes bbBrosScene { 0%,5%,90%,100% { opacity:0; transform:scale(.7); } 13%,80% { opacity:1; transform:scale(1); } }
+@keyframes bbBrosSceneDance { 50% { transform:translateY(-8px) rotate(-6deg); } }
+@keyframes bbBrosSprout { 0% { transform:scale(.35); } 70% { transform:scale(1.15); } 100% { transform:scale(1); } }
+@keyframes bbBrosBall { 50% { transform:translate(-18px,-28px) rotate(60deg); } }
+@keyframes bbBrosArcade { 50% { transform:translateX(-26px); } }
+@keyframes bbBrosLightSweep { from { transform:rotate(-20deg); opacity:.55; } to { transform:rotate(22deg); opacity:.9; } }
+@keyframes bbBrosSceneBurst { 5% { opacity:0; transform:scale(.2); } 25% { opacity:.85; } 100% { opacity:0; transform:rotate(calc(var(--bros-particle) * 45deg)) translateY(-52px) scale(.6); } }
+@keyframes bbBrosSceneBat { 5% { opacity:0; transform:translate(0,0); } 25% { opacity:1; } 100% { opacity:0; transform:translate(calc(12px - var(--bros-particle) * 10px),-48px) rotate(-15deg); } }
+@keyframes bbBrosSceneFall { 0% { opacity:0; transform:translate(calc(var(--bros-particle) * -9px),-45px); } 25% { opacity:1; } 100% { opacity:0; transform:translate(calc(15px - var(--bros-particle) * 9px),48px) rotate(45deg); } }
+@keyframes bbBrosSceneRocket { 5% { opacity:1; transform:none; } 65% { opacity:1; transform:translate(-28px,-78px) rotate(-20deg); } 70%,100% { opacity:0; transform:translate(-28px,-78px) scale(.1); } }
+/* Keep Bros visible when motion is disabled instead of disappearing for an unseen show. */
+html[data-bb-motion="0"] .bb-bros-scene { display:none!important; }
+html[data-bb-motion="0"] .bb-bros-character { opacity:1!important; transform:none!important; }
+@media (prefers-reduced-motion:reduce) {
+  .bb-bros-scene { display:none!important; }
+  .bb-bros-character { opacity:1!important; transform:none!important; }
+  .bb-bros * { animation:none!important; }
+}

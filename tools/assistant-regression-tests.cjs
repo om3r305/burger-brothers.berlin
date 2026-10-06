@@ -176,7 +176,7 @@ assert(
   route.includes("ORDER-FIRST SCOPE") &&
     route.includes("Do not offer casual conversation") &&
     realtime.includes("You are not a generic chatbot") &&
-    realtime.includes("Never offer casual chat, entertainment or trivia") &&
+    realtime.includes("Return to ordering when the customer wants it") &&
     realtime.includes("call search_menu before answering or adding it"),
   "Text and voice assistants are order-first and must verify live menu data",
 );

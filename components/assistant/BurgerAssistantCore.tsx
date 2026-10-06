@@ -1948,7 +1948,7 @@ export default function BurgerAssistant({ guideEnabled = true }: { guideEnabled?
           ) : null}
           <button type="button" className="bb-bros-character-button" aria-label="Bros Bestellhilfe öffnen"
             onClick={()=>{dismissGuide();companion.hideBubble();setMode("chat");setOpen(true);}}>
-            <BrosAvatar size={88} action={companion.action} effect={companion.effect} state={guide || companion.bubble ? "greeting" : "idle"} />
+            <BrosAvatar size={88} theme={companion.theme} action={companion.action} effect={companion.effect} state={guide || companion.bubble ? "greeting" : "idle"} />
           </button>
         </div>
       ) : null}
