@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Image from "next/image";
+import BrosAvatar from "./BrosAvatar";
 import { BROS_WELCOME, brosCheckoutHint, normalizeBrosContext, type BrosContext } from "@/lib/assistant/bros";
 import { usePathname, useRouter } from "next/navigation";
 import { loadNormalizedCampaigns } from "@/lib/campaigns-compat";
@@ -867,10 +867,8 @@ function plainAssistantText(value: unknown) {
     .trim();
 }
 
-function AssistantOrbIcon({ active = false }: { active?: boolean }) {
-  return <span aria-hidden className={`relative block h-14 w-14 shrink-0 ${active ? "bb-bros-speaking" : ""}`}>
-    <Image src="/images/assistant/bros.webp" alt="" fill sizes="56px" className="object-contain" />
-  </span>;
+function AssistantOrbIcon({ active = false, greeting = false }: { active?: boolean; greeting?: boolean }) {
+  return <BrosAvatar state={active ? "thinking" : greeting ? "greeting" : "idle"} size={64} />;
 }
 
 type VoiceState = "idle" | "connecting" | "listening" | "thinking" | "tool" | "speaking" | "error";
@@ -1951,7 +1949,7 @@ export default function BurgerAssistant({ guideEnabled = true }: { guideEnabled?
           className="fixed bottom-[calc(env(safe-area-inset-bottom)+142px)] right-4 z-[70] flex items-center gap-2 rounded-full border border-amber-300/25 bg-black/88 p-1.5 pr-3.5 text-sm font-semibold text-white shadow-[0_12px_38px_rgba(0,0,0,.65)] backdrop-blur-xl transition active:scale-[0.97] sm:bottom-6 sm:right-6"
           aria-label="Bros Bestellhilfe öffnen"
         >
-          <AssistantOrbIcon />
+          <AssistantOrbIcon greeting={Boolean(guide)} />
           <span className="leading-none">
             <span className="block text-[10px] uppercase tracking-[0.16em] text-amber-300/70">Dein Bestellhelfer</span>
             <span className="mt-1 block">Bros</span>
@@ -1972,15 +1970,8 @@ export default function BurgerAssistant({ guideEnabled = true }: { guideEnabled?
           <div className="relative mx-auto flex h-full w-full max-w-5xl flex-col pt-[env(safe-area-inset-top)]">
             <header className="flex shrink-0 items-center justify-between border-b border-white/[0.07] px-4 py-3 sm:px-6">
               <div className="flex min-w-0 items-center gap-3">
-                <div className="relative h-11 w-11 overflow-hidden rounded-full border border-amber-300/20 bg-black/50 shadow-[0_0_22px_rgba(245,158,11,.14)]">
-                  <Image
-                    src="/images/assistant/bros.webp"
-                    alt="Bros"
-                    fill
-                    sizes="44px"
-                    className="object-contain p-1"
-                    priority
-                  />
+                <div className="relative h-11 w-11 rounded-full border border-amber-300/20 bg-black/50 shadow-[0_0_22px_rgba(245,158,11,.14)]">
+                  <BrosAvatar size={44} state={voiceState === "speaking" ? "speaking" : busy ? "thinking" : "idle"} />
                 </div>
                 <div className="min-w-0">
                   <div className="truncate text-lg font-bold tracking-tight sm:text-xl">
@@ -2178,14 +2169,11 @@ export default function BurgerAssistant({ guideEnabled = true }: { guideEnabled?
               <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
                 <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-5 text-center">
                   <div
-                    className={`bb-voice-orb bb-voice-orb--${voiceState} ${voiceConfirmation ? "bb-voice-orb--success" : ""}`}
+                    className={`bb-bros-voice-stage bb-voice-orb--${voiceState} ${voiceConfirmation ? "bb-voice-orb--success" : ""}`}
                     style={{ "--voice-level": voiceLevel } as React.CSSProperties}
                     aria-hidden="true"
                   >
-                    <span className="bb-voice-orb__halo" />
-                    <span className="bb-voice-orb__body" />
-                    <span className="bb-voice-orb__light" />
-                    <span className="bb-voice-orb__core" />
+                    <BrosAvatar size={240} state={voiceState === "speaking" ? "speaking" : voiceState === "listening" ? "listening" : ["thinking", "tool", "connecting"].includes(voiceState) ? "thinking" : "idle"} />
                   </div>
 
                   <div className="mt-8 text-lg font-semibold tracking-tight" aria-live="polite">{voiceStatus}</div>

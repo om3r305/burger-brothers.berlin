@@ -2833,3 +2833,79 @@ html[data-bb-motion="0"] .bb-theme-decorations .bb-theme-motif { animation:none 
 @keyframes bbBrosSpeak { 50% { transform:translateY(-3px) rotate(2deg); } }
 @media (min-width:640px) { .bb-bros-guide { right:1.5rem; bottom:100px; } }
 @media (prefers-reduced-motion:reduce) { .bb-bros-speaking { animation:none; } }
+
+/* Bros is a rigged character. Theme costumes follow the existing calendar's
+   resolved root attribute, including immediate admin theme changes. */
+.bb-bros { position:relative; display:inline-block; flex:none; isolation:isolate; overflow:visible; }
+.bb-bros-character { display:block; width:100%; height:100%; transform-origin:50% 90%; animation:bbBrosArrive .65s both,bbBrosIdle 5s .7s ease-in-out infinite; }
+.bb-bros svg { display:block; width:100%; height:100%; overflow:visible; }
+.bb-bros-aura { position:absolute; inset:15%; z-index:-1; border-radius:50%; background:radial-gradient(ellipse,var(--bb-glow,rgba(255,180,50,.25)),transparent 70%); animation:bbBrosGlow 5s ease-in-out infinite; }
+.bb-bros-eyes { transform-box:fill-box; transform-origin:center; animation:bbBrosBlink 5.3s 1.2s infinite; }
+.bb-bros-pupils { animation:bbBrosLook 9s 2s infinite; }
+.bb-bros-wave { transform-origin:46px 114px; animation:bbBrosWave 12s 1s ease-in-out infinite; }
+.bb-bros-arm-right { transform-origin:153px 114px; }
+.bb-bros-mouth { display:none; transform-box:fill-box; transform-origin:center; }
+.bb-bros[data-state="speaking"] .bb-bros-mouth,.bb-bros[data-state="greeting"] .bb-bros-mouth { display:block; animation:bbBrosMouth .32s ease-in-out infinite alternate; }
+.bb-bros[data-state="speaking"] .bb-bros-smile,.bb-bros[data-state="greeting"] .bb-bros-smile { opacity:0; }
+.bb-bros[data-state="greeting"] .bb-bros-mouth { animation:bbBrosHelloMouth 4s both; }
+.bb-bros[data-state="greeting"] .bb-bros-smile { animation:bbBrosHelloSmile 4s both; }
+.bb-bros[data-state="greeting"] .bb-bros-wave { animation:bbBrosHelloWave 2s .4s ease-in-out 2,bbBrosWave 12s 5s ease-in-out infinite; }
+.bb-bros[data-state="thinking"] .bb-bros-character { animation:bbBrosThink 2s ease-in-out infinite; }
+.bb-bros[data-state="listening"] .bb-bros-character { animation:bbBrosListen 3s ease-in-out infinite; }
+.bb-bros[data-state="speaking"] .bb-bros-arm-right { animation:bbBrosGesture 1.8s ease-in-out infinite; }
+.bb-bros-voice-stage { width:min(64vw,19rem); aspect-ratio:1; display:grid; place-items:center; }
+.bb-bros-voice-stage .bb-bros { max-width:100%; max-height:100%; }
+.bb-bros-costume,.bb-bros-laser,.bb-bros-badge-cross { display:none; }
+html:is([data-bb-theme="lights"],[data-bb-theme="neon"],[data-bb-theme="retrowave"]) .bb-bros-glasses { fill-opacity:.3; }
+html[data-bb-theme="halloween"] .bb-bros-pumpkin { animation:bbBrosGlow 5s ease-in-out infinite; }
+html[data-bb-theme="classic"] .bb-bros-apron,
+html:is([data-bb-theme="lights"],[data-bb-theme="neon"],[data-bb-theme="retrowave"]) .bb-bros-glasses,
+html[data-bb-theme="halloween"] :is(.bb-bros-witch,.bb-bros-cape,.bb-bros-pumpkin),
+html:is([data-bb-theme="christmas"],[data-bb-theme="weihnachten"]) :is(.bb-bros-santa,.bb-bros-scarf),
+html:is([data-bb-theme="veganweek"],[data-bb-theme="autumn"]) .bb-bros-leaves,
+html[data-bb-theme="summer"] :is(.bb-bros-glasses,.bb-bros-badge),
+html[data-bb-theme="easter"] .bb-bros-bunny,
+html:is([data-bb-theme="newyear"],[data-bb-theme="anniversary"]) .bb-bros-party,
+html:is([data-bb-theme="womensday"],[data-bb-theme="mothersday"]) .bb-bros-flowers,
+html[data-bb-theme="ramadan"] .bb-bros-crescent,
+html[data-bb-theme="winter"] :is(.bb-bros-beanie,.bb-bros-scarf),
+html[data-bb-theme="fathersday"] .bb-bros-bow,
+html:is([data-bb-theme="school"],[data-bb-theme="arcade"]) .bb-bros-school,
+html[data-bb-theme="oktoberfest"] .bb-bros-tyrol,
+html:is([data-bb-theme="blackweek"],[data-bb-theme="medicine"],[data-bb-theme="popart"]) .bb-bros-badge,
+html[data-bb-theme="valentines"] .bb-bros-heart,
+html[data-bb-theme="fan"] :is(.bb-bros-football,.bb-bros-scarf),
+html[data-bb-theme="germany"] .bb-bros-scarf { display:inline; }
+html[data-bb-theme="medicine"] .bb-bros-badge-cross { display:inline; }
+html[data-bb-theme="medicine"] .bb-bros-badge-star { display:none; }
+html[data-bb-theme="autumn"] .bb-bros-leaves { fill:#da9840; stroke:#966425; }
+html[data-bb-theme="germany"] .bb-bros-scarf { filter:drop-shadow(0 -2px 0 #171717) drop-shadow(0 2px 0 #eac142); }
+html:is([data-bb-theme="lights"],[data-bb-theme="neon"],[data-bb-theme="retrowave"]) .bb-bros-laser {
+  display:block; position:absolute; width:110%; height:2px; top:47%; left:-5%; z-index:1; border-radius:50%; pointer-events:none;
+  background:linear-gradient(90deg,transparent,var(--bb-accent,#ba69ff),var(--bb-accent-2,#60dbef),transparent);
+  box-shadow:0 0 5px var(--bb-accent-2,#60dbef); opacity:.45; animation:bbBrosLaser 6s ease-in-out infinite;
+}
+.bb-bros-laser-two { animation-delay:-3s!important; }
+@keyframes bbBrosArrive { from { opacity:0; transform:translateY(16px) scale(.65); } 65% { opacity:1; transform:translateY(-3px) scale(1.05); } to { transform:none; } }
+@keyframes bbBrosIdle { 50% { transform:translateY(-2px) rotate(1deg); } }
+@keyframes bbBrosGlow { 50% { opacity:.5; transform:scale(.9); } }
+@keyframes bbBrosBlink { 0%,43%,47%,100% { transform:scaleY(1); } 45% { transform:scaleY(.08); } }
+@keyframes bbBrosLook { 0%,35%,70%,100% { transform:translateX(0); } 45%,60% { transform:translateX(2px); } }
+@keyframes bbBrosWave { 0%,9%,18%,100% { transform:rotate(0); } 3%,12% { transform:rotate(-18deg); } 6%,15% { transform:rotate(8deg); } }
+@keyframes bbBrosHelloWave { 25%,75% { transform:rotate(-20deg); } 50% { transform:rotate(10deg); } }
+@keyframes bbBrosMouth { from { transform:scaleY(.3); } to { transform:scaleY(1); } }
+@keyframes bbBrosHelloMouth { 0%,10%,20%,30%,40%,50%,60%,70%,80% { transform:scaleY(.2); } 5%,15%,25%,35%,45%,55%,65%,75% { transform:scaleY(1); } 85%,100% { opacity:0; } }
+@keyframes bbBrosHelloSmile { 0%,80% { opacity:0; } 85%,100% { opacity:1; } }
+@keyframes bbBrosThink { 50% { transform:rotate(-5deg) translateY(-2px); } }
+@keyframes bbBrosListen { 50% { transform:rotate(4deg); } }
+@keyframes bbBrosGesture { 50% { transform:rotate(-12deg); } }
+@keyframes bbBrosLaser { 0%,100% { transform:translateY(-13px) rotate(-20deg); opacity:.15; } 50% { transform:translateY(13px) rotate(20deg); opacity:.55; } }
+[data-bb-assistant-paused="1"] .bb-bros *,[data-bb-assistant-paused="1"] .bb-bros { animation-play-state:paused!important; }
+html[data-bb-motion="0"] .bb-bros * { animation:none!important; }
+html[data-bb-motion="0"] .bb-bros-mouth { display:none!important; }
+html[data-bb-motion="0"] .bb-bros-smile { opacity:1!important; }
+@media (prefers-reduced-motion:reduce) {
+  .bb-bros * { animation:none!important; }
+  .bb-bros-mouth { display:none!important; }
+  .bb-bros-smile { opacity:1!important; }
+}
