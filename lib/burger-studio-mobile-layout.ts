@@ -1,18 +1,20 @@
 // Phone previews keep the same food width for every recipe. Pack only the
-// vertical positions into a fixed canvas instead of scaling an ever taller one.
+// vertical positions by ingredient height; large building stacks scroll without shrinking.
 export const MOBILE_STACK_HEIGHT = 365;
 export const MOBILE_STACK_SCALE = 0.8;
 
 export function mobileStackLayout(heights: number[], finalBottoms: number[], finalTop: number) {
   const foodCeiling = MOBILE_STACK_HEIGHT - 123 - 18;
-  const base = 80;
-  let gap = 30;
-  heights.forEach((height, index) => {
-    if (index > 0) gap = Math.min(gap, (foodCeiling - base - height) / index);
+  // Building layers must never overlap. A uniform bottom-to-bottom gap put
+  // tall meat photos behind the next cheese slice, especially after re-adding.
+  let cursor = 80;
+  const buildBottoms = heights.map(height => {
+    const bottom = cursor;
+    cursor += Math.max(0, height) + 10;
+    return bottom;
   });
-  gap = Math.max(0, gap);
-  const buildBottoms = heights.map((_, index) => base + index * gap);
-  const buildTop = Math.max(100, ...buildBottoms.map((bottom, index) => bottom + heights[index] + 6));
+  const buildTop = Math.max(100, cursor);
+  const buildHeight = Math.max(MOBILE_STACK_HEIGHT, buildTop + 123 + 18);
 
   let compression = Math.min(1, (foodCeiling - 38) / Math.max(1, finalTop - 38));
   finalBottoms.forEach((bottom, index) => {
@@ -20,6 +22,7 @@ export function mobileStackLayout(heights: number[], finalBottoms: number[], fin
   });
   compression = Math.max(0, compression);
   return {
+    buildHeight,
     buildBottoms,
     buildTop,
     finalBottoms: finalBottoms.map(bottom => 38 + (bottom - 38) * compression),

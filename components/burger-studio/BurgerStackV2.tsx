@@ -151,7 +151,8 @@ export default function BurgerStackV2({ config, recipe, assembled }: {
     "--bsv2-count": Math.max(1, count),
     "--bsv2-stage-height": `${stageHeight}px`,
     "--bsv2-mobile-scale": MOBILE_STACK_SCALE,
-    "--bsv2-mobile-height": `${MOBILE_STACK_HEIGHT}px`,
+    "--bsv2-mobile-height": `${assembled ? MOBILE_STACK_HEIGHT : mobileLayout.buildHeight}px`,
+    "--bsv2-mobile-stage-height": `${Math.min(420, Math.max(340, (assembled ? MOBILE_STACK_HEIGHT : mobileLayout.buildHeight) * MOBILE_STACK_SCALE + 48))}px`,
     "--bsv2-mobile-build-top": `${mobileLayout.buildTop}px`,
     "--bsv2-mobile-final-top": `${mobileLayout.finalTop}px`,
     "--bsv2-gap": `${buildGap}px`,
@@ -167,6 +168,8 @@ export default function BurgerStackV2({ config, recipe, assembled }: {
       <div className="bsv2-shadow" />
       <div className="bsv2-caption"><span className="bsv2-caption-dot" />{assembled ? "FERTIG · HEISS & SAFTIG" : "LIVE STACK · FRISCH GESTAPELT"}</div>
 
+      <div className="bsv2-stack-viewport">
+      <div className="bsv2-stack-canvas">
       <div className="bsv2-stack">
         <div className="bsv2-heat-glow" aria-hidden="true" />
         <div className="bsv2-steam" aria-hidden="true"><span /><span /><span /><span /><span /></div>
@@ -198,6 +201,9 @@ export default function BurgerStackV2({ config, recipe, assembled }: {
           } as CSSProperties} data-bun-position="top" title={`${selectedBun.name} – oben`} /> : null}
       </div>
 
+      </div>
+      </div>
+
       {!selectedBun && !count ? <div className="bsv2-empty"><div>🍔</div><strong>Starte mit deinem Bun</strong><span>Danach baust du Schicht für Schicht.</span></div> : null}
 
       <style jsx>{`
@@ -209,6 +215,7 @@ export default function BurgerStackV2({ config, recipe, assembled }: {
         .is-assembled .bsv2-assembly-flash{animation:bsv2-flash .24s ease-out both}
         .bsv2-shadow{position:absolute;left:50%;bottom:38px;width:250px;height:34px;transform:translateX(-50%);border-radius:50%;background:rgba(0,0,0,.82);filter:blur(13px);transition:width .25s ease,opacity .25s ease}.is-building .bsv2-shadow{width:180px;opacity:.45}
         .bsv2-caption{position:absolute;left:18px;top:18px;z-index:30;display:flex;align-items:center;gap:8px;font-size:10px;font-weight:950;letter-spacing:.16em;color:#9f968b}.bsv2-caption-dot{width:7px;height:7px;border-radius:50%;background:#fbbf24;box-shadow:0 0 16px rgba(251,191,36,.75)}
+        .bsv2-stack-viewport,.bsv2-stack-canvas{display:contents}
         .bsv2-stack{position:relative;width:min(88vw,390px);height:calc(var(--bsv2-stage-height) - 48px);transform:perspective(950px) rotateX(4deg);transform-style:preserve-3d}
         .bsv2-heat-glow{position:absolute;left:50%;bottom:calc(var(--bsv2-top-bottom) - 28px);width:76%;height:88px;transform:translateX(-50%);border-radius:50%;background:radial-gradient(ellipse,rgba(255,137,31,.22),rgba(255,96,17,.07) 48%,transparent 72%);filter:blur(18px);opacity:0;pointer-events:none}.is-assembled .bsv2-heat-glow{animation:bsv2-heat 1.45s ease-out both;animation-delay:.26s}
         .bsv2-steam{position:absolute;z-index:45;left:50%;bottom:calc(var(--bsv2-top-bottom) + 55px);width:170px;height:92px;transform:translateX(-50%);pointer-events:none;opacity:0}.is-assembled .bsv2-steam{opacity:1}.bsv2-steam span{position:absolute;bottom:0;width:22px;height:72px;border-radius:50%;border-left:2px solid rgba(255,245,229,.5);filter:blur(2px);opacity:0}.bsv2-steam span:nth-child(1){left:28px;transform:rotate(-9deg)}.bsv2-steam span:nth-child(2){left:76px;height:84px;transform:rotate(5deg)}.bsv2-steam span:nth-child(3){right:24px;height:67px;transform:rotate(11deg)}.is-assembled .bsv2-steam span{animation:bsv2-steam-rise 1.55s ease-out both}.is-assembled .bsv2-steam span:nth-child(1){animation-delay:.42s}.is-assembled .bsv2-steam span:nth-child(2){animation-delay:.5s}.is-assembled .bsv2-steam span:nth-child(3){animation-delay:.58s}
@@ -313,7 +320,7 @@ export default function BurgerStackV2({ config, recipe, assembled }: {
         @keyframes bsv2-steam-rise{0%{opacity:0;transform:translateY(12px) scale(.82)}22%{opacity:.48}70%{opacity:.25}100%{opacity:0;transform:translateY(-42px) translateX(8px) scale(1.15)}}
         @keyframes bsv2-heat{0%{opacity:0;transform:translateX(-50%) scale(.85)}28%{opacity:.95}100%{opacity:0;transform:translateX(-50%) scale(1.08)}}
         @keyframes bsv2-warm-settle{0%{opacity:.78}28%{opacity:1}100%{opacity:.76}}
-        @media(max-width:1023px){.bsv2-stage{height:min(340px,var(--bsv2-stage-height));min-height:300px;border-radius:24px}.bsv2-stack{position:absolute;left:50%;top:50%;width:min(calc(100% - 24px),345px);height:var(--bsv2-mobile-height);transform:translate(-50%,-50%) scale(var(--bsv2-mobile-scale));transform-origin:center center}.bsv2-piece-label{display:block;left:auto;right:6px;max-width:46%;overflow:hidden;text-overflow:ellipsis;padding:4px 6px;font-size:8px;letter-spacing:.01em}.is-building .bsv2-layer{top:auto;bottom:var(--bsv2-mobile-build-bottom);transform:translateX(-50%) scale(.97)}.is-building .bsv2-bun-top{top:auto;bottom:var(--bsv2-mobile-build-top)}.is-assembled .bsv2-layer{bottom:var(--bsv2-mobile-final-bottom)}.is-assembled .bsv2-bun-top{bottom:var(--bsv2-mobile-final-top)}.bsv2-stage .bsv2-steam,.bsv2-heat-glow{--bsv2-top-bottom:var(--bsv2-mobile-final-top)}}
+        @media(max-width:1023px){.bsv2-stage{height:var(--bsv2-mobile-stage-height);min-height:340px;border-radius:24px;display:block;padding-top:48px}.bsv2-stack-viewport{display:block;width:100%;height:calc(var(--bsv2-mobile-stage-height) - 48px);overflow-y:auto;overflow-x:hidden;overscroll-behavior-y:contain;scrollbar-width:thin}.bsv2-stack-canvas{display:block;position:relative;width:100%;height:calc(var(--bsv2-mobile-height) * var(--bsv2-mobile-scale))}.bsv2-stack{position:absolute;left:50%;top:0;width:min(calc(100% - 24px),345px);height:var(--bsv2-mobile-height);transform:translateX(-50%) scale(var(--bsv2-mobile-scale));transform-origin:top center}.bsv2-piece-label{display:block;left:auto;right:6px;max-width:46%;overflow:hidden;text-overflow:ellipsis;padding:4px 6px;font-size:8px;letter-spacing:.01em}.is-building .bsv2-layer{top:auto;bottom:var(--bsv2-mobile-build-bottom);transform:translateX(-50%) scale(.97)}.is-building .bsv2-bun-top{top:auto;bottom:var(--bsv2-mobile-build-top)}.is-assembled .bsv2-layer{bottom:var(--bsv2-mobile-final-bottom)}.is-assembled .bsv2-bun-top{bottom:var(--bsv2-mobile-final-top)}.bsv2-stage .bsv2-steam,.bsv2-heat-glow{--bsv2-top-bottom:var(--bsv2-mobile-final-top)}}
         @media(prefers-reduced-motion:reduce){.bsv2-stage,.bsv2-piece{transition:none!important}.bsv2-assembly-flash,.bsv2-steam,.bsv2-heat-glow{display:none!important}.is-assembled .bsv2-layer,.is-assembled .bsv2-bun-top,.is-assembled .bsv2-stage-light,.is-assembled .bsv2-layer:after,.is-assembled .bsv2-food-detail{animation:none!important}.bsv2-stage-light{filter:none;opacity:.18}}
         @media(prefers-reduced-motion:reduce){.bsv2-cheese-flow{display:none!important}.bsv2-cheese-flow i,.bsv2-steam span{animation:none!important}}
       `}</style>
