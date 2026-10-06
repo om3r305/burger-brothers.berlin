@@ -27,7 +27,7 @@ export function useBrosCompanion(active:boolean,guides:boolean,blocked:boolean) 
     const later=(ms:number,fn:()=>void)=>{const id=window.setTimeout(()=>{timers.delete(id);fn();},ms);timers.add(id);};
     const note=brosThemeNote(theme);
     const introKey="bb_bros_companion_intro_v3";
-    const noteKey="bb_bros_companion_theme_v2";
+    const noteKey="bb_bros_companion_theme_v3";
     let introduced=false,topicSeen=false;
     try {introduced=localStorage.getItem(introKey)==="1";topicSeen=localStorage.getItem(noteKey)===`${note.day}:${theme}`;} catch {}
     if(guides && !introduced && !muted.current) {

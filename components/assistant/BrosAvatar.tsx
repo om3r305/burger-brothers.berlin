@@ -1,5 +1,6 @@
 "use client";
 
+import BrosThemeProps from "./BrosThemeProps";
 import BrosThemeShow from "./BrosThemeShow";
 import { useId } from "react";
 import type { BrosAction } from "./useBrosCompanion";
@@ -15,7 +16,7 @@ export default function BrosAvatar({ state = "idle", size = 72, action = "idle",
 }) {
   const id = useId().replace(/:/g, "");
   return (
-    <span className="bb-bros" data-state={state} data-action={action} data-effect={effect} aria-hidden="true" style={{ width:size, height:size }}>
+    <span className="bb-bros" data-state={state} data-theme={theme} data-action={action} data-effect={effect} aria-hidden="true" style={{ width:size, height:size }}>
       <span className="bb-bros-aura" />
       <span className="bb-bros-laser bb-bros-laser-one" /><span className="bb-bros-laser bb-bros-laser-two" />
       {action === "showcase" ? <BrosThemeShow theme={theme} effect={effect} /> : null}
@@ -60,6 +61,7 @@ export default function BrosAvatar({ state = "idle", size = 72, action = "idle",
           <g className="bb-bros-costume bb-bros-heart" fill="#ec6c93"><path d="M100 128c-18-15-25 9 0 20 25-11 18-35 0-20Z"/></g>
           <g className="bb-bros-costume bb-bros-football"><circle cx="148" cy="147" r="13" fill="#fff3d9" stroke="#514b44" strokeWidth="2"/><path d="m148 141 6 5-2 7h-8l-2-7Z" fill="#514b44"/></g>
           <g className="bb-bros-costume bb-bros-apron"><path d="M71 136h59v17H71Z" fill="#fff0cf" stroke="#8f6442" strokeWidth="2"/><path d="M86 145h28" stroke="#dc8639" strokeWidth="3"/></g>
+          <BrosThemeProps theme={theme} performing={action === "showcase"} />
         </svg>
       </span>
     </span>
