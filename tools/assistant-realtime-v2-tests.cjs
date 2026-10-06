@@ -18,7 +18,7 @@ const { buildRealtimeV2Config } = factory({ env: {} });
 
 const defaults = buildRealtimeV2Config({});
 assert.equal(defaults.model, "gpt-realtime-2.1");
-assert.equal(defaults.maxOutputTokens, 1200);
+assert.equal(defaults.maxOutputTokens, 2400);
 assert.deepEqual(defaults.turnDetection, {
   type: "semantic_vad",
   eagerness: "low",
@@ -33,7 +33,7 @@ const staleV19 = buildRealtimeV2Config({
   OPENAI_REALTIME_VAD_THRESHOLD: "0.55",
 });
 assert.equal(staleV19.model, "gpt-realtime-2.1");
-assert.equal(staleV19.maxOutputTokens, 1200);
+assert.equal(staleV19.maxOutputTokens, 2400);
 assert.equal(staleV19.turnDetection.type, "semantic_vad");
 assert.equal(staleV19.turnDetection.interrupt_response, false);
 
@@ -43,7 +43,7 @@ const miniAb = buildRealtimeV2Config({
   OPENAI_REALTIME_V2_SEMANTIC_EAGERNESS: "medium",
 });
 assert.equal(miniAb.model, "gpt-realtime-2.1-mini");
-assert.equal(miniAb.maxOutputTokens, 900);
+assert.equal(miniAb.maxOutputTokens, 1600);
 assert.equal(miniAb.turnDetection.eagerness, "medium");
 
 const serverFallback = buildRealtimeV2Config({
@@ -64,7 +64,7 @@ assert.deepEqual(serverFallback.turnDetection, {
 
 assert.match(route, /buildRealtimeV2Config/);
 assert.match(route, /output:\s*\{[\s\S]*voice,/);
-assert.match(route, /speed:\s*1\.0/);
+assert.match(route, /speed:\s*0\.85/);
 assert.match(route, /parallel_tool_calls:\s*false/);
 assert.match(route, /EXACT MATCHES BEAT RELATED ITEMS/);
 assert.match(route, /Extra Cheesy.*ohne Tomato/s);
