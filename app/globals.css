@@ -2817,3 +2817,19 @@ html[data-bb-motion="0"] .bb-theme-decorations .bb-theme-motif { animation:none 
     padding-top:max(2rem,calc(env(safe-area-inset-top,0px) + 2rem)) !important;
   }
 }
+
+/* Bros: a dismissible guide above the existing assistant launcher/cart. */
+.bb-bros-guide {
+  position:fixed; right:1rem; bottom:calc(env(safe-area-inset-bottom) + 216px);
+  width:min(310px,calc(100vw - 2rem)); max-height: min(330px,45dvh); overflow-y:auto;
+  z-index:71; padding:1rem; border:1px solid rgba(251,191,36,.45); border-radius:18px;
+  background:#17110b; color:#fff5df; box-shadow:0 12px 32px rgba(0,0,0,.5);
+}
+.bb-bros-guide strong { display:block; padding-right:24px; color:#ffd268; }
+.bb-bros-guide p { margin:.5rem 0 .8rem; font-size:.85rem; line-height:1.5; }
+.bb-bros-guide button { min-height:36px; padding:.4rem .65rem; border-radius:10px; background:#352515; font-size:.8rem; }
+.bb-bros-guide .bb-bros-guide-close { position:absolute; top:6px; right:6px; font-size:22px; background:transparent; }
+.bb-bros-speaking { animation:bbBrosSpeak 1.4s ease-in-out infinite; }
+@keyframes bbBrosSpeak { 50% { transform:translateY(-3px) rotate(2deg); } }
+@media (min-width:640px) { .bb-bros-guide { right:1.5rem; bottom:100px; } }
+@media (prefers-reduced-motion:reduce) { .bb-bros-speaking { animation:none; } }

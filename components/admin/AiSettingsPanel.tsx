@@ -7,11 +7,13 @@ import { writeSettings } from "@/lib/settings";
 type AiControls = {
   assistantEnabled: boolean;
   voiceEnabled: boolean;
+  guideEnabled: boolean;
 };
 
 const DEFAULT_CONTROLS: AiControls = {
   assistantEnabled: true,
   voiceEnabled: true,
+  guideEnabled: true,
 };
 
 const SETTINGS_RESPONSE_META_KEYS = new Set([
@@ -36,6 +38,7 @@ function readAiControls(value: any): AiControls {
       typeof ai?.assistantEnabled === "boolean"
         ? ai.assistantEnabled
         : DEFAULT_CONTROLS.assistantEnabled,
+    guideEnabled: ai?.guideEnabled !== false,
     voiceEnabled:
       typeof ai?.voiceEnabled === "boolean"
         ? ai.voiceEnabled
@@ -79,6 +82,7 @@ function mirrorControlsLocally(next: AiControls) {
       ai: {
         assistantEnabled: next.assistantEnabled,
         voiceEnabled: next.voiceEnabled,
+        guideEnabled: next.guideEnabled,
       },
     } as any,
   });
@@ -173,8 +177,10 @@ export default function AiSettingsPanel() {
           features: {
             ...(currentSettings?.features || {}),
             ai: {
+              ...(currentSettings?.features?.ai || {}),
               assistantEnabled: next.assistantEnabled,
               voiceEnabled: next.voiceEnabled,
+              guideEnabled: next.guideEnabled,
             },
           },
         };
@@ -222,13 +228,13 @@ export default function AiSettingsPanel() {
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-base font-black text-white sm:text-lg">AI Asistan</h2>
+              <h2 className="text-base font-black text-white sm:text-lg">Bros · AI Asistan</h2>
               <span className="rounded-full border border-white/10 bg-black/30 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[.12em] text-stone-400">
                 Müşteri menüsü
               </span>
             </div>
             <p className="mt-1 text-xs leading-relaxed text-stone-400 sm:text-sm">
-              Normal AI asistanını ve sesli görüşmeyi birbirinden bağımsız yönet.
+              Bros karakterini, ilk sipariş yardımını ve sesli görüşmeyi yönet.
             </p>
           </div>
           {loading || saving ? (
@@ -242,9 +248,9 @@ export default function AiSettingsPanel() {
       <div className="divide-y divide-white/[0.06]">
         <div className="flex items-center gap-4 px-4 py-4 sm:px-5">
           <div className="min-w-0 flex-1">
-            <div className="font-bold text-stone-100">Normal AI asistanı</div>
+            <div className="font-bold text-stone-100">Bros asistanı</div>
             <div className="mt-1 text-xs leading-relaxed text-stone-500">
-              Kapatıldığında müşteri sayfalarında AI LED/butonu tamamen gizlenir.
+              Kapatıldığında müşteri sayfalarında Bros karakteri ve yardım balonları tamamen gizlenir.
             </div>
           </div>
           <Toggle
@@ -255,6 +261,14 @@ export default function AiSettingsPanel() {
               void save({ ...controls, assistantEnabled })
             }
           />
+        </div>
+
+        <div className="flex items-center gap-4 px-4 py-4 sm:px-5">
+          <div className="min-w-0 flex-1">
+            <div className="font-bold text-stone-100">İlk sipariş ve adres rehberi</div>
+            <div className="mt-1 text-xs leading-relaxed text-stone-500">Bros ilk ziyarette tanışır; checkout'ta eksik adımları hatırlatır. Müşteri balonu kapatabilir.</div>
+          </div>
+          <Toggle label="Bros sipariş rehberini aç veya kapat" checked={controls.guideEnabled} disabled={loading || saving || !controls.assistantEnabled} onChange={(guideEnabled) => void save({ ...controls, guideEnabled })} />
         </div>
 
         <div className="flex items-center gap-4 px-4 py-4 sm:px-5">

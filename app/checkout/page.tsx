@@ -3019,6 +3019,18 @@ function CheckoutContent() {
     !phoneOk ||
     modePaused;
 
+  useEffect(() => {
+    const detail = {
+      page: "checkout" as const, orderMode, postalCode: addr.zip,
+      addressComplete: zipOk && streetOk && houseOk, nameComplete: nameOk,
+      phoneComplete: phoneOk, deliveryAreaKnown: plzKnown, minimumMet: meetsMin,
+      modePaused, plannedRequired: plannedEnabledVirtual, plannedComplete: plannedOk,
+    };
+    (window as Window & { bbBrosContext?: unknown }).bbBrosContext = detail;
+    window.dispatchEvent(new CustomEvent("bb:bros-context", { detail }));
+    return () => { delete (window as Window & { bbBrosContext?: unknown }).bbBrosContext; };
+  }, [orderMode, addr.zip, zipOk, streetOk, houseOk, nameOk, phoneOk, plzKnown, meetsMin, modePaused, plannedEnabledVirtual, plannedOk]);
+
   const paymentPlanBlocked =
     paymentMethod === "split_contactless" && !splitPlanValid;
   const paymentMethodUnavailable =
@@ -3909,6 +3921,8 @@ function CheckoutContent() {
             Daten löschen
           </button>
         </p>
+
+        {settingsRaw?.features?.ai?.assistantEnabled !== false ? <button type="button" className="mb-3 rounded-xl border border-amber-300/30 px-3 py-2 text-sm text-amber-200" onClick={() => window.dispatchEvent(new CustomEvent("bb:bros-open"))}>🍔 Bros fragen · Hilfe zu meinen Angaben</button> : null}
 
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           <Field label="Vollständiger Name *" htmlFor="checkout-name">
