@@ -29,7 +29,7 @@ assert(
 );
 
 assert(
-  wrapper.includes('import BurgerAssistantCore from "./BurgerAssistantCore";') &&
+  wrapper.includes('dynamic(() => import("./BurgerAssistantCore")') &&
     wrapper.includes("<BurgerAssistantCore"),
   "Customer shell delegates assistant behavior to the guarded core",
 );

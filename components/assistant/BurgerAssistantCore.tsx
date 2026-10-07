@@ -877,7 +877,7 @@ function AssistantOrbIcon({ active = false, greeting = false }: { active?: boole
 }
 
 type VoiceState = "idle" | "connecting" | "listening" | "thinking" | "tool" | "speaking" | "error";
-export default function BurgerAssistant({ guideEnabled = true }: { guideEnabled?: boolean }) {
+export default function BurgerAssistant({ guideEnabled = true, voiceEnabled = true }: { guideEnabled?: boolean; voiceEnabled?: boolean }) {
   const pathname = usePathname();
   const router = useRouter();
 
@@ -1479,7 +1479,7 @@ export default function BurgerAssistant({ guideEnabled = true }: { guideEnabled?
   );
 
   const startVoice = useCallback(async () => {
-    if (voiceActive || voiceStartingRef.current) return;
+    if (!voiceEnabled || voiceActive || voiceStartingRef.current) return;
     voiceStartingRef.current = true;
     const voiceSession = ++voiceSessionRef.current;
 
@@ -1954,6 +1954,7 @@ export default function BurgerAssistant({ guideEnabled = true }: { guideEnabled?
     stopVoice,
     updateExistingCartLine,
     voiceActive,
+    voiceEnabled,
     companion.theme,
     voiceLanguage,
   ]);
@@ -1966,6 +1967,7 @@ export default function BurgerAssistant({ guideEnabled = true }: { guideEnabled?
 
   const switchMode = useCallback(
     (next: "chat" | "voice") => {
+      if (next === "voice" && !voiceEnabled) return;
       setMode(next);
       setVoiceError("");
 
@@ -1976,7 +1978,7 @@ export default function BurgerAssistant({ guideEnabled = true }: { guideEnabled?
 
       void startVoice();
     },
-    [startVoice, stopVoice],
+    [startVoice, stopVoice, voiceEnabled],
   );
 
   const voiceStatus =
@@ -2067,7 +2069,7 @@ export default function BurgerAssistant({ guideEnabled = true }: { guideEnabled?
                 >
                   Schreiben
                 </button>
-                <button
+                {voiceEnabled ? <button
                   type="button"
                   onClick={() => switchMode("voice")}
                   className={`flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition ${
@@ -2078,7 +2080,7 @@ export default function BurgerAssistant({ guideEnabled = true }: { guideEnabled?
                 >
                   <span aria-hidden>🎙</span>
                   Sprechen
-                </button>
+                </button> : null}
               </div>
             </div>
 
@@ -2207,7 +2209,7 @@ export default function BurgerAssistant({ guideEnabled = true }: { guideEnabled?
                         >
                           Senden
                         </button>
-                      ) : (
+                      ) : voiceEnabled ? (
                         <button
                           type="button"
                           onClick={() => switchMode("voice")}
@@ -2216,7 +2218,7 @@ export default function BurgerAssistant({ guideEnabled = true }: { guideEnabled?
                         >
                           🎙
                         </button>
-                      )}
+                      ) : null}
                     </div>
 
                     <div className="mt-2 text-center text-[10px] leading-tight text-stone-500">
