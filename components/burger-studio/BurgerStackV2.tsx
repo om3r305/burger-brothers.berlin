@@ -195,7 +195,7 @@ export default function BurgerStackV2({ config, recipe, assembled }: {
               // original cheese photo at its own exact horizontal position.
               const sag = 1 + 1.05 * lobe(0.16, 0.16) + 0.75 * lobe(0.81, 0.17);
               return <i key={edge} style={{ left: `${edge * 2.5}%`,
-                backgroundPosition: `${edge / 39 * 100}% 100%`,
+                backgroundPosition: `${edge * 2.5 / 97.3 * 100}% 100%`,
                 "--bsv2-edge-sag": sag,
                 "--bsv2-edge-delay": `${1.3 + x * 3}s`,
               } as CSSProperties} />;
@@ -305,7 +305,7 @@ export default function BurgerStackV2({ config, recipe, assembled }: {
         .is-assembled .bsv2-melting.bsv2-photo .bsv2-food-detail{animation:none;clip-path:inset(0 0 55% 0);filter:none}
         .bsv2-cheese-flow{display:none;position:absolute;inset:0;pointer-events:none;z-index:1}
         .is-assembled .bsv2-cheese-flow{display:block}
-        .bsv2-cheese-flow i{position:absolute;top:45%;width:2.5%;height:55%;background-image:var(--bsv2-photo);background-size:4000% 181.818182%;background-repeat:no-repeat;transform-origin:50% 0;animation:bsv2-cheese-edge-sag 14s cubic-bezier(.22,.55,.3,1) both;animation-delay:calc(var(--bsv2-edge-delay) + (var(--bsv2-count) * 65ms))}
+        .bsv2-cheese-flow i{position:absolute;top:45%;width:2.7%;height:55%;background-image:var(--bsv2-photo);background-size:3703.703704% 181.818182%;background-repeat:no-repeat;transform-origin:50% 0;animation:bsv2-cheese-edge-sag 14s cubic-bezier(.22,.55,.3,1) both;animation-delay:calc(var(--bsv2-edge-delay) + (var(--bsv2-count) * 65ms))}
         .is-assembled .bsv2-layer{animation-duration:.42s;animation-delay:calc(45ms + (var(--bsv2-i) * 65ms));filter:drop-shadow(0 3px 2px rgba(0,0,0,.28))}
         .is-assembled .bsv2-bun-top{animation-duration:.5s;animation-delay:calc(150ms + (var(--bsv2-count) * 65ms))}
         .is-assembled .bsv2-assembly-flash{display:none}

@@ -99,7 +99,7 @@ assert(source.includes('height:var(--bsv2-mobile-height)'));
 assert(source.includes('bottom:var(--bsv2-mobile-build-bottom)'));
 assert(source.includes('bottom:var(--bsv2-mobile-final-bottom)'));
 assert(!source.includes('292 / Math.max(1, stageHeight'));
-assert(source.includes('background-image:var(--bsv2-photo);background-size:4000% 181.818182%'));
+assert(source.includes('background-image:var(--bsv2-photo);background-size:3703.703704% 181.818182%'));
 assert(!source.includes('animation:bsv2-photo-melt'));
 assert(!source.includes('animation:bsv2-slow-cheese-flow'));
 const ui = fs.readFileSync('components/burger-studio/BurgerStudioV2.tsx', 'utf8');
