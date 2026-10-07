@@ -51,7 +51,7 @@ for (const recipe of recipes) for (const assembled of [false, true]) {
   assert.equal(style['--bsv2-mobile-scale'], 0.8, 'food width must not shrink as the recipe grows');
   const canvasHeight = pixels(style['--bsv2-mobile-height']);
   if (assembled) assert.equal(canvasHeight, 365, 'assembled canvas remains compact');
-  assert(pixels(style['--bsv2-mobile-stage-height']) <= 420, 'phone preview stays bounded with its own scrolling area');
+  assert(pixels(style['--bsv2-mobile-stage-height']) >= canvasHeight * 0.8 + 48, 'phone stage grows to expose the entire scaled canvas without nested scrolling');
   const top = pixels(style[assembled ? '--bsv2-mobile-final-top' : '--bsv2-mobile-build-top']);
   assert(top >= 0 && top + 123 <= canvasHeight, 'entire top bun stays inside the phone canvas');
   const layers = nodes(tree, node => !!node.props?.['data-visual-kind']);
@@ -74,7 +74,8 @@ for (const recipe of recipes) for (const assembled of [false, true]) {
 }
 const source = fs.readFileSync('components/burger-studio/BurgerStackV2.tsx', 'utf8');
 assert(source.includes('position:absolute;left:50%;top:0'));
-assert(source.includes('overflow-y:auto;overflow-x:hidden'));
+assert(!source.includes('overflow-y:auto;overflow-x:hidden'));
+assert(source.includes('height:calc(var(--bsv2-mobile-stage-height) - 48px);overflow:visible'));
 // Restore a removed ingredient with a different object insertion order. The
 // real rendered identities and positions must equal the original full recipe.
 const original = { ...selection };
