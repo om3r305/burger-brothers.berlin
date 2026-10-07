@@ -60,14 +60,9 @@ for (const recipe of recipes) for (const assembled of [false, true]) {
     const bottom = pixels(layer.props.style[assembled ? '--bsv2-mobile-final-bottom' : '--bsv2-mobile-build-bottom']);
     assert(bottom >= 0 && bottom + mobileLayerHeight(layer.props['data-visual-kind']) <= canvasHeight, 'ingredient stays within canvas');
   }
-  for (const flow of nodes(tree, node => node.props?.className === 'bsv2-cheese-flow')) {
-    const edges = flow.props.children;
-    assert.equal(edges.length, 40, 'cheese edge photo patches cover the full slice');
-    for (const edge of edges) {
-      assert(edge.props.style['--bsv2-edge-sag'] >= 1 && edge.props.style['--bsv2-edge-sag'] <= 2.05, 'sag stays attached and bounded over the next ingredient');
-    }
-    assert(edges.some(edge => edge.props.style['--bsv2-edge-sag'] === 1), 'middle portions stay still rather than stretching the whole cheese');
-  }
+  const cheeseImages = nodes(tree, node => node.type === 'image');
+  assert.equal(cheeseImages.length, assembled ? layers.filter(layer => ['cheddar','gouda','mozzarella','gorgonzola'].includes(layer.props['data-visual-kind'])).length : 0, 'each finished cheese uses one seamless original photo');
+  for (const image of cheeseImages) assert(image.props.href.endsWith('.webp'), 'deformation retains the original cheese artwork');
   if (!assembled) for (let index = 1; index < layers.length; index++) {
     const previous = layers[index - 1];
     const previousTop = pixels(previous.props.style['--bsv2-mobile-build-bottom']) + mobileLayerHeight(previous.props['data-visual-kind']);
@@ -99,7 +94,9 @@ assert(source.includes('height:var(--bsv2-mobile-height)'));
 assert(source.includes('bottom:var(--bsv2-mobile-build-bottom)'));
 assert(source.includes('bottom:var(--bsv2-mobile-final-bottom)'));
 assert(!source.includes('292 / Math.max(1, stageHeight'));
-assert(source.includes('background-image:var(--bsv2-photo);background-size:3703.703704% 181.818182%'));
+assert(source.includes('<feDisplacementMap'));
+assert(!source.includes('Array.from({ length: 40 }'));
+assert(source.includes('colorInterpolationFilters="sRGB"'));
 assert(!source.includes('animation:bsv2-photo-melt'));
 assert(!source.includes('animation:bsv2-slow-cheese-flow'));
 const ui = fs.readFileSync('components/burger-studio/BurgerStudioV2.tsx', 'utf8');
