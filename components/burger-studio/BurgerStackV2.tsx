@@ -188,18 +188,24 @@ export default function BurgerStackV2({ config, recipe, assembled }: {
               "--bsv2-mobile-final-bottom": `${mobileLayout.finalBottoms[index]}px`,
               "--bsv2-photo": PHOTO_KINDS.has(layer.kind) ? `url(/images/burger-studio/${layer.kind}.webp)` : undefined,
             } as CSSProperties} title={layer.name}>
-            {CHEESE_KINDS.has(layer.kind) ? <span className="bsv2-cheese-flow" aria-hidden="true">{Array.from({ length: 40 }, (_, edge) => {
-              const x = (edge + 0.5) / 40;
-              const lobe = (center: number, radius: number) => Math.max(0, 1 - Math.abs(x - center) / radius) ** 2;
-              // Only broad corner/edge patches sag; every patch samples the
-              // original cheese photo at its own exact horizontal position.
-              const sag = 1 + 1.05 * lobe(0.16, 0.16) + 0.75 * lobe(0.81, 0.17);
-              return <i key={edge} style={{ left: `${edge * 2.5}%`,
-                backgroundPosition: `${edge * 2.5 / 97.3 * 100}% 100%`,
-                "--bsv2-edge-sag": sag,
-                "--bsv2-edge-delay": `${1.3 + x * 3}s`,
-              } as CSSProperties} />;
-            })}</span> : null}
+            {CHEESE_KINDS.has(layer.kind) && assembled ? <svg className="bsv2-cheese-flow" aria-hidden="true"
+              viewBox="0 0 366 190" preserveAspectRatio="none">
+              <defs>
+                <filter id={`bsv2-cheese-warp-${index}`} x="0" y="0" width="366" height="190"
+                  filterUnits="userSpaceOnUse" primitiveUnits="userSpaceOnUse" colorInterpolationFilters="sRGB">
+                  <feImage href="/images/burger-studio/cheese-warp-left.png" x="0" y="0" width="366" height="190" preserveAspectRatio="none" result="leftMap" />
+                  <feDisplacementMap in="SourceGraphic" in2="leftMap" scale="0" xChannelSelector="R" yChannelSelector="G" result="leftCheese">
+                    <animate attributeName="scale" from="0" to="90" dur="14s" begin={`${1.3 + count * .065}s`} fill="freeze" calcMode="spline" keyTimes="0;1" keySplines=".22 .55 .3 1" />
+                  </feDisplacementMap>
+                  <feImage href="/images/burger-studio/cheese-warp-right.png" x="0" y="0" width="366" height="190" preserveAspectRatio="none" result="rightMap" />
+                  <feDisplacementMap in="leftCheese" in2="rightMap" scale="0" xChannelSelector="R" yChannelSelector="G">
+                    <animate attributeName="scale" from="0" to="70" dur="16s" begin={`${3.7 + count * .065}s`} fill="freeze" calcMode="spline" keyTimes="0;1" keySplines=".22 .55 .3 1" />
+                  </feDisplacementMap>
+                </filter>
+              </defs>
+              <image href={`/images/burger-studio/${layer.kind}.webp`} x="0" y="0" width="366" height="126"
+                preserveAspectRatio="none" filter={`url(#bsv2-cheese-warp-${index})`} />
+            </svg> : null}
             <span className="bsv2-food-detail" aria-hidden="true" />
             <span className="bsv2-piece-label">{layer.name}</span>
           </div>
@@ -299,13 +305,11 @@ export default function BurgerStackV2({ config, recipe, assembled }: {
         .bsv2-stage .bsv2-bun--smash.bsv2-bun-top{background-image:url(/images/burger-studio/bun-smash.webp)}
         .bsv2-stage .bsv2-bun--gluten-free.bsv2-bun-top{background-image:url(/images/burger-studio/bun-gluten-free.webp)}
         .bsv2-stage .bsv2-bun-bottom{background-image:url(/images/burger-studio/bun-bottom.webp)}
-        /* Keep the upper photo still. The lower strips reuse the same photo,
-           with opaque texture and alpha edges; only two broad edge regions sag. */
+        /* A single original photo is warped continuously. There are no strips,
+           seams or extra liquid shapes; displacement is confined to the edges. */
         .bsv2-stage .bsv2-melting{clip-path:none;overflow:visible}
-        .is-assembled .bsv2-melting.bsv2-photo .bsv2-food-detail{animation:none;clip-path:inset(0 0 55% 0);filter:none}
-        .bsv2-cheese-flow{display:none;position:absolute;inset:0;pointer-events:none;z-index:1}
-        .is-assembled .bsv2-cheese-flow{display:block}
-        .bsv2-cheese-flow i{position:absolute;top:45%;width:2.7%;height:55%;background-image:var(--bsv2-photo);background-size:3703.703704% 181.818182%;background-repeat:no-repeat;transform-origin:50% 0;animation:bsv2-cheese-edge-sag 14s cubic-bezier(.22,.55,.3,1) both;animation-delay:calc(var(--bsv2-edge-delay) + (var(--bsv2-count) * 65ms))}
+        .is-assembled .bsv2-melting.bsv2-photo .bsv2-food-detail{animation:none;visibility:hidden}
+        .bsv2-cheese-flow{position:absolute;top:0;left:0;width:100%;height:150.793651%;overflow:visible;pointer-events:none;z-index:1}
         .is-assembled .bsv2-layer{animation-duration:.42s;animation-delay:calc(45ms + (var(--bsv2-i) * 65ms));filter:drop-shadow(0 3px 2px rgba(0,0,0,.28))}
         .is-assembled .bsv2-bun-top{animation-duration:.5s;animation-delay:calc(150ms + (var(--bsv2-count) * 65ms))}
         .is-assembled .bsv2-assembly-flash{display:none}
@@ -318,7 +322,6 @@ export default function BurgerStackV2({ config, recipe, assembled }: {
         .bsv2-stage .bsv2-steam span:nth-child(4){left:155px;animation-duration:7s;animation-delay:calc(3000ms + (var(--bsv2-count) * 65ms))}
         .bsv2-stage .bsv2-steam span:nth-child(5){left:197px;height:90px;animation-duration:6.2s;animation-delay:calc(2300ms + (var(--bsv2-count) * 65ms))}
         @keyframes bsv2-warm-steam{0%{opacity:0;transform:translate(-6px,16px) scale(.7,.55) rotate(-7deg)}18%{opacity:.82}48%{opacity:.65;transform:translate(8px,-22px) scale(1.15,1.04) rotate(6deg)}78%{opacity:.28}100%{opacity:0;transform:translate(-10px,-78px) scale(1.7,1.25) rotate(-5deg)}}
-        @keyframes bsv2-cheese-edge-sag{from{transform:scaleY(1)}to{transform:scaleY(var(--bsv2-edge-sag))}}
         @keyframes bsv2-flash{0%{opacity:0}25%{opacity:1}100%{opacity:0}}
         @keyframes bsv2-drop{0%{transform:translate(-50%,-90px) scale(1.04);opacity:.55}72%{transform:translate(-50%,3px) scale(.99)}100%{transform:translateX(-50%);opacity:1}}
         @keyframes bsv2-top-close{0%{transform:translate(-50%,-125px) rotate(-2deg)}70%{transform:translate(-50%,5px) scaleY(.96)}100%{transform:translateX(-50%)}}
@@ -329,7 +332,7 @@ export default function BurgerStackV2({ config, recipe, assembled }: {
         @keyframes bsv2-warm-settle{0%{opacity:.78}28%{opacity:1}100%{opacity:.76}}
         @media(max-width:1023px){.bsv2-stage{height:var(--bsv2-mobile-stage-height);min-height:340px;border-radius:24px;display:block;padding-top:48px}.bsv2-stack-viewport{display:block;width:100%;height:calc(var(--bsv2-mobile-stage-height) - 48px);overflow:visible}.bsv2-stack-canvas{display:block;position:relative;width:100%;height:calc(var(--bsv2-mobile-height) * var(--bsv2-mobile-scale))}.bsv2-stack{position:absolute;left:50%;top:0;width:min(calc(100% - 24px),345px);height:var(--bsv2-mobile-height);transform:translateX(-50%) scale(var(--bsv2-mobile-scale));transform-origin:top center}.bsv2-piece-label{display:block;left:auto;right:6px;max-width:46%;overflow:hidden;text-overflow:ellipsis;padding:4px 6px;font-size:8px;letter-spacing:.01em}.is-building .bsv2-layer{top:auto;bottom:var(--bsv2-mobile-build-bottom);transform:translateX(-50%) scale(.97)}.is-building .bsv2-bun-top{top:auto;bottom:var(--bsv2-mobile-build-top)}.is-assembled .bsv2-layer{bottom:var(--bsv2-mobile-final-bottom)}.is-assembled .bsv2-bun-top{bottom:var(--bsv2-mobile-final-top)}.bsv2-stage .bsv2-steam,.bsv2-heat-glow{--bsv2-top-bottom:var(--bsv2-mobile-final-top)}}
         @media(prefers-reduced-motion:reduce){.bsv2-stage,.bsv2-piece{transition:none!important}.bsv2-assembly-flash,.bsv2-steam,.bsv2-heat-glow{display:none!important}.is-assembled .bsv2-layer,.is-assembled .bsv2-bun-top,.is-assembled .bsv2-stage-light,.is-assembled .bsv2-layer:after,.is-assembled .bsv2-food-detail{animation:none!important}.bsv2-stage-light{filter:none;opacity:.18}}
-        @media(prefers-reduced-motion:reduce){.bsv2-cheese-flow{display:none!important}.bsv2-cheese-flow i,.bsv2-steam span{animation:none!important}.is-assembled .bsv2-melting.bsv2-photo .bsv2-food-detail{clip-path:none}}
+        @media(prefers-reduced-motion:reduce){.bsv2-cheese-flow{display:none!important}.bsv2-steam span{animation:none!important}.is-assembled .bsv2-melting.bsv2-photo .bsv2-food-detail{visibility:visible}}
       `}</style>
     </div>
   );
