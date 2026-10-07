@@ -376,9 +376,15 @@ export default function HomePage() {
     const vFire = typeof vol.fire === "number" ? vol.fire : 0.45;
     const vGrill = typeof vol.grill === "number" ? vol.grill : 0.45;
 
-    clickRef.current = new Audio(siteConfig.audio.click);
-    fireRef.current = new Audio(siteConfig.audio.fireLoop);
-    grillRef.current = new Audio(siteConfig.audio.grillLoop);
+    const createDeferredAudio = (src: string) => {
+      const audio = new Audio();
+      audio.preload = "none";
+      audio.src = src;
+      return audio;
+    };
+    clickRef.current = createDeferredAudio(siteConfig.audio.click);
+    fireRef.current = createDeferredAudio(siteConfig.audio.fireLoop);
+    grillRef.current = createDeferredAudio(siteConfig.audio.grillLoop);
 
     if (clickRef.current) {
       clickRef.current.volume = Math.min(Math.max(vClick, 0), 1);

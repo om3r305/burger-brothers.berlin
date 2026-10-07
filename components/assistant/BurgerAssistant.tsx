@@ -2,7 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import { readSettings } from "@/lib/settings";
-import BurgerAssistantCore from "./BurgerAssistantCore";
+import dynamic from "next/dynamic";
+import { usePathname } from "next/navigation";
+
+const BurgerAssistantCore = dynamic(() => import("./BurgerAssistantCore"), { ssr:false });
+const ASSISTANT_PATHS = new Set(["/menu", "/checkout", "/extras", "/drinks", "/sauces", "/hotdogs", "/donuts", "/bubble-tea"]);
 
 type AiControls = {
   assistantEnabled: boolean;
@@ -88,6 +92,12 @@ function createMeterlessContext(): MeterlessContext {
  * existing deployments keep their current behavior until the admin changes it.
  */
 export default function BurgerAssistant() {
+  const pathname = usePathname();
+  const path = pathname?.replace(/\/+$/, "") || "/";
+  return ASSISTANT_PATHS.has(path) ? <CustomerAssistant /> : null;
+}
+
+function CustomerAssistant() {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const [controls, setControls] = useState<AiControls | null>(null);
 
@@ -162,31 +172,6 @@ export default function BurgerAssistant() {
     document.addEventListener("visibilitychange", syncMotion);
     return () => document.removeEventListener("visibilitychange", syncMotion);
   }, [assistantEnabled]);
-
-  useEffect(() => {
-    if (!assistantEnabled) return;
-
-    const root = hostRef.current;
-    if (!root) return;
-
-    const applyVoiceVisibility = () => {
-      for (const button of Array.from(root.querySelectorAll("button"))) {
-        if (!isVoiceTrigger(button)) continue;
-
-        button.hidden = !voiceEnabled;
-        button.disabled = !voiceEnabled;
-        button.setAttribute("aria-hidden", voiceEnabled ? "false" : "true");
-        button.setAttribute("aria-disabled", voiceEnabled ? "false" : "true");
-        button.tabIndex = voiceEnabled ? 0 : -1;
-        button.style.display = voiceEnabled ? "" : "none";
-      }
-    };
-
-    applyVoiceVisibility();
-    const observer = new MutationObserver(applyVoiceVisibility);
-    observer.observe(root, { childList: true, subtree: true });
-    return () => observer.disconnect();
-  }, [assistantEnabled, voiceEnabled]);
 
   useEffect(() => {
     if (!assistantEnabled || !voiceEnabled || !isIOSWebKit()) return;
@@ -297,7 +282,7 @@ export default function BurgerAssistant() {
         event.stopPropagation();
       }}
     >
-      <BurgerAssistantCore key={voiceEnabled ? "voice-on" : "voice-off"} guideEnabled={controls.guideEnabled} />
+      <BurgerAssistantCore key={voiceEnabled ? "voice-on" : "voice-off"} guideEnabled={controls.guideEnabled} voiceEnabled={voiceEnabled} />
     </div>
   );
 }

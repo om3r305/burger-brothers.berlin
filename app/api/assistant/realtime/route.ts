@@ -1,3 +1,4 @@
+import { getServerSettings } from "@/lib/server/settings";
 import { RESTAURANT_MENU_KNOWLEDGE } from "@/lib/assistant/menu-knowledge";
 import { brosThemeNote, normalizeBrosTheme } from "@/lib/assistant/bros-themes";
 import { normalizeBrosContext } from "@/lib/assistant/bros";
@@ -318,6 +319,15 @@ export async function POST(req: Request) {
     5 * 60_000,
   );
   if (rateError) return rateError;
+
+  // The admin voice switch is authoritative even for stale/open clients.
+  let settings;
+  try { settings = await getServerSettings(); }
+  catch { return securityJson({ ok:false, error:"voice_settings_unavailable" }, 503); }
+  const ai = settings.features?.ai;
+  if (ai?.assistantEnabled === false || ai?.voiceEnabled !== true) {
+    return securityJson({ ok:false, error:"voice_disabled" }, 403);
+  }
 
   const apiKey = cleanText(process.env.OPENAI_API_KEY, 8_000);
   if (!apiKey) {
