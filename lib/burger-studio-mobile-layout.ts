@@ -1,5 +1,5 @@
 // Phone previews keep the same food width for every recipe. Pack only the
-// vertical positions by ingredient height; large building stacks scroll without shrinking.
+// vertical positions by ingredient height; the stage grows with large building stacks without shrinking or inner scrolling.
 export const MOBILE_STACK_HEIGHT = 365;
 export const MOBILE_STACK_SCALE = 0.8;
 
