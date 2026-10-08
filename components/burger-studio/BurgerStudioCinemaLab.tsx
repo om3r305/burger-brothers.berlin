@@ -27,6 +27,7 @@ export default function BurgerStudioCinemaLab() {
   const [audioUnavailable, setAudioUnavailable] = useState(false);
   const audio = useRef<CinemaAudio | null>(null);
   const dialog = useRef<HTMLDialogElement>(null);
+  const hero = useRef<HTMLImageElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const phaseRef = useRef<Phase>("gate");
   const startLock = useRef(false);
@@ -40,6 +41,20 @@ export default function BurgerStudioCinemaLab() {
     setPhase("atelier");
     phaseRef.current = "atelier";
     audio.current?.cue("reveal");
+  }, []);
+
+  useEffect(() => {
+    // SSR images may finish before React attaches its load listener.
+    if (hero.current?.complete) {
+      if (hero.current.naturalWidth > 0) setImageReady(true);
+      else setImageFailed(true);
+    }
+    const previous = document.body.getAttribute("data-bb-cinema-lab");
+    document.body.setAttribute("data-bb-cinema-lab", "1");
+    return () => {
+      if (previous === null) document.body.removeAttribute("data-bb-cinema-lab");
+      else document.body.setAttribute("data-bb-cinema-lab", previous);
+    };
   }, []);
 
   useEffect(() => {
@@ -153,7 +168,7 @@ export default function BurgerStudioCinemaLab() {
   return (
     <main className={`bcl bcl-${phase}${portrait ? " bcl-portrait" : ""}${reducedMotion ? " bcl-still" : ""}`}>
       <div className="bcl-picture" aria-hidden="true">
-        <img src="/images/burger-studio/cinema/hero.webp" alt="" fetchPriority="high" loading="eager"
+        <img ref={hero} src="/images/burger-studio/cinema/hero.webp" alt="" fetchPriority="high" loading="eager"
           onLoad={() => setImageReady(true)} onError={() => setImageFailed(true)} />
       </div>
       <div className="bcl-shade" aria-hidden="true" />
