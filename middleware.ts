@@ -254,6 +254,7 @@ function createNonce() {
 
 export type ContentSecurityPolicyOptions = {
   allowLocalPrintProxy?: boolean;
+  allowModelBlobTextures?: boolean;
 };
 
 export function contentSecurityPolicy(
@@ -265,6 +266,8 @@ export function contentSecurityPolicy(
   // The kitchen TV deliberately talks to an HTTP service on the same machine.
   // Keep that exception restricted to /tv; every other page retains the strict policy.
   const localPrintProxy = allowLocalPrintProxy ? " http://127.0.0.1:7777" : "";
+  // GLTFLoader fetches the GLB's embedded texture through a local blob URL.
+  const modelBlobTextures = options.allowModelBlobTextures ? " blob:" : "";
   const upgrade =
     process.env.NODE_ENV === "production" && !allowLocalPrintProxy
       ? "; upgrade-insecure-requests"
@@ -282,7 +285,7 @@ export function contentSecurityPolicy(
     "img-src 'self' data: blob: https:",
     "font-src 'self' data:",
     "media-src 'self' blob: https:",
-    `connect-src 'self' https://api.stripe.com https://*.stripe.com https://*.supabase.co wss://*.supabase.co https://maps.googleapis.com https://routes.googleapis.com https://*.r2.cloudflarestorage.com https://*.r2.dev${localPrintProxy}`,
+    `connect-src 'self' https://api.stripe.com https://*.stripe.com https://*.supabase.co wss://*.supabase.co https://maps.googleapis.com https://routes.googleapis.com https://*.r2.cloudflarestorage.com https://*.r2.dev${localPrintProxy}${modelBlobTextures}`,
     "frame-src 'self' https://js.stripe.com https://hooks.stripe.com https://checkout.stripe.com https://www.openstreetmap.org",
     "worker-src 'self' blob:",
     "manifest-src 'self'",
@@ -293,7 +296,10 @@ function nextPageResponse(req: NextRequest) {
   const nonce = createNonce();
   const allowLocalPrintProxy =
     child(req.nextUrl.pathname, "/tv") || child(req.nextUrl.pathname, "/print");
-  const csp = contentSecurityPolicy(nonce, { allowLocalPrintProxy });
+  const csp = contentSecurityPolicy(nonce, {
+    allowLocalPrintProxy,
+    allowModelBlobTextures: req.nextUrl.pathname === "/burger-studio/cinema-lab",
+  });
   const requestHeaders = new Headers(req.headers);
   requestHeaders.set("x-nonce", nonce);
   requestHeaders.set("Content-Security-Policy", csp);
