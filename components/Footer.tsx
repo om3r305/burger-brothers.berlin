@@ -136,6 +136,7 @@ export default function Footer() {
   const pathname = usePathname();
   const isLanding = pathname === "/";
   const operationalRoute =
+    pathname === "/burger-studio/cinema-lab" ||
     pathname === "/admin" ||
     pathname.startsWith("/admin/") ||
     pathname === "/tv" ||
