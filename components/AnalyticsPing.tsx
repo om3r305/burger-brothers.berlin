@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
+import { isCustomerAnalyticsPath } from "@/lib/reporting";
 
 export const ANALYTICS_CONSENT_KEY = "bb_analytics_consent_v1";
 export const ANALYTICS_CONSENT_EVENT = "bb:analytics-consent";
@@ -9,12 +10,7 @@ const ENDPOINT = "/api/analytics/collect";
 const SESSION_KEY = "bb_analytics_session_id";
 
 function shouldSkip(pathname: string) {
-  if (!pathname) return true;
-  if (pathname === "/admin" || pathname.startsWith("/admin/")) return true;
-  if (pathname === "/tv" || pathname.startsWith("/tv/")) return true;
-  if (pathname === "/api" || pathname.startsWith("/api/")) return true;
-  if (pathname.startsWith("/_next/")) return true;
-  return false;
+  return !isCustomerAnalyticsPath(pathname);
 }
 
 function hasConsent() {
@@ -44,7 +40,12 @@ function sendAnalytics(pathname: string) {
     path: pathname,
     sessionId: getSessionId(),
     consentVersion: "analytics-v1",
-    props: { pathname },
+    props: { pathname, source:
+      window.matchMedia?.("(display-mode: standalone)").matches ||
+      window.matchMedia?.("(display-mode: fullscreen)").matches ||
+      (navigator as Navigator & { standalone?: boolean }).standalone ||
+      document.referrer.startsWith("android-app://") ||
+      !!(window as Window & { __BB_NATIVE_APP__?: unknown }).__BB_NATIVE_APP__ ? "app" : "web" },
   });
 
   fetch(ENDPOINT, {
@@ -61,10 +62,16 @@ function sendAnalytics(pathname: string) {
 
 export default function AnalyticsPing() {
   const pathname = usePathname();
+  const lastSent = useRef("");
 
   useEffect(() => {
-    if (!pathname || shouldSkip(pathname)) return;
-    const send = () => sendAnalytics(pathname);
+    if (!pathname || shouldSkip(pathname)) { lastSent.current = ""; return; }
+    const send = () => {
+      if (!hasConsent()) { lastSent.current = ""; return; }
+      if (lastSent.current === pathname) return;
+      lastSent.current = pathname;
+      sendAnalytics(pathname);
+    };
     send();
     window.addEventListener(ANALYTICS_CONSENT_EVENT, send);
     return () => window.removeEventListener(ANALYTICS_CONSENT_EVENT, send);

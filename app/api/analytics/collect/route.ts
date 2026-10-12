@@ -2,6 +2,7 @@ import { createHmac } from "node:crypto";
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma, getTenantId } from "@/lib/db";
+import { berlinDateKey, isCustomerAnalyticsPath } from "@/lib/reporting";
 import {
   enforceRateLimit,
   forbiddenResponse,
@@ -73,12 +74,13 @@ function sessionHash(value: unknown) {
     .trim()
     .replace(/[^a-zA-Z0-9_-]/g, "")
     .slice(0, 80);
-  const secret = String(process.env.ANALYTICS_IP_SECRET || "").trim();
+  const secret = [process.env.ANALYTICS_IP_SECRET, process.env.SESSION_SECRET, process.env.AUTH_SECRET]
+    .map((value) => String(value || "").trim()).find((value) => value.length >= 32) || "";
   if (!sessionId || secret.length < 32) return null;
 
   // Günlük salt, uzun süreli davranış profili oluşmasını engeller.
-  const day = new Date().toISOString().slice(0, 10);
-  return createHmac("sha256", `${secret}:${day}`)
+  const day = berlinDateKey();
+  return createHmac("sha256", `${secret}:analytics:${day}`)
     .update(sessionId)
     .digest("base64url")
     .slice(0, 32);
@@ -117,12 +119,16 @@ export async function POST(req: Request) {
       );
     }
 
+    const path = cleanPath(body?.path);
+    if (!isCustomerAnalyticsPath(path)) {
+      return NextResponse.json({ ok: true, saved: 0 }, { headers });
+    }
     const tenantId = await getTenantId();
     await prisma.analyticsEvent.create({
       data: {
         tenantId,
         event,
-        path: cleanPath(body?.path),
+        path,
         sessionHash: sessionHash(body?.sessionId),
         props: cleanProps(body?.props),
         consentVersion: CONSENT_VERSION,

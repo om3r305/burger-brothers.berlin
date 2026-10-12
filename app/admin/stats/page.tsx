@@ -1,1080 +1,170 @@
-// app/admin/stats/page.tsx
 "use client";
-
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode, ChangeEvent } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { berlinDateKey, reportRange, summarizePaymentRows, type PaymentReportRow, type ReportPeriod } from "@/lib/reporting";
+import type { VisitorDay } from "@/lib/server/analytics-report";
 
-/* =========================
- * Types (robust/flexible)
- * ========================= */
-type Mode = "delivery" | "pickup";
-type Category =
-  | "burger"
-  | "vegan"
-  | "extras"
-  | "sauces"
-  | "drinks"
-  | "hotdogs"
-  | "donuts"
-  | "bubbletea";
-
-type OrderStatus =
-  | "new"
-  | "preparing"
-  | "ready"
-  | "out_for_delivery"
-  | "done"
-  | "cancelled";
-
-type OrderItem = {
-  id?: string;
-  sku?: string;
-  name: string;
-  category?: Category | string;
-  price: number;
-  qty: number;
-  add?: { label?: string; name?: string; price?: number }[];
-};
-
-type OrderLog = {
-  id: string;
-  ts: number;
-  mode: Mode;
-  status: OrderStatus;
-  plz?: string | null;
-  items: OrderItem[];
-  merchandise?: number;
-  discount?: number;
-  surcharges?: number;
-  total: number;
-  archivedAt?: string | null;
-  anonymizedAt?: string | null;
-};
-
-type VisitorPing = {
-  ts: number;
-  path?: string;
-  sessionId?: string;
-};
-
-/* =========================
- * API
- * ========================= */
-const API_ORDERS = "/api/orders/list";
-const API_VISITORS = "/api/admin/visitors";
-
-/* =========================
- * Utils
- * ========================= */
-const fmtEur = (n: number) =>
-  new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" }).format(n);
-
-const rid = () =>
-  typeof crypto !== "undefined" && "randomUUID" in crypto
-    ? (crypto as any).randomUUID()
-    : String(Date.now() + Math.random());
-
-function startOfDay(d: Date) {
-  const x = new Date(d);
-  x.setHours(0, 0, 0, 0);
-  return x;
+type OrderDay = { date: string; orders: number; cancelled: number; revenue: number; customers: number; unidentified: number; pickup: number; delivery: number };
+type Overview = { visitors: VisitorDay[]; orders: OrderDay[] };
+const eur = (n: number) => new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" }).format(n);
+const num = (n: number) => new Intl.NumberFormat("tr-TR").format(n);
+const time = (ms: number) => new Date(ms).toLocaleString("de-DE", { timeZone: "Europe/Berlin" });
+const typeLabels: Record<string, string> = { charge: "Kart ödemesi", payment: "Ödeme", refund: "İade", payment_refund: "İade", stripe_fee: "Stripe ek ücreti", stripe_fx_fee: "Döviz ücreti", tax_fee: "Vergi hizmet ücreti", payout: "Banka aktarımı", payout_cancel: "Aktarım iptali", payout_failure: "Başarısız aktarım" };
+function csv(name: string, rows: Array<Array<string | number>>) {
+  const text = "\uFEFF" + rows.map((row) => row.map((value) => {
+    const s = String(value), safe = /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
+    return `"${safe.replace(/"/g, '""')}"`;
+  }).join(";")).join("\r\n");
+  const url = URL.createObjectURL(new Blob([text], { type: "text/csv;charset=utf-8" }));
+  const link = document.createElement("a"); link.href = url; link.download = name; link.click(); URL.revokeObjectURL(url);
 }
 
-function endOfDay(d: Date) {
-  const x = new Date(d);
-  x.setHours(23, 59, 59, 999);
-  return x;
-}
-
-function startOfMonth(d: Date) {
-  return new Date(d.getFullYear(), d.getMonth(), 1, 0, 0, 0, 0);
-}
-
-function startOfYear(d: Date) {
-  return new Date(d.getFullYear(), 0, 1, 0, 0, 0, 0);
-}
-
-function endOfYear(d: Date) {
-  return new Date(d.getFullYear(), 11, 31, 23, 59, 59, 999);
-}
-
-function csvEscape(s: string) {
-  const needs = /[",;\n]/.test(s);
-  return needs ? `"${s.replace(/"/g, '""')}"` : s;
-}
-
-function sum(arr: number[]) {
-  return arr.reduce((a, b) => a + (Number.isFinite(b) ? b : 0), 0);
-}
-
-function toInputDatetime(d: Date) {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  const yyyy = d.getFullYear();
-  const mm = pad(d.getMonth() + 1);
-  const dd = pad(d.getDate());
-  const hh = pad(d.getHours());
-  const mi = pad(d.getMinutes());
-  return `${yyyy}-${mm}-${dd}T${hh}:${mi}`;
-}
-
-function parseBool(value: any) {
-  const text = String(value || "").toLowerCase().trim();
-  return text === "1" || text === "true" || text === "yes" || text === "ja";
-}
-
-function normalizeStatus(value: any): OrderStatus {
-  const text = String(value || "").toLowerCase().trim();
-
-  if (text === "received" || text === "eingegangen") return "new";
-  if (
-    text === "prepare" ||
-    text === "preparing" ||
-    text === "zubereitung" ||
-    text === "in_vorbereitung" ||
-    text === "in vorbereitung"
-  ) {
-    return "preparing";
-  }
-
-  if (text === "ready" || text === "bereit" || text === "abholbereit") return "ready";
-  if (text === "on_the_way" || text === "unterwegs") return "out_for_delivery";
-  if (text === "delivered" || text === "completed" || text === "geliefert") return "done";
-  if (text === "canceled" || text === "cancelled" || text === "storniert") return "cancelled";
-
-  return "new";
-}
-
-function normalizeCategory(value: any): string {
-  const text = String(value || "").toLowerCase().trim();
-
-  if (text.includes("vegan") || text.includes("vegetar")) return "vegan";
-  if (text.includes("drink") || text.includes("getränk")) return "drinks";
-  if (text.includes("sauce") || text.includes("soß") || text.includes("sos")) return "sauces";
-  if (text.includes("hotdog") || text.includes("hot dog")) return "hotdogs";
-  if (text.includes("donut") || text.includes("doughnut")) return "donuts";
-  if (text.includes("bubble") || text.includes("boba") || text.includes("milk tea")) return "bubbletea";
-  if (text.includes("extra") || text.includes("snack") || text.includes("pommes")) return "extras";
-  if (text.includes("burger")) return "burger";
-
-  return text || "other";
-}
-
-/* =========================
- * Component
- * ========================= */
 export default function AdminStatsPage() {
-  const [orders, setOrders] = useState<OrderLog[]>([]);
-  const [visitors, setVisitors] = useState<VisitorPing[]>([]);
-  const [loaded, setLoaded] = useState(false);
-
-  const today = new Date();
-  const defaultFrom = useRef(toInputDatetime(startOfDay(new Date(today.getTime() - 6 * 86400000))));
-  const defaultTo = useRef(toInputDatetime(endOfDay(today)));
-
-  const [from, setFrom] = useState<string>(defaultFrom.current);
-  const [to, setTo] = useState<string>(defaultTo.current);
-  const [mode, setMode] = useState<"all" | Mode>("all");
-  const [status, setStatus] = useState<"all" | OrderStatus>("all");
-  const [cat, setCat] = useState<"all" | Category>("all");
-  const [q, setQ] = useState("");
-  const [pathFilter, setPathFilter] = useState<string>("all");
+  const [period, setPeriod] = useState<ReportPeriod>("day");
+  const [date, setDate] = useState(() => berlinDateKey());
+  const [refresh, setRefresh] = useState(0);
+  const [overview, setOverview] = useState<Overview | null>(null);
+  const [error, setError] = useState("");
+  const [paymentRows, setPaymentRows] = useState<PaymentReportRow[]>([]);
+  const [paymentMode, setPaymentMode] = useState("");
+  const [paymentLoading, setPaymentLoading] = useState(true);
+  const [paymentError, setPaymentError] = useState("");
+  const [generatedAt, setGeneratedAt] = useState("");
+  const [showAll, setShowAll] = useState(false);
+  const range = useMemo(() => { try { return reportRange(period, date); } catch { return null; } }, [period, date]);
 
   useEffect(() => {
-    let alive = true;
-
-    async function load() {
-      try {
-        const fromTs = from ? Date.parse(from) : Date.now() - 7 * 86400000;
-        const toTs = to ? Date.parse(to) : Date.now();
-
-        const u = new URL(API_ORDERS, window.location.origin);
-        u.searchParams.set("from", String(fromTs));
-        u.searchParams.set("to", String(toTs));
-        u.searchParams.set("includeDone", "1");
-        u.searchParams.set("includeArchived", "1");
-        u.searchParams.set("take", "1000");
-
-        const r = await fetch(u.toString(), { cache: "no-store" });
-        const j = await r.json().catch(() => ({} as any));
-
-        const items = Array.isArray(j?.items)
-          ? (j.items as any[])
-          : Array.isArray(j?.orders)
-            ? (j.orders as any[])
-            : Array.isArray(j?.allOrders)
-              ? (j.allOrders as any[])
-              : [];
-
-        const safe = normalizeOrders(items);
-        if (alive) setOrders(safe);
-      } catch {
-        if (alive) setOrders([]);
-      }
-
-      try {
-        const rV = await fetch(API_VISITORS, { cache: "no-store" });
-        const jV = await rV.json().catch(() => ({} as any));
-        const itemsV = Array.isArray(jV?.items) ? (jV.items as any[]) : [];
-        const safeV = normalizeVisitors(itemsV);
-        if (alive) setVisitors(safeV);
-      } catch {
-        if (alive) setVisitors([]);
-      }
-
-      if (alive) setLoaded(true);
-    }
-
-    load();
-
-    return () => {
-      alive = false;
+    const controller = new AbortController();
+    setOverview(null); setError(""); setPaymentRows([]); setPaymentMode(""); setGeneratedAt("");
+    setPaymentLoading(true); setPaymentError(""); setShowAll(false);
+    if (!range) { setError("Geçerli bir tarih seçin."); setPaymentLoading(false); return () => controller.abort(); }
+    const query = new URLSearchParams({ period, date });
+    const get = async (url: string) => {
+      const response = await fetch(url, { cache: "no-store", signal: controller.signal });
+      const data = await response.json();
+      if (!response.ok || !data.ok) throw new Error(data.error || "Rapor alınamadı.");
+      return data;
     };
-  }, [from, to]);
+    void get(`/api/admin/reports/overview?${query}`).then((data) => {
+      if (!controller.signal.aborted) setOverview(data);
+    }).catch((e) => { if (!controller.signal.aborted) setError(e.message); });
+    void (async () => {
+      let cursor = "", mode = "";
+      const rows = new Map<string, PaymentReportRow>();
+      do {
+        const pageQuery = new URLSearchParams(query);
+        if (cursor) pageQuery.set("cursor", cursor);
+        const data = await get(`/api/admin/reports/payments?${pageQuery}`);
+        if (controller.signal.aborted) return;
+        if (mode && data.mode !== mode) throw new Error("Stripe modu değişti. Raporu yenileyin.");
+        mode = data.mode; setPaymentMode(mode);
+        for (const row of data.rows) rows.set(row.id, row);
+        setPaymentRows(Array.from(rows.values())); setGeneratedAt(data.generatedAt);
+        const next = data.nextCursor || "";
+        if (next && next === cursor) throw new Error("Stripe sayfaları tamamlanamadı. Raporu yenileyin.");
+        cursor = next;
+      } while (cursor && !controller.signal.aborted);
+      if (!controller.signal.aborted) setPaymentLoading(false);
+    })().catch((e) => { if (!controller.signal.aborted) { setPaymentError(e.message); setPaymentLoading(false); } });
+    return () => controller.abort();
+  }, [period, date, refresh, range]);
 
-  const filtered = useMemo(() => {
-    const fromTs = from ? Date.parse(from) : -Infinity;
-    const toTs = to ? Date.parse(to) : Infinity;
-    const text = q.trim().toLowerCase();
-
-    return orders.filter((o) => {
-      if (!(o.ts >= fromTs && o.ts <= toTs)) return false;
-      if (mode !== "all" && o.mode !== mode) return false;
-      if (status !== "all" && o.status !== status) return false;
-
-      if (cat !== "all") {
-        if (!o.items?.some((it) => normalizeCategory(it.category) === cat)) return false;
-      }
-
-      if (text) {
-        const hit = o.items?.some((it) =>
-          (it.name || "").toString().toLowerCase().includes(text),
-        );
-        if (!hit) return false;
-      }
-
-      return true;
-    });
-  }, [orders, from, to, mode, status, cat, q]);
-
-  const salesOrders = useMemo(
-    () => filtered.filter((order) => order.status !== "cancelled"),
-    [filtered],
-  );
-
-  const cancelledOrders = useMemo(
-    () => filtered.filter((order) => order.status === "cancelled"),
-    [filtered],
-  );
-
-  const filteredVisitors = useMemo(() => {
-    const fromTs = from ? Date.parse(from) : -Infinity;
-    const toTs = to ? Date.parse(to) : Infinity;
-
-    return visitors.filter((v) => {
-      if (!(v.ts >= fromTs && v.ts <= toTs)) return false;
-      if (pathFilter !== "all" && (v.path || "—") !== pathFilter) return false;
-      return true;
-    });
-  }, [visitors, from, to, pathFilter]);
-
-  const kpi = useMemo(() => {
-    const count = salesOrders.length;
-    const revenue = sum(salesOrders.map((o) => o.total));
-    const merch = sum(salesOrders.map((o) => o.merchandise ?? 0));
-    const discount = sum(salesOrders.map((o) => o.discount ?? 0));
-    const surcharges = sum(salesOrders.map((o) => o.surcharges ?? 0));
-    const avg = count ? revenue / count : 0;
-    const itemCount = sum(
-      salesOrders.map((o) => sum(o.items?.map((it) => it.qty || 0) || [])),
-    );
-
-    const visits = filteredVisitors.length;
-    const uniqueSessions = new Set(
-      filteredVisitors.map((v) => v.sessionId || `${new Date(v.ts).toDateString()}-${v.path || ""}`),
-    ).size;
-
-    return {
-      count,
-      cancelled: cancelledOrders.length,
-      revenue,
-      merch,
-      discount,
-      surcharges,
-      avg,
-      itemCount,
-      visits,
-      uniqueSessions,
-    };
-  }, [salesOrders, cancelledOrders, filteredVisitors]);
-
-  const byProduct = useMemo(() => {
-    const map = new Map<
-      string,
-      { name: string; category: string; qty: number; revenue: number }
-    >();
-
-    for (const o of salesOrders) {
-      for (const it of o.items || []) {
-        const category = normalizeCategory(it.category);
-        const key = (it.sku || it.id || it.name || "") + "|" + category;
-
-        if (!map.has(key)) {
-          map.set(key, {
-            name: it.name || "Artikel",
-            category,
-            qty: 0,
-            revenue: 0,
-          });
-        }
-
-        const row = map.get(key)!;
-        row.qty += Number(it.qty || 0);
-
-        const addSum = (it.add || []).reduce((a, b) => a + (Number(b?.price) || 0), 0) || 0;
-        row.revenue += (Number(it.price) + addSum) * Number(it.qty || 0);
-      }
+  const order = overview?.orders.find((row) => row.date === "total");
+  const visits = useMemo(() => (overview?.visitors || []).reduce((s, d) => ({
+    views: s.views + d.views, sessions: s.sessions + d.sessions, web: s.web + d.webViews,
+    app: s.app + d.appViews, unknown: s.unknown + d.unknownViews, unidentified: s.unidentified + d.unidentifiedViews,
+  }), { views: 0, sessions: 0, web: 0, app: 0, unknown: 0, unidentified: 0 }), [overview]);
+  const payments = useMemo(() => summarizePaymentRows(paymentRows), [paymentRows]);
+  const complete = !paymentLoading && !paymentError;
+  const trend = useMemo(() => {
+    if (!range || !overview) return [];
+    const v = new Map(overview.visitors.map((d) => [d.date, d]));
+    const o = new Map(overview.orders.map((d) => [d.date, d]));
+    const groups = new Map<string, { date: string; views: number; sessions: number; orders: number; revenue: number }>();
+    const day = new Date(`${range.startDate}T00:00:00Z`);
+    while (day.toISOString().slice(0, 10) < range.endDate) {
+      const key = day.toISOString().slice(0, 10), group = period === "year" ? key.slice(0, 7) : key;
+      const row = groups.get(group) || { date: group, views: 0, sessions: 0, orders: 0, revenue: 0 };
+      row.views += v.get(key)?.views || 0; row.sessions += v.get(key)?.sessions || 0;
+      row.orders += o.get(key)?.orders || 0; row.revenue += o.get(key)?.revenue || 0;
+      groups.set(group, row); day.setUTCDate(day.getUTCDate() + 1);
     }
-
-    const arr = Array.from(map.values());
-    arr.sort((a, b) => b.qty - a.qty || b.revenue - a.revenue || a.name.localeCompare(b.name));
-    return arr;
-  }, [salesOrders]);
-
-  const byCategory = useMemo(() => {
-    const catMap = new Map<string, { qty: number; revenue: number }>();
-
-    for (const o of salesOrders) {
-      for (const it of o.items || []) {
-        const c = normalizeCategory(it.category);
-
-        if (!catMap.has(c)) catMap.set(c, { qty: 0, revenue: 0 });
-
-        const r = catMap.get(c)!;
-        r.qty += Number(it.qty || 0);
-
-        const addSum = (it.add || []).reduce((a, b) => a + (Number(b?.price) || 0), 0) || 0;
-        r.revenue += (Number(it.price) + addSum) * Number(it.qty || 0);
-      }
-    }
-
-    const arr = Array.from(catMap.entries()).map(([category, v]) => ({
-      category,
-      qty: v.qty,
-      revenue: v.revenue,
-    }));
-
-    arr.sort((a, b) => b.revenue - a.revenue || b.qty - a.qty);
-    return arr;
-  }, [salesOrders]);
-
-  const byHour = useMemo(() => {
-    const hours = Array.from({ length: 24 }, () => ({ count: 0, revenue: 0 }));
-
-    for (const o of salesOrders) {
-      const h = new Date(o.ts).getHours();
-      hours[h].count += 1;
-      hours[h].revenue += o.total;
-    }
-
-    return hours;
-  }, [salesOrders]);
-
-  const byPLZ = useMemo(() => {
-    const map = new Map<string, { count: number; revenue: number }>();
-
-    for (const o of salesOrders) {
-      const key = (o.plz || "—").toString();
-
-      if (!map.has(key)) map.set(key, { count: 0, revenue: 0 });
-
-      const r = map.get(key)!;
-      r.count += 1;
-      r.revenue += o.total;
-    }
-
-    const arr = Array.from(map.entries()).map(([plz, v]) => ({
-      plz,
-      count: v.count,
-      revenue: v.revenue,
-    }));
-
-    arr.sort((a, b) => b.revenue - a.revenue || b.count - a.count || a.plz.localeCompare(b.plz));
-    return arr;
-  }, [salesOrders]);
-
-  const byMode = useMemo(() => {
-    const delivery = salesOrders.filter((order) => order.mode === "delivery");
-    const pickup = salesOrders.filter((order) => order.mode === "pickup");
-
-    return [
-      {
-        mode: "Lieferung",
-        count: delivery.length,
-        revenue: sum(delivery.map((o) => o.total)),
-      },
-      {
-        mode: "Abholung",
-        count: pickup.length,
-        revenue: sum(pickup.map((o) => o.total)),
-      },
-    ];
-  }, [salesOrders]);
-
-  const visitorsByHour = useMemo(() => {
-    const hours = Array.from({ length: 24 }, () => 0);
-
-    for (const v of filteredVisitors) {
-      const h = new Date(v.ts).getHours();
-      hours[h] += 1;
-    }
-
-    return hours;
-  }, [filteredVisitors]);
-
-  const allPaths = useMemo(() => {
-    const set = new Set<string>();
-    visitors.forEach((v) => set.add(v.path || "—"));
-    return ["all", ...Array.from(set)];
-  }, [visitors]);
-
-  const visitorsByPath = useMemo(() => {
-    const map = new Map<string, number>();
-
-    for (const v of filteredVisitors) {
-      const k = v.path || "—";
-      map.set(k, (map.get(k) || 0) + 1);
-    }
-
-    return Array.from(map.entries())
-      .map(([path, count]) => ({ path, count }))
-      .sort((a, b) => b.count - a.count || a.path.localeCompare(b.path));
-  }, [filteredVisitors]);
-
-  const exportOrdersJSON = () => {
-    try {
-      const blob = new Blob([JSON.stringify(filtered, null, 2)], {
-        type: "application/json",
-      });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "orders-filtered.json";
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch {}
+    return Array.from(groups.values());
+  }, [overview, range, period]);
+  const paths = useMemo(() => {
+    const sums = new Map<string, number>();
+    for (const day of overview?.visitors || []) for (const p of day.paths) sums.set(p.path, (sums.get(p.path) || 0) + p.views);
+    return Array.from(sums).sort((a, b) => b[1] - a[1]);
+  }, [overview]);
+  const move = (direction: number) => {
+    if (!range) return;
+    const next = new Date(`${range.startDate}T00:00:00Z`);
+    if (period === "year") next.setUTCFullYear(next.getUTCFullYear() + direction);
+    else if (period === "month") next.setUTCMonth(next.getUTCMonth() + direction);
+    else next.setUTCDate(next.getUTCDate() + direction * (period === "week" ? 7 : 1));
+    setDate(next.toISOString().slice(0, 10));
   };
+  const count = (n?: number) => overview ? num(n || 0) : "—";
+  const money = (n: number) => complete ? eur(n / 100) : "—";
 
-  const exportOrdersCSV = () => {
-    try {
-      const header =
-        "order_id;datetime;status;mode;plz;item;category;qty;unit_price;line_total;order_total\n";
+  return <main className="mx-auto max-w-7xl space-y-6 p-4 sm:p-6">
+    <div className="flex flex-wrap items-center justify-between gap-4">
+      <div><p className="text-xs uppercase tracking-widest text-amber-400">Burger Brothers Berlin</p><h1 className="mt-1 text-3xl font-bold">Raporlar</h1><p className="mt-2 text-sm text-stone-400">Ziyaretçiler, siparişler ve ödeme kesintileri</p></div>
+      <Link href="/admin/stats/details" className="btn-ghost">Ürün / sipariş detayları →</Link>
+    </div>
+    <section className="card flex flex-wrap items-end gap-3" aria-label="Rapor dönemi">
+      <div><span className="mb-2 block text-sm text-stone-400">Dönem</span><div className="flex flex-wrap gap-2">
+        {([["day", "Gün"], ["week", "Hafta"], ["month", "Ay"], ["year", "Yıl"]] as const).map(([key, label]) => <button key={key} aria-pressed={period === key} onClick={() => setPeriod(key)} className={`rounded-lg px-4 py-2 font-semibold ${period === key ? "bg-amber-400 text-black" : "bg-stone-800 text-stone-200"}`}>{label}</button>)}
+      </div></div>
+      <label className="text-sm text-stone-400">Tarih<input aria-label="Rapor tarihi" type="date" value={date} onChange={(e) => setDate(e.target.value)} className="mt-2 block rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-white" /></label>
+      <button onClick={() => move(-1)} className="btn-ghost" aria-label="Önceki dönem">←</button><button onClick={() => move(1)} className="btn-ghost" aria-label="Sonraki dönem">→</button>
+      <button onClick={() => setDate(berlinDateKey())} className="btn-ghost">Bugün</button><button onClick={() => setRefresh((n) => n + 1)} className="btn-ghost">Yenile</button>
+      <p className="w-full text-xs text-stone-400">{range ? `${range.startDate} – ${new Date(Date.parse(`${range.endDate}T00:00:00Z`) - 86400000).toISOString().slice(0, 10)}` : "Tarih seçin"} · Berlin saati · Hafta pazartesi başlar</p>
+    </section>
 
-      const lines: string[] = [];
-
-      for (const o of filtered) {
-        const dt = new Date(o.ts).toISOString();
-
-        if (!o.items?.length) {
-          lines.push(
-            [
-              o.id,
-              dt,
-              o.status,
-              o.mode,
-              o.plz || "",
-              "",
-              "",
-              "0",
-              "0",
-              "0",
-              String(o.total).replace(".", ","),
-            ]
-              .map(csvEscape)
-              .join(";"),
-          );
-          continue;
-        }
-
-        for (const it of o.items) {
-          const addSum = (it.add || []).reduce((a, b) => a + (Number(b?.price) || 0), 0) || 0;
-          const unit = Number(it.price) + addSum;
-          const lt = unit * Number(it.qty || 0);
-
-          lines.push(
-            [
-              o.id,
-              dt,
-              o.status,
-              o.mode,
-              o.plz || "",
-              it.name || "",
-              normalizeCategory(it.category),
-              String(it.qty || 0).replace(".", ","),
-              unit.toFixed(2).replace(".", ","),
-              lt.toFixed(2).replace(".", ","),
-              o.total.toFixed(2).replace(".", ","),
-            ]
-              .map(csvEscape)
-              .join(";"),
-          );
-        }
-      }
-
-      const blob = new Blob([header + lines.join("\n")], {
-        type: "text/csv;charset=utf-8",
-      });
-
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "orders-filtered.csv";
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch {}
-  };
-
-  const exportVisitorsJSON = () => {
-    try {
-      const blob = new Blob([JSON.stringify(filteredVisitors, null, 2)], {
-        type: "application/json",
-      });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "visitors-filtered.json";
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch {}
-  };
-
-  const onImportOrders = async (ev: ChangeEvent<HTMLInputElement>) => {
-    const f = ev.target.files?.[0];
-    if (!f) return;
-
-    try {
-      const txt = await f.text();
-      const arr = JSON.parse(txt) as any[];
-      const safe = normalizeOrders(arr);
-
-      setOrders(safe);
-      ev.target.value = "";
-      alert(`Import OK ✅\nDatensätze: ${safe.length}`);
-    } catch (e: any) {
-      ev.target.value = "";
-      alert("Import-Fehler. Ungültige JSON.\n" + (e?.message || ""));
-    }
-  };
-
-  const onImportVisitors = async (ev: ChangeEvent<HTMLInputElement>) => {
-    const f = ev.target.files?.[0];
-    if (!f) return;
-
-    try {
-      const txt = await f.text();
-      const arr = JSON.parse(txt) as any[];
-      const safe = normalizeVisitors(arr);
-
-      setVisitors(safe);
-      ev.target.value = "";
-      alert(`Import OK ✅\nBesucher-Pings: ${safe.length}`);
-    } catch (e: any) {
-      ev.target.value = "";
-      alert("Import-Fehler. Ungültige JSON.\n" + (e?.message || ""));
-    }
-  };
-
-  const resetFilters = () => {
-    setFrom(defaultFrom.current);
-    setTo(defaultTo.current);
-    setMode("all");
-    setStatus("all");
-    setCat("all");
-    setQ("");
-    setPathFilter("all");
-  };
-
-  const setRangeToday = () => {
-    const d = new Date();
-    setFrom(toInputDatetime(startOfDay(d)));
-    setTo(toInputDatetime(endOfDay(d)));
-  };
-
-  const setRange7Days = () => {
-    const d = new Date();
-    setFrom(toInputDatetime(startOfDay(new Date(d.getTime() - 6 * 86400000))));
-    setTo(toInputDatetime(endOfDay(d)));
-  };
-
-  const setRangeThisMonth = () => {
-    const d = new Date();
-    setFrom(toInputDatetime(startOfMonth(d)));
-    setTo(toInputDatetime(endOfDay(d)));
-  };
-
-  const setRangeThisYear = () => {
-    const d = new Date();
-    setFrom(toInputDatetime(startOfYear(d)));
-    setTo(toInputDatetime(endOfDay(d)));
-  };
-
-  const setRangeLastYear = () => {
-    const d = new Date();
-    const lastYear = new Date(d.getFullYear() - 1, 0, 1);
-    setFrom(toInputDatetime(startOfYear(lastYear)));
-    setTo(toInputDatetime(endOfYear(lastYear)));
-  };
-
-  return (
-    <main className="mx-auto max-w-7xl p-6">
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-baseline gap-3">
-          <h1 className="text-2xl font-semibold">Statistiken</h1>
-          <Link href="/admin" className="text-sm text-stone-300 hover:text-stone-100">
-            ← Admin
-          </Link>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <button className="btn-ghost" onClick={exportOrdersJSON}>
-            Bestellungen: JSON
-          </button>
-          <button className="btn-ghost" onClick={exportOrdersCSV}>
-            Bestellungen: CSV
-          </button>
-          <label className="btn-ghost cursor-pointer">
-            Bestellungen importieren
-            <input type="file" accept="application/json,.json" hidden onChange={onImportOrders} />
-          </label>
-
-          <button className="btn-ghost" onClick={exportVisitorsJSON}>
-            Besucher: JSON
-          </button>
-          <label className="btn-ghost cursor-pointer">
-            Besucher importieren
-            <input type="file" accept="application/json,.json" hidden onChange={onImportVisitors} />
-          </label>
-        </div>
+    <section className="space-y-4" aria-labelledby="visits-heading">
+      <div className="flex flex-wrap items-center justify-between gap-3"><h2 id="visits-heading" className="text-xl font-semibold">Ziyaretçi ve sipariş raporu</h2><button className="btn-ghost disabled:opacity-40" disabled={!overview} onClick={() => csv(`ziyaret-siparis-${period}-${date}.csv`, [["Dönem", "Görüntüleme", "Günlük tekil toplam", "Sipariş", "Ciro EUR"], ...trend.map((r) => [r.date, r.views, r.sessions, r.orders, r.revenue.toFixed(2)])])}>CSV indir</button></div>
+      {error && <Notice error>{error}</Notice>}{!overview && !error && <p role="status" className="text-sm text-stone-400">Ziyaret ve sipariş kayıtları yükleniyor…</p>}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <KPI title="Sayfa görüntüleme" value={count(visits.views)} /><KPI title={period === "day" ? "Tekil ziyaretçi oturumları" : "Günlük tekil ziyaret toplamı"} value={count(visits.sessions)} />
+        <KPI title="Sipariş sayısı" value={count(order?.orders)} /><KPI title="Sipariş veren müşteri" value={count(order?.customers)} />
+        <KPI title="Sipariş cirosu" value={overview ? eur(order?.revenue || 0) : "—"} /><KPI title="Ortalama sipariş" value={overview ? eur(order?.orders ? order.revenue / order.orders : 0) : "—"} />
+        <KPI title="Teslimat / gel-al" value={overview ? `${count(order?.delivery)} / ${count(order?.pickup)}` : "—"} /><KPI title="İptal edilen sipariş" value={count(order?.cancelled)} />
       </div>
-
-      <div className="card mb-6">
-        <div className="mb-4 flex flex-wrap gap-2">
-          <button className="btn-ghost" onClick={setRangeToday}>
-            Heute
-          </button>
-          <button className="btn-ghost" onClick={setRange7Days}>
-            7 Tage
-          </button>
-          <button className="btn-ghost" onClick={setRangeThisMonth}>
-            Dieser Monat
-          </button>
-          <button className="btn-ghost" onClick={setRangeThisYear}>
-            Dieses Jahr
-          </button>
-          <button className="btn-ghost" onClick={setRangeLastYear}>
-            Letztes Jahr
-          </button>
-        </div>
-
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-          <Field label="Start">
-            <input
-              type="datetime-local"
-              value={from}
-              onChange={(e) => setFrom(e.target.value)}
-              className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2 outline-none"
-            />
-          </Field>
-
-          <Field label="Ende">
-            <input
-              type="datetime-local"
-              value={to}
-              onChange={(e) => setTo(e.target.value)}
-              className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2 outline-none"
-            />
-          </Field>
-
-          <Field label="Modus">
-            <select
-              value={mode}
-              onChange={(e) => setMode(e.target.value as any)}
-              className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2 outline-none"
-            >
-              <option value="all">Alle</option>
-              <option value="delivery">Liefern</option>
-              <option value="pickup">Abholen</option>
-            </select>
-          </Field>
-
-          <Field label="Status">
-            <select
-              value={status}
-              onChange={(e) => setStatus(e.target.value as any)}
-              className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2 outline-none"
-            >
-              <option value="all">Alle</option>
-              <option value="new">Neu</option>
-              <option value="preparing">In Vorbereitung</option>
-              <option value="ready">Bereit</option>
-              <option value="out_for_delivery">Unterwegs</option>
-              <option value="done">Abgeschlossen</option>
-              <option value="cancelled">Storniert</option>
-            </select>
-          </Field>
-
-          <Field label="Kategorie">
-            <select
-              value={cat}
-              onChange={(e) => setCat(e.target.value as any)}
-              className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2 outline-none"
-            >
-              <option value="all">Alle</option>
-              <option value="burger">Burger</option>
-              <option value="vegan">Vegan / Vegetarisch</option>
-              <option value="extras">Extras</option>
-              <option value="sauces">Soßen</option>
-              <option value="drinks">Getränke</option>
-              <option value="hotdogs">Hot Dogs</option>
-              <option value="donuts">Donuts</option>
-              <option value="bubbletea">Bubble Tea</option>
-            </select>
-          </Field>
-
-          <Field label="Produktsuche">
-            <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="z. B. Big Daddy"
-              className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2 outline-none"
-            />
-          </Field>
-
-          <Field label="Seite (Besucher)">
-            <select
-              value={pathFilter}
-              onChange={(e) => setPathFilter(e.target.value)}
-              className="w-full rounded-md border border-stone-700/60 bg-stone-950 px-3 py-2 outline-none"
-            >
-              {allPaths.map((p) => (
-                <option key={p} value={p}>
-                  {p === "all" ? "Alle Seiten" : p}
-                </option>
-              ))}
-            </select>
-          </Field>
-
-          <div className="flex items-end">
-            <button className="btn-ghost w-full" onClick={resetFilters}>
-              Filter zurücksetzen
-            </button>
-          </div>
-        </div>
+      <Notice>Ziyaretler yalnızca analiz izni veren müşterilerden ölçülür. Yönetim, mutfak, sürücü ve vitrin ekranları sayılmaz. Günlük tekil değer bir tarayıcı/uygulama oturumudur; hafta ve yılda günlük değerler toplanır, aynı kişi farklı günlerde tekrar sayılabilir. Sipariş sayısı tüm müşteri kanallarını içerir; bekleyen/başarısız ödemeler ve iptaller satışa dahil değildir.</Notice>
+      {!!order?.unidentified && <Notice>{num(order.unidentified)} siparişte müşteri kimliği yok veya anonimleştirilmiş. Bu siparişler ciroya dahildir; tekil müşteri sayısı eksik olabilir.</Notice>}
+      {!!visits.unidentified && <Notice>{num(visits.unidentified)} görüntülemede oturum kimliği yok. Tekil ziyaret sayısı bu görüntülemeleri kapsamaz.</Notice>}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <div className="card"><h3 className="mb-3 font-semibold">Web / uygulama görüntülemeleri</h3><Table headers={["Kaynak", "Görüntüleme"]} rows={overview ? [["Web tarayıcısı", num(visits.web)], ["Yüklü uygulama / ana ekran", num(visits.app)], ["Eski / bilinmeyen kaynak", num(visits.unknown)]] : []} /><p className="mt-3 text-xs text-stone-400">Uygulama ayrımı bu güncellemeyle başlar. Eski kayıtlara kaynak atanmamıştır.</p></div>
+        <div className="card"><h3 className="mb-3 font-semibold">En çok ziyaret edilen sayfalar</h3><Table headers={["Sayfa", "Görüntüleme"]} rows={paths.slice(0, 10).map(([p, views]) => [p, num(views)])} /></div>
       </div>
+      <div className="card"><h3 className="mb-3 font-semibold">{period === "year" ? "Aylık" : "Günlük"} gelişim</h3><Table headers={["Dönem", "Görüntüleme", "Günlük tekil toplam", "Sipariş", "Ciro"]} rows={trend.map((r) => [r.date, num(r.views), num(r.sessions), num(r.orders), eur(r.revenue)])} /><p className="mt-3 text-xs text-stone-400">Günlük toplamlar ham ziyaret kayıtları temizlenmeden önce saklanır. Daha önce silinmiş ziyaretler yeniden oluşturulamaz. Ciro, Stripe kesintisi ve iadeler düşülmeden önceki iptal edilmemiş sipariş tutarıdır.</p></div>
+    </section>
 
-      {!loaded && <div className="mb-4 text-sm text-stone-400">Daten werden geladen...</div>}
-
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-3 lg:grid-cols-6">
-        <KPI title="Bestellungen" value={String(kpi.count)} />
-        <KPI title="Storniert" value={String(kpi.cancelled)} />
-        <KPI title="Umsatz" value={fmtEur(kpi.revenue)} />
-        <KPI title="Warenwert" value={fmtEur(kpi.merch)} />
-        <KPI title="Rabatt" value={fmtEur(kpi.discount)} />
-        <KPI title="Aufschläge" value={fmtEur(kpi.surcharges)} />
+    <section className="space-y-4" aria-labelledby="payments-heading">
+      <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex flex-wrap items-center gap-3"><h2 id="payments-heading" className="text-xl font-semibold">Stripe ödeme ve kesinti raporu</h2>{paymentMode && <span className={`rounded-full px-3 py-1 text-xs font-bold ${paymentMode === "test" ? "bg-amber-400/20 text-amber-300" : "bg-green-400/20 text-green-300"}`}>{paymentMode === "test" ? "TEST ORTAMI" : "CANLI ÖDEMELER"}</span>}</div>
+        <button disabled={!complete} className="btn-ghost disabled:opacity-40" onClick={() => csv(`stripe-${paymentMode}-${period}-${date}.csv`, [["Stripe modu", "İşlem", "Tarih Berlin", "Tür", "Yöntem", "Brüt EUR", "Kesinti EUR", "Net EUR", "Durum"], ...paymentRows.map((r) => [paymentMode, r.id, time(r.created * 1000), r.type, r.method, (r.amount / 100).toFixed(2), (r.fee / 100).toFixed(2), (r.net / 100).toFixed(2), r.status])])}>CSV indir</button></div>
+      {paymentMode === "test" && <Notice>Test ortamındaki tutarlar ve ücretler örnek kayıtlardır. Gerçek para kesintisi veya canlı hesabın tarifesi değildir.</Notice>}
+      {paymentLoading && <p role="status" className="text-sm text-stone-400">Stripe kayıtları yükleniyor… {paymentRows.length ? `${num(paymentRows.length)} hareket alındı; toplamlar tamamlanınca gösterilecek.` : ""}</p>}
+      {paymentError && <Notice error>{paymentError} Toplamlar doğrulanamadığı için gösterilmedi.</Notice>}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <KPI title="Tahsil edilen brüt" value={money(payments.gross)} /><KPI title="Stripe kesintileri" value={money(payments.fees)} /><KPI title="İadeler" value={money(payments.refunds)} /><KPI title="Stripe net bakiye hareketi" value={money(payments.net)} />
+        <KPI title="Ödeme hareketi sayısı" value={complete ? num(payments.payments) : "—"} /><KPI title="Efektif kesinti oranı" value={complete && payments.gross > 0 ? `%${(payments.fees / payments.gross * 100).toFixed(2)}` : "—"} /><KPI title="Diğer bakiye hareketleri" value={money(payments.other)} /><KPI title="Banka aktarımı (net)" value={money(payments.payouts)} />
       </div>
-
-      <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3 lg:grid-cols-6">
-        <KPI title="Ø Warenkorb" value={fmtEur(kpi.avg)} />
-        <KPI title="Artikel gesamt" value={String(kpi.itemCount)} />
-        <KPI title="Besucher (Pings)" value={String(kpi.visits)} />
-        <KPI title="Eindeutige Sessions*" value={String(kpi.uniqueSessions)} />
+      <Notice>Stripe hesabının seçilen dönemdeki EUR bakiye hareketleri gösterilir; Dashboard üzerinden yapılan testler de dahil olabilir. Kesintiler Stripe kayıtlarından gelir. Ek hizmet ücretleri ve döviz ücretleri kesinti toplamına dahildir. Net bakiye = brüt − iadeler − kesintiler + diğer hareketler. Banka aktarımı ayrı gösterilir. Kayıt tarihi esas alınır; daha sonra yapılan iade kendi döneminde görünür. Bekleyen bakiye henüz bankaya aktarılmış değildir.</Notice>
+      <div className="card"><h3 className="mb-3 font-semibold">İşlem ayrıntıları</h3><Table headers={["Tarih / saat", "İşlem", "Tür / yöntem", "Brüt", "Kesinti", "Net", "Bakiye durumu"]} rows={(showAll ? paymentRows : paymentRows.slice(0, 25)).map((r) => [time(r.created * 1000), r.id, `${typeLabels[r.type] || r.type} / ${r.method}`, eur(r.amount / 100), eur(r.fee / 100), eur(r.net / 100), r.status === "available" ? "Kullanılabilir" : "Bekliyor"])} />
+        {paymentRows.length > 25 && <button className="btn-ghost mt-3" onClick={() => setShowAll((v) => !v)}>{showAll ? "İlk 25 hareket" : `Tüm ${num(paymentRows.length)} hareketi göster`}</button>}
+        {generatedAt && <p className="mt-3 text-xs text-stone-400">Son okuma: {time(Date.parse(generatedAt))}</p>}{complete && !paymentRows.length && <p className="mt-3 text-sm text-stone-400">Bu dönemde EUR bakiye hareketi yok.</p>}
       </div>
-
-      <div className="mt-1 text-xs text-stone-400">
-        *Wenn ein <code>sessionId</code> mitgeloggt wird; sonst Schätzung. Stornierte Bestellungen werden bei Umsatz/KPI nicht mitgerechnet.
-      </div>
-
-      <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <div className="card">
-          <div className="mb-3 text-lg font-medium">Top-Produkte</div>
-          <Table
-            headers={["Produkt", "Kategorie", "Menge", "Umsatz"]}
-            rows={byProduct.slice(0, 20).map((r) => [
-              r.name,
-              r.category || "—",
-              String(r.qty),
-              fmtEur(r.revenue),
-            ])}
-            empty="Keine Daten."
-          />
-        </div>
-
-        <div className="card">
-          <div className="mb-3 text-lg font-medium">Kategorie-Breakdown</div>
-          <Table
-            headers={["Kategorie", "Menge", "Umsatz"]}
-            rows={byCategory.map((r) => [r.category, String(r.qty), fmtEur(r.revenue)])}
-            empty="Keine Daten."
-          />
-        </div>
-
-        <div className="card">
-          <div className="mb-3 text-lg font-medium">Bestellungen nach Stunde (0–23)</div>
-          <div className="overflow-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="[&>th]:px-3 [&>th]:py-2 text-left">
-                  {Array.from({ length: 24 }, (_, i) => (
-                    <th key={i}>{i}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                <tr className="[&>td]:px-3 [&>td]:py-2">
-                  {byHour.map((h, i) => (
-                    <td key={i} title={`Anzahl: ${h.count} • Umsatz: ${fmtEur(h.revenue)}`}>
-                      {h.count}
-                    </td>
-                  ))}
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <div className="mt-2 text-xs text-stone-400">
-            Zelle zeigt Anzahl; Tooltip zeigt Umsatz.
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="mb-3 text-lg font-medium">Modus-Breakdown</div>
-          <Table
-            headers={["Modus", "Bestellungen", "Umsatz"]}
-            rows={byMode.map((r) => [r.mode, String(r.count), fmtEur(r.revenue)])}
-            empty="Keine Daten."
-          />
-        </div>
-
-        <div className="card">
-          <div className="mb-3 text-lg font-medium">PLZ-Verteilung</div>
-          <Table
-            headers={["PLZ", "Bestellungen", "Umsatz"]}
-            rows={byPLZ.map((r) => [r.plz, String(r.count), fmtEur(r.revenue)])}
-            empty="Keine Daten."
-          />
-        </div>
-
-        <div className="card">
-          <div className="mb-3 text-lg font-medium">Besucher nach Stunde (0–23)</div>
-          <div className="overflow-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="[&>th]:px-3 [&>th]:py-2 text-left">
-                  {Array.from({ length: 24 }, (_, i) => (
-                    <th key={i}>{i}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                <tr className="[&>td]:px-3 [&>td]:py-2">
-                  {visitorsByHour.map((n, i) => (
-                    <td key={i} title={`Pings: ${n}`}>
-                      {n}
-                    </td>
-                  ))}
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <div className="mt-2 text-xs text-stone-400">
-            Ein „Ping“ = ein geloggter Seitenaufruf im gewählten Zeitraum/Path-Filter.
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="mb-3 text-lg font-medium">Besucher nach Seite</div>
-          <Table
-            headers={["Seite", "Pings"]}
-            rows={visitorsByPath.map((r) => [r.path, String(r.count)])}
-            empty="Keine Daten."
-          />
-        </div>
-      </div>
-
-      <div className="mt-6 rounded-xl border border-stone-700/60 bg-stone-900/60 p-4 text-sm text-stone-300">
-        <div className="mb-1 font-medium">Info</div>
-        <div className="text-xs text-stone-400">
-          Diese Ansicht liest Bestellungen aus der DB inklusive archivierter Daten. Für sehr große Jahresberichte bauen wir als nächsten Schritt eine Summary-API, damit nicht jedes Mal alle Einzelbestellungen geladen werden müssen.
-        </div>
-      </div>
-    </main>
-  );
+    </section>
+  </main>;
 }
-
-/* =========================
- * Helpers (UI & data)
- * ========================= */
-function Field({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <label className="block text-sm">
-      <span className="mb-1 block text-stone-300/80">{label}</span>
-      {children}
-    </label>
-  );
-}
-
 function KPI({ title, value }: { title: string; value: string }) {
-  return (
-    <div className="rounded-xl border border-stone-700/60 bg-stone-900/60 p-4">
-      <div className="text-xs uppercase tracking-wide text-stone-400">{title}</div>
-      <div className="mt-1 text-xl font-semibold">{value}</div>
-    </div>
-  );
+  return <div className="rounded-xl border border-stone-700/60 bg-stone-900/60 p-4"><div className="text-xs text-stone-400">{title}</div><div className="mt-2 text-xl font-semibold sm:text-2xl">{value}</div></div>;
 }
-
-function Table({
-  headers,
-  rows,
-  empty,
-}: {
-  headers: string[];
-  rows: (string | number)[][];
-  empty: string;
-}) {
-  return rows.length === 0 ? (
-    <div className="text-sm opacity-70">{empty}</div>
-  ) : (
-    <div className="overflow-auto">
-      <table className="w-full text-sm">
-        <thead className="sticky top-0 bg-stone-900/80 backdrop-blur">
-          <tr className="[&>th]:px-3 [&>th]:py-2 text-left">
-            {headers.map((h) => (
-              <th key={h}>{h}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r, i) => (
-            <tr key={i} className="border-t border-stone-800/60">
-              {r.map((c, j) => (
-                <td key={j} className="px-3 py-2">
-                  {c as any}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
+function Notice({ children, error = false }: { children: ReactNode; error?: boolean }) {
+  return <p role={error ? "alert" : undefined} className={`rounded-xl border p-3 text-xs leading-relaxed ${error ? "border-red-500/50 bg-red-500/10 text-red-200" : "border-stone-700 bg-stone-900/50 text-stone-400"}`}>{children}</p>;
 }
-
-function normalizeOrders(arr: any[]): OrderLog[] {
-  if (!Array.isArray(arr)) return [];
-
-  const safe: OrderLog[] = [];
-
-  for (const raw of arr) {
-    try {
-      const order = raw?.order && typeof raw.order === "object" ? raw.order : {};
-      const customer = raw?.customer && typeof raw.customer === "object" ? raw.customer : order?.customer || {};
-      const meta = raw?.meta && typeof raw.meta === "object" ? raw.meta : order?.meta || {};
-
-      const id = raw?.id ? String(raw.id) : raw?.orderId ? String(raw.orderId) : rid();
-
-      const ts =
-        Number(raw?.ts) ||
-        Number(order?.ts) ||
-        Date.parse(raw?.createdAt || order?.createdAt || "") ||
-        Date.now();
-
-      const mode: Mode = raw?.mode === "pickup" || order?.mode === "pickup" ? "pickup" : "delivery";
-
-      const status = normalizeStatus(raw?.status ?? order?.status ?? meta?.statusManual ?? meta?.lastStatus);
-
-      const plzRaw =
-        raw?.plz ??
-        order?.plz ??
-        customer?.plz ??
-        customer?.zip ??
-        customer?.postalCode ??
-        null;
-
-      const plz = plzRaw ? String(plzRaw) : null;
-
-      const itemsRaw: any[] = Array.isArray(raw?.items)
-        ? raw.items
-        : Array.isArray(order?.items)
-          ? order.items
-          : [];
-
-      const items: OrderItem[] = itemsRaw.map((it: any) => ({
-        id: it?.id ? String(it.id) : undefined,
-        sku: it?.sku ? String(it.sku) : undefined,
-        name: String(it?.name ?? "Artikel"),
-        category: normalizeCategory(it?.category),
-        price: Number(it?.price ?? it?.unitPrice) || 0,
-        qty: Number(it?.qty ?? it?.quantity) || 0,
-        add: Array.isArray(it?.add)
-          ? it.add.map((a: any) => ({
-              label: a?.label ? String(a.label) : a?.name ? String(a.name) : undefined,
-              name: a?.name ? String(a.name) : undefined,
-              price: Number(a?.price) || 0,
-            }))
-          : undefined,
-      }));
-
-      const merchandise = Number(raw?.merchandise ?? order?.merchandise);
-      const discount = Number(raw?.discount ?? order?.discount);
-      const surcharges = Number(raw?.surcharges ?? order?.surcharges);
-
-      const fallbackTotal = sum(
-        items.map((i) => {
-          const addSum = (i.add || []).reduce((a, b) => a + (Number(b?.price) || 0), 0);
-          return (Number(i.price) + addSum) * Number(i.qty || 0);
-        }),
-      );
-
-      const total = Number(raw?.total ?? order?.total) || fallbackTotal;
-
-      safe.push({
-        id,
-        ts,
-        mode,
-        status,
-        plz,
-        items,
-        merchandise: Number.isFinite(merchandise) ? merchandise : undefined,
-        discount: Number.isFinite(discount) ? discount : undefined,
-        surcharges: Number.isFinite(surcharges) ? surcharges : undefined,
-        total,
-        archivedAt: raw?.archivedAt ?? meta?.archivedAt ?? null,
-        anonymizedAt: raw?.anonymizedAt ?? meta?.anonymizedAt ?? null,
-      });
-    } catch {
-      // skip broken row
-    }
-  }
-
-  safe.sort((a, b) => a.ts - b.ts);
-  return safe;
-}
-
-function normalizeVisitors(arr: any[]): VisitorPing[] {
-  if (!Array.isArray(arr)) return [];
-
-  const safe: VisitorPing[] = [];
-
-  for (const raw of arr) {
-    try {
-      const ts = Number(raw?.ts) || Date.parse(raw?.createdAt || "") || Date.now();
-      const path = raw?.path ? String(raw.path) : undefined;
-      const sessionId = raw?.sessionId ? String(raw.sessionId) : undefined;
-      safe.push({ ts, path, sessionId });
-    } catch {
-      // skip
-    }
-  }
-
-  safe.sort((a, b) => a.ts - b.ts);
-  return safe;
+function Table({ headers, rows }: { headers: string[]; rows: Array<Array<string | number>> }) {
+  return <div className="max-h-[32rem] overflow-auto"><table className="w-full text-left text-sm"><thead className="sticky top-0 bg-stone-900"><tr>{headers.map((label) => <th key={label} scope="col" className="whitespace-nowrap px-3 py-2 font-medium text-stone-400">{label}</th>)}</tr></thead><tbody>{rows.map((row, i) => <tr key={i} className="border-t border-stone-800">{row.map((cell, j) => <td key={j} className="whitespace-nowrap px-3 py-3">{cell}</td>)}</tr>)}</tbody></table></div>;
 }

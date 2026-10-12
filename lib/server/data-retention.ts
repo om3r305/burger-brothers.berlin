@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/db";
 import { Prisma } from "@prisma/client";
+import { berlinDateKey, berlinMidnight } from "@/lib/reporting";
+import { archiveVisitorDays } from "@/lib/server/analytics-report";
 
 type JsonObject = Record<string, any>;
 
@@ -94,9 +96,9 @@ export async function enforcePersonalDataRetention(params?: {
   const customerCutoff = new Date(
     Date.now() - customerRetentionDays * 24 * 60 * 60 * 1000,
   );
-  const analyticsCutoff = new Date(
+  const analyticsCutoff = berlinMidnight(berlinDateKey(
     Date.now() - analyticsRetentionDays * 24 * 60 * 60 * 1000,
-  );
+  ));
 
   const orderWhere: any = {
     status: { in: ["done", "cancelled"] },
@@ -183,12 +185,7 @@ export async function enforcePersonalDataRetention(params?: {
     ]);
   }
 
-  const analyticsCleanup = await prisma.analyticsEvent.deleteMany({
-    where: {
-      ...(params?.tenantId ? { tenantId: params.tenantId } : {}),
-      createdAt: { lt: analyticsCutoff },
-    },
-  });
+  const analyticsCleanup = await archiveVisitorDays(params?.tenantId, analyticsCutoff);
 
   return {
     orderRetentionDays,

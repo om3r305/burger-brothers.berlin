@@ -278,14 +278,36 @@ export async function GET(req: Request) {
 
   try {
     const url = new URL(req.url);
-    const visitors = await readVisitors();
+    const from = url.searchParams.get("from");
+    const to = url.searchParams.get("to");
+    const fromTs = from ? toTimestamp(from, NaN) : null;
+    const toTs = to ? toTimestamp(to, NaN) : null;
+    if ((fromTs !== null && !Number.isFinite(fromTs)) || (toTs !== null && !Number.isFinite(toTs))) {
+      return jsonResponse({ ok: false, error: "INVALID_VISITOR_RANGE" }, 400);
+    }
+    const where = {
+      tenantId: await getTenantId(),
+      event: { in: ["page_view", "screen_view", "view", "visit"] },
+      ...(fromTs !== null || toTs !== null ? { createdAt: {
+        ...(fromTs !== null ? { gte: new Date(fromTs) } : {}),
+        ...(toTs !== null ? { lte: new Date(toTs) } : {}),
+      } } : {}),
+    };
+    const [rows, total] = await Promise.all([
+      prisma.analyticsEvent.findMany({ where, orderBy: { createdAt: "desc" }, take: 50000,
+        select: { id: true, createdAt: true, path: true, sessionHash: true } }),
+      prisma.analyticsEvent.count({ where }),
+    ]);
+    const visitors = rows.map((row) => ({ id: row.id, ts: row.createdAt.getTime(), path: row.path,
+      sessionId: row.sessionHash || undefined }));
     const filtered = filterVisitorsByQuery(visitors, url.searchParams);
 
     return okResponse({
       visitors: filtered,
       items: filtered,
       count: filtered.length,
-      total: visitors.length,
+      total,
+      truncated: total > rows.length,
     });
   } catch (error: any) {
     return errorResponse(error, "VISITORS_GET_FAILED");

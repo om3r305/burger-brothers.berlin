@@ -26,7 +26,7 @@ const NAV: NavItem[] = [
   { href: "/admin/orders", label: "Bestellungen", icon: "🧾", match: (p) => p.startsWith("/admin/orders") },
   { href: "/admin/coupons", label: "Gutscheine", icon: "🎟️", match: (p) => p.startsWith("/admin/coupons") },
   { href: "/admin/customers", label: "Kunden", icon: "👥", match: (p) => p.startsWith("/admin/customers") },
-  { href: "/admin/stats", label: "Statistiken", icon: "📊", match: (p) => p.startsWith("/admin/stats") },
+  { href: "/admin/stats", label: "Raporlar", icon: "📊", match: (p) => p.startsWith("/admin/stats") },
   { href: "/admin/settings", label: "Einstellungen", icon: "⚙️", match: (p) => p.startsWith("/admin/settings") },
   { href: "/admin/drivers", label: "Fahrer", icon: "🚗", match: (p) => p.startsWith("/admin/drivers") },
 ];
