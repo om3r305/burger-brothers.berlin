@@ -41,21 +41,21 @@ jobs:
               echo "PROJECT_DIR=ios/BurgerBrothersMain" >> "$GITHUB_ENV"
               echo "PROJECT=BurgerBrothersMain.xcodeproj" >> "$GITHUB_ENV"
               echo "SCHEME=BurgerBrothersMain" >> "$GITHUB_ENV"
-              echo "BUNDLE_ID=berlin.burgerbrothers.app" >> "$GITHUB_ENV"
+              echo "BUNDLE_ID=berlin.burgerbrothers.ios" >> "$GITHUB_ENV"
               echo "PROFILE_B64=$MAIN_PROFILE" >> "$GITHUB_ENV"
               ;;
             schnell)
               echo "PROJECT_DIR=ios/BurgerBrothersSchnell" >> "$GITHUB_ENV"
               echo "PROJECT=BurgerBrothersSchnell.xcodeproj" >> "$GITHUB_ENV"
               echo "SCHEME=BurgerBrothersSchnell" >> "$GITHUB_ENV"
-              echo "BUNDLE_ID=berlin.burgerbrothers.schnell" >> "$GITHUB_ENV"
+              echo "BUNDLE_ID=berlin.burgerbrothers.ios.schnell" >> "$GITHUB_ENV"
               echo "PROFILE_B64=$SCHNELL_PROFILE" >> "$GITHUB_ENV"
               ;;
             driver)
               echo "PROJECT_DIR=ios/BurgerBrothersDriver" >> "$GITHUB_ENV"
               echo "PROJECT=BurgerBrothersDriver.xcodeproj" >> "$GITHUB_ENV"
               echo "SCHEME=BurgerBrothersDriver" >> "$GITHUB_ENV"
-              echo "BUNDLE_ID=berlin.burgerbrothers.driver" >> "$GITHUB_ENV"
+              echo "BUNDLE_ID=berlin.burgerbrothers.ios.driver" >> "$GITHUB_ENV"
               echo "PROFILE_B64=$DRIVER_PROFILE" >> "$GITHUB_ENV"
               ;;
           esac
@@ -126,7 +126,7 @@ jobs:
         env:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          xcodebuild             -project "$PROJECT"             -scheme "$SCHEME"             -configuration Release             -sdk iphoneos             -destination 'generic/platform=iOS'             -archivePath "$RUNNER_TEMP/BurgerBrothers.xcarchive"             DEVELOPMENT_TEAM="$APPLE_TEAM_ID"             CODE_SIGN_STYLE=Manual             CODE_SIGN_IDENTITY="Apple Distribution"             PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME"             archive
+          xcodebuild             -project "$PROJECT"             -scheme "$SCHEME"             -configuration Release             -sdk iphoneos             -destination 'generic/platform=iOS'             -archivePath "$RUNNER_TEMP/BurgerBrothers.xcarchive"             DEVELOPMENT_TEAM="$APPLE_TEAM_ID"             CODE_SIGN_STYLE=Manual             CODE_SIGN_IDENTITY="Apple Distribution"             PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME"             CURRENT_PROJECT_VERSION="${{ github.run_number }}"             archive
 
       - name: Export IPA
         env:

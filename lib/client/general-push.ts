@@ -30,6 +30,7 @@ export type GeneralPushState = {
   enabled?: boolean;
   configured?: boolean;
   publicKey?: string;
+  nativeConfigured?: boolean;
   subscribed?: boolean;
   platform?: string | null;
   preferences?: GeneralPushPreferences;
@@ -95,8 +96,117 @@ export function isIOSDevice() {
   return isIOSLikeDevice();
 }
 
+/*
+  The Burger Brothers iOS app (WKWebView) has no Web Push. It exposes a native
+  bridge instead and registers an APNs device token with the same /api/push
+  endpoint. The user agent token is present from the first byte, before the
+  bridge script has necessarily run.
+*/
+type NativePushBridge = {
+  platform: string;
+  pushToken?: string;
+  requestNotifications: () => void;
+};
+
+const NATIVE_PERMISSION_KEY = "bb_native_push_permission_v1";
+
+export function isNativeIOSApp() {
+  return (
+    typeof window !== "undefined" &&
+    /\bBurgerBrothers-iOS\/main\b/.test(navigator.userAgent || "")
+  );
+}
+
+function nativeBridge(): NativePushBridge | null {
+  const bridge = (window as any).BurgerBrothersNative;
+  return bridge?.platform === "ios" &&
+    typeof bridge.requestNotifications === "function"
+    ? bridge
+    : null;
+}
+
+function readNativePermission(): NotificationPermission {
+  try {
+    const value = localStorage.getItem(NATIVE_PERMISSION_KEY);
+    return value === "granted" || value === "denied" ? value : "default";
+  } catch {
+    return "default";
+  }
+}
+
+function saveNativePermission(value: NotificationPermission) {
+  try {
+    localStorage.setItem(NATIVE_PERMISSION_KEY, value);
+  } catch {}
+}
+
+function pushPermissionGranted() {
+  if (isNativeIOSApp()) return readNativePermission() === "granted";
+  return supportsPush() && Notification.permission === "granted";
+}
+
+function waitForWindowEvent<T>(
+  name: string,
+  timeoutMs: number,
+  timeoutCode: string,
+  pick: (detail: any) => T | null,
+  current?: () => T | null,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timeoutId = window.setTimeout(() => {
+      window.removeEventListener(name, listener);
+      reject(new PwaStepTimeoutError(timeoutCode));
+    }, Math.max(1_000, timeoutMs));
+
+    function listener(event: Event) {
+      const value = pick((event as CustomEvent).detail);
+      if (value === null) return;
+      window.clearTimeout(timeoutId);
+      window.removeEventListener(name, listener);
+      resolve(value);
+    }
+
+    window.addEventListener(name, listener);
+
+    // The value may already be there (e.g. a token delivered before we listened).
+    const existing = current?.() ?? null;
+    if (existing !== null) {
+      window.clearTimeout(timeoutId);
+      window.removeEventListener(name, listener);
+      resolve(existing);
+    }
+  });
+}
+
+function cleanNativeToken(value: unknown) {
+  const token = String(value ?? "").trim().toLowerCase();
+  return /^[0-9a-f]{64,200}$/.test(token) ? token : null;
+}
+
+async function waitForNativeBridge(timeoutMs: number) {
+  const ready = nativeBridge();
+  if (ready) return ready;
+  return waitForWindowEvent(
+    "bb:nativeReady",
+    timeoutMs,
+    "config_timeout",
+    () => nativeBridge(),
+    () => nativeBridge(),
+  );
+}
+
+function nativePushToken(timeoutMs: number) {
+  return waitForWindowEvent(
+    "bb:nativePushToken",
+    timeoutMs,
+    "subscription_timeout",
+    (detail) => cleanNativeToken(detail?.token),
+    () => cleanNativeToken(nativeBridge()?.pushToken),
+  );
+}
+
 export function isStandaloneApp() {
-  return isStandaloneDisplayMode();
+  return isNativeIOSApp() || isStandaloneDisplayMode();
 }
 
 function base64UrlToUint8Array(value: string) {
@@ -165,7 +275,9 @@ function delay(milliseconds: number) {
 export async function loadGeneralPushState(
   timeoutMs = DEFAULT_TECHNICAL_TIMEOUT_MS,
 ): Promise<GeneralPushState> {
-  if (!supportsPush()) return { ok: false, enabled: false, configured: false };
+  if (!supportsPush() && !isNativeIOSApp()) {
+    return { ok: false, enabled: false, configured: false };
+  }
 
   const response = await fetchWithTimeout(
     "/api/push",
@@ -226,14 +338,25 @@ async function currentSubscription(
 }
 
 async function saveSubscription(
-  subscription: PushSubscription,
+  subscription: PushSubscription | { nativeToken: string },
   preferences: GeneralPushPreferences,
   timeoutMs = DEFAULT_TECHNICAL_TIMEOUT_MS,
 ) {
-  const requestBody = JSON.stringify({
-    subscription: subscription.toJSON(),
-    preferences,
-  });
+  const requestBody = JSON.stringify(
+    "nativeToken" in subscription
+      ? {
+          native: {
+            platform: "ios",
+            appKind: "main",
+            token: subscription.nativeToken,
+          },
+          preferences,
+        }
+      : {
+          subscription: subscription.toJSON(),
+          preferences,
+        },
+  );
 
   let lastError: unknown = new Error("push_save_failed");
 
@@ -288,10 +411,99 @@ function activationFailure(
   return { ok: false, code, permission };
 }
 
+function markGeneralPushActivated() {
+  try {
+    localStorage.setItem("bb_general_push_activated_v1", String(Date.now()));
+  } catch {}
+}
+
+async function activateNativePush(
+  preferences: GeneralPushPreferences,
+  options: GeneralPushActivationOptions,
+): Promise<GeneralPushActivationResult> {
+  const permissionTimeoutMs =
+    options.permissionTimeoutMs ?? DEFAULT_PERMISSION_TIMEOUT_MS;
+  const technicalTimeoutMs =
+    options.technicalTimeoutMs ?? DEFAULT_TECHNICAL_TIMEOUT_MS;
+
+  const configPromise = loadGeneralPushState(technicalTimeoutMs)
+    .then((value) => ({ ok: true as const, value }))
+    .catch((error) => ({ ok: false as const, error }));
+
+  options.onStage?.("permission");
+
+  let bridge: NativePushBridge;
+  try {
+    bridge = await waitForNativeBridge(3_000);
+  } catch {
+    return activationFailure("unsupported", "default");
+  }
+
+  let granted: boolean;
+  try {
+    const answer = waitForWindowEvent(
+      "bb:nativePushPermission",
+      permissionTimeoutMs,
+      "permission_timeout",
+      (detail) => (typeof detail?.granted === "boolean" ? detail.granted : null),
+    );
+    bridge.requestNotifications();
+    granted = await answer;
+  } catch {
+    return activationFailure("permission_timeout", readNativePermission());
+  }
+
+  saveNativePermission(granted ? "granted" : "denied");
+  if (!granted) return activationFailure("permission_denied", "denied");
+
+  options.onStage?.("config");
+  const configResult = await configPromise;
+  if (!configResult.ok) {
+    return activationFailure(
+      isPwaStepTimeoutError(configResult.error) ? "config_timeout" : "server_failed",
+      "granted",
+    );
+  }
+  if (!configResult.value.enabled) return activationFailure("disabled", "granted");
+  if (!configResult.value.nativeConfigured) {
+    return activationFailure("not_configured", "granted");
+  }
+
+  options.onStage?.("subscription");
+  let token: string;
+  try {
+    token = await nativePushToken(technicalTimeoutMs);
+  } catch {
+    return activationFailure("subscription_timeout", "granted");
+  }
+
+  options.onStage?.("server");
+  try {
+    const state = await saveSubscription(
+      { nativeToken: token },
+      preferences,
+      technicalTimeoutMs,
+    );
+    markGeneralPushActivated();
+    await repairGeneralPushOrderBindingFromLastOrder().catch(() => false);
+    options.onStage?.("done");
+    return { ok: true, code: "subscribed", permission: "granted", state };
+  } catch (error) {
+    return activationFailure(
+      isPwaStepTimeoutError(error) ? "server_timeout" : "server_failed",
+      "granted",
+    );
+  }
+}
+
 export async function activateGeneralPushFromGesture(
   preferences: GeneralPushPreferences = ALL_GENERAL_PUSH_PREFERENCES,
   options: GeneralPushActivationOptions = {},
 ): Promise<GeneralPushActivationResult> {
+  if (isNativeIOSApp()) {
+    return activateNativePush(preferences, options);
+  }
+
   if (!supportsPush()) {
     return { ok: false, code: "unsupported", permission: "default" };
   }
@@ -415,7 +627,30 @@ export async function activateGeneralPushFromGesture(
   }
 }
 
+async function ensureNativePushRegistration(): Promise<boolean> {
+  if (readNativePermission() !== "granted") return false;
+
+  try {
+    const config = await loadGeneralPushState();
+    if (!config.enabled || !config.nativeConfigured) return false;
+
+    const token = await nativePushToken(DEFAULT_TECHNICAL_TIMEOUT_MS);
+    await saveSubscription(
+      { nativeToken: token },
+      config.subscribed && config.preferences
+        ? config.preferences
+        : ALL_GENERAL_PUSH_PREFERENCES,
+    );
+    markGeneralPushActivated();
+    await repairGeneralPushOrderBindingFromLastOrder().catch(() => false);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function ensureCustomerAppPushRegistration(): Promise<boolean> {
+  if (isNativeIOSApp()) return ensureNativePushRegistration();
   if (!supportsPush() || Notification.permission !== "granted") return false;
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -457,6 +692,12 @@ export async function ensureCustomerAppPushRegistration(): Promise<boolean> {
 export async function updateGeneralPushPreferences(
   preferences: GeneralPushPreferences,
 ) {
+  if (isNativeIOSApp()) {
+    if (readNativePermission() !== "granted") throw new Error("push_not_active");
+    const token = await nativePushToken(DEFAULT_TECHNICAL_TIMEOUT_MS);
+    return saveSubscription({ nativeToken: token }, preferences);
+  }
+
   if (!supportsPush() || Notification.permission !== "granted") {
     throw new Error("push_not_active");
   }
@@ -482,8 +723,7 @@ export async function bindGeneralPushToOrder(
   orderId: string,
   trackingToken: string,
 ) {
-  if (!orderId || !trackingToken || !supportsPush()) return false;
-  if (Notification.permission !== "granted") return false;
+  if (!orderId || !trackingToken || !pushPermissionGranted()) return false;
 
   try {
     const response = await fetchWithTimeout(
@@ -510,7 +750,7 @@ export async function bindGeneralPushToOrder(
 }
 
 export async function repairGeneralPushOrderBindingFromLastOrder() {
-  if (!supportsPush() || Notification.permission !== "granted") return false;
+  if (!pushPermissionGranted()) return false;
 
   const last = readLastCustomerTracking();
   if (!last.orderId || !last.trackingToken) return false;

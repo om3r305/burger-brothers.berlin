@@ -16,6 +16,22 @@ final class WebViewModel: ObservableObject {
     }
 }
 
+/// Which URLs stay inside the app and which are handed to Safari / other apps.
+enum WebPolicy {
+    static let siteHosts: Set<String> = ["burger-brothers.berlin", "www.burger-brothers.berlin"]
+
+    static func isSite(_ url: URL?) -> Bool {
+        siteHosts.contains(url?.host?.lowercased() ?? "")
+    }
+
+    /// Stripe Checkout, Stripe 3-D Secure hooks and Stripe's own frames.
+    static func isPayment(_ url: URL?) -> Bool {
+        let host = url?.host?.lowercased() ?? ""
+        return host == "stripe.com" || host.hasSuffix(".stripe.com")
+            || host == "stripe.network" || host.hasSuffix(".stripe.network")
+    }
+}
+
 struct BurgerWebView: UIViewRepresentable {
     @ObservedObject var model: WebViewModel
 
@@ -27,6 +43,10 @@ struct BurgerWebView: UIViewRepresentable {
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .default()
         config.defaultWebpagePreferences.allowsContentJavaScript = true
+        config.allowsInlineMediaPlayback = true
+        // Keep Safari's full mobile user agent (Stripe, Google Maps and the
+        // site's mobile detection rely on it) and only append the app token.
+        config.applicationNameForUserAgent = "Mobile/15E148 BurgerBrothers-iOS/\(AppConfig.appKind)"
         config.userContentController.add(context.coordinator, name: "bbNative")
 
         let js = """
@@ -49,7 +69,8 @@ struct BurgerWebView: UIViewRepresentable {
         })();
         """
         config.userContentController.addUserScript(
-            WKUserScript(source: js, injectionTime: .atDocumentEnd, forMainFrameOnly: true)
+            // Document start: the bridge must exist before the page's own scripts run.
+            WKUserScript(source: js, injectionTime: .atDocumentStart, forMainFrameOnly: true)
         )
 
         let webView = WKWebView(frame: .zero, configuration: config)
@@ -57,7 +78,6 @@ struct BurgerWebView: UIViewRepresentable {
         webView.uiDelegate = context.coordinator
         // Horizontal swipes belong to the web menu, never page history.
         webView.allowsBackForwardNavigationGestures = false
-        webView.customUserAgent = "BurgerBrothers-iOS/\(AppConfig.appKind)"
 
         let refresh = UIRefreshControl()
         refresh.addTarget(context.coordinator, action: #selector(Coordinator.refresh(_:)), for: .valueChanged)
@@ -67,7 +87,9 @@ struct BurgerWebView: UIViewRepresentable {
         model.webView = webView
         context.coordinator.start()
 
-        webView.load(URLRequest(url: AppConfig.startURL))
+        let pending = AppDelegate.pendingURL.flatMap { WebPolicy.isSite($0) ? $0 : nil }
+        AppDelegate.pendingURL = nil
+        webView.load(URLRequest(url: pending ?? AppConfig.startURL))
         return webView
     }
 
@@ -78,6 +100,7 @@ struct BurgerWebView: UIViewRepresentable {
         uiView.configuration.userContentController.removeScriptMessageHandler(forName: "bbNative")
     }
 
+    @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
         let model: WebViewModel
         weak var webView: WKWebView?
@@ -87,19 +110,36 @@ struct BurgerWebView: UIViewRepresentable {
         private var tokenObserver: NSObjectProtocol?
         private var urlObserver: NSObjectProtocol?
 
+        /// True from the moment a Stripe page is reached until the site loads
+        /// again. Banks (3-D Secure), PayPal and Klarna continue the payment on
+        /// their own domains and must stay inside the app during that time.
+        private var inPaymentFlow = false
+        /// The last main-frame load failed because of the network.
+        private var lastLoadFailed = false
+
         init(model: WebViewModel) {
             self.model = model
         }
 
         @objc func refresh(_ sender: UIRefreshControl) {
-            webView?.reload()
+            reloadOrStart()
             sender.endRefreshing()
         }
 
+        private func reloadOrStart() {
+            guard let webView else { return }
+            if webView.url == nil {
+                webView.load(URLRequest(url: AppConfig.startURL))
+            } else {
+                webView.reload()
+            }
+        }
+
         func start() {
-            monitor.pathUpdateHandler = { [weak self] path in
-                Task { @MainActor in
-                    self?.model.isOnline = path.status == .satisfied
+            monitor.pathUpdateHandler = { @Sendable [weak self] path in
+                let online = path.status == .satisfied
+                Task { @MainActor [weak self] in
+                    self?.networkChanged(online: online)
                 }
             }
             monitor.start(queue: queue)
@@ -109,7 +149,8 @@ struct BurgerWebView: UIViewRepresentable {
                 object: nil,
                 queue: .main
             ) { [weak self] note in
-                if let token = note.userInfo?["token"] as? String {
+                guard let token = note.userInfo?["token"] as? String else { return }
+                Task { @MainActor [weak self] in
                     self?.sendToken(token)
                 }
             }
@@ -119,8 +160,11 @@ struct BurgerWebView: UIViewRepresentable {
                 object: nil,
                 queue: .main
             ) { [weak self] note in
-                if let url = note.userInfo?["url"] as? URL {
-                    self?.model.open(url)
+                guard let url = note.userInfo?["url"] as? URL, WebPolicy.isSite(url) else { return }
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    AppDelegate.pendingURL = nil
+                    self.model.open(url)
                 }
             }
         }
@@ -129,6 +173,14 @@ struct BurgerWebView: UIViewRepresentable {
             monitor.cancel()
             if let tokenObserver { NotificationCenter.default.removeObserver(tokenObserver) }
             if let urlObserver { NotificationCenter.default.removeObserver(urlObserver) }
+        }
+
+        private func networkChanged(online: Bool) {
+            let cameBack = online && !model.isOnline
+            model.isOnline = online
+            if cameBack && lastLoadFailed {
+                reloadOrStart()
+            }
         }
 
         private func sendToken(_ token: String) {
@@ -141,14 +193,56 @@ struct BurgerWebView: UIViewRepresentable {
                   let json = String(data: data, encoding: .utf8) else { return }
 
             webView?.evaluateJavaScript("""
+            if (window.BurgerBrothersNative) { window.BurgerBrothersNative.pushToken = \(json).token; }
             window.dispatchEvent(new CustomEvent('bb:nativePushToken', { detail: \(json) }));
             """)
         }
 
+        private func sendPermission(granted: Bool) {
+            webView?.evaluateJavaScript("""
+            window.dispatchEvent(new CustomEvent('bb:nativePushPermission', { detail: { granted: \(granted ? "true" : "false") } }));
+            """)
+        }
+
+        // MARK: - Navigation
+
+        func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+            if WebPolicy.isPayment(webView.url) {
+                inPaymentFlow = true
+            } else if WebPolicy.isSite(webView.url) {
+                inPaymentFlow = false
+            }
+        }
+
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            lastLoadFailed = false
             if let token = UserDefaults.standard.string(forKey: "bb.apnsToken") {
                 sendToken(token)
             }
+        }
+
+        func webView(
+            _ webView: WKWebView,
+            didFailProvisionalNavigation navigation: WKNavigation!,
+            withError error: Error
+        ) {
+            let nsError = error as NSError
+            guard nsError.domain == NSURLErrorDomain else { return }
+            let networkCodes = [
+                NSURLErrorNotConnectedToInternet,
+                NSURLErrorNetworkConnectionLost,
+                NSURLErrorTimedOut,
+                NSURLErrorCannotFindHost,
+                NSURLErrorCannotConnectToHost,
+                NSURLErrorDNSLookupFailed
+            ]
+            if networkCodes.contains(nsError.code) {
+                lastLoadFailed = true
+            }
+        }
+
+        func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+            reloadOrStart()
         }
 
         func webView(
@@ -162,45 +256,139 @@ struct BurgerWebView: UIViewRepresentable {
             }
 
             let scheme = url.scheme?.lowercased() ?? ""
-            if ["tel", "mailto", "sms"].contains(scheme) {
+            switch scheme {
+            case "http", "https":
+                break
+            case "about", "blob", "data", "javascript":
+                decisionHandler(.allow)
+                return
+            default:
+                // tel:, mailto:, sms:, maps: and banking-app hand-offs.
                 UIApplication.shared.open(url)
                 decisionHandler(.cancel)
                 return
             }
 
-            if scheme == "http" || scheme == "https" {
-                let host = url.host?.lowercased() ?? ""
-                let trusted = host == "burger-brothers.berlin" || host == "www.burger-brothers.berlin"
-
-                if trusted {
-                    decisionHandler(.allow)
-                } else {
-                    UIApplication.shared.open(url)
-                    decisionHandler(.cancel)
-                }
+            // New windows (target=_blank / window.open) are handled in createWebViewWith.
+            guard let targetFrame = navigationAction.targetFrame else {
+                decisionHandler(.allow)
                 return
             }
 
-            decisionHandler(.allow)
+            // Stripe, 3-D Secure and map iframes always load inside the page.
+            if !targetFrame.isMainFrame {
+                decisionHandler(.allow)
+                return
+            }
+
+            if WebPolicy.isSite(url) {
+                decisionHandler(.allow)
+                return
+            }
+
+            if WebPolicy.isPayment(url) {
+                inPaymentFlow = true
+                decisionHandler(.allow)
+                return
+            }
+
+            if inPaymentFlow {
+                decisionHandler(.allow)
+                return
+            }
+
+            UIApplication.shared.open(url)
+            decisionHandler(.cancel)
         }
+
+        func webView(
+            _ webView: WKWebView,
+            createWebViewWith configuration: WKWebViewConfiguration,
+            for navigationAction: WKNavigationAction,
+            windowFeatures: WKWindowFeatures
+        ) -> WKWebView? {
+            if navigationAction.targetFrame == nil, let url = navigationAction.request.url {
+                if WebPolicy.isSite(url) {
+                    webView.load(navigationAction.request)
+                } else {
+                    UIApplication.shared.open(url)
+                }
+            }
+            return nil
+        }
+
+        // MARK: - JavaScript dialogs (alert / confirm / prompt)
+
+        func webView(
+            _ webView: WKWebView,
+            runJavaScriptAlertPanelWithMessage message: String,
+            initiatedByFrame frame: WKFrameInfo,
+            completionHandler: @escaping () -> Void
+        ) {
+            guard let vc = UIApplication.shared.bbTopViewController else {
+                completionHandler()
+                return
+            }
+            let alert = UIAlertController(title: nil, message: message, preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "OK", style: .default) { _ in completionHandler() })
+            vc.present(alert, animated: true)
+        }
+
+        func webView(
+            _ webView: WKWebView,
+            runJavaScriptConfirmPanelWithMessage message: String,
+            initiatedByFrame frame: WKFrameInfo,
+            completionHandler: @escaping (Bool) -> Void
+        ) {
+            guard let vc = UIApplication.shared.bbTopViewController else {
+                completionHandler(false)
+                return
+            }
+            let alert = UIAlertController(title: nil, message: message, preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "Abbrechen", style: .cancel) { _ in completionHandler(false) })
+            alert.addAction(UIAlertAction(title: "OK", style: .default) { _ in completionHandler(true) })
+            vc.present(alert, animated: true)
+        }
+
+        func webView(
+            _ webView: WKWebView,
+            runJavaScriptTextInputPanelWithPrompt prompt: String,
+            defaultText: String?,
+            initiatedByFrame frame: WKFrameInfo,
+            completionHandler: @escaping (String?) -> Void
+        ) {
+            guard let vc = UIApplication.shared.bbTopViewController else {
+                completionHandler(nil)
+                return
+            }
+            let alert = UIAlertController(title: nil, message: prompt, preferredStyle: .alert)
+            alert.addTextField { $0.text = defaultText }
+            alert.addAction(UIAlertAction(title: "Abbrechen", style: .cancel) { _ in completionHandler(nil) })
+            alert.addAction(UIAlertAction(title: "OK", style: .default) { _ in
+                completionHandler(alert.textFields?.first?.text ?? "")
+            })
+            vc.present(alert, animated: true)
+        }
+
+        // MARK: - Bridge
 
         func userContentController(
             _ userContentController: WKUserContentController,
             didReceive message: WKScriptMessage
         ) {
-            guard let body = message.body as? [String: Any],
+            guard WebPolicy.isSite(message.frameInfo.request.url),
+                  let body = message.body as? [String: Any],
                   let action = body["action"] as? String else { return }
 
             switch action {
             case "requestNotifications":
-                Task { @MainActor in
-                    _ = await NotificationManager.shared.requestPermission()
+                Task { @MainActor [weak self] in
+                    let granted = await NotificationManager.shared.requestPermission()
+                    self?.sendPermission(granted: granted)
                 }
 
             case "openNotificationSettings":
-                Task { @MainActor in
-                    NotificationManager.shared.openSettings()
-                }
+                NotificationManager.shared.openSettings()
 
             case "share":
                 let title = body["title"] as? String ?? ""

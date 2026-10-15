@@ -91,14 +91,13 @@ try {
   cleanups.forEach(fn => fn?.()); cleanups = [];
   assert([...listeners.values()].every(items => items.length === 0), 'listeners are removed on unmount');
   const swiftFiles = ['ios/BurgerBrothersMain/App/WebView.swift','ios/BurgerBrothersSchnell/App/WebView.swift',
-    'ios/BurgerBrothersDriver/App/WebView.swift','mobile/ios/burger-brothers/Sources/BBWebView.swift',
-    'mobile/ios/bb-schnell/Sources/BBWebView.swift','mobile/ios/bb-driver/Sources/BBWebView.swift'];
+    'ios/BurgerBrothersDriver/App/WebView.swift'];
   for (const file of swiftFiles) {
     const source = fs.readFileSync(file, 'utf8');
     assert(source.includes('allowsBackForwardNavigationGestures = false'), file);
     assert(!source.includes('allowsBackForwardNavigationGestures = true'), file);
   }
-  console.log('Menu swipe behavior: category-only navigation, boundaries, edge guards, cancellation, controls and all six iOS wrappers passed.');
+  console.log('Menu swipe behavior: category-only navigation, boundaries, edge guards, cancellation, controls and all three iOS wrappers passed.');
 } finally {
   cleanups.forEach(fn => fn?.()); Module._load = originals.load;
   for (const ext of ['ts','tsx']) { if (originals[ext]) require.extensions['.' + ext] = originals[ext]; else delete require.extensions['.' + ext]; }

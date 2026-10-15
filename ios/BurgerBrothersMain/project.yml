@@ -7,12 +7,12 @@ options:
 settings:
   base:
     PRODUCT_NAME: "Burger Brothers Berlin"
-    PRODUCT_BUNDLE_IDENTIFIER: berlin.burgerbrothers.app
+    PRODUCT_BUNDLE_IDENTIFIER: berlin.burgerbrothers.ios
     MARKETING_VERSION: "1.0.0"
     CURRENT_PROJECT_VERSION: "1"
     SWIFT_VERSION: "5.0"
     IPHONEOS_DEPLOYMENT_TARGET: "16.0"
-    TARGETED_DEVICE_FAMILY: "1,2"
+    TARGETED_DEVICE_FAMILY: "1"
     GENERATE_INFOPLIST_FILE: NO
     INFOPLIST_FILE: App/Info.plist
     CODE_SIGN_ENTITLEMENTS: App/App.entitlements

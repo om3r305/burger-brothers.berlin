@@ -3,6 +3,7 @@ import UserNotifications
 
 final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     static let pushTokenNotification = Notification.Name("bb.pushToken.updated")
+    static var pendingURL: URL?
 
     func application(
         _ application: UIApplication,
@@ -45,8 +46,12 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
+        // The server sends site-relative paths such as /track/<token>.
         if let raw = response.notification.request.content.userInfo["url"] as? String,
-           let url = URL(string: raw) {
+           let url = URL(string: raw, relativeTo: AppConfig.startURL)?.absoluteURL {
+            // A cold start from a notification tap can happen before the web
+            // view exists; it picks this up instead of the start URL.
+            AppDelegate.pendingURL = url
             NotificationCenter.default.post(
                 name: WebViewModel.openURLNotification,
                 object: nil,

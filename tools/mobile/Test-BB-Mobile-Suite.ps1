@@ -15,9 +15,9 @@ $required = @(
   "mobile\android\burger-brothers\twa-manifest.template.json",
   "mobile\android\bb-schnell\twa-manifest.template.json",
   "mobile\android\bb-driver\twa-manifest.template.json",
-  "mobile\ios\burger-brothers\project.yml",
-  "mobile\ios\bb-schnell\project.yml",
-  "mobile\ios\bb-driver\project.yml",
+  "ios\BurgerBrothersMain\project.yml",
+  "ios\BurgerBrothersSchnell\project.yml",
+  "ios\BurgerBrothersDriver\project.yml",
   "public\downloads\burger-brothers-version.json",
   "public\downloads\bb-schnell-version.json",
   "public\downloads\bb-driver-version.json"

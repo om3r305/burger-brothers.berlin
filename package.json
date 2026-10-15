@@ -43,7 +43,7 @@
     "schnell:vapid": "node tools/generate-schnell-vapid.mjs",
     "reward:audio": "node tools/generate-reward-stinger.cjs",
     "assets:webp": "node tools/generate-web-assets.cjs",
-    "notifications:test": "node tools/general-notifications-regression-tests.cjs && node tools/nearby-delivery-matcher-tests.cjs && node tools/route-deal-lifecycle-regression-tests.cjs && node tools/nearby-push-campaign-create-regression-tests.cjs",
+    "notifications:test": "node tools/general-notifications-regression-tests.cjs && node tools/apns-regression-tests.cjs && node tools/nearby-delivery-matcher-tests.cjs && node tools/route-deal-lifecycle-regression-tests.cjs && node tools/nearby-push-campaign-create-regression-tests.cjs",
     "brian:test": "node tools/brian-export-regression-tests.cjs",
     "secrets:generate": "node tools/generate-production-secrets.mjs",
     "regression:test:all": "node tools/run-all-regression-checks.mjs",

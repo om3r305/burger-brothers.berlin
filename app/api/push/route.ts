@@ -53,6 +53,7 @@ export async function GET(req: Request) {
     enabled: config.enabled,
     configured: config.configured,
     publicKey: config.publicKey,
+    nativeConfigured: config.nativeConfigured,
     subscribed: Boolean(subscription),
     platform: subscription?.platform || null,
     preferences: subscription
@@ -76,6 +77,7 @@ async function save(req: Request) {
       req,
       body?.subscription,
       body?.preferences,
+      body?.native,
     );
     const result = response({
       ok: true,

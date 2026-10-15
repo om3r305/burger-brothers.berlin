@@ -6,9 +6,9 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 $details = @(
-  [ordered]@{ appIDs=@("$TeamId.berlin.burgerbrothers.app"); components=@([ordered]@{ "/"="/*"; comment="Burger Brothers" }) },
-  [ordered]@{ appIDs=@("$TeamId.berlin.burgerbrothers.schnell"); components=@([ordered]@{ "/"="/schnellbestellung/*"; comment="BB Schnell" }) },
-  [ordered]@{ appIDs=@("$TeamId.berlin.burgerbrothers.driver"); components=@([ordered]@{ "/"="/driver*"; comment="BB Driver" }) }
+  [ordered]@{ appIDs=@("$TeamId.berlin.burgerbrothers.ios"); components=@([ordered]@{ "/"="/*"; comment="Burger Brothers" }) },
+  [ordered]@{ appIDs=@("$TeamId.berlin.burgerbrothers.ios.schnell"); components=@([ordered]@{ "/"="/schnellbestellung/*"; comment="BB Schnell" }) },
+  [ordered]@{ appIDs=@("$TeamId.berlin.burgerbrothers.ios.driver"); components=@([ordered]@{ "/"="/driver*"; comment="BB Driver" }) }
 )
 $data = [ordered]@{ applinks=[ordered]@{ details=$details } }
 $dir = Join-Path $ProjectRoot "public\.well-known"
