@@ -923,8 +923,14 @@ export async function GET(req: Request) {
 
     if (!all && !fromDate && !toDateValue && (view === "tv" || driverView)) {
       allOrders = allOrders.filter((order: any) => {
-        if (order.status !== "done" && order.status !== "cancelled") return true;
-        const ts = toMs(order.doneAt ?? order.ts ?? order.createdAt, 0);
+        // Schnellbestellung's "Ausgegeben" is stored as dine_in + ready.
+        // It is finished work in the TV, not an active order to carry forever.
+        const issued = view === "tv" && order.mode === "dine_in" && order.status === "ready";
+        if (order.status !== "done" && order.status !== "cancelled" && !issued) return true;
+        const issuedAt = issued
+          ? order.meta?.readyAt ?? order.meta?.ready_at ?? order.updatedAt
+          : null;
+        const ts = toMs(issuedAt ?? order.doneAt ?? order.ts ?? order.createdAt, 0);
         return ts != null && ts >= day.startMs && ts <= day.endMs;
       });
     }

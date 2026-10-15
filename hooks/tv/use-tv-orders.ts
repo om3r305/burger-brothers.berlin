@@ -104,7 +104,8 @@ export function useTvOrders({
       const plannedMs = plannedStartMs(order, timezone);
       const plannedFuture = Boolean(plannedMs && plannedMs > nowMs);
       const isFinal =
-        order.status === "done" || order.status === "cancelled";
+        order.status === "done" || order.status === "cancelled" ||
+          (order.mode === "dine_in" && order.status === "ready");
       const plannedKey = String(order.planned || "");
       const raw = remainingMinutes(
         order,
@@ -211,7 +212,8 @@ export function useTvOrders({
         const cachedClock = currentClock[id];
         const cachedSeen = firstSeenCache[id];
         const isFinal =
-          order.status === "done" || order.status === "cancelled";
+          order.status === "done" || order.status === "cancelled" ||
+          (order.mode === "dine_in" && order.status === "ready");
         const isActive = !isFinal;
 
         let dayMs: number | null = (isFinal ? getDoneAtMs(order) : null) ?? idDayMs ?? exactMs ?? null;
