@@ -4,9 +4,9 @@
 
 | App | Bundle ID | Start URL |
 |---|---|---|
-| MAIN | `berlin.burgerbrothers.app` | `/` |
-| SCHNELL | `berlin.burgerbrothers.schnell` | `/schnellbestellung` |
-| DRIVER/KURIER | `berlin.burgerbrothers.driver` | `/driver` |
+| MAIN | `berlin.burgerbrothers.ios` | `/` |
+| SCHNELL | `berlin.burgerbrothers.ios.schnell` | `/schnellbestellung` |
+| DRIVER/KURIER | `berlin.burgerbrothers.ios.driver` | `/driver` |
 
 Her biri ayrı Bundle ID, ayrı App Store Connect kaydı ve ayrı provisioning profile kullanır.
 

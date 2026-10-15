@@ -75,7 +75,7 @@ async function main() {
   process.env.APNS_PRIVATE_KEY = pem;
   const config = apns.getApnsConfig();
   assert.equal(config.configured, true);
-  assert.equal(config.bundleId, "berlin.burgerbrothers.app");
+  assert.equal(config.bundleId, "berlin.burgerbrothers.ios");
   assert.equal(config.host, "https://api.push.apple.com");
 
   // Provider token is a valid ES256 JWT for the team/key.
@@ -115,7 +115,7 @@ async function main() {
   okServer.close();
   assert.equal(okResult.ok, true);
   assert.equal(seen.headers[":path"], `/3/device/${TOKEN}`);
-  assert.equal(seen.headers["apns-topic"], "berlin.burgerbrothers.app");
+  assert.equal(seen.headers["apns-topic"], "berlin.burgerbrothers.ios");
   assert.equal(seen.headers["apns-push-type"], "alert");
   assert.equal(seen.headers.authorization, `bearer ${jwt}`);
   assert.equal(seen.body.aps.alert.body, "Fertig");

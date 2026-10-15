@@ -13,7 +13,7 @@ import { connect, constants } from "node:http2";
     APNS_TEAM_ID      10-character team id
     APNS_PRIVATE_KEY  contents of AuthKey_<id>.p8 (PEM, raw or base64)
   Optional:
-    APNS_BUNDLE_ID    default berlin.burgerbrothers.app
+    APNS_BUNDLE_ID    default berlin.burgerbrothers.ios
     APNS_ENVIRONMENT  "production" (App Store + TestFlight, default) or "sandbox"
 */
 
@@ -55,7 +55,7 @@ export function getApnsConfig() {
   const keyId = cleanEnv("APNS_KEY_ID");
   const teamId = cleanEnv("APNS_TEAM_ID");
   const pem = readPrivateKeyPem();
-  const bundleId = cleanEnv("APNS_BUNDLE_ID") || "berlin.burgerbrothers.app";
+  const bundleId = cleanEnv("APNS_BUNDLE_ID") || "berlin.burgerbrothers.ios";
   const sandbox = cleanEnv("APNS_ENVIRONMENT").toLowerCase() === "sandbox";
 
   let key: KeyObject | null = null;
