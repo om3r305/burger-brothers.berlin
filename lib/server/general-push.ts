@@ -8,6 +8,13 @@ import {
   sendEmptySchnellPush,
   type StoredSchnellPushSubscription,
 } from "@/lib/server/schnell-push";
+import {
+  apnsEndpointForToken,
+  isApnsConfigured,
+  isApnsEndpoint,
+  normalizeApnsToken,
+  sendApnsAlert,
+} from "@/lib/server/apns";
 import { readRequestCookie } from "@/lib/server/request-security";
 import {
   readAdminRouteStreetGroups,
@@ -153,6 +160,43 @@ export function getGeneralPushConfig() {
     enabled,
     configured: enabled && base.configured,
     publicKey: enabled && base.configured ? base.publicKey : "",
+    // The iOS app registers APNs device tokens instead of Web Push.
+    nativeConfigured: enabled && isApnsConfigured(),
+  };
+}
+
+/** Device fields for a Web Push subscription or a native iOS APNs token. */
+function normalizePushDevice(subscriptionValue: unknown, nativeValue: unknown) {
+  const native = plainObject(nativeValue);
+  if (Object.keys(native).length) {
+    if (cleanText(native.platform, 20) !== "ios") throw new Error("invalid_native_device");
+    const token = normalizeApnsToken(native.token);
+    if (!token) throw new Error("invalid_native_device");
+    return {
+      native: true,
+      endpoint: apnsEndpointForToken(token),
+      p256dh: "",
+      auth: "",
+      expirationTime: null as Date | null,
+    };
+  }
+
+  const normalized = normalizeSchnellPushSubscription(subscriptionValue);
+  if (!normalized?.keys?.p256dh || !normalized.keys.auth) {
+    throw new Error("invalid_subscription");
+  }
+  const expirationTime = normalized.expirationTime
+    ? new Date(normalized.expirationTime)
+    : null;
+  return {
+    native: false,
+    endpoint: normalized.endpoint,
+    p256dh: normalized.keys.p256dh,
+    auth: normalized.keys.auth,
+    expirationTime:
+      expirationTime && Number.isFinite(expirationTime.valueOf())
+        ? expirationTime
+        : null,
   };
 }
 
@@ -225,15 +269,12 @@ export async function upsertGeneralPushSubscription(
   req: Request,
   subscriptionValue: unknown,
   preferenceValue: unknown,
+  nativeValue?: unknown,
 ) {
   const config = getGeneralPushConfig();
-  if (!config.configured) {
+  const device = normalizePushDevice(subscriptionValue, nativeValue);
+  if (device.native ? !config.nativeConfigured : !config.configured) {
     throw new Error("push_not_configured");
-  }
-
-  const normalized = normalizeSchnellPushSubscription(subscriptionValue);
-  if (!normalized?.keys?.p256dh || !normalized.keys.auth) {
-    throw new Error("invalid_subscription");
   }
 
   const tenantId = await getTenantId();
@@ -250,7 +291,7 @@ export async function upsertGeneralPushSubscription(
   const currentByEndpoint = await (prisma as any).pushSubscription.findFirst({
     where: {
       tenantId,
-      endpoint: normalized.endpoint,
+      endpoint: device.endpoint,
     },
     include: { preference: true },
   });
@@ -264,23 +305,18 @@ export async function upsertGeneralPushSubscription(
     : randomBytes(32).toString("base64url");
   const userAgent = cleanText(req.headers.get("user-agent"), 500);
   const locale = cleanText(req.headers.get("accept-language")?.split(",")[0] || "de", 24) || "de";
-  const expirationTime = normalized.expirationTime
-    ? new Date(normalized.expirationTime)
-    : null;
+  const platform = device.native ? "ios" : platformFromUserAgent(userAgent);
 
   const subscription = current
     ? await (prisma as any).pushSubscription.update({
         where: { id: current.id },
         data: {
-          endpoint: normalized.endpoint,
-          p256dh: normalized.keys.p256dh,
-          auth: normalized.keys.auth,
-          expirationTime:
-            expirationTime && Number.isFinite(expirationTime.valueOf())
-              ? expirationTime
-              : null,
+          endpoint: device.endpoint,
+          p256dh: device.p256dh,
+          auth: device.auth,
+          expirationTime: device.expirationTime,
           deviceTokenHash: tokenHash(rawToken),
-          platform: platformFromUserAgent(userAgent),
+          platform,
           userAgent,
           locale,
           appScope: GENERAL_PUSH_APP_SCOPE,
@@ -293,15 +329,12 @@ export async function upsertGeneralPushSubscription(
     : await (prisma as any).pushSubscription.create({
         data: {
           tenantId,
-          endpoint: normalized.endpoint,
-          p256dh: normalized.keys.p256dh,
-          auth: normalized.keys.auth,
-          expirationTime:
-            expirationTime && Number.isFinite(expirationTime.valueOf())
-              ? expirationTime
-              : null,
+          endpoint: device.endpoint,
+          p256dh: device.p256dh,
+          auth: device.auth,
+          expirationTime: device.expirationTime,
           deviceTokenHash: tokenHash(rawToken),
-          platform: platformFromUserAgent(userAgent),
+          platform,
           userAgent,
           locale,
           appScope: GENERAL_PUSH_APP_SCOPE,
@@ -482,9 +515,15 @@ export async function sendGeneralNotificationEvent(eventOrId: any) {
     return { ok: false, skipped: true, expired: false };
   }
 
-  const result = await sendEmptySchnellPush(
-    rowToPushSubscription(event.subscription),
-  );
+  const result = isApnsEndpoint(event.subscription.endpoint)
+    ? await sendApnsAlert(event.subscription.endpoint, {
+        title: event.title,
+        body: event.body,
+        url: event.url,
+        type: event.type,
+        eventId: event.id,
+      })
+    : await sendEmptySchnellPush(rowToPushSubscription(event.subscription));
   const now = new Date();
   const deliveryStatus = result.ok
     ? "accepted"

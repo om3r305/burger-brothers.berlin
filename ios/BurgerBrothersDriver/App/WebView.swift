@@ -69,7 +69,8 @@ struct BurgerWebView: UIViewRepresentable {
         })();
         """
         config.userContentController.addUserScript(
-            WKUserScript(source: js, injectionTime: .atDocumentEnd, forMainFrameOnly: true)
+            // Document start: the bridge must exist before the page's own scripts run.
+            WKUserScript(source: js, injectionTime: .atDocumentStart, forMainFrameOnly: true)
         )
 
         let webView = WKWebView(frame: .zero, configuration: config)
@@ -86,7 +87,9 @@ struct BurgerWebView: UIViewRepresentable {
         model.webView = webView
         context.coordinator.start()
 
-        webView.load(URLRequest(url: AppConfig.startURL))
+        let pending = AppDelegate.pendingURL.flatMap { WebPolicy.isSite($0) ? $0 : nil }
+        AppDelegate.pendingURL = nil
+        webView.load(URLRequest(url: pending ?? AppConfig.startURL))
         return webView
     }
 
@@ -159,7 +162,9 @@ struct BurgerWebView: UIViewRepresentable {
             ) { [weak self] note in
                 guard let url = note.userInfo?["url"] as? URL, WebPolicy.isSite(url) else { return }
                 Task { @MainActor [weak self] in
-                    self?.model.open(url)
+                    guard let self else { return }
+                    AppDelegate.pendingURL = nil
+                    self.model.open(url)
                 }
             }
         }
@@ -188,7 +193,14 @@ struct BurgerWebView: UIViewRepresentable {
                   let json = String(data: data, encoding: .utf8) else { return }
 
             webView?.evaluateJavaScript("""
+            if (window.BurgerBrothersNative) { window.BurgerBrothersNative.pushToken = \(json).token; }
             window.dispatchEvent(new CustomEvent('bb:nativePushToken', { detail: \(json) }));
+            """)
+        }
+
+        private func sendPermission(granted: Bool) {
+            webView?.evaluateJavaScript("""
+            window.dispatchEvent(new CustomEvent('bb:nativePushPermission', { detail: { granted: \(granted ? "true" : "false") } }));
             """)
         }
 
@@ -370,8 +382,9 @@ struct BurgerWebView: UIViewRepresentable {
 
             switch action {
             case "requestNotifications":
-                Task { @MainActor in
-                    _ = await NotificationManager.shared.requestPermission()
+                Task { @MainActor [weak self] in
+                    let granted = await NotificationManager.shared.requestPermission()
+                    self?.sendPermission(granted: granted)
                 }
 
             case "openNotificationSettings":
