@@ -52,4 +52,19 @@ jobs:
         working-directory: ${{ matrix.dir }}
         run: |
           set -o pipefail
-          xcodebuild             -project "${{ matrix.project }}"             -scheme "${{ matrix.scheme }}"             -configuration Release             -sdk iphonesimulator             -destination 'generic/platform=iOS Simulator'             CODE_SIGNING_ALLOWED=NO             CODE_SIGNING_REQUIRED=NO             build
+          xcodebuild             -project "${{ matrix.project }}"             -scheme "${{ matrix.scheme }}"             -configuration Release             -sdk iphonesimulator             -destination 'generic/platform=iOS Simulator'             CODE_SIGNING_ALLOWED=NO             CODE_SIGNING_REQUIRED=NO             -derivedDataPath build             build
+
+      # App Store Connect rejects bundles without these; XcodeGen once
+      # silently replaced the hand-written Info.plist, so check the built app.
+      - name: Verify built Info.plist
+        working-directory: ${{ matrix.dir }}
+        run: |
+          set -euo pipefail
+          APP="$(find build/Build/Products -maxdepth 2 -name '*.app' -print -quit)"
+          PLIST="$APP/Info.plist"
+          for key in UILaunchScreen UISupportedInterfaceOrientations NSMicrophoneUsageDescription NSCameraUsageDescription ITSAppUsesNonExemptEncryption; do
+            plutil -extract "$key" raw -o - "$PLIST" >/dev/null 2>&1 || plutil -extract "$key" xml1 -o - "$PLIST" >/dev/null || { echo "::error::$key missing in $PLIST"; exit 1; }
+          done
+          FAMILY="$(plutil -extract UIDeviceFamily json -o - "$PLIST")"
+          [ "$FAMILY" = "[1]" ] || { echo "::error::UIDeviceFamily is $FAMILY, expected iPhone only"; exit 1; }
+          echo "Info.plist OK: $(plutil -extract CFBundleIdentifier raw -o - "$PLIST")"
