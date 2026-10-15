@@ -635,21 +635,31 @@ export function dayKeyForMs(ms: number, tz: string) {
   }
 }
 
-export function dayBoundsMs(tz: string) {
-  const nowDate = new Date();
-  const local = new Date(nowDate.toLocaleString("en-US", { timeZone: tz }));
+export function dayBoundsMs(tz: string, nowMs = Date.now()) {
+  const key = dayKeyForMs(nowMs, tz);
+  const [year, month, day] = key.split("-").map(Number);
 
-  const start = new Date(local);
-  start.setHours(0, 0, 0, 0);
-
-  const end = new Date(local);
-  end.setHours(23, 59, 59, 999);
-
-  return {
-    start: start.getTime(),
-    end: end.getTime(),
-    key: dayKeyForMs(nowDate.getTime(), tz),
+  // Convert Berlin wall-clock midnight to an instant independently of the
+  // browser's timezone. Resolve both midnights separately for 23/25-hour DST days.
+  const midnight = (dayOffset: number) => {
+    const wall = Date.UTC(year, month - 1, day + dayOffset);
+    let instant = wall;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const parts = new Intl.DateTimeFormat("en-CA", {
+        timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",
+        hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
+      }).formatToParts(new Date(instant));
+      const value = (name: string) => Number(parts.find((part) => part.type === name)?.value);
+      const localWall = Date.UTC(value("year"), value("month") - 1, value("day"),
+        value("hour"), value("minute"), value("second"));
+      const correction = wall - localWall;
+      instant += correction;
+      if (!correction) break;
+    }
+    return instant;
   };
+
+  return { start: midnight(0), end: midnight(1) - 1, key };
 }
 
 export function readTvClockCache(): Record<string, TvOrderClockEntry> {

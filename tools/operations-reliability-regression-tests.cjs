@@ -50,7 +50,7 @@ async function tvTest() {
   const source=read('hooks/tv/use-tv-orders.ts').replace(/^import[\s\S]*?from "[^"]+";\n/gm,'').replace('export function','function');
   let values=[], index=0, fail=false;
   const now=Date.now();
-  const rows=[{id:'old-active',ts:now-86400000,status:'out_for_delivery'},{id:'old-done',ts:now-86400000,status:'done'},{id:'today',ts:now,status:'preparing'}];
+  const rows=[{id:'old-active',ts:now-86400000,status:'out_for_delivery'},{id:'old-done',ts:now-86400000,status:'done'},{id:'today',ts:now,status:'preparing'}, {id:'old-issued',mode:'dine_in',ts:now-86400000,status:'ready'}, {id:'today-issued',mode:'dine_in',ts:now,status:'ready'}, {id:'old-pickup-ready',mode:'pickup',ts:now-86400000,status:'ready'}];
   const ctx={Date,Math,Number,Object,Set,console:{error(){}},
     useCallback:f=>f,useEffect:()=>{},useRef:v=>({current:v}),useState:v=>{const i=index++;values[i]=typeof v==='function'?v():v;return [values[i],x=>values[i]=typeof x==='function'?x(values[i]):x];},
     UNKNOWN_ORDER_GRACE_MS:1,
@@ -63,9 +63,9 @@ async function tvTest() {
   vm.createContext(ctx);vm.runInContext(ts(source),ctx);
   const hook=ctx.useTvOrders({avgPickup:10,avgDelivery:35,newGraceMin:5,timezone:'Europe/Berlin',nowMs:now,onNewOrders(){},notify(){}});
   await hook.refresh();
-  assert.deepEqual(Array.from(values[0],o=>o.id),['old-active','today']);
+  assert.deepEqual(Array.from(values[0],o=>o.id),['old-active','today','today-issued','old-pickup-ready']);
   assert.ok(values[2]>0);
-  fail=true;await hook.refresh();assert.match(values[1],/Keine Verbindung/);assert.equal(values[0].length,2);
+  fail=true;await hook.refresh();assert.match(values[1],/Keine Verbindung/);assert.equal(values[0].length,4);
   fail=false;await hook.refresh();assert.equal(values[1],'');
   hook.setOptimisticAcceptedOrder(rows[2],45);assert.equal(values[3].today,45);
   await hook.refresh();assert.equal(values[3].today,45,'pending save retains optimistic ETA');
