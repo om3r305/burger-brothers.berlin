@@ -26,10 +26,14 @@ targets:
         excludes:
           - Info.plist
           - App.entitlements
+    # Info.plist and entitlements are hand-written files. XcodeGen's `info:` /
+    # `entitlements:` blocks would regenerate (overwrite) them with defaults,
+    # so they are only referenced through build settings here. Target-level
+    # values also override XcodeGen's iOS preset (TARGETED_DEVICE_FAMILY 1,2).
     settings:
       base:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-    info:
-      path: App/Info.plist
-    entitlements:
-      path: App/App.entitlements
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: App/Info.plist
+        CODE_SIGN_ENTITLEMENTS: App/App.entitlements
+        TARGETED_DEVICE_FAMILY: "1"
