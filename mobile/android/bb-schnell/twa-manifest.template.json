@@ -15,8 +15,8 @@
   "enableNotifications": true,
   "enableSiteSettingsShortcut": true,
   "startUrl": "/schnellbestellung/enter?homescreen=1&source=android-twa",
-  "iconUrl": "https://www.burger-brothers.berlin/schnell-icon-512.png?v=2",
-  "maskableIconUrl": "https://www.burger-brothers.berlin/schnell-icon-512.png?v=2",
+  "iconUrl": "https://www.burger-brothers.berlin/icon-kurier-512.png?v=6",
+  "maskableIconUrl": "https://www.burger-brothers.berlin/icon-kurier-512.png?v=6",
   "splashScreenFadeOutDuration": 300,
   "signingKey": {
     "path": "__KEYSTORE_PATH__",
