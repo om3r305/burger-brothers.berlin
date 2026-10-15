@@ -25,6 +25,10 @@
     <string>Dein Standort wird verwendet, um Burger Brothers Funktionen in deiner Nähe bereitzustellen.</string>
     <key>NSCameraUsageDescription</key>
     <string>Die Kamera kann zum Scannen von Burger Brothers QR-Codes verwendet werden.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Das Mikrofon wird nur verwendet, wenn du mit dem Burger Brothers Sprachassistenten sprichst.</string>
+    <key>ITSAppUsesNonExemptEncryption</key>
+    <false/>
     <key>UISupportedInterfaceOrientations</key>
     <array>
         <string>UIInterfaceOrientationPortrait</string>

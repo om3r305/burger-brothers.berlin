@@ -26,7 +26,9 @@ struct RootView: View {
         }
         .task {
             await notifications.registerIfAlreadyAllowed()
-            if !promptHandled {
+            // Only ask once the server actually delivers APNs messages; asking
+            // for a permission that never produces a notification fails review.
+            if AppConfig.nativePushReady && !promptHandled {
                 try? await Task.sleep(for: .milliseconds(800))
                 await notifications.refresh()
                 if notifications.authorizationStatus == .notDetermined {

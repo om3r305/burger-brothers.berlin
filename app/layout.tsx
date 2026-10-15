@@ -138,7 +138,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   function isAdmin() {
     try {
       var p = location.pathname || "/";
-      return p === "/admin" || p.startsWith("/admin/");
+      return p === "/admin" || p.startsWith("/admin/") ||
+        p === "/datenschutz" || p === "/impressum" || p === "/daten-loeschen";
     } catch (_) { return false; }
   }
   if (isAdmin()) return;

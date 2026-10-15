@@ -27,6 +27,17 @@ const PUBLIC_PATHS = new Set([
   "/sitemap.xml",
   "/sw.js",
   "/admin-sw.js",
+  // Android TWAs verify assetlinks on every launch; maintenance must not break it.
+  "/.well-known/assetlinks.json",
+  "/.well-known/apple-app-site-association",
+]);
+
+// App Store / Play listings link to these pages, so they stay reachable while
+// the shop is in maintenance mode. They still get the normal page headers.
+const MAINTENANCE_EXEMPT_PAGES = new Set([
+  "/datenschutz",
+  "/impressum",
+  "/daten-loeschen",
 ]);
 
 const PUBLIC_PREFIXES = [
@@ -436,6 +447,7 @@ function shouldEnforceShopStatus(
 ) {
   if (path === "/api/shop-status") return false;
   if (path === "/api/admin/login") return false;
+  if (MAINTENANCE_EXEMPT_PAGES.has(path)) return false;
   if (path === "/api/stripe/webhook") return false;
   if (access === "token") return false;
 

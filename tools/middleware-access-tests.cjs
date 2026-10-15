@@ -91,6 +91,8 @@ try {
   assert.equal(publicAsset("/images/burger.webp"), true);
   assert.equal(publicAsset("/manifest-schnellbestellung.webmanifest"), true);
   assert.equal(publicAsset("/admin/private.js"), false);
+  assert.equal(publicAsset("/.well-known/assetlinks.json"), true);
+  assert.equal(publicAsset("/.well-known/other.json"), false);
 
   const previousNodeEnv = process.env.NODE_ENV;
   process.env.NODE_ENV = "production";
