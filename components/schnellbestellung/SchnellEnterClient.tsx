@@ -241,7 +241,10 @@ function isStandaloneDisplayMode() {
   const appleNavigator = navigator as Navigator & { standalone?: boolean };
   return (
     window.matchMedia?.("(display-mode: standalone)").matches === true ||
-    appleNavigator.standalone === true
+    appleNavigator.standalone === true ||
+    // The native iOS apps (App Store) are already installed: never show the
+    // "add to Home Screen" chooser inside them.
+    /\bBurgerBrothers-iOS\//.test(navigator.userAgent || "")
   );
 }
 
