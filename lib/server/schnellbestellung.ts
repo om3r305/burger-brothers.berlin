@@ -840,6 +840,8 @@ export function createSessionToken(
     accuracy?: number;
     locationVerified?: boolean;
     homeScreen?: boolean;
+    /** App Store review session (see lib/server/schnell-review.ts). */
+    review?: boolean;
   },
 ) {
   const now = Date.now();
@@ -851,6 +853,7 @@ export function createSessionToken(
     gen: settings.generation,
     locationVerified: data.locationVerified === true,
     homeScreen: data.homeScreen === true,
+    ...(data.review === true ? { review: true } : {}),
     deviceId: data.deviceId,
     ...(Number.isFinite(data.lat) ? { lat: data.lat } : {}),
     ...(Number.isFinite(data.lng) ? { lng: data.lng } : {}),

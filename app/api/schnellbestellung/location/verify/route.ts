@@ -12,6 +12,7 @@ import {
   forbiddenResponse,
   hasTrustedMutationOrigin,
 } from "@/lib/server/request-security";
+import { isValidReviewCode, reviewCodeFromToken } from "@/lib/server/schnell-review";
 
 export async function POST(req: Request) {
   if (!hasTrustedMutationOrigin(req)) {
@@ -28,11 +29,20 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "unavailable" }, { status: 503 });
   }
 
+  // App Store review code in place of the QR token: no location check, and
+  // the session's orders are simulated (see lib/server/schnell-review.ts).
+  const reviewCode = reviewCodeFromToken(body.token);
+
   // Every new Schnellbestellung session requires a currently valid restaurant
   // QR. Home Screen/PWA, GPS permission and an existing old session never act
   // as a tokenless bypass. Static and dynamic QR tokens are both verified by
   // the same server helper.
-  const accessToken = verifyAccessToken(String(body.token || ""), settings);
+  const accessToken =
+    reviewCode === null
+      ? verifyAccessToken(String(body.token || ""), settings)
+      : isValidReviewCode(reviewCode)
+        ? { typ: "schnell-review" }
+        : null;
   if (!accessToken) {
     return NextResponse.json({ ok: false, error: "invalid_qr" }, { status: 401 });
   }
@@ -43,6 +53,30 @@ export async function POST(req: Request) {
 
   if (!deviceId) {
     return NextResponse.json({ ok: false, error: "device_missing" }, { status: 400 });
+  }
+
+  if (reviewCode !== null) {
+    const sessionToken = createSessionToken(settings, {
+      deviceId,
+      locationVerified: false,
+      homeScreen: body.homeScreen === true,
+      review: true,
+    });
+    const response = NextResponse.json({
+      ok: true,
+      locationSkipped: true,
+      review: true,
+      homeScreen: body.homeScreen === true,
+      expiresIn: settings.sessionMinutes * 60,
+    });
+    response.cookies.set(SCHNELL_COOKIE, sessionToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+      maxAge: settings.sessionMinutes * 60,
+    });
+    return response;
   }
 
   const homeScreen = body.homeScreen === true;

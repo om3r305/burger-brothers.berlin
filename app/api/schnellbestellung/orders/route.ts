@@ -14,6 +14,11 @@ import {
   readRequestCookie,
 } from "@/lib/server/request-security";
 import { getShopStatusFresh } from "@/lib/server/shop-status";
+import {
+  createReviewOrderId,
+  isReviewSession,
+  REVIEW_CUSTOMER_NUMBER,
+} from "@/lib/server/schnell-review";
 
 export async function POST(req: Request) {
   const requestStartedAt = performance.now();
@@ -24,7 +29,16 @@ export async function POST(req: Request) {
   const rate = await enforceRateLimit(req, "schnell:orders", 10, 10 * 60 * 1000);
   if (rate) return rate;
 
-  try {
+  const settings = await getSchnellSettings();
+  const session = verifySessionToken(
+    readRequestCookie(req, SCHNELL_COOKIE),
+    settings,
+  );
+  // App Store review sessions never create a real order (no kitchen ticket),
+  // so they also work outside opening hours when Apple reviews the app.
+  const review = isReviewSession(session);
+
+  if (!review) try {
     const shopStatus = await getShopStatusFresh();
     if (shopStatus.closed) {
       return NextResponse.json(
@@ -62,12 +76,6 @@ export async function POST(req: Request) {
     );
   }
 
-  const settings = await getSchnellSettings();
-  const session = verifySessionToken(
-    readRequestCookie(req, SCHNELL_COOKIE),
-    settings,
-  );
-
   if (!session) {
     return NextResponse.json({ ok: false, error: "session_expired" }, { status: 401 });
   }
@@ -86,6 +94,7 @@ export async function POST(req: Request) {
   }
 
   if (
+    !review &&
     settings.locationCheckEnabled &&
     Date.now() - Number(session.locAt) > settings.recheckMinutes * 60_000
   ) {
@@ -120,6 +129,22 @@ export async function POST(req: Request) {
     return NextResponse.json(
       { ok: false, error: "idempotency_required" },
       { status: 400 },
+    );
+  }
+
+  if (review) {
+    // Simulated: total 0 makes the client keep its own cart total.
+    return NextResponse.json(
+      {
+        ok: true,
+        orderId: createReviewOrderId(),
+        customerNumber: REVIEW_CUSTOMER_NUMBER,
+        reused: false,
+        total: 0,
+        reward: null,
+        review: true,
+      },
+      { headers: { "Cache-Control": "no-store" } },
     );
   }
 

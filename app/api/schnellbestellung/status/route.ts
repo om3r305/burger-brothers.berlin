@@ -7,6 +7,12 @@ import {
 } from "@/lib/server/schnellbestellung";
 import { readRequestCookie } from "@/lib/server/request-security";
 import { rewardFromOrderMeta } from "@/lib/server/schnell-rewards";
+import {
+  isReviewOrderId,
+  isReviewSession,
+  REVIEW_CUSTOMER_NUMBER,
+  reviewOrderStatus,
+} from "@/lib/server/schnell-review";
 
 function objectValue(value: unknown): Record<string, any> {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -48,6 +54,33 @@ export async function GET(req: Request) {
     return NextResponse.json(
       { ok: false, error: "order_required" },
       { status: 400, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+
+  if (isReviewOrderId(orderId)) {
+    if (!isReviewSession(session)) {
+      return NextResponse.json(
+        { ok: false, error: "order_not_found" },
+        { status: 404, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+    const status = reviewOrderStatus(orderId);
+    return NextResponse.json(
+      {
+        ok: true,
+        orderId,
+        customerNumber: REVIEW_CUSTOMER_NUMBER,
+        status,
+        liveReadyAlertEnabled: settings.liveReadyAlertEnabled,
+        readyEventId: status === "ready" ? `${orderId}-ready` : "",
+        readyEventAt: status === "ready" ? Date.now() : 0,
+        readyEventSequence: status === "ready" ? 1 : 0,
+        reward: null,
+        paymentOpen: true,
+        review: true,
+        updatedAt: Date.now(),
+      },
+      { headers: { "Cache-Control": "private, no-store" } },
     );
   }
 
