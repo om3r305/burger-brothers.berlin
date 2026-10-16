@@ -4,6 +4,7 @@
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useEffect, useRef } from "react";
 import { useCart } from "@/components/store";
+import { onPauseChange, syncPauseFromServer } from "@/lib/pause";
 
 import { loadNormalizedCampaigns } from "@/lib/campaigns-compat";
 import { priceWithCampaign } from "@/lib/catalog";
@@ -62,6 +63,58 @@ function readPause(): PauseState {
   } catch {
     return { delivery: false, pickup: false };
   }
+}
+
+/**
+ * Keep both cart layouts in sync with the server's authoritative pause state.
+ * The local snapshot is only used for the initial render/offline fallback.
+ * Order submission continues to validate pause independently on the server.
+ */
+function useSyncedPause(): PauseState {
+  const [pause, setPause] = useState<PauseState>(() => readPause());
+
+  useEffect(() => {
+    let active = true;
+    const stopListening = onPauseChange((next) => {
+      if (!active) return;
+      setPause((previous) => {
+        const delivery = !!next.delivery;
+        const pickup = !!next.pickup;
+        return previous.delivery === delivery && previous.pickup === pickup
+          ? previous
+          : { delivery, pickup };
+      });
+    });
+
+    const refresh = () => {
+      // syncPauseFromServer writes the verified state to localStorage and
+      // notifies onPauseChange. If the request fails, the last snapshot stays.
+      void syncPauseFromServer().catch((error) => {
+        console.warn("[cart] unable to refresh pause state", error);
+      });
+    };
+
+    const onVisible = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+
+    refresh();
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", onVisible);
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === "visible") refresh();
+    }, 30_000);
+
+    return () => {
+      active = false;
+      stopListening();
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.clearInterval(interval);
+    };
+  }, []);
+
+  return pause;
 }
 
 /* ───────── Akıllı Rota Fırsatı helpers ───────── */
@@ -1070,7 +1123,7 @@ export default function CartSummary() {
     return () => window.clearInterval(timer);
   }, []);
 
-  const pause = useMemo<PauseState>(() => readPause(), [lsTick]);
+  const pause = useSyncedPause();
   const pausedPickup = !!pause.pickup;
   const pausedDelivery = !!pause.delivery;
 
@@ -1484,7 +1537,7 @@ export function CartSummaryMobile() {
     return () => window.clearInterval(timer);
   }, []);
 
-  const pause = useMemo<PauseState>(() => readPause(), [lsTick]);
+  const pause = useSyncedPause();
   const pausedPickup = !!pause.pickup;
   const pausedDelivery = !!pause.delivery;
 
