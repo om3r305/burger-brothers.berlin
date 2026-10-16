@@ -606,6 +606,14 @@ export function normalizeOrdersPayload(data: unknown): DriverOrder[] {
     .filter((order): order is DriverOrder => Boolean(order));
 }
 
+/** A saved driver name is not proof of a valid server session. */
+export class DriverSessionExpiredError extends Error {
+  constructor() {
+    super("DRIVER_SESSION_EXPIRED");
+    this.name = "DriverSessionExpiredError";
+  }
+}
+
 export async function fetchDriverOrdersFromDb(
   signal?: AbortSignal,
 ): Promise<DriverOrder[]> {
@@ -626,14 +634,18 @@ export async function fetchDriverOrdersFromDb(
 
       const data: unknown = await response.json().catch(() => ({}));
 
+      // No fallback or cached success when the protected API rejects a session.
+      if (response.status === 401) {
+        throw new DriverSessionExpiredError();
+      }
       if (!response.ok || cleanObj(data).ok === false) {
-        throw new Error(
-          stringValue(cleanObj(data).error) || `HTTP ${response.status}`,
-        );
+        const code = stringValue(cleanObj(data).error) || "DRIVER_ORDERS_FETCH_FAILED";
+        throw new Error(`${code} (HTTP ${response.status})`);
       }
 
       return normalizeOrdersPayload(data);
     } catch (error) {
+      if (error instanceof DriverSessionExpiredError) throw error;
       if (error instanceof DOMException && error.name === "AbortError") {
         throw error;
       }
