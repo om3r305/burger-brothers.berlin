@@ -81,6 +81,8 @@ function routeFixture(code) {
     "@/lib/server/request-security": { enforceRateLimit: async () => null, hasTrustedMutationOrigin: () => true,
       readRequestCookie: () => "signed-test-session" },
     "@/lib/server/shop-status": {getShopStatusFresh: async () => ({closed:false})},
+    "@/lib/server/schnell-review": { isReviewSession: (s) => s?.review === true,
+      createReviewOrderId: () => "review-1", REVIEW_CUSTOMER_NUMBER: 99 },
   };
   vm.runInNewContext(compile(fs.readFileSync('app/api/schnellbestellung/orders/route.ts','utf8')),
     { exports, require: name => deps[name], performance, Date, String, Number, Math, Array, Error, console });
