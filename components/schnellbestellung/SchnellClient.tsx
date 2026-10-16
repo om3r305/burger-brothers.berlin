@@ -690,6 +690,17 @@ function playOrderConfirmationSoundOnce() {
   }
 }
 
+function isInstalledAppContext() {
+  const navigatorWithStandalone = navigator as Navigator & {
+    standalone?: boolean;
+  };
+  return (
+    window.matchMedia?.("(display-mode: standalone)").matches === true ||
+    navigatorWithStandalone.standalone === true ||
+    /\bBurgerBrothers-iOS\//.test(navigator.userAgent || "")
+  );
+}
+
 function isAndroidBrowserWithoutInstalledMode() {
   if (!/Android/i.test(navigator.userAgent || "")) return false;
 
@@ -844,6 +855,11 @@ function SchnellOrderClient() {
             "Bitte öffnen Sie Burger Brothers über das Symbol auf Ihrem Startbildschirm und scannen Sie den QR-Code erneut.",
           );
         } else if (envelope.status === 401) {
+          // Installed apps (App Store app / Home Screen) open on the menu; without
+          // a session they go straight to their in-app QR scanner.
+          if (isInstalledAppContext()) {
+            router.replace("/schnellbestellung/enter?homescreen=1");
+          }
           setError(
             "Ihre Schnellbestellung-Sitzung ist abgelaufen. Bitte scannen Sie den QR-Code erneut.",
           );
