@@ -171,7 +171,7 @@ export function useDriverOrders({
         } else if (!(error instanceof Error && error.name === "AbortError")) {
           console.error("Driver refresh failed", error);
           const message = error instanceof Error ? error.message : "";
-          const serverError = /\\bHTTP 5\\d\\d\\b|ORDERS_LIST_FAILED/.test(message);
+          const serverError = /\bHTTP 5\d\d\b|ORDERS_LIST_FAILED/.test(message);
           setRefreshError(
             serverError
               ? "Bestellserver momentan nicht erreichbar. Bitte erneut versuchen (Serverfehler)."
