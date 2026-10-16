@@ -356,6 +356,21 @@ export default function NavBar(props: {
 
   const items = useCart((state: any) => state.items);
   const computePricing = useCart((state: any) => state.computePricing);
+  const orderMode = useCart((state: any) => state.orderMode);
+  const plz = useCart((state: any) => state.plz);
+  // Discount rates and surcharges arrive via settings sync after the first
+  // render; recompute the header total then, like CartSummary does.
+  const [pricingVersion, setPricingVersion] = useState(0);
+
+  useEffect(() => {
+    const bump = () => setPricingVersion((value) => value + 1);
+    window.addEventListener("storage", bump);
+    window.addEventListener("bb:settings-sync", bump);
+    return () => {
+      window.removeEventListener("storage", bump);
+      window.removeEventListener("bb:settings-sync", bump);
+    };
+  }, []);
 
   const cartCount = useMemo(
     () =>
@@ -388,7 +403,7 @@ export default function NavBar(props: {
 
       return sum + (base + extras) * quantity;
     }, 0);
-  }, [items, computePricing]);
+  }, [items, computePricing, orderMode, plz, pricingVersion]);
 
   const formattedCartTotal = useMemo(
     () =>

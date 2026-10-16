@@ -10,6 +10,7 @@ import { evaluateFreebieRules, parseFreebieCategory } from "@/lib/freebies";
 import type { FreebieEvaluation, FreebieUnit } from "@/lib/freebies";
 import { evaluateConditionalCartCampaign } from "@/lib/conditional-campaign";
 import { computePfand } from "@/lib/pfand";
+import { roundCurrencyCents, standardSurchargeDiscount } from "@/lib/pricing/client-order-pricing";
 
 /* =========================================
    Tipler
@@ -253,12 +254,6 @@ function normRm(rm?: string[]) {
   return [...(rm ?? [])].map(String).sort((a, b) => a.localeCompare(b));
 }
 
-function roundToNearest10Cents(value: unknown) {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return 0;
-
-  return +(Math.round((n + Number.EPSILON) * 10) / 10).toFixed(2);
-}
 function keyOf(p: {
   category?: string;
   item: MenuItem;
@@ -335,32 +330,6 @@ function lineTotalWithCampaign(
   return { line, unitFinal: applied.final, unitOriginal: base.price };
 }
 
-/* =========================================
-   Extra sürşarjları (yalnız DELIVERY)
-========================================= */
-const EXTRA_SURCHARGE_MATCHERS = [
-  /(^|\b)bac[oa]n\b/i,
-  /(^|\b)käse\b/i,
-  /(^|\b)kase\b/i,
-  /cheddar/i,
-  /jalape?ñ?o?s?/i,
-];
-const EXTRA_SURCHARGE_AMOUNT = 0.5;
-function extraSurchargeForItem(ci: CartItemFixed, mode: OrderMode) {
-  if (mode !== "delivery") return 0;
-  const cat = (ci.category ?? ci.item.category ?? "burger")
-    .toString()
-    .toLowerCase();
-  if (cat !== "burger" && cat !== "vegan") return 0;
-  const qty = Number(ci?.qty ?? 1);
-  const adds = ci?.add ?? [];
-  let matches = 0;
-  for (const a of adds) {
-    const label = String(a.label ?? a.name ?? a.id ?? "").toLowerCase();
-    if (EXTRA_SURCHARGE_MATCHERS.some((re) => re.test(label))) matches += 1;
-  }
-  return matches > 0 ? matches * EXTRA_SURCHARGE_AMOUNT * qty : 0;
-}
 
 /* =========================================
    Freebie: birim listesi (kampanya sonrası fiyat)
@@ -424,7 +393,6 @@ function computePricingRaw(items: CartItemFixed[], mode: OrderMode, plz: string 
         .toLowerCase();
       const surchargePerUnit = Number(SUR[cat] ?? 0);
       surcharges += surchargePerUnit * qty;
-      surcharges += extraSurchargeForItem(ci, mode);
     }
 
     // informatif kampanya delta (fiyata dahil, ikinci kez düşme!)
@@ -433,7 +401,8 @@ function computePricingRaw(items: CartItemFixed[], mode: OrderMode, plz: string 
     campaignDeltaSum += delta;
   }
 
-  const subtotal = merchandise + surcharges;
+  surcharges = roundCurrencyCents(surcharges);
+  const subtotal = roundCurrencyCents(merchandise + surcharges);
 
   // --- Standart indirim veya net minimum şartlı sepet kampanyası
   const conditionalCampaign = evaluateConditionalCartCampaign({
@@ -454,12 +423,24 @@ function computePricingRaw(items: CartItemFixed[], mode: OrderMode, plz: string 
   });
 
   const freebieDiscount = freebieEvaluation.discountedAmount;
-  const discount = +(deliveryDiscount + freebieDiscount).toFixed(2);
+  // Same rules as CartSummary/checkout and the server: the resolved campaign
+  // rate also discounts the delivery surcharge, and totals round to the cent.
+  const surchargeDiscount = standardSurchargeDiscount(
+    surcharges,
+    conditionalCampaign.effectiveRate,
+  );
+  const discount = roundCurrencyCents(
+    deliveryDiscount + surchargeDiscount + freebieDiscount,
+  );
+  const afterDiscount = roundCurrencyCents(
+    Math.max(0, merchandise - deliveryDiscount - freebieDiscount),
+  );
+  const netSurcharges = roundCurrencyCents(
+    Math.max(0, surcharges - surchargeDiscount),
+  );
   const pfandSummary = computePfand(items);
   const pfand = pfandSummary.amount;
-  const total = roundToNearest10Cents(
-    Math.max(0, subtotal - discount) + pfand,
-  );
+  const total = roundCurrencyCents(afterDiscount + netSurcharges + pfand);
 
   // --- PLZ min (yalnız DELIVERY, indirim SONRASI)
   let meetsMin = true;
