@@ -10,6 +10,7 @@ import {
   formatMoney,
   glass,
   num,
+  normalizeStatus,
   orderItemsTotal,
   orderNote,
   prettyDeliveryLine,
@@ -346,10 +347,11 @@ export function OrderWithDetails({
           <button
             className={actionButtonClass("finish")}
             type="button"
-            disabled={busy}
+            disabled={busy || normalizeStatus(order.status) !== "out_for_delivery"}
+            title={normalizeStatus(order.status) !== "out_for_delivery" ? "Bitte zuerst die Fahrt starten." : undefined}
             onClick={() => onFinish(order)}
           >
-            {busy ? "Speichert…" : "✅ Fertig"}
+            {busy ? "Speichert…" : normalizeStatus(order.status) === "out_for_delivery" ? "✅ Fertig" : "Erst Fahrt starten"}
           </button>
 
           <button
