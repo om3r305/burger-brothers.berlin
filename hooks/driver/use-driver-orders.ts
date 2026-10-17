@@ -593,6 +593,15 @@ export function useDriverOrders({
     async (order: DriverOrder) => {
       if (!current) return false;
 
+      if (!isDriverOrder(order, current)) {
+        notify("Dieser Auftrag gehört nicht Ihnen.", "error");
+        return false;
+      }
+      if (normalizeStatus(order.status) !== "out_for_delivery") {
+        notify("Bitte zuerst die Fahrt starten. Erst danach kann die Lieferung abgeschlossen werden.", "warning");
+        return false;
+      }
+
       const id = String(order.id);
       const previousOrder = order;
 
@@ -638,7 +647,7 @@ export function useDriverOrders({
           },
         );
 
-        const finalOrder = serverOrder || updated;
+        const finalOrder = serverOrder;
 
         try {
           upsertOrder(toStoredOrder(finalOrder));

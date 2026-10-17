@@ -1,5 +1,4 @@
 import {
-  setOrderStatus,
   upsertOrder,
   type OrderMode,
   type OrderStatus,
@@ -1572,29 +1571,30 @@ export async function updateOrderStatusOnServer(
   const data: unknown = await response.json().catch(() => ({}));
   const record = cleanObj(data);
 
+  if (response.status === 401) {
+    throw new DriverSessionExpiredError();
+  }
+
   if (response.ok && record.ok !== false) {
     const serverOrder = normalizeOrdersPayload([
       record.order || record.item || record.data,
     ])[0];
 
-    return serverOrder || null;
+    if (!serverOrder || String(serverOrder.id) !== String(order.id) || serverOrder.status !== status) {
+      throw new Error("Der Bestellstatus wurde vom Server nicht bestätigt. Bitte aktualisieren und erneut prüfen.");
+    }
+    return serverOrder;
   }
 
-  const serverMessage =
-    stringValue(record.message || record.error) ||
-    `POST /api/orders/status HTTP ${response.status}`;
-
-  try {
-    await setOrderStatus(order.id, status, by);
-    return null;
-  } catch (fallbackError) {
-    throw new Error(
-      serverMessage ||
-        (fallbackError instanceof Error
-          ? fallbackError.message
-          : "Status konnte nicht gespeichert werden."),
-    );
-  }
+  const code = stringValue(record.error);
+  const messages: Record<string, string> = {
+    driver_status_transition_not_allowed: "Bitte zuerst die Fahrt starten. Erst danach kann die Lieferung abgeschlossen werden.",
+    order_not_assigned_to_driver: "Dieser Auftrag ist Ihnen nicht mehr zugewiesen. Bitte aktualisieren.",
+  };
+  // A local write cannot acknowledge a rejected server mutation. In particular,
+  // setOrderStatus's fire-and-forget persistence used to turn 403/500 into success.
+  throw new Error(messages[code] || stringValue(record.message) ||
+    `Status konnte nicht gespeichert werden (HTTP ${response.status}). Bitte erneut versuchen.`);
 }
 
 export async function authenticateDriver(
