@@ -37,7 +37,8 @@ const payable = roundCurrencyCents(merchandise - merchandiseDiscount + netSurcha
 assert.equal(merchandiseDiscount + surchargeDiscount, 2.25);
 assert.equal(payable, 20.25);
 
-for (const relativePath of ["components/CartSummary.tsx", "app/checkout/page.tsx"]) {
+// components/store.ts feeds the header cart total (NavBar) and must match checkout.
+for (const relativePath of ["components/CartSummary.tsx", "app/checkout/page.tsx", "components/store.ts"]) {
   const clientSource = fs.readFileSync(path.join(root, relativePath), "utf8");
   assert.match(clientSource, /standardSurchargeDiscount/);
   assert.match(clientSource, /netSurcharges/);
