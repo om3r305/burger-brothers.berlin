@@ -8,6 +8,7 @@ import {
   useState,
 } from "react";
 import { upsertOrder, type StoredOrder } from "@/lib/orders";
+import { DriverSessionExpiredError } from "@/lib/driver/domain";
 import {
   DRIVER_LAST_REFRESH_KEY,
   claimOrderOnServer,
@@ -159,12 +160,22 @@ export function useDriverOrders({
           // Local refresh timestamp is only a convenience.
         }
       } catch (error) {
-        if (
-          !(error instanceof Error && error.name === "AbortError")
-        ) {
+        if (sequence !== refreshSequenceRef.current) return;
+        if (error instanceof DriverSessionExpiredError) {
+          // The local driver profile can outlive the HttpOnly auth cookie.
+          // Never keep displaying an authenticated dashboard after a 401.
+          setRefreshError("");
+          latestOrdersRef.current = [];
+          setOrders([]);
+          window.dispatchEvent(new Event("bb:driver-session-expired"));
+        } else if (!(error instanceof Error && error.name === "AbortError")) {
           console.error("Driver refresh failed", error);
+          const message = error instanceof Error ? error.message : "";
+          const serverError = /\bHTTP 5\d\d\b|ORDERS_LIST_FAILED/.test(message);
           setRefreshError(
-            "Bestellungen konnten nicht aktualisiert werden. Bitte Verbindung prüfen.",
+            serverError
+              ? "Bestellserver momentan nicht erreichbar. Bitte erneut versuchen (Serverfehler)."
+              : "Bestellungen konnten nicht aktualisiert werden. Bitte Verbindung prüfen.",
           );
         }
       } finally {

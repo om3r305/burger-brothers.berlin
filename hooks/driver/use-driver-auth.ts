@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   LASTNAME_KEY,
   REMEMBER_KEY,
@@ -24,6 +24,7 @@ export function useDriverAuth({ notify }: { notify: Notify }) {
   const [loginPass, setLoginPass] = useState("");
   const [authBusy, setAuthBusy] = useState(false);
   const [hydrated, setHydrated] = useState(false);
+  const sessionExpiredNotifiedRef = useRef(false);
 
   useEffect(() => {
     const remembered = localStorage.getItem(REMEMBER_KEY);
@@ -37,6 +38,19 @@ export function useDriverAuth({ notify }: { notify: Notify }) {
     setCurrent(readCurrentDriver());
     setHydrated(true);
   }, []);
+
+  useEffect(() => {
+    const onSessionExpired = () => {
+      if (sessionExpiredNotifiedRef.current) return;
+      sessionExpiredNotifiedRef.current = true;
+      writeCurrentDriver(null);
+      setCurrent(null);
+      notify("Fahrer-Anmeldung abgelaufen. Bitte erneut anmelden.", "warning", 9000);
+    };
+
+    window.addEventListener("bb:driver-session-expired", onSessionExpired);
+    return () => window.removeEventListener("bb:driver-session-expired", onSessionExpired);
+  }, [notify]);
 
   const setRemember = useCallback((value: boolean) => {
     setRememberState(value);
@@ -70,6 +84,7 @@ export function useDriverAuth({ notify }: { notify: Notify }) {
         return false;
       }
 
+      sessionExpiredNotifiedRef.current = false;
       setCurrent(driver);
       setLoginNameState(driver.name);
       localStorage.setItem(LASTNAME_KEY, driver.name);
@@ -105,6 +120,7 @@ export function useDriverAuth({ notify }: { notify: Notify }) {
           // Cookie cleanup failure is surfaced by the next protected request.
         }
 
+        sessionExpiredNotifiedRef.current = false;
         setCurrent(null);
         writeCurrentDriver(null);
         notify("Abgemeldet.", "info");
