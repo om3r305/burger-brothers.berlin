@@ -54,6 +54,8 @@ export const metadata = {
     apple: [{ url: "/apple-touch-icon.png?v=5", sizes: "180x180" }],
   },
   other: {
+    // Store apps show the German UI as-is; browser auto-translate garbles labels.
+    google: "notranslate",
     "mobile-web-app-capable": "yes",
     "apple-mobile-web-app-capable": "yes",
     "apple-mobile-web-app-title": "Burger Brothers",
@@ -67,6 +69,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   return (
     <html
       lang="de"
+      translate="no"
       suppressHydrationWarning
       data-bb-theme="classic"
       data-bb-effects="0"

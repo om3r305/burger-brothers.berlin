@@ -1494,6 +1494,8 @@ export function CartSummaryMobile() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [modeChoiceOpen, setModeChoiceOpen] = useState(false);
+  // Lets guests close the first-visit sheet (e.g. when both modes are paused) and browse the menu.
+  const [modeChoiceDismissed, setModeChoiceDismissed] = useState(false);
   const [plzCheckoutError, setPlzCheckoutError] = useState(false);
   const plzInputRef = useRef<HTMLInputElement>(null);
 
@@ -1726,9 +1728,19 @@ export function CartSummaryMobile() {
 
   return (
     <>
-      {mounted && (!orderModeExplicitlyChosen || modeChoiceOpen) && (
-        <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/80 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:hidden" role="dialog" aria-modal="true" aria-label="Bestellart wählen">
-          <div className="w-full max-w-md rounded-3xl border border-amber-400/30 bg-stone-950 p-5 shadow-2xl shadow-black">
+      {mounted && ((!orderModeExplicitlyChosen && !modeChoiceDismissed) || modeChoiceOpen) && (
+        <div
+          className="fixed inset-0 z-[70] flex items-end justify-center bg-black/80 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:hidden"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Bestellart wählen"
+          onClick={(event) => {
+            if (event.target !== event.currentTarget) return;
+            setModeChoiceDismissed(true);
+            setModeChoiceOpen(false);
+          }}
+        >
+          <div className="max-h-full w-full max-w-md overflow-y-auto rounded-3xl border border-amber-400/30 bg-stone-950 p-5 shadow-2xl shadow-black">
             <OrderModeChoice
               onChoose={chooseMode}
               disabledModes={[
@@ -1736,27 +1748,39 @@ export function CartSummaryMobile() {
                 ...(pausedPickup ? (["pickup"] as const) : []),
               ]}
             />
-            {orderModeExplicitlyChosen ? (
-              <button
-                type="button"
-                onClick={() => setModeChoiceOpen(false)}
-                className="mt-3 w-full py-2 text-sm text-stone-400"
-              >
-                Abbrechen
-              </button>
+            {pausedDelivery && pausedPickup ? (
+              <p className="mt-3 text-center text-sm text-stone-300">
+                Bestellungen sind gerade pausiert. Sie können sich das Menü trotzdem ansehen.
+              </p>
             ) : null}
+            <button
+              type="button"
+              onClick={() => {
+                setModeChoiceDismissed(true);
+                setModeChoiceOpen(false);
+              }}
+              className="mt-3 w-full py-2 text-sm text-stone-400"
+            >
+              {orderModeExplicitlyChosen ? "Abbrechen" : "Erst Menü ansehen"}
+            </button>
           </div>
         </div>
       )}
 
-      {mounted && isEmpty && !overlayOpen && orderModeExplicitlyChosen && !modeChoiceOpen ? (
+      {mounted && isEmpty && !overlayOpen && (orderModeExplicitlyChosen || modeChoiceDismissed) && !modeChoiceOpen ? (
         <button
           type="button"
           onClick={() => setModeChoiceOpen(true)}
           style={{ bottom: safeBottom }}
           className="fixed left-1/2 z-40 -translate-x-1/2 whitespace-nowrap rounded-full border border-amber-400/40 bg-stone-950/95 px-4 py-2 text-xs font-semibold text-amber-100 shadow-xl backdrop-blur sm:hidden"
         >
-          {orderMode === "delivery" ? "🛵 Lieferung" : "🥡 Abholung"} · {etaLabelForMode(eta, orderMode)} · Ändern
+          {orderModeExplicitlyChosen ? (
+            <>
+              {orderMode === "delivery" ? "🛵 Lieferung" : "🥡 Abholung"} · {etaLabelForMode(eta, orderMode)} · Ändern
+            </>
+          ) : (
+            "Bestellart wählen"
+          )}
         </button>
       ) : null}
 
