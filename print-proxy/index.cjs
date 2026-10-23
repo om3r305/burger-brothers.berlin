@@ -1315,12 +1315,13 @@ async function buildSchnellCashReceipt(o, opts={}){
   if (logoChunk.length) out.push(logoChunk);
   else out.push(align(1), size(2,2), text(opts.brand || 'Burger Brothers'), size(1,1), align(0));
 
-  out.push(align(1));
+  // Compact store identity only; product rows remain unchanged.
+  out.push(align(1), fontSel(1), lineSpace(24));
   for (const rawLine of STORE_HEADER_LINES){
     const line = String(rawLine || '').replace(/^St\.?\s*-?\s*Nr\.?\s*:/i, 'St.-Nr.:');
     out.push(text(line));
   }
-  out.push(align(0), text('-'.repeat(LINE)));
+  out.push(fontSel(0), lineSpace(30), align(0), text('-'.repeat(LINE)));
 
   const dateLeft = `${ctx.when.weekday}, ${ctx.when.date} ${ctx.when.time}`;
   const numberRight = ctx.customerNumber > 0 ? `Nr. ${formatSchnellNumber(ctx.customerNumber)}` : '';
@@ -1682,24 +1683,11 @@ async function buildTicketFromOrder(o, opts={}){
   }
   out.push(align(1), size(2,2), text(headerTime), size(1,1), align(0));
 
-  out.push(align(1));
+  // Store address / phone / tax number are deliberately small and compact.
+  // Fiscal mode remains available in /health; internal kitchen slips do not show status warnings.
+  out.push(align(1), fontSel(1), lineSpace(24));
   for (const ln of STORE_HEADER_LINES) out.push(text(ln));
-  if (FISCAL_OPERATION_MODE === 'external_certified_pos') {
-    out.push(
-      bold(1),
-      text('KEIN STEUERBELEG'),
-      text('Vorgang im Kassensystem erfassen'),
-      bold(0),
-    );
-  } else if (FISCAL_OPERATION_MODE !== 'webshop_only') {
-    out.push(
-      bold(1),
-      text('FISKALMODUS UNGEKLAERT'),
-      text('KEIN STEUERBELEG'),
-      bold(0),
-    );
-  }
-  out.push(text(''), align(0));
+  out.push(fontSel(0), lineSpace(30), text(''), align(0));
 
   out.push(text(twoCol('Zeit', whenStr)));
   out.push(text('-'.repeat(LINE)));
