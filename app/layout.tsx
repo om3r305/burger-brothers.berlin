@@ -54,8 +54,6 @@ export const metadata = {
     apple: [{ url: "/apple-touch-icon.png?v=5", sizes: "180x180" }],
   },
   other: {
-    // Store apps show the German UI as-is; browser auto-translate garbles labels.
-    google: "notranslate",
     "mobile-web-app-capable": "yes",
     "apple-mobile-web-app-capable": "yes",
     "apple-mobile-web-app-title": "Burger Brothers",
@@ -76,6 +74,10 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       data-bb-motion="1"
       data-bb-snow="0"
     >
+      <head>
+        {/* Chrome must receive this before language detection; streamed metadata arrives too late. */}
+        <meta name="google" content="notranslate" />
+      </head>
       <body
         className={`${inter.variable} bg-stone-950 text-stone-100 min-h-screen`}
         style={{
