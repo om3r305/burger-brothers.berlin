@@ -1,5 +1,7 @@
 "use client";
 
+import { isNativeAndroidWebView } from "@/lib/client/native-android";
+
 type IOSNavigator = Navigator & { standalone?: boolean };
 
 export const SAMSUNG_SAFE_INSTALL_MARKER =
@@ -73,7 +75,8 @@ export function isStandaloneDisplayMode() {
   return (
     window.matchMedia?.("(display-mode: standalone)").matches === true ||
     window.matchMedia?.("(display-mode: fullscreen)").matches === true ||
-    nav.standalone === true
+    nav.standalone === true ||
+    isNativeAndroidWebView()
   );
 }
 

@@ -30,6 +30,7 @@
     "mobile-dialog:test": "node tools/dialog-viewport-regression-tests.cjs && npm run modal-swipe:test",
     "android:assetlinks:test": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/mobile/Test-Android-AssetLinks.ps1",
     "translation-head:test": "node tools/check-translation-head.mjs",
+    "native-android:test": "node tools/native-android-regression-tests.cjs",
     "image-navigation:test": "node tools/image-navigation-regression-tests.cjs",
     "menu-visual-stability:test": "node tools/menu-visual-stability-regression-tests.cjs",
     "verify": "npm run env:check && npm run artifact:check && npm run typecheck && npm run hardening:test && npm run performance:test && npm run security:test && npm run showcase:test && npm run schnell:test && npm run notifications:test && npm run brian:test && npm run build",

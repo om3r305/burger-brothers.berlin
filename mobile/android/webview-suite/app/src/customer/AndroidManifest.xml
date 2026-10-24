@@ -1,0 +1,24 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <application>
+        <!-- Do not claim the Driver or Schnell routes when all three apps are installed. -->
+        <activity-alias android:name=".AppLinks" android:targetActivity=".MainActivity"
+            android:exported="true" android:enabled="${deepLinksEnabled}" tools:node="replace">
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" />
+                <data android:host="www.burger-brothers.berlin" />
+                <data android:host="burger-brothers.berlin" />
+                <data android:path="/" />
+                <data android:pathPrefix="/menu" />
+                <data android:pathPrefix="/cart" />
+                <data android:pathPrefix="/checkout" />
+                <data android:pathPrefix="/payment/" />
+                <data android:pathPrefix="/pay/" />
+                <data android:pathPrefix="/track" />
+            </intent-filter>
+        </activity-alias>
+    </application>
+</manifest>

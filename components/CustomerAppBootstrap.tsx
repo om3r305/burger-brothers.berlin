@@ -1,5 +1,7 @@
 "use client";
 
+import { isNativeAndroidWebView } from "@/lib/client/native-android";
+
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import {
@@ -76,6 +78,8 @@ export default function CustomerAppBootstrap() {
 
     if (
       typeof window === "undefined" ||
+      // Android WebView has no Web Push; do not promise unsupported activation.
+      isNativeAndroidWebView() ||
       (!isStandaloneApp() && !samsungShortcutFlow) ||
       isOperationalPath(pathname) ||
       pathname === "/install"

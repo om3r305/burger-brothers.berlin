@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { isNativeAndroidWebView } from "@/lib/client/native-android";
 import {
   isSamsungInternetBrowser,
   markSamsungSafeInstallIntent,
@@ -35,7 +36,7 @@ function isStandaloneMode() {
   const nav = navigator as Navigator & { standalone?: boolean };
   return (
     window.matchMedia?.("(display-mode: standalone)").matches === true ||
-    nav.standalone === true
+    nav.standalone === true || isNativeAndroidWebView()
   );
 }
 

@@ -1,0 +1,56 @@
+plugins { id 'com.android.application' }
+
+android {
+    namespace 'berlin.burgerbrothers.shell'
+    compileSdk 36
+    defaultConfig {
+        minSdk 26
+        targetSdk 36
+        versionCode = (project.findProperty('bbVersionCode') ?: '1').toString().toInteger()
+        versionName = (project.findProperty('bbVersionName') ?: '1.1.0').toString()
+    }
+    buildFeatures { buildConfig true }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+    flavorDimensions += 'application'
+    productFlavors {
+        customer {
+            dimension 'application'
+            applicationId 'berlin.burgerbrothers.app'
+            resValue 'string', 'app_name', 'Burger Brothers Berlin'
+            resValue 'color', 'app_background', '#0b0f14'
+            manifestPlaceholders = [appIcon:'@drawable/icon_main', appPath:'/']
+            buildConfigField 'String', 'APP_KIND', '"main"'
+            buildConfigField 'String', 'START_URL', '"https://www.burger-brothers.berlin/?source=android-webview"'
+        }
+        driver {
+            dimension 'application'
+            applicationId 'berlin.burgerbrothers.driver'
+            resValue 'string', 'app_name', 'BB Driver'
+            resValue 'color', 'app_background', '#081410'
+            manifestPlaceholders = [appIcon:'@drawable/icon_driver', appPath:'/driver']
+            buildConfigField 'String', 'APP_KIND', '"driver"'
+            buildConfigField 'String', 'START_URL', '"https://www.burger-brothers.berlin/driver?source=android-webview"'
+        }
+        schnell {
+            dimension 'application'
+            applicationId 'berlin.burgerbrothers.schnell'
+            resValue 'string', 'app_name', 'BB Schnell'
+            resValue 'color', 'app_background', '#03151f'
+            manifestPlaceholders = [appIcon:'@drawable/icon_schnell', appPath:'/schnellbestellung']
+            buildConfigField 'String', 'APP_KIND', '"schnell"'
+            buildConfigField 'String', 'START_URL', '"https://www.burger-brothers.berlin/schnellbestellung/enter?homescreen=1&source=android-webview"'
+        }
+    }
+    buildTypes {
+        debug {
+            applicationIdSuffix '.webviewdebug'
+            versionNameSuffix '-webview-test'
+            manifestPlaceholders = [deepLinksEnabled:'false']
+        }
+        release {
+            minifyEnabled false
+            // Candidate bundles are intentionally unsigned; never reuse a debug key for Play.
+            manifestPlaceholders = [deepLinksEnabled:'true']
+        }
+    }
+}

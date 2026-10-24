@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { isNativeAndroidWebView } from "@/lib/client/native-android";
 import NormalizedProductImage from "@/components/menu/NormalizedProductImage";
 import {
   localImageFallbackUrl,
@@ -697,7 +698,8 @@ function isInstalledAppContext() {
   return (
     window.matchMedia?.("(display-mode: standalone)").matches === true ||
     navigatorWithStandalone.standalone === true ||
-    /\bBurgerBrothers-iOS\//.test(navigator.userAgent || "")
+    /\bBurgerBrothers-iOS\//.test(navigator.userAgent || "") ||
+    isNativeAndroidWebView()
   );
 }
 
