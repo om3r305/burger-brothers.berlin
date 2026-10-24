@@ -3,6 +3,8 @@
 
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
+import { useDialogViewport } from "@/hooks/use-dialog-viewport";
 import { useCart } from "@/components/store";
 import { onPauseChange, syncPauseFromServer } from "@/lib/pause";
 
@@ -1508,6 +1510,37 @@ export function CartSummaryMobile() {
   const orderMode = useCart((s: any) => s.orderMode);
   const orderModeExplicitlyChosen = useCart((s: any) => s.orderModeExplicitlyChosen);
   const setOrderMode = useCart((s: any) => s.setOrderMode);
+  const dialogOpen = open || (!orderModeExplicitlyChosen && !modeChoiceDismissed) || modeChoiceOpen;
+  const dialogViewport = useDialogViewport(dialogOpen);
+
+  useEffect(() => {
+    if (!dialogOpen || !window.matchMedia("(max-width: 639px)").matches) return;
+    const body = document.body;
+    const previousOverflow = body.style.overflow;
+    const previousPosition = body.style.position;
+    const previousTop = body.style.top;
+    const previousWidth = body.style.width;
+    const scrollY = window.scrollY;
+    body.style.overflow = "hidden";
+    body.style.position = "fixed";
+    body.style.top = `-${scrollY}px`;
+    body.style.width = "100%";
+    const close = () => { setOpen(false); setModeChoiceOpen(false); setModeChoiceDismissed(true); };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") close();
+    };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("popstate", close);
+    return () => {
+      body.style.overflow = previousOverflow;
+      body.style.position = previousPosition;
+      body.style.top = previousTop;
+      body.style.width = previousWidth;
+      window.scrollTo(0, scrollY);
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("popstate", close);
+    };
+  }, [dialogOpen]);
   const plz = useCart((s: any) => s.plz);
   const setPLZ = useCart((s: any) => s.setPLZ);
 
@@ -1728,9 +1761,10 @@ export function CartSummaryMobile() {
 
   return (
     <>
-      {mounted && ((!orderModeExplicitlyChosen && !modeChoiceDismissed) || modeChoiceOpen) && (
+      {mounted && ((!orderModeExplicitlyChosen && !modeChoiceDismissed) || modeChoiceOpen) && createPortal(
         <div
-          className="fixed inset-0 z-[70] flex items-end justify-center bg-black/80 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:hidden"
+          style={dialogViewport}
+          className="bb-mobile-dialog fixed inset-0 z-[70] flex items-end justify-center bg-black/80 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:hidden"
           role="dialog"
           aria-modal="true"
           aria-label="Bestellart wählen"
@@ -1740,7 +1774,7 @@ export function CartSummaryMobile() {
             setModeChoiceOpen(false);
           }}
         >
-          <div className="max-h-full w-full max-w-md overflow-y-auto rounded-3xl border border-amber-400/30 bg-stone-950 p-5 shadow-2xl shadow-black">
+          <div className="bb-mobile-dialog-panel w-full max-w-md rounded-3xl border border-amber-400/30 bg-stone-950 p-5 shadow-2xl shadow-black">
             <OrderModeChoice
               onChoose={chooseMode}
               disabledModes={[
@@ -1764,7 +1798,7 @@ export function CartSummaryMobile() {
               {orderModeExplicitlyChosen ? "Abbrechen" : "Erst Menü ansehen"}
             </button>
           </div>
-        </div>
+        </div>, document.body
       )}
 
       {mounted && isEmpty && !overlayOpen && (orderModeExplicitlyChosen || modeChoiceDismissed) && !modeChoiceOpen ? (
@@ -1816,16 +1850,17 @@ export function CartSummaryMobile() {
         </button>
       )}
 
-      {open && (
+      {mounted && open && createPortal(
         <div
-          className="fixed inset-0 z-50 sm:hidden"
+          style={dialogViewport}
+          className="bb-mobile-dialog fixed inset-0 z-50 sm:hidden"
           role="dialog"
           aria-modal="true"
           aria-label="Bestellübersicht"
           data-bb-swipe-ignore
         >
           <div className="absolute inset-0 bg-black/60" onClick={() => setOpen(false)} />
-          <div className="absolute bottom-0 left-0 right-0 max-h-[56vh] overflow-y-auto overflow-x-hidden rounded-t-2xl bg-stone-900 p-4">
+          <div className="bb-mobile-dialog-panel bb-mobile-cart-panel absolute bottom-0 left-0 right-0 overflow-y-auto overflow-x-hidden rounded-t-2xl bg-stone-900 p-4">
             <div className="mb-3 flex items-center justify-between">
               <div className="text-lg font-semibold">Bestellübersicht</div>
               <div className="flex items-center gap-2">
@@ -2037,7 +2072,7 @@ export function CartSummaryMobile() {
               </button>
             </div>
           </div>
-        </div>
+        </div>, document.body
       )}
     </>
   );

@@ -52,6 +52,44 @@ function WriteUtf8NoBom([string]$Path, [string]$Text) {
   $encoding = New-Object System.Text.UTF8Encoding($false)
   [IO.File]::WriteAllText($Path, $Text, $encoding)
 }
+function Update-AndroidAssetLinks([string]$Path, [string[]]$Packages, [string]$Fingerprint) {
+  if ($Fingerprint -notmatch "^([0-9A-Fa-f]{2}:){31}[0-9A-Fa-f]{2}$") {
+    throw "Invalid SHA-256 certificate fingerprint. assetlinks.json was not overwritten."
+  }
+  $relations = @()
+  if (Test-Path -LiteralPath $Path) {
+    try {
+      $json = Get-Content -LiteralPath $Path -Raw
+      if (-not $json.TrimStart().StartsWith("[")) { throw "Expected a JSON array." }
+      $parsed = ConvertFrom-Json -InputObject $json
+      $relations = @($parsed)
+    } catch {
+      throw "Existing assetlinks.json is invalid JSON. It was not overwritten."
+    }
+  }
+  foreach ($packageId in $Packages) {
+    $matching = @($relations | Where-Object {
+      $_.target.namespace -eq "android_app" -and
+      $_.target.package_name -eq $packageId -and
+      @($_.relation) -contains "delegate_permission/common.handle_all_urls"
+    })
+    if ($matching.Count -gt 0) {
+      foreach ($entry in $matching) {
+        # Preserve Play signing/rotation certificates alongside the local build key.
+        $seen = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+        $entry.target.sha256_cert_fingerprints = @(
+          @($entry.target.sha256_cert_fingerprints) + @($Fingerprint) | Where-Object { $seen.Add([string]$_) }
+        )
+      }
+    } else {
+      $relations += [ordered]@{
+        relation=@("delegate_permission/common.handle_all_urls")
+        target=[ordered]@{ namespace="android_app"; package_name=$packageId; sha256_cert_fingerprints=@($Fingerprint) }
+      }
+    }
+  }
+  WriteUtf8NoBom $Path (ConvertTo-Json -InputObject @($relations) -Depth 20)
+}
 function Set-GradleLowMemoryConfig([string]$Workspace) {
   $propertiesPath = Join-Path $Workspace "gradle.properties"
   $managed = [ordered]@{
@@ -212,25 +250,7 @@ try {
   $wellKnown = Join-Path $ProjectRoot "public\.well-known"
   New-Item -ItemType Directory -Force -Path $wellKnown | Out-Null
   $assetLinksPath = Join-Path $wellKnown "assetlinks.json"
-  $relations = @()
-  if (Test-Path -LiteralPath $assetLinksPath) {
-    try {
-      $existing = @(Get-Content -LiteralPath $assetLinksPath -Raw | ConvertFrom-Json)
-      $relations += @($existing | Where-Object {
-        $packageName = [string]$_.target.package_name
-        [string]::IsNullOrWhiteSpace($packageName) -or $managedPackages -notcontains $packageName
-      })
-    } catch {
-      throw "Existing assetlinks.json is invalid JSON. It was not overwritten."
-    }
-  }
-  foreach ($packageId in $managedPackages) {
-    $relations += [ordered]@{
-      relation=@("delegate_permission/common.handle_all_urls")
-      target=[ordered]@{ namespace="android_app"; package_name=$packageId; sha256_cert_fingerprints=@($fingerprint) }
-    }
-  }
-  WriteUtf8NoBom $assetLinksPath ($relations | ConvertTo-Json -Depth 20)
+  Update-AndroidAssetLinks -Path $assetLinksPath -Packages $managedPackages -Fingerprint $fingerprint
 
   if ($App -eq "all") {
     $postBuildTest = Join-Path $ProjectRoot "tools\mobile\Test-BB-Mobile-Suite.ps1"

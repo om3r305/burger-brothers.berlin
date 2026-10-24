@@ -54,3 +54,5 @@ SECURITY_*_REPORT.txt
 .DS_Store
 Thumbs.db
 .vscode/*.local.json
+.vercel
+.env*

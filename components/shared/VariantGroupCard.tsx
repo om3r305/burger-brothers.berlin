@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
+import { useDialogViewport } from "@/hooks/use-dialog-viewport";
 import { useCart } from "@/components/store";
 import {
   optimizedLocalImageUrl,
@@ -55,6 +56,7 @@ export default function VariantGroupCard({
   const [note, setHinweise] = useState("");
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [portalReady, setPortalReady] = useState(false);
+  const dialogViewport = useDialogViewport(open);
 
   useEffect(() => {
     setPortalReady(true);
@@ -234,6 +236,7 @@ export default function VariantGroupCard({
               className="bb-product-modal fixed inset-0 flex items-center justify-center overflow-hidden bg-black/70 backdrop-blur-[2px]"
               style={{
                 zIndex: 2147482500,
+                ...dialogViewport,
                 paddingTop: "max(12px, env(safe-area-inset-top))",
                 paddingRight: "max(12px, env(safe-area-inset-right))",
                 paddingBottom: "max(12px, env(safe-area-inset-bottom))",

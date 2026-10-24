@@ -2050,6 +2050,9 @@ body.bb-modal-open {
   min-width: 100vw !important;
   height: 100vh !important;
   height: 100dvh !important;
+  height: var(--bb-dialog-height, 100dvh) !important;
+  top: var(--bb-dialog-top, 0px) !important;
+  bottom: auto !important;
   margin: 0 !important;
   transform: none !important;
   contain: none !important;
@@ -2063,13 +2066,13 @@ body.bb-modal-open {
   width: min(100%, 42rem);
   max-width: 42rem;
   max-height: calc(
-    100dvh -
+    var(--bb-dialog-height, 100dvh) -
     max(12px, env(safe-area-inset-top)) -
     max(12px, env(safe-area-inset-bottom))
   ) !important;
   min-height: 0;
   flex-direction: column;
-  overflow: hidden;
+  overflow-y: auto;
   box-shadow:
     0 26px 90px rgba(0, 0, 0, .72),
     0 0 0 1px color-mix(in srgb, var(--bb-accent, #ff941f) 14%, transparent);
@@ -2087,6 +2090,27 @@ body.bb-modal-open {
 .bb-product-modal .bb-modal-footer {
   flex: 0 0 auto;
   padding-bottom: calc(.75rem + env(safe-area-inset-bottom));
+}
+
+/* Keep bottom sheets inside the visual viewport, including an open keyboard. */
+.bb-mobile-dialog {
+  top: var(--bb-dialog-top, 0px);
+  bottom: auto;
+  height: var(--bb-dialog-height, 100dvh);
+}
+
+.bb-mobile-dialog-panel {
+  max-height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  scroll-padding-block: 1rem;
+}
+
+.bb-mobile-cart-panel {
+  max-height: min(80dvh, 100%);
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
 }
 
 /*
@@ -2132,7 +2156,7 @@ body.bb-modal-open {
 
 @media (min-width: 640px) {
   .bb-product-modal .bb-modal-shell {
-    max-height: min(90dvh, 860px) !important;
+    max-height: min(calc(var(--bb-dialog-height, 100dvh) - 24px), 860px) !important;
   }
 }
 /* =========================================================

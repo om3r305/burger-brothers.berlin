@@ -10,6 +10,7 @@ $required = @(
   "app\apps\page.tsx",
   "components\mobile\MobileAppsClient.tsx",
   "tools\mobile\Build-BB-Android-Suite.ps1",
+  "tools\mobile\Test-Android-AssetLinks.ps1",
   "tools\mobile\Install-BB-Android-Tools.ps1",
   "tools\mobile\Publish-BB-iOS-Association.ps1",
   "mobile\android\burger-brothers\twa-manifest.template.json",
@@ -70,4 +71,5 @@ if ($RequirePublishedApks) {
   }
 }
 
+& (Join-Path $ProjectRoot "tools\mobile\Test-Android-AssetLinks.ps1") -ProjectRoot $ProjectRoot
 Write-Host "BB mobile suite checks passed." -ForegroundColor Green

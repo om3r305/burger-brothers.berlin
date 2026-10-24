@@ -1,5 +1,7 @@
 "use client";
 
+import { useDialogViewport } from "@/hooks/use-dialog-viewport";
+
 import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -265,6 +267,7 @@ export default function ProductCard({
   const [useNativeImg, setUseNativeImg] = useState(false);
   const [showLegend, setShowLegend] = useState(false);
   const [portalReady, setPortalReady] = useState(false);
+  const dialogViewport = useDialogViewport(open || showLegend);
   const cardRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
@@ -683,6 +686,7 @@ export default function ProductCard({
               className="bb-product-modal fixed inset-0 flex items-center justify-center bg-black/70 backdrop-blur-[2px]"
               style={{
                 zIndex: 2147482500,
+                ...dialogViewport,
                 paddingTop: "max(12px, env(safe-area-inset-top))",
                 paddingRight: "max(12px, env(safe-area-inset-right))",
                 paddingBottom: "max(12px, env(safe-area-inset-bottom))",
@@ -822,6 +826,7 @@ export default function ProductCard({
               className="bb-product-modal fixed inset-0 grid place-items-center bg-black/70 backdrop-blur-[2px]"
               style={{
                 zIndex: 2147482600,
+                ...dialogViewport,
                 paddingTop: "max(12px, env(safe-area-inset-top))",
                 paddingRight: "max(12px, env(safe-area-inset-right))",
                 paddingBottom: "max(12px, env(safe-area-inset-bottom))",

@@ -1,6 +1,8 @@
 // app/checkout/page.tsx
 "use client";
 
+import { useDialogViewport } from "@/hooks/use-dialog-viewport";
+
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import {
@@ -1961,6 +1963,7 @@ function CheckoutContent() {
   const orderMode = useCart((state) => state.orderMode);
   const setOrderMode = useCart((state) => state.setOrderMode);
   const [modeChooserOpen, setModeChooserOpen] = useState(false);
+  const modeDialogViewport = useDialogViewport(modeChooserOpen);
   const plzStore = useCart((state) => state.plz);
   const setPLZ = useCart((state) => state.setPLZ);
 
@@ -3538,8 +3541,8 @@ function CheckoutContent() {
       />
 
       {modeChooserOpen ? (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/85 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Bestellart ändern">
-          <div className="w-full max-w-xl rounded-3xl border border-amber-400/30 bg-stone-950 p-5 shadow-2xl">
+        <div style={modeDialogViewport} className="bb-mobile-dialog fixed inset-0 z-[110] flex items-center justify-center bg-black/85 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Bestellart ändern">
+          <div className="bb-mobile-dialog-panel w-full max-w-xl rounded-3xl border border-amber-400/30 bg-stone-950 p-5 shadow-2xl">
             <OrderModeChoice
               title="Bestellart ändern"
               disabledModes={[
