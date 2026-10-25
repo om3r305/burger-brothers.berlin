@@ -2,7 +2,7 @@
 
 ## Release status
 
-Code and local test candidates are prepared on `codex/android-webview-suite`, based on `2963ea9`. No production deployment, Play upload, policy submission or release was performed. Not fully Play-ready: missing server credential delivery test and physical/internal-track end-to-end validation remain. The signed candidates were subsequently independently verified; see the latest signing verification section below.
+Code and local test candidates are prepared on `codex/android-webview-suite`, based on `2963ea9`. No production deployment, Play upload, policy submission or release was performed. Not fully Play-ready: compatible web rollout/production configuration and physical/internal-track end-to-end validation remain. Local real FCM delivery has now passed for all three debug apps; see the latest section below. The signed candidates were subsequently independently verified; see the latest signing verification section below.
 
 The original `C:/Web/burger-github` dirty main worktree was preserved. All work is isolated in `C:/Web/burger-webview`. No AGENTS.md was found. This report supersedes the phase-one limitations in `ANDROID-WEBVIEW-VALIDATION-2026-10-24.md`; the earlier viewport evidence remains relevant.
 
@@ -148,3 +148,29 @@ Claude subsequently produced the three signed candidates using its JDK_JAVA_OPTI
 | bb-schnell-v4-SIGNED.aab | PASS / MATCH | C3DB201B2034B4538836A0159B6E732DFE9590C2F5249C9016D3527793AD3CB1 |
 
 Directory: `mobile/android/webview-suite/build/play-candidates/`. Permanent toolchain fix: `1134b2c`. App source behavior is unchanged by that fix. This supersedes earlier unsigned-only/signing-blocker status; earlier entries describe the state at those points. Direct current-Console comparison, real FCM server delivery, compatible web rollout and physical/internal-track end-to-end gates remain outstanding. These signatures alone do not establish full release readiness. No production deployment or Play publication was performed.
+
+## Real local FCM delivery - 2026-10-25
+
+The user supplied a private service-account JSON file outside the repository. The local sender validated service_account type, project burger-brothers-android and the approved bb-fcm-sender service account. Its private key was read only into the local sender's memory to sign the OAuth assertion; no private-key contents, OAuth token or plaintext device token was logged, committed or embedded in an Android artifact. No production environment variable was changed.
+
+Using the actual `lib/server/fcm.ts` implementation, six real HTTP v1 messages were sent through Google FCM to the emulator's separate debug packages. Every send returned HTTP 200. Instrumentation independently checked the delivered notification title/body/channel, foreground native renderer versus Firebase background system-tray renderer, and notification PendingIntent returning to the correct package and first-party route.
+
+| Debug application | Foreground delivery + tap | Background delivery + tap |
+|---|---|---|
+| berlin.burgerbrothers.app.webviewdebug | PASS | PASS |
+| berlin.burgerbrothers.driver.webviewdebug | PASS | PASS |
+| berlin.burgerbrothers.schnell.webviewdebug | PASS | PASS |
+
+Device: BlueStacks Android 9 / API 28 emulator, not a physical phone or a Google Play installation. The foreground case uses the app's real FirebaseMessagingService; the background case uses the pinned Firebase SDK's notification renderer and launcher extras. German test content was explicitly labeled a local test with no order. No production subscription, customer campaign, real order, payment or Driver location upload was created.
+
+The emulator's run-as interface did not permit file access. The opt-in instrumentation instead obtains its own app's token through the Firebase SDK and encrypts it for an ephemeral host-owned RSA key using RSA-OAEP + AES-GCM. Only encrypted test status is transferred; the plaintext token is decrypted and used inside the local sender process. This uses no device-root or file-permission change. Ordinary connected tests skip this case unless the explicit live-test arguments are supplied.
+
+New reusable test sources:
+- `tools/test-native-fcm-delivery.cjs`: installs only the three fixed .webviewdebug packages, loads the external JSON only in memory, sends six test messages and writes a sanitized result report.
+- `app/src/androidTest/.../FcmDeliveryTest.java`: opt-in real receipt, channel, foreground/background route and notification-tap checks. No change to release application code was required.
+
+Final machine-readable evidence: `mobile/android/webview-suite/build/fcm-live-delivery.json` (ignored, contains only public test metadata and six PASS outcomes). Instrumentation APK compilation and Node syntax checks passed. The signed release AABs previously verified remain unchanged because this continuation added only test sources and documentation.
+
+This supersedes earlier missing-JSON/local-delivery blockers. Production FIREBASE_SERVICE_ACCOUNT_JSON, compatible web rollout, actual web API/subscription/queue integration on a controlled deployed environment, Android 13+ notification permission acceptance/denial and physical/internal-track checkout/Driver/QR flows remain to be validated before production publication. The old unused service-account key was not deleted; no production deployment or Play publication was performed.
+
+Technical references used for test expectations: https://firebase.google.com/docs/cloud-messaging/android/receive-messages and https://firebase.google.com/docs/cloud-messaging/send/v1-api .

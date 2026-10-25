@@ -40,7 +40,7 @@ The Gradle environment prefix uses `toUpperCase(Locale.ROOT)` so Turkish casing 
 
 Ignored `firebase-config.properties` contains public Android client configuration only: projectId, senderId, apiKey and customerAppId/driverAppId/schnellAppId. Release bundles fail validation if configuration or version codes are missing. Client API configuration is not a server credential.
 
-Server FCM uses `FIREBASE_SERVICE_ACCOUNT_JSON`. Keep its private key outside Git, APK/AAB, logs and chat. Only the FCM sender role is needed. No server credential or production environment variable has been installed by this change. A missing private-key download currently blocks end-to-end server delivery verification.
+Server FCM uses `FIREBASE_SERVICE_ACCOUNT_JSON`. Keep its private key outside Git, APK/AAB, logs and chat. Only the FCM sender role is needed. No server credential or production environment variable has been installed by this change. Local real sender-to-emulator delivery and notification-tap verification has passed for all three debug apps. The private JSON remains outside the repository; production configuration and deployed subscription/queue integration are separate release gates.
 
 Signing reads existing keystores from `%USERPROFILE%/BurgerBrothersKeys`; passwords are prompted with SecureString or supplied through `BB_CUSTOMER_KEYSTORE_PASSWORD`, `BB_DRIVER_KEYSTORE_PASSWORD`, `BB_SCHNELL_KEYSTORE_PASSWORD` and optional corresponding `KEY_PASSWORD` variables. The script restores temporary process variables. Do not put passwords in tracked files.
 
@@ -59,3 +59,15 @@ Signing reads existing keystores from `%USERPROFILE%/BurgerBrothersKeys`; passwo
 See repository root `ANDROID-WEBVIEW-VALIDATION-2026-10-25.md` and `PLAY-RELEASE-CHECKLIST.md`. Instrumentation XML and lint reports live in ignored `app/build/outputs/` and `app/build/reports/`. Debug APKs and unsigned AABs live in ignored `build/artifacts/`; signed candidates, if built, live in `build/play-candidates/`.
 
 No production deployment or Play release is performed by any of these scripts. A web deployment is required for the bridge-compatible frontend/API code, and a new Android AAB is required to replace the existing TWA binaries. Unsigned bundles are not upload-ready.
+
+## Opt-in real FCM delivery test
+
+From the repository root, after building the three debug APKs and AndroidTest APKs:
+
+```powershell
+node tools/test-native-fcm-delivery.cjs --service-account-file '<private JSON outside repository>' --adb '<Android SDK>/platform-tools/adb.exe' --serial '127.0.0.1:5555'
+```
+
+This deliberately sends six German test notifications (foreground/background per flavor) only to the fixed separate .webviewdebug applications. It verifies actual receipt, channel and notification tap, not merely HTTP acceptance. The service-account JSON is used only in the local sender process; no .env or production setting is written. Plaintext device tokens stay out of instrumentation/host logs and are transferred only in an ephemeral encrypted test envelope. The report at `build/fcm-live-delivery.json` is sanitized and ignored. No campaign, production subscription, real order/payment or location upload is created. The live instrumentation case is skipped during ordinary test runs unless its explicit live-test arguments are provided.
+
+A passing local emulator test does not replace testing the signed Play installation, Android 13+ permission flows, deployed web subscription/queue integration or physical-device behavior.
