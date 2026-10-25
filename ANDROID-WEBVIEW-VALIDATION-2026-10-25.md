@@ -2,7 +2,7 @@
 
 ## Release status
 
-Code and local test candidates are prepared on `codex/android-webview-suite`, based on `2963ea9`. No production deployment, Play upload, policy submission or release was performed. Not fully Play-ready: missing server credential delivery test, secure upload-key signing and physical/internal-track end-to-end validation remain.
+Code and local test candidates are prepared on `codex/android-webview-suite`, based on `2963ea9`. No production deployment, Play upload, policy submission or release was performed. Not fully Play-ready: missing server credential delivery test and physical/internal-track end-to-end validation remain. The signed candidates were subsequently independently verified; see the latest signing verification section below.
 
 The original `C:/Web/burger-github` dirty main worktree was preserved. All work is isolated in `C:/Web/burger-webview`. No AGENTS.md was found. This report supersedes the phase-one limitations in `ANDROID-WEBVIEW-VALIDATION-2026-10-24.md`; the earlier viewport evidence remains relevant.
 
@@ -136,3 +136,15 @@ After Claude's report, `app/build.gradle` now imports `java.util.Locale` and bui
 `Prepare-PlayRelease.ps1` now calls `JdkTools.ps1` to capture keytool/jarsigner diagnostics without Windows PowerShell 5.1 treating stderr notices as terminating NativeCommandError. Native exit codes and certificate/signature matching remain mandatory; the final printcert exit code is now checked too. The helper temporarily scopes ErrorActionPreference and restores it. A real JDK-tool regression under Windows PowerShell 5.1 passed with a harmless JAVA_TOOL_OPTIONS fixture: both keytool/jarsigner help commands emitted their stderr startup notice and returned success; an invalid keytool command retained a failing exit code. No private key, password, actual signing, deployment or Play upload was involved in these tests.
 
 New regressions: `mobile/android/webview-suite/tests/signing-locale.ps1` and `tests/jdk-tool-output.ps1`. Existing certificates, keystore aliases and app/rotation signing identities are unchanged. These fixes remove toolchain blockers; they do not prove that final signed AABs or real FCM delivery have been completed.
+
+## Latest signed-candidate verification
+
+Claude subsequently produced the three signed candidates using its JDK_JAVA_OPTIONS workaround, before the permanent locale/tool-output fix. Codex independently read these existing files with jarsigner/keytool through the new helper. Every file returned a successful signature verification and matched its exact upload SHA-256 in `play-release-plan.json`. No signing or upload was performed by this verification.
+
+| Candidate | Signature / planned upload certificate | File SHA-256 |
+|---|---|---|
+| bb-customer-v7-SIGNED.aab | PASS / MATCH | 119D9D357BA4C779FC4AAC0374CE343AC68552706CA33FFD830F3F4B250796DB |
+| bb-driver-v2-SIGNED.aab | PASS / MATCH | 95A9B1B174E13E3A18C15BD67FD7D6DC26BEA4FA96DCCF6D6A1FFCF2155847F1 |
+| bb-schnell-v4-SIGNED.aab | PASS / MATCH | C3DB201B2034B4538836A0159B6E732DFE9590C2F5249C9016D3527793AD3CB1 |
+
+Directory: `mobile/android/webview-suite/build/play-candidates/`. Permanent toolchain fix: `1134b2c`. App source behavior is unchanged by that fix. This supersedes earlier unsigned-only/signing-blocker status; earlier entries describe the state at those points. Direct current-Console comparison, real FCM server delivery, compatible web rollout and physical/internal-track end-to-end gates remain outstanding. These signatures alone do not establish full release readiness. No production deployment or Play publication was performed.
