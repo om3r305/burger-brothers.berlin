@@ -120,3 +120,11 @@ Six new connected cases run on actual Android Activity/WebView instances using a
 `Prepare-PlayRelease.ps1 -Unsigned` rebuilt/refreshed the final ignored artifact directory and versioned candidates: bb-customer-v7-UNSIGNED.aab, bb-driver-v2-UNSIGNED.aab, bb-schnell-v4-UNSIGNED.aab. These are not signed/upload-ready. Connected XML and `build/final-connected-tests.log`, `build/final-web-build.log`, `build/final-candidates.log` contain local evidence.
 
 Claude is responsible for the remaining Firebase download/metadata validation and secure local signing handoff. Missing private JSON, secure password entry and real-device/internal-track validation remain release gates; delegation does not establish that these steps succeeded. Existing business settings and live payment configuration were preserved.
+
+## Claude final review and signing blocker
+
+Claude received commit `f8e2345`, reviewed the final server-confirmed recovery change and reported no remaining critical code finding. The valid still-open-payment resume remains intentional duplicate-order protection; real provider/physical-device release tests remain outstanding.
+
+Claude attempted to start the prepared signing command in its user-visible terminal. Its tool returned Blocked; Claude reported that its automatic security review treated this as release preparation and rejected command startup. No signed candidate was produced. Codex did not retry that blocked action through another surface. The three final files remain explicitly named UNSIGNED. Firebase private JSON and secure local password entry remain missing. The user-owned secure handoff was described in Claude's session; no password or private-key content was requested in chat.
+
+The latest inspected artifact directory contains only bb-customer-v7-UNSIGNED.aab, bb-driver-v2-UNSIGNED.aab and bb-schnell-v4-UNSIGNED.aab. No deployment or Play publication occurred. Code/test completion does not mean the complete release gates have passed.
