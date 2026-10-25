@@ -1,4 +1,5 @@
 import { prisma, getTenantId } from "@/lib/db";
+import { orderAssignedToDriver } from "@/lib/server/driver-order";
 import {
   enforceRateLimit,
   getSessionSubject,
@@ -8,11 +9,6 @@ import {
 } from "@/lib/server/request-security";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-function assignedDriver(row: any) {
-  return String(
-    row.driver?.id ?? row.meta?.driver?.id ?? row.meta?.driverId ?? "",
-  );
-}
 export async function GET(req: Request) {
   const denied = await requireSessionRole(req, "driver");
   if (denied) return denied;
@@ -24,6 +20,7 @@ export async function GET(req: Request) {
   );
   if (limited) return limited;
   const driverId = await getSessionSubject(req, "driver");
+  if (!driverId) return securityJson({ ok: false }, 401);
   const tenantId = await getTenantId();
   const orders = await prisma.order.findMany({
     where: { tenantId, mode: "delivery", status: "out_for_delivery" },
@@ -31,7 +28,7 @@ export async function GET(req: Request) {
     take: 200,
   });
   const orderIds = orders
-    .filter((row) => assignedDriver(row) === driverId)
+    .filter((row) => orderAssignedToDriver(row, driverId))
     .map((row) => row.id)
     .slice(0, 20);
   return securityJson({ ok: true, driverId, orderIds });
@@ -46,6 +43,7 @@ export async function POST(req: Request) {
     return securityJson({ ok: false, error: "stop_only" }, 400);
   const tenantId = await getTenantId();
   const driverId = await getSessionSubject(req, "driver");
+  if (!driverId) return securityJson({ ok: false }, 401);
   await prisma.trackingSession.updateMany({
     where: { tenantId, driverId, active: true },
     data: { active: false },

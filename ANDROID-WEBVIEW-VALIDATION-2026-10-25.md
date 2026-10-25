@@ -78,3 +78,14 @@ Both a web rollout and new Android AAB updates are required for the complete cha
 - Secure signing instructions and German draft release notes: `mobile/android/webview-suite/README.md`, `PLAY-RELEASE-CHECKLIST.md`.
 
 Technical references: https://firebase.google.com/support/privacy and https://developer.android.com/develop/background-work/services/fgs/service-types#location . These support the technical disclosure/design; no claim of completed legal compliance is made.
+
+## Independent Claude review - 2026-10-25
+
+At the user's explicit request, Codex contacted the already open Burger Brothers Claude Code session through its desktop UI. Shared only repository paths, public app/service-account identifiers, test status and review questions; no private keys, passwords or FCM tokens. Claude confirmed it did not edit either worktree and has no local FCM JSON.
+
+- Payment/3DS external-browser return remains a valid release gate. No payment-provider domains were added to the privileged native bridge trust list.
+- Suggested customer App Links collision was checked against the customer manifest overlay: `app/src/customer/AndroidManifest.xml` replaces the shared alias with exact root plus explicit customer prefixes. Compiled-manifest smoke already passed; the proposed root-prefix collision does not apply to that merged release manifest.
+- Driver empty-subject access already fails closed in the authenticated session validator. Added an explicit 401 guard in both native route handlers as defense in depth and reused the shared `orderAssignedToDriver` domain helper. New empty-subject GET/POST regressions, `npm run native-android:test` and `npm run typecheck` passed after this change.
+- Native modal back behavior currently uses German close-button text and an Escape fallback. The reviewer correctly identified text coupling as a maintainability limitation; no claim of universal modal-back coverage is made.
+
+Findings and corrections were sent back to Claude through the same session. No production or Play publication was authorized by the review exchange.

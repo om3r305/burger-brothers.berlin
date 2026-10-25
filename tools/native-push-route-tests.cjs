@@ -11,7 +11,8 @@ const db={pushSubscription:{upsert:async input=>{mutations.push(input);return {i
 const database={prisma:db,getTenantId:async()=>"tenant-1"};
 const session={readSessionToken:async()=>({sub:credentialDriver,credential:"credential-version-hash",exp:Math.floor(Date.now()/1000)+3600})};
 const driverPushRoute=load("app/api/native/driver/push/route.ts",{"@/lib/db":database,"@/lib/server/fcm":{...fcm,isFcmConfigured:()=>true},"@/lib/server/native-driver-push":{DRIVER_PUSH_SCOPE:"driver_app",newDriverDeviceHash:()=>"opaque-device-hash"},"@/lib/server/session":session,"@/lib/server/request-security":security});
-const route=load("app/api/native/driver/route/route.ts",{"@/lib/db":database,"@/lib/server/request-security":security});
+const driverDomain=load("lib/server/driver-order.ts",{});
+const route=load("app/api/native/driver/route/route.ts",{"@/lib/db":database,"@/lib/server/request-security":security,"@/lib/server/driver-order":driverDomain});
 function req(body,role="driver",requestOrigin=origin,method="POST"){return new Request(origin+"/api/native/driver/push",{method,headers:{origin:requestOrigin,"x-fixture-role":role,"content-type":"application/json"},...(method==="GET"?{}:{body:JSON.stringify(body)})});}
 (async()=>{
   assert.equal((await driverPushRoute.POST(req({token},"customer"))).status,401);assert.equal(mutations.length,0);
@@ -21,6 +22,7 @@ function req(body,role="driver",requestOrigin=origin,method="POST"){return new R
   assert.equal((await driverPushRoute.POST(req({token,driverId:"attacker",appScope:"customer_app"}))).status,200);
   let saved=mutations.pop();assert.equal(saved.create.deviceId,"driver-1");assert.equal(saved.create.tenantId,"tenant-1");assert.equal(saved.create.appScope,"driver_app");assert.equal(saved.create.endpoint,fcm.fcmEndpointForToken(token,"driver"));assert.equal(saved.create.auth,"credential-version-hash");assert.ok(saved.create.expirationTime>Date.now());
   assert.equal((await driverPushRoute.DELETE(req({token,driverId:"attacker"}))).status,200);saved=mutations.pop();assert.equal(saved.where.deviceId,"driver-1");assert.equal(saved.where.appScope,"driver_app");
+  signedDriver="";assert.equal((await route.GET(req(null,"driver",origin,"GET"))).status,401);assert.equal((await route.POST(req({active:false}))).status,401);assert.equal(mutations.length,0);signedDriver="driver-1";
   const response=await route.GET(req(null,"driver",origin,"GET"));const data=await response.json();assert.deepEqual(data.orderIds,["own"]);assert.equal(data.driverId,"driver-1");assert.equal("customer" in data,false);
   assert.equal((await route.POST(req({active:true}))).status,400);assert.equal(mutations.length,0);
   assert.equal((await route.POST(req({active:false,driverId:"attacker"}))).status,200);saved=mutations.pop();assert.equal(saved.where.driverId,"driver-1");assert.equal(saved.where.tenantId,"tenant-1");assert.equal(saved.data.active,false);
