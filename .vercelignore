@@ -1,0 +1,13 @@
+# Only the web application belongs in the deployment source upload.
+/mobile/
+/.git/
+/.next/
+/node_modules/
+/.env*
+**/*.keystore
+**/*.jks
+**/firebase-config.properties
+**/local.properties
+**/google-services.json
+**/.env*
+/_bb_hotfix_backups/
