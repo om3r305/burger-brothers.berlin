@@ -25,6 +25,17 @@ Requires JDK 17, Android SDK platform 36, PowerShell and Node dependencies insta
 
 `Prepare-PlayRelease.ps1` keeps package IDs, existing upload keystores and aliases. It checks certificate fingerprints against `play-release-plan.json`, verifies signed AABs, and never generates keys or uploads. Version codes were observed in Play on 2026-10-25; recheck immediately before upload. Upload SHA values are independently extracted from existing local signed AABs; compare with current Play upload certificates before submission. Upload keys and Play app-signing/rotation keys are distinct. Production assetlinks were not modified.
 
+## Signing regressions
+
+```powershell
+# Windows PowerShell 5.1: real JDK stderr notices and nonzero exit codes, no keys:
+powershell.exe -NoProfile -File ./tests/jdk-tool-output.ps1 -JavaHome '<JDK17>'
+# Actual Gradle signing configuration under en_US and tr_TR, dummy env values only:
+powershell.exe -NoProfile -File ./tests/signing-locale.ps1 -JavaHome '<JDK17>'
+```
+
+The Gradle environment prefix uses `toUpperCase(Locale.ROOT)` so Turkish casing cannot turn DRIVER into a different environment variable name. No JAVA_TOOL_OPTIONS/JDK_JAVA_OPTIONS locale workaround is required. JDK tool diagnostics are captured locally and their exit codes are checked before certificate/signature validation. A benign stderr notice does not count as failure; a nonzero native exit still stops release preparation. The regression restores its temporary environment values and never reads a keystore, signs a bundle or uploads anything.
+
 ## Local configuration and secrets
 
 Ignored `firebase-config.properties` contains public Android client configuration only: projectId, senderId, apiKey and customerAppId/driverAppId/schnellAppId. Release bundles fail validation if configuration or version codes are missing. Client API configuration is not a server credential.

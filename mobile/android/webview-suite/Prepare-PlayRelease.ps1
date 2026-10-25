@@ -5,6 +5,7 @@ param(
     [switch]$Unsigned
 )
 $ErrorActionPreference='Stop'
+. (Join-Path $PSScriptRoot 'JdkTools.ps1')
 $plan=Get-Content -LiteralPath (Join-Path $PSScriptRoot 'play-release-plan.json') -Raw | ConvertFrom-Json
 $previous=@{}
 function Set-TemporaryEnvironment([string]$Name,[string]$Value){
@@ -33,9 +34,9 @@ try {
             Set-TemporaryEnvironment ($prefix+'KEY_ALIAS') $app.keyAlias
             Set-TemporaryEnvironment ($prefix+'KEYSTORE_PASSWORD') $storePassword
             Set-TemporaryEnvironment ($prefix+'KEY_PASSWORD') $keyPassword
-            $certificate=& "$JavaHome/bin/keytool.exe" '-J-Duser.language=en' -list -v -keystore $store -alias $app.keyAlias -storepass:env ($prefix+'KEYSTORE_PASSWORD') 2>&1
-            if($LASTEXITCODE -ne 0){throw "Could not unlock $kind upload keystore."}
-            $match=[regex]::Match(($certificate|Out-String),'SHA256:\s*([0-9A-Fa-f:]{95})')
+            $certificate=Invoke-AndroidJdkTool -Executable "$JavaHome/bin/keytool.exe" -Arguments @('-J-Duser.language=en','-list','-v','-keystore',$store,'-alias',$app.keyAlias,'-storepass:env',($prefix+'KEYSTORE_PASSWORD'))
+            if($certificate.ExitCode -ne 0){throw "Could not unlock $kind upload keystore."}
+            $match=[regex]::Match($certificate.Output,'SHA256:\s*([0-9A-Fa-f:]{95})')
             if(-not $match.Success -or $match.Groups[1].Value.ToUpperInvariant() -ne $app.uploadSha256){throw "Upload certificate mismatch: $kind. Signing stopped."}
             $storePassword=$null;$keyPassword=$null;$certificate=$null
         }
@@ -55,10 +56,10 @@ try {
         $target=Join-Path $destination ("bb-$kind-v$($app.candidateVersionCode)-$suffix.aab")
         Copy-Item -LiteralPath $source -Destination $target
         if(-not $Unsigned){
-            $verify=& "$JavaHome/bin/jarsigner.exe" '-J-Duser.language=en' -verify $target 2>&1
-            if($LASTEXITCODE -ne 0 -or ($verify|Out-String) -notmatch 'jar verified'){throw "Signature verification failed: $kind"}
-            $certificate=& "$JavaHome/bin/keytool.exe" '-J-Duser.language=en' -printcert -jarfile $target 2>&1
-            if(($certificate|Out-String) -notmatch [regex]::Escape($app.uploadSha256)){throw "AAB upload certificate mismatch: $kind"}
+            $verify=Invoke-AndroidJdkTool -Executable "$JavaHome/bin/jarsigner.exe" -Arguments @('-J-Duser.language=en','-verify',$target)
+            if($verify.ExitCode -ne 0 -or $verify.Output -notmatch 'jar verified'){throw "Signature verification failed: $kind"}
+            $certificate=Invoke-AndroidJdkTool -Executable "$JavaHome/bin/keytool.exe" -Arguments @('-J-Duser.language=en','-printcert','-jarfile',$target)
+            if($certificate.ExitCode -ne 0 -or $certificate.Output -notmatch [regex]::Escape($app.uploadSha256)){throw "AAB upload certificate mismatch: $kind"}
         }
         Get-FileHash -LiteralPath $target -Algorithm SHA256
     }

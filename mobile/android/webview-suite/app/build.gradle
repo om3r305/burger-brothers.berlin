@@ -1,3 +1,4 @@
+import java.util.Locale
 import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
 plugins { id 'com.android.application' }
@@ -26,7 +27,7 @@ android {
     signingConfigs {
         if (signRelease) {
             ['customer','driver','schnell'].each { kind ->
-                def prefix = 'BB_' + kind.toUpperCase() + '_'
+                def prefix = 'BB_' + kind.toUpperCase(Locale.ROOT) + '_'
                 ['KEYSTORE_PATH','KEY_ALIAS','KEYSTORE_PASSWORD','KEY_PASSWORD'].each { suffix ->
                     if (!System.getenv(prefix+suffix)) throw new GradleException('Missing signing environment for '+kind)
                 }
