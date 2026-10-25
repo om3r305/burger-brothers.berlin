@@ -45,6 +45,19 @@ public final class MainActivity extends Activity {
     private ValueCallback<Uri[]> fileCallback;
     private String lastTrustedUrl = BuildConfig.START_URL;
     private boolean backPending;
+    boolean resumed;
+    private NativeBridge nativeBridge;
+    private final android.content.BroadcastReceiver trackingReceiver = new android.content.BroadcastReceiver() {
+        @Override public void onReceive(android.content.Context context,Intent intent) {
+            if(!NavigationPolicy.trusted(web.getUrl()))return;
+            try {
+                org.json.JSONObject value=new org.json.JSONObject().put("status",intent.getStringExtra("status")).put("active",intent.getBooleanExtra("active",false));
+                if(intent.hasExtra("lat"))value.put("position",new org.json.JSONObject().put("lat",intent.getDoubleExtra("lat",0)).put("lng",intent.getDoubleExtra("lng",0)).put("ts",intent.getLongExtra("ts",0)));
+                if(intent.hasExtra("message"))value.put("message",intent.getStringExtra("message"));
+                web.evaluateJavascript("window.dispatchEvent(new CustomEvent('bb:nativeTracking',{detail:"+value+"}))",null);
+            }catch(Exception ignored){}
+        }
+    };
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -95,9 +108,13 @@ public final class MainActivity extends Activity {
         settings.setUserAgentString(settings.getUserAgentString() + " BurgerBrothers-Android/" + BuildConfig.APP_KIND);
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, false);
+        nativeBridge = new NativeBridge(this,web);
+        android.content.IntentFilter trackingFilter=new android.content.IntentFilter("berlin.burgerbrothers.TRACKING_STATE");
+        androidx.core.content.ContextCompat.registerReceiver(this,trackingReceiver,trackingFilter,androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED);
         web.setWebViewClient(new SiteClient());
         web.setWebChromeClient(new SiteChrome());
         String incoming = getIntent().getDataString();
+        if (incoming == null && getIntent().hasExtra("url")) incoming = Notifications.safeUrl(getIntent().getStringExtra("url"));
         if (incoming != null && NavigationPolicy.trusted(incoming)) loadTrusted(incoming);
         else if (state == null || web.restoreState(state) == null || !NavigationPolicy.trusted(web.getUrl())) loadTrusted(BuildConfig.START_URL);
     }
@@ -114,6 +131,7 @@ public final class MainActivity extends Activity {
         super.onNewIntent(intent);
         setIntent(intent);
         String url = intent.getDataString();
+        if(url == null && intent.hasExtra("url"))url = Notifications.safeUrl(intent.getStringExtra("url"));
         if (NavigationPolicy.trusted(url)) loadTrusted(url);
     }
 
@@ -149,7 +167,7 @@ public final class MainActivity extends Activity {
             lastTrustedUrl = url;
             progress.setVisibility(View.VISIBLE);
         }
-        @Override public void onPageFinished(WebView view, String url) { CookieManager.getInstance().flush(); }
+        @Override public void onPageFinished(WebView view, String url) { CookieManager.getInstance().flush(); nativeBridge.publishState(); }
         @Override public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
             if (request.isForMainFrame()) showError("Die Seite konnte nicht geladen werden. Bitte prüfen Sie Ihre Internetverbindung.");
         }
@@ -224,6 +242,8 @@ public final class MainActivity extends Activity {
     }
     @Override public void onRequestPermissionsResult(int code, String[] permissions, int[] results) {
         super.onRequestPermissionsResult(code, permissions, results);
+        if(code == NativeBridge.NOTIFICATIONS) nativeBridge.notificationResult();
+        if(code == NativeBridge.TRACKING_LOCATION) nativeBridge.locationResult();
         if (code == CAMERA && cameraRequest != null) {
             if (NavigationPolicy.trusted(web.getUrl()) && checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) cameraRequest.grant(new String[]{PermissionRequest.RESOURCE_VIDEO_CAPTURE});
             else cameraRequest.deny();
@@ -260,12 +280,13 @@ public final class MainActivity extends Activity {
     }
     @Override public void onBackPressed() { handleBack(); }
     @Override protected void onSaveInstanceState(Bundle out) { web.saveState(out); super.onSaveInstanceState(out); }
-    @Override protected void onPause() { web.onPause(); CookieManager.getInstance().flush(); super.onPause(); }
-    @Override protected void onResume() { super.onResume(); if (web != null) web.onResume(); }
+    @Override protected void onPause() { resumed=false; web.onPause(); CookieManager.getInstance().flush(); super.onPause(); }
+    @Override protected void onResume() { super.onResume(); resumed=true; if (web != null) {web.onResume(); if(nativeBridge!=null)nativeBridge.publishState();} }
     @Override protected void onDestroy() {
         if (cameraRequest != null) cameraRequest.deny();
         if (locationCallback != null) locationCallback.invoke(locationOrigin, false, false);
         if (fileCallback != null) fileCallback.onReceiveValue(null);
+        unregisterReceiver(trackingReceiver);
         web.stopLoading(); web.destroy();
         super.onDestroy();
     }

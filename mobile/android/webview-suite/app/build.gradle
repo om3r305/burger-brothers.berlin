@@ -1,19 +1,50 @@
+import groovy.json.JsonOutput
+import groovy.json.JsonSlurper
 plugins { id 'com.android.application' }
 
+def firebaseConfig = new Properties()
+def firebaseFile = rootProject.file('firebase-config.properties')
+if (firebaseFile.exists()) firebaseFile.withInputStream { firebaseConfig.load(it) }
+
+def releasePlan = new JsonSlurper().parse(rootProject.file('play-release-plan.json'))
+def signRelease = project.findProperty('bbSignRelease') == 'true'
 android {
     namespace 'berlin.burgerbrothers.shell'
     compileSdk 36
     defaultConfig {
         minSdk 26
         targetSdk 36
+        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
+        buildConfigField 'String', 'FIREBASE_PROJECT', JsonOutput.toJson(firebaseConfig.getProperty('projectId',''))
+        buildConfigField 'String', 'FIREBASE_SENDER', JsonOutput.toJson(firebaseConfig.getProperty('senderId',''))
+        buildConfigField 'String', 'FIREBASE_API_KEY', JsonOutput.toJson(firebaseConfig.getProperty('apiKey',''))
         versionCode = (project.findProperty('bbVersionCode') ?: '1').toString().toInteger()
-        versionName = (project.findProperty('bbVersionName') ?: '1.1.0').toString()
+        versionName = (project.findProperty('bbVersionName') ?: releasePlan.versionName).toString()
     }
     buildFeatures { buildConfig true }
     compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+    signingConfigs {
+        if (signRelease) {
+            ['customer','driver','schnell'].each { kind ->
+                def prefix = 'BB_' + kind.toUpperCase() + '_'
+                ['KEYSTORE_PATH','KEY_ALIAS','KEYSTORE_PASSWORD','KEY_PASSWORD'].each { suffix ->
+                    if (!System.getenv(prefix+suffix)) throw new GradleException('Missing signing environment for '+kind)
+                }
+                create(kind+'Play') {
+                    storeFile file(System.getenv(prefix+'KEYSTORE_PATH'))
+                    keyAlias System.getenv(prefix+'KEY_ALIAS')
+                    storePassword System.getenv(prefix+'KEYSTORE_PASSWORD')
+                    keyPassword System.getenv(prefix+'KEY_PASSWORD')
+                }
+            }
+        }
+    }
     flavorDimensions += 'application'
     productFlavors {
         customer {
+            versionCode = (project.findProperty('bbCustomerVersionCode') ?: releasePlan.applications.customer.candidateVersionCode).toString().toInteger()
+            if (signRelease) signingConfig signingConfigs.customerPlay
+            buildConfigField 'String', 'FIREBASE_APP_ID', JsonOutput.toJson(firebaseConfig.getProperty('customerAppId',''))
             dimension 'application'
             applicationId 'berlin.burgerbrothers.app'
             resValue 'string', 'app_name', 'Burger Brothers Berlin'
@@ -23,6 +54,9 @@ android {
             buildConfigField 'String', 'START_URL', '"https://www.burger-brothers.berlin/?source=android-webview"'
         }
         driver {
+            versionCode = (project.findProperty('bbDriverVersionCode') ?: releasePlan.applications.driver.candidateVersionCode).toString().toInteger()
+            if (signRelease) signingConfig signingConfigs.driverPlay
+            buildConfigField 'String', 'FIREBASE_APP_ID', JsonOutput.toJson(firebaseConfig.getProperty('driverAppId',''))
             dimension 'application'
             applicationId 'berlin.burgerbrothers.driver'
             resValue 'string', 'app_name', 'BB Driver'
@@ -32,6 +66,9 @@ android {
             buildConfigField 'String', 'START_URL', '"https://www.burger-brothers.berlin/driver?source=android-webview"'
         }
         schnell {
+            versionCode = (project.findProperty('bbSchnellVersionCode') ?: releasePlan.applications.schnell.candidateVersionCode).toString().toInteger()
+            if (signRelease) signingConfig signingConfigs.schnellPlay
+            buildConfigField 'String', 'FIREBASE_APP_ID', JsonOutput.toJson(firebaseConfig.getProperty('schnellAppId',''))
             dimension 'application'
             applicationId 'berlin.burgerbrothers.schnell'
             resValue 'string', 'app_name', 'BB Schnell'
@@ -53,4 +90,29 @@ android {
             manifestPlaceholders = [deepLinksEnabled:'true']
         }
     }
+}
+
+
+dependencies {
+    implementation 'androidx.core:core:1.15.0'
+    implementation 'androidx.webkit:webkit:1.14.0'
+    implementation platform('com.google.firebase:firebase-bom:34.0.0')
+    implementation 'com.google.firebase:firebase-messaging'
+    androidTestImplementation 'androidx.test:runner:1.6.2'
+    androidTestImplementation 'androidx.test.ext:junit:1.2.1'
+}
+
+
+tasks.register('validateNativeReleaseConfig') {
+    doLast {
+        ['projectId','senderId','apiKey','customerAppId','driverAppId','schnellAppId'].each { field ->
+            if (!firebaseConfig.getProperty(field)) throw new GradleException('Firebase client config missing: '+field)
+        }
+        releasePlan.applications.each { kind, app ->
+            if (app.candidateVersionCode <= app.observedMaxVersionCode) throw new GradleException('Release versionCode must exceed observed Play code: '+kind)
+        }
+    }
+}
+tasks.configureEach { task ->
+    if (task.name ==~ /bundle(Customer|Driver|Schnell)Release/) task.dependsOn('validateNativeReleaseConfig')
 }

@@ -2,6 +2,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import NativeDriverNotifications from "@/components/driver/NativeDriverNotifications";
 import DriverLiveTracker from "@/components/DriverLiveTracker";
 import { DriverCompletionToast } from "@/components/driver/DriverCompletionToast";
 import { DriverConfirmDialog } from "@/components/driver/DriverConfirmDialog";
@@ -365,6 +366,7 @@ export default function DriverPage() {
       onTouchEnd={pull.onPullEnd}
       onTouchCancel={pull.onPullEnd}
     >
+      {auth.current && <NativeDriverNotifications driverId={String(auth.current.id)} />}
       <DriverLiveTracker
         active={liveTrackingActive}
         driver={auth.current}

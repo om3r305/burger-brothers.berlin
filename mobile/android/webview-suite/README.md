@@ -1,72 +1,48 @@
-# Android WebView suite — test candidate
+# Android WebView suite
 
-This is a native Activity + Android System WebView replacement candidate for the current Bubblewrap/TWA apps. There is no Chrome Custom Tab/TWA launch path, browser toolbar, translation UI, or "Running in Chrome" disclosure in the embedded first-party page. Android status/navigation bars still belong to the OS. External links/payment providers intentionally open the system browser; their return flow is not yet release-verified.
+Native Activity + Android System WebView for the three existing applications. The embedded first-party page has no Chrome toolbar, translation prompt or Running in Chrome disclosure. Android system bars remain visible as appropriate. External payment/login links open the browser; physical-device return-flow validation remains required.
 
-## Applications
-
-| Flavor | Existing release ID | Debug test ID | Start path |
+| Flavor | Release application ID | Candidate version | Start path |
 |---|---|---|---|
-| customer | berlin.burgerbrothers.app | berlin.burgerbrothers.app.webviewdebug | / |
-| driver | berlin.burgerbrothers.driver | berlin.burgerbrothers.driver.webviewdebug | /driver |
-| schnell | berlin.burgerbrothers.schnell | berlin.burgerbrothers.schnell.webviewdebug | /schnellbestellung/enter?homescreen=1 |
+| customer | berlin.burgerbrothers.app | 1.1.0 (7) | / |
+| driver | berlin.burgerbrothers.driver | 1.1.0 (2) | /driver |
+| schnell | berlin.burgerbrothers.schnell | 1.1.0 (4) | /schnellbestellung/enter?homescreen=1 |
 
-Debug apps are separate installations with production App Links disabled. They do not overwrite the Play apps, certificates, cookies, or cart. WebView cookies do not migrate from Chrome. Driver requires a fresh login. Customer App Links exclude Driver/Schnell paths; shared payment return routing between multiple installed apps remains a release validation item.
+Debug IDs append `.webviewdebug` and disable production App Links. They do not overwrite Play installations. WebView does not inherit Chrome cookies; users must log in again.
 
-## Build and tests (Windows)
+## Build
 
-Requirements: JDK 17, Android SDK platform 36, compatible build-tools, PowerShell, Node 22 for optional DevTools tests. The pinned Gradle wrapper uses AGP 8.9.1. No Kotlin/AndroidX or third-party native bridge dependency.
-
-```powershell
-./Build.ps1 -JavaHome '<JDK 17 directory>' -AndroidSdk '<Android SDK directory>'
-# Optional unsigned compile candidates (NOT Play-ready):
-./Build.ps1 -JavaHome '<JDK 17 directory>' -AndroidSdk '<Android SDK directory>' -UnsignedBundles
-./Test.ps1 -JavaHome '<JDK 17 directory>'
-./tests/artifact-smoke.ps1 -Release
-```
-
-From repository root:
+Requires JDK 17, Android SDK platform 36, PowerShell and Node dependencies installed at repository root. Gradle 8.11.1 / AGP 8.9.1 / AndroidX WebKit 1.14.0 / Firebase Messaging BOM 34.0.0.
 
 ```powershell
-npm ci --include=dev
-npm run native-android:test
-npm run mobile-dialog:test
-npm run checkout:safety:test
-npm run schnell:test
-npm run prisma:generate
-npm run typecheck
-npm run build
+./Build.ps1 -JavaHome '<JDK17>' -AndroidSdk '<AndroidSDK>' -UnsignedBundles
+./gradlew.bat connectedCustomerDebugAndroidTest connectedDriverDebugAndroidTest connectedSchnellDebugAndroidTest
+# Verify existing keystores; prompt securely for passwords, never in chat:
+./Prepare-PlayRelease.ps1 -JavaHome '<JDK17>' -AndroidSdk '<AndroidSDK>'
+# Without signing:
+./Prepare-PlayRelease.ps1 -JavaHome '<JDK17>' -AndroidSdk '<AndroidSDK>' -Unsigned
 ```
 
-`Build.ps1` builds and lints all three debug variants, runs JVM navigation regression tests, validates merged manifest isolation, and copies debug APKs to ignored `build/artifacts/`. The optional AABs are UNSIGNED with placeholder versionCode 1. Never upload these directly to Play. The task name `sign...ReleaseBundle` in Gradle does not imply that a signing configuration exists.
+`Prepare-PlayRelease.ps1` keeps package IDs, existing upload keystores and aliases. It checks certificate fingerprints against `play-release-plan.json`, verifies signed AABs, and never generates keys or uploads. Version codes were observed in Play on 2026-10-25; recheck immediately before upload. Upload SHA values are independently extracted from existing local signed AABs; compare with current Play upload certificates before submission. Upload keys and Play app-signing/rotation keys are distinct. Production assetlinks were not modified.
 
-## Native behavior and security
+## Local configuration and secrets
 
-- Exact HTTPS host allowlist for both site hosts, no cleartext/mixed content, file access/content access disabled, no JavaScript bridge; SSL errors are cancelled.
-- JavaScript/DOM storage enabled for the existing Next.js application. User-agent app markers only control installation UX and never authorize server access.
-- Insets reserve Android status/navigation/cutout and IME space; normal keyboard resizing on older Android versions.
-- Back closes known German dialog controls, otherwise navigates WebView history/finishes the Activity. Only debug builds expose WebView DevTools.
-- Contextual camera and foreground location permission requests are restricted to trusted documents/origins. No microphone or background location permission.
-- External HTTPS, tel/mail/geo use Android handlers; unsupported schemes including intent/file/data/javascript are blocked. File picker accepts content URIs only.
-- German retry UI; no SSL bypass or automatic retry of a POST submission.
+Ignored `firebase-config.properties` contains public Android client configuration only: projectId, senderId, apiKey and customerAppId/driverAppId/schnellAppId. Release bundles fail validation if configuration or version codes are missing. Client API configuration is not a server credential.
 
-## Release blockers — do not treat as a finished migration
+Server FCM uses `FIREBASE_SERVICE_ACCOUNT_JSON`. Keep its private key outside Git, APK/AAB, logs and chat. Only the FCM sender role is needed. No server credential or production environment variable has been installed by this change. A missing private-key download currently blocks end-to-end server delivery verification.
 
-1. Android WebView does not provide the existing Web Push experience. Native notification registration/delivery/open handling is not implemented. Existing iOS APNs support is not an Android push implementation. Driver/background/ready-notification requirements must be established and preserved before replacing the Play apps.
-2. Deploy and verify the branch's web compatibility changes in a suitable environment before releasing the apps. The current live Schnell page still redirects the WebView to its installation page; the branch adds native detection to entry, client, and installation paths. End-to-end Schnell access/QR/geolocation is not verified.
-3. Foreground camera/location permission denial, QR scan, login/session persistence, process recreation, payment/3DS return and app selection across all three packages require device testing. Driver background location/service behavior is not implemented by this shell.
-4. Orders were paused on the live site during testing. No restaurant settings were changed. Full Abholung/Lieferung/address/phone/checkout/payment flow was not exercised; no order or payment was created.
-5. A physical device/Google Play installation of these new builds has not been tested. BlueStacks Android 13 testing is emulator evidence only. An initial BlueStacks hardware renderer crash (`libhwui`, `!grContext.get()`) occurred; a subsequent start rendered successfully. Do not call this a clean cold-start stability pass.
-6. Before a release: fetch current Play version codes, choose higher per-app codes, use the established upload signing configuration securely, retain current Play app-signing/rotation fingerprints in assetlinks, and test an internal Play track with the actual Play signing certificates. This project does not read/change signing keys or assetlinks. Never add debug certificates to production assetlinks.
+Signing reads existing keystores from `%USERPROFILE%/BurgerBrothersKeys`; passwords are prompted with SecureString or supplied through `BB_CUSTOMER_KEYSTORE_PASSWORD`, `BB_DRIVER_KEYSTORE_PASSWORD`, `BB_SCHNELL_KEYSTORE_PASSWORD` and optional corresponding `KEY_PASSWORD` variables. The script restores temporary process variables. Do not put passwords in tracked files.
 
-## Optional emulator layout evidence
+## Behavior and security
 
-Connect an authorized emulator, launch a debug app, forward its `webview_devtools_remote_<pid>` socket to localhost:9223, then:
+- Exact HTTPS bare/www origins only; main-frame WebMessage bridge, no addJavascriptInterface. Notification URLs are constrained to the correct app route. Invalid or external links cannot execute native actions.
+- FCM notification permission and token refresh supported for all three flavors. Customer, authenticated Driver and order-bound Schnell subscriptions are separated. Operational notifications do not enter customer marketing campaigns. Transient deliveries remain queued for the existing protected notification cron; revoked/expired sessions and stale orders are rechecked.
+- Schnell entry, installation page and menu all recognize the native app. Ordinary Android browsers retain their installation flow. Browser fixtures test this; live code still requires deployment.
+- Driver starts a location foreground service only after visible user consent and runtime permission, for assigned active deliveries. Persistent notification includes Stopp. It stops on logout, route end, revoked session, task removal, extended connection failure or explicit stop. No boot restart or unrestricted ACCESS_BACKGROUND_LOCATION permission.
+- Driver service keeps only the driver session cookie in memory. It uses fixed HTTPS API hosts and server-derived assignments; JS never receives the HttpOnly cookie. Instrumentation uses fake routes and a synthetic Berlin location, without real driver login or live location upload.
 
-```powershell
-# Customer /menu, order-type dialog open:
-node tests/viewport-smoke.mjs
-# Product configuration open:
-node tests/product-viewport-smoke.mjs
-```
+## Evidence and remaining release gates
 
-These use the Android WebView engine with CDP viewport overrides at 360x640, 360x800, 390x844. They are not three physical phone tests and do not verify the OS keyboard at those sizes. Screenshots/measurements are saved under ignored `build/emulator-evidence/`. `tests/cdp.mjs` is a debug inspection helper, not shipped app code.
+See repository root `ANDROID-WEBVIEW-VALIDATION-2026-10-25.md` and `PLAY-RELEASE-CHECKLIST.md`. Instrumentation XML and lint reports live in ignored `app/build/outputs/` and `app/build/reports/`. Debug APKs and unsigned AABs live in ignored `build/artifacts/`; signed candidates, if built, live in `build/play-candidates/`.
+
+No production deployment or Play release is performed by any of these scripts. A web deployment is required for the bridge-compatible frontend/API code, and a new Android AAB is required to replace the existing TWA binaries. Unsigned bundles are not upload-ready.

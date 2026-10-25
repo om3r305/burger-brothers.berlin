@@ -1,3 +1,5 @@
+import { queueNativeSchnellReady } from "@/lib/server/native-schnell-push";
+import { parseFcmEndpoint } from "@/lib/server/fcm";
 import { isPaymentDraft } from "@/lib/server/payment-draft";
 // app/api/orders/status/route.ts
 import { NextResponse } from "next/server";
@@ -1433,7 +1435,9 @@ async function handleStatusUpdate(req: Request) {
       // Bu özel push status cevabından önce denenir. Serverless ortamda after()
       // görevinin erken sonlanması yüzünden bildirim kaybolmasın. Timeout sınırlı;
       // TV status isteğine sürekli yük değil, yalnız Fertig/Ausgegeben anında eklenir.
-      const result = await sendEmptySchnellPush(subscriptionForPush, 4_000);
+      const result = parseFcmEndpoint((subscriptionForPush as any)?.endpoint)
+        ? await queueNativeSchnellReady({...updated,meta:updatedMeta},subscriptionForPush)
+        : await sendEmptySchnellPush(subscriptionForPush, 4_000);
 
       if (result.expired && orderIdForPush) {
         const cleanedMeta = { ...updatedMeta };

@@ -704,16 +704,7 @@ function isInstalledAppContext() {
 }
 
 function isAndroidBrowserWithoutInstalledMode() {
-  if (!/Android/i.test(navigator.userAgent || "")) return false;
-
-  const navigatorWithStandalone = navigator as Navigator & {
-    standalone?: boolean;
-  };
-
-  return !(
-    window.matchMedia?.("(display-mode: standalone)").matches === true ||
-    navigatorWithStandalone.standalone === true
-  );
+  return /Android/i.test(navigator.userAgent || "") && !isInstalledAppContext();
 }
 
 export default function SchnellClient() {

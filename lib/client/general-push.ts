@@ -1,4 +1,5 @@
 "use client";
+import { androidNotificationPermission, isNativeAndroidCustomer } from "@/lib/client/android-native-bridge";
 
 import { readLastCustomerTracking } from "@/lib/customer-tracking";
 import {
@@ -31,6 +32,7 @@ export type GeneralPushState = {
   configured?: boolean;
   publicKey?: string;
   nativeConfigured?: boolean;
+  androidConfigured?: boolean;
   subscribed?: boolean;
   platform?: string | null;
   preferences?: GeneralPushPreferences;
@@ -119,13 +121,14 @@ export function isNativeIOSApp() {
 
 function nativeBridge(): NativePushBridge | null {
   const bridge = (window as any).BurgerBrothersNative;
-  return bridge?.platform === "ios" &&
+  return (bridge?.platform === "ios" || (isNativeAndroidCustomer() && bridge?.platform === "android" && bridge?.appKind === "main")) &&
     typeof bridge.requestNotifications === "function"
     ? bridge
     : null;
 }
 
 function readNativePermission(): NotificationPermission {
+  if(isNativeAndroidCustomer())return androidNotificationPermission();
   try {
     const value = localStorage.getItem(NATIVE_PERMISSION_KEY);
     return value === "granted" || value === "denied" ? value : "default";
@@ -141,7 +144,7 @@ function saveNativePermission(value: NotificationPermission) {
 }
 
 function pushPermissionGranted() {
-  if (isNativeIOSApp()) return readNativePermission() === "granted";
+  if (isNativeIOSApp() || isNativeAndroidCustomer()) return readNativePermission() === "granted";
   return supportsPush() && Notification.permission === "granted";
 }
 
@@ -179,7 +182,8 @@ function waitForWindowEvent<T>(
 }
 
 function cleanNativeToken(value: unknown) {
-  const token = String(value ?? "").trim().toLowerCase();
+  const token = String(value ?? "").trim();
+  if(isNativeAndroidCustomer())return /^[A-Za-z0-9:_-]{20,4096}$/.test(token)?token:null;
   return /^[0-9a-f]{64,200}$/.test(token) ? token : null;
 }
 
@@ -275,7 +279,7 @@ function delay(milliseconds: number) {
 export async function loadGeneralPushState(
   timeoutMs = DEFAULT_TECHNICAL_TIMEOUT_MS,
 ): Promise<GeneralPushState> {
-  if (!supportsPush() && !isNativeIOSApp()) {
+  if (!supportsPush() && !isNativeIOSApp() && !isNativeAndroidCustomer()) {
     return { ok: false, enabled: false, configured: false };
   }
 
@@ -346,7 +350,7 @@ async function saveSubscription(
     "nativeToken" in subscription
       ? {
           native: {
-            platform: "ios",
+            platform: isNativeAndroidCustomer() ? "android" : "ios",
             appKind: "main",
             token: subscription.nativeToken,
           },
@@ -465,7 +469,7 @@ async function activateNativePush(
     );
   }
   if (!configResult.value.enabled) return activationFailure("disabled", "granted");
-  if (!configResult.value.nativeConfigured) {
+  if (!(isNativeAndroidCustomer() ? configResult.value.androidConfigured : configResult.value.nativeConfigured)) {
     return activationFailure("not_configured", "granted");
   }
 
@@ -500,7 +504,7 @@ export async function activateGeneralPushFromGesture(
   preferences: GeneralPushPreferences = ALL_GENERAL_PUSH_PREFERENCES,
   options: GeneralPushActivationOptions = {},
 ): Promise<GeneralPushActivationResult> {
-  if (isNativeIOSApp()) {
+  if (isNativeIOSApp() || isNativeAndroidCustomer()) {
     return activateNativePush(preferences, options);
   }
 
@@ -628,11 +632,12 @@ export async function activateGeneralPushFromGesture(
 }
 
 async function ensureNativePushRegistration(): Promise<boolean> {
+  if(isNativeAndroidCustomer())await waitForNativeBridge(5000).catch(()=>null);
   if (readNativePermission() !== "granted") return false;
 
   try {
     const config = await loadGeneralPushState();
-    if (!config.enabled || !config.nativeConfigured) return false;
+    if (!config.enabled || !(isNativeAndroidCustomer() ? config.androidConfigured : config.nativeConfigured)) return false;
 
     const token = await nativePushToken(DEFAULT_TECHNICAL_TIMEOUT_MS);
     await saveSubscription(
@@ -650,7 +655,7 @@ async function ensureNativePushRegistration(): Promise<boolean> {
 }
 
 export async function ensureCustomerAppPushRegistration(): Promise<boolean> {
-  if (isNativeIOSApp()) return ensureNativePushRegistration();
+  if (isNativeIOSApp() || isNativeAndroidCustomer()) return ensureNativePushRegistration();
   if (!supportsPush() || Notification.permission !== "granted") return false;
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -692,7 +697,7 @@ export async function ensureCustomerAppPushRegistration(): Promise<boolean> {
 export async function updateGeneralPushPreferences(
   preferences: GeneralPushPreferences,
 ) {
-  if (isNativeIOSApp()) {
+  if (isNativeIOSApp() || isNativeAndroidCustomer()) {
     if (readNativePermission() !== "granted") throw new Error("push_not_active");
     const token = await nativePushToken(DEFAULT_TECHNICAL_TIMEOUT_MS);
     return saveSubscription({ nativeToken: token }, preferences);

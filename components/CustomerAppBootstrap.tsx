@@ -1,6 +1,6 @@
 "use client";
+import { isNativeAndroidCustomer, androidNotificationPermission } from "@/lib/client/android-native-bridge";
 
-import { isNativeAndroidWebView } from "@/lib/client/native-android";
 
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
@@ -71,6 +71,13 @@ export default function CustomerAppBootstrap() {
   const [showPrompt, setShowPrompt] = useState(false);
   const [busy, setBusy] = useState(false);
   const [stageText, setStageText] = useState("");
+  useEffect(()=>{
+    if(!isNativeAndroidCustomer())return;
+    const repair=()=>{if(readDecision()==="accepted" && androidNotificationPermission()==="granted")void repairCustomerPushInBackground();};
+    window.addEventListener("bb:nativeReady",repair);window.addEventListener("bb:nativePushToken",repair);
+    return()=>{window.removeEventListener("bb:nativeReady",repair);window.removeEventListener("bb:nativePushToken",repair);};
+  },[]);
+
 
   useEffect(() => {
     const samsungShortcutFlow =
@@ -78,8 +85,6 @@ export default function CustomerAppBootstrap() {
 
     if (
       typeof window === "undefined" ||
-      // Android WebView has no Web Push; do not promise unsupported activation.
-      isNativeAndroidWebView() ||
       (!isStandaloneApp() && !samsungShortcutFlow) ||
       isOperationalPath(pathname) ||
       pathname === "/install"

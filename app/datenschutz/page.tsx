@@ -17,7 +17,7 @@ export default function DatenschutzPage() {
   return (
     <article className="mx-auto max-w-3xl px-5 py-12 text-stone-300">
       <h1 className="text-3xl font-bold text-white">Datenschutzerklärung</h1>
-      <p className="mt-4 text-sm">Stand: 30. Juli 2026</p>
+      <p className="mt-4 text-sm">Stand: 25. Oktober 2026</p>
 
       <section className="mt-8 space-y-3">
         <h2 className="text-xl font-semibold text-white">Verantwortlicher</h2>
@@ -37,15 +37,15 @@ export default function DatenschutzPage() {
           Bestellung und Kundenservice
         </h2>
         <p>
-          Für Bestellung, Lieferung, Abholung, Zahlung und Rückfragen verarbeiten
-          wir die von Ihnen eingegebenen Kontakt-, Adress-, Bestell- und
-          Zahlungsstatusdaten. Rechtsgrundlage ist Art. 6 Abs. 1 lit. b DSGVO;
-          gesetzlich aufzubewahrende Abrechnungsdaten verarbeiten wir nach Art. 6
-          Abs. 1 lit. c DSGVO. Vollständige Kontaktdaten in abgeschlossenen
-          Bestellungen werden standardmäßig nach 90 Tagen anonymisiert.
-          Kundenstammdaten ohne aktive Einwilligung werden standardmäßig nach 365
-          Tagen anonymisiert. Gesetzliche Aufbewahrungspflichten bleiben
-          unberührt.
+          Für Bestellung, Lieferung, Abholung, Zahlung und Rückfragen
+          verarbeiten wir die von Ihnen eingegebenen Kontakt-, Adress-, Bestell-
+          und Zahlungsstatusdaten. Rechtsgrundlage ist Art. 6 Abs. 1 lit. b
+          DSGVO; gesetzlich aufzubewahrende Abrechnungsdaten verarbeiten wir
+          nach Art. 6 Abs. 1 lit. c DSGVO. Vollständige Kontaktdaten in
+          abgeschlossenen Bestellungen werden standardmäßig nach 90 Tagen
+          anonymisiert. Kundenstammdaten ohne aktive Einwilligung werden
+          standardmäßig nach 365 Tagen anonymisiert. Gesetzliche
+          Aufbewahrungspflichten bleiben unberührt.
         </p>
       </section>
 
@@ -55,11 +55,11 @@ export default function DatenschutzPage() {
         </h2>
         <p>
           Online-Zahlungen werden über Stripe verarbeitet; vollständige
-          Kartendaten werden nicht in unserer Anwendung gespeichert. Für Hosting,
-          Datenbank, verschlüsselte Sicherungen, optionale Medien und
+          Kartendaten werden nicht in unserer Anwendung gespeichert. Für
+          Hosting, Datenbank, verschlüsselte Sicherungen, optionale Medien und
           Benachrichtigungen können Vercel, Supabase, Cloudinary, Cloudflare R2
-          und Telegram eingesetzt werden. Es gelten die jeweils
-          konfigurierten Auftragsverarbeitungs- und Übermittlungsregelungen.
+          und Telegram eingesetzt werden. Es gelten die jeweils konfigurierten
+          Auftragsverarbeitungs- und Übermittlungsregelungen.
         </p>
       </section>
 
@@ -94,13 +94,45 @@ export default function DatenschutzPage() {
       </section>
 
       <section className="mt-8 space-y-3">
+        <h2 className="text-xl font-semibold text-white">
+          Android-Benachrichtigungen und Fahrerstandort
+        </h2>
+        <p>
+          Die Android-Apps verwenden Firebase Cloud Messaging von Google zur
+          Zustellung freigegebener Benachrichtigungen. Dabei werden eine
+          Installationskennung und ein Zustelltoken verarbeitet. Unser Server
+          ordnet den Token der jeweiligen App und, soweit erforderlich, der
+          Bestellung oder der angemeldeten Fahrer-Sitzung zu. Die Freigabe kann
+          in den Android-App-Einstellungen widerrufen werden.
+        </p>
+        <p>
+          In der Driver-App wird der Standort nach ausdrücklicher Freigabe für
+          eine aktive Lieferung auch bei ausgeschaltetem Bildschirm an unseren
+          Server übermittelt. Eine dauerhafte Android-Benachrichtigung zeigt die
+          Übertragung an; mit „Stopp“ kann sie beendet werden. Ohne aktive
+          Lieferung oder nach Abmeldung wird die Übertragung beendet.
+        </p>
+        <p>
+          Weitere Informationen:{" "}
+          <a
+            className="underline"
+            href="https://firebase.google.com/support/privacy"
+          >
+            Datenschutz bei Firebase
+          </a>
+          .
+        </p>
+      </section>
+
+      <section className="mt-8 space-y-3">
         <h2 className="text-xl font-semibold text-white">Ihre Rechte</h2>
         <p>
           Sie haben im gesetzlichen Umfang Rechte auf Auskunft, Berichtigung,
-          Löschung, Einschränkung, Datenübertragbarkeit und Widerspruch sowie das
-          Recht, eine Einwilligung mit Wirkung für die Zukunft zu widerrufen.
-          Außerdem können Sie sich bei einer Datenschutzaufsichtsbehörde
-          beschweren. Anfragen senden Sie an die oben genannte E-Mail-Adresse.
+          Löschung, Einschränkung, Datenübertragbarkeit und Widerspruch sowie
+          das Recht, eine Einwilligung mit Wirkung für die Zukunft zu
+          widerrufen. Außerdem können Sie sich bei einer
+          Datenschutzaufsichtsbehörde beschweren. Anfragen senden Sie an die
+          oben genannte E-Mail-Adresse.
         </p>
       </section>
     </article>

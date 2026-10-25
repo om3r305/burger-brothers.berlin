@@ -1,4 +1,6 @@
 "use client";
+import { isNativeAndroidWebView } from "@/lib/client/native-android";
+import { androidNotificationPermission, androidPushToken, requestAndroidNotifications, waitForAndroidBridge } from "@/lib/client/android-native-bridge";
 
 import {
   isPwaStepTimeoutError,
@@ -11,6 +13,7 @@ type PushConfig = {
   enabled?: boolean;
   configured?: boolean;
   publicKey?: string;
+  nativeConfigured?: boolean;
 };
 
 export type SchnellPushActivationStage =
@@ -103,7 +106,7 @@ async function fetchWithTimeout(
 }
 
 async function loadConfig(timeoutMs = TECHNICAL_TIMEOUT_MS) {
-  if (!browserSupportsPush()) return {};
+  if (!browserSupportsPush() && !isNativeAndroidWebView()) return {};
 
   const currentWindow = pushWindow();
 
@@ -241,6 +244,18 @@ export type SchnellPushActivationResult =
 export async function activateSchnellPushFromGesture(
   onStage?: (stage: SchnellPushActivationStage) => void,
 ): Promise<SchnellPushActivationResult> {
+  if (isNativeAndroidWebView()) {
+    try {
+      onStage?.("permission");
+      const permission=await requestAndroidNotifications();
+      if(permission!=="granted")return {ok:false,code:"permission_denied",permission};
+      onStage?.("config");const config=await loadConfig();
+      if(!config.enabled)return {ok:false,code:"disabled",permission};
+      if(!config.nativeConfigured)return {ok:false,code:"not_configured",permission};
+      onStage?.("subscription");await androidPushToken();
+      onStage?.("done");return {ok:true,code:"subscribed",permission};
+    }catch{return {ok:false,code:"subscription_timeout",permission:androidNotificationPermission()};}
+  }
   if (!browserSupportsPush()) {
     return {
       ok: false,
@@ -355,6 +370,7 @@ export async function activateSchnellPushFromGesture(
 }
 
 export function requestSchnellPushPermissionFromGesture() {
+  if(isNativeAndroidWebView()) { if(!schnellPushSkippedForSession())void requestAndroidNotifications().catch(()=>undefined);return; }
   if (!browserSupportsPush() || schnellPushSkippedForSession()) return;
 
   const currentWindow = pushWindow();
@@ -385,6 +401,16 @@ export function requestSchnellPushPermissionFromGesture() {
 }
 
 export async function bindSchnellPushToOrder(orderId: string) {
+  if(isNativeAndroidWebView()) {
+    await waitForAndroidBridge().catch(()=>null);
+    if(!orderId || androidNotificationPermission()!=="granted" || schnellPushSkippedForSession())return false;
+    try {
+      const config=await loadConfig();if(!config.enabled || !config.nativeConfigured)return false;
+      const token=await androidPushToken();
+      const response=await fetchWithTimeout("/api/schnellbestellung/push",{method:"POST",headers:{"content-type":"application/json"},credentials:"same-origin",body:JSON.stringify({orderId,native:{platform:"android",appKind:"schnell",token}})},SERVER_TIMEOUT_MS,"server_timeout");
+      return response.ok;
+    }catch{return false;}
+  }
   if (!browserSupportsPush() || !orderId) return false;
 
   const currentWindow = pushWindow();

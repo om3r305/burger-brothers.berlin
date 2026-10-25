@@ -1,3 +1,5 @@
+import { notifyNativeDriversForOrder } from "@/lib/server/native-driver-push";
+import { fcmEndpointForToken, isFcmConfigured, normalizeFcmToken, parseFcmEndpoint, sendFcmAlert } from "@/lib/server/fcm";
 import { createHash, randomBytes } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
@@ -162,6 +164,7 @@ export function getGeneralPushConfig() {
     publicKey: enabled && base.configured ? base.publicKey : "",
     // The iOS app registers APNs device tokens instead of Web Push.
     nativeConfigured: enabled && isApnsConfigured(),
+    androidConfigured: enabled && isFcmConfigured(),
   };
 }
 
@@ -169,6 +172,10 @@ export function getGeneralPushConfig() {
 function normalizePushDevice(subscriptionValue: unknown, nativeValue: unknown) {
   const native = plainObject(nativeValue);
   if (Object.keys(native).length) {
+    if (native.platform === "android") {
+      if (native.appKind !== "main" || !normalizeFcmToken(native.token)) throw new Error("invalid_native_device");
+      return { native:true, endpoint:fcmEndpointForToken(native.token,"main"), p256dh:"", auth:"", expirationTime:null as Date | null };
+    }
     if (cleanText(native.platform, 20) !== "ios") throw new Error("invalid_native_device");
     const token = normalizeApnsToken(native.token);
     if (!token) throw new Error("invalid_native_device");
@@ -273,7 +280,7 @@ export async function upsertGeneralPushSubscription(
 ) {
   const config = getGeneralPushConfig();
   const device = normalizePushDevice(subscriptionValue, nativeValue);
-  if (device.native ? !config.nativeConfigured : !config.configured) {
+  if (device.native ? !(parseFcmEndpoint(device.endpoint) ? config.androidConfigured : config.nativeConfigured) : !config.configured) {
     throw new Error("push_not_configured");
   }
 
@@ -305,7 +312,7 @@ export async function upsertGeneralPushSubscription(
     : randomBytes(32).toString("base64url");
   const userAgent = cleanText(req.headers.get("user-agent"), 500);
   const locale = cleanText(req.headers.get("accept-language")?.split(",")[0] || "de", 24) || "de";
-  const platform = device.native ? "ios" : platformFromUserAgent(userAgent);
+  const platform = device.native ? (parseFcmEndpoint(device.endpoint) ? "android" : "ios") : platformFromUserAgent(userAgent);
 
   const subscription = current
     ? await (prisma as any).pushSubscription.update({
@@ -515,7 +522,9 @@ export async function sendGeneralNotificationEvent(eventOrId: any) {
     return { ok: false, skipped: true, expired: false };
   }
 
-  const result = isApnsEndpoint(event.subscription.endpoint)
+  const result = parseFcmEndpoint(event.subscription.endpoint)
+    ? await sendFcmAlert(event.subscription.endpoint, {title:event.title,body:event.body,url:event.url,type:event.type,eventId:event.id})
+    : isApnsEndpoint(event.subscription.endpoint)
     ? await sendApnsAlert(event.subscription.endpoint, {
         title: event.title,
         body: event.body,
@@ -766,6 +775,7 @@ export async function notifyGeneralOrderStatus(
   nextStatus: string,
 ) {
   if (!nextStatus || previousStatus === nextStatus) return { queued: 0 };
+  await notifyNativeDriversForOrder(order,previousStatus,nextStatus).catch(()=>undefined);
   if (cleanText(order?.channel, 60).toLowerCase() === "schnellbestellung") {
     return { queued: 0 };
   }

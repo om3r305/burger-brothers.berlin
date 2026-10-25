@@ -4,3 +4,5 @@ app/build/
 local.properties
 *.keystore
 *.jks
+firebase-config.properties
+release-signing.properties
