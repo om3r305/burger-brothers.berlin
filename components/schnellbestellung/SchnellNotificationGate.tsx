@@ -1,4 +1,6 @@
 "use client";
+import { isNativeAndroidWebView } from "@/lib/client/native-android";
+import { androidNotificationPermission, waitForAndroidBridge } from "@/lib/client/android-native-bridge";
 
 import { useCallback, useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
@@ -16,6 +18,7 @@ const SKIP_COOKIE = "bb_schnell_push_skip";
 const SKIP_SECONDS = 30 * 60;
 
 function supportsPush() {
+  if(isNativeAndroidWebView())return true;
   return (
     typeof window !== "undefined" &&
     "serviceWorker" in navigator &&
@@ -91,6 +94,15 @@ export default function SchnellNotificationGate({
       return;
     }
 
+    if(isNativeAndroidWebView()) {
+      let cancelled=false;
+      void waitForAndroidBridge().then(()=>{
+        if(cancelled)return;
+        if(androidNotificationPermission()==="granted"){setSkipCookie(false);setMode("hidden");}
+        else setMode(hasSkipCookie()?"hidden":"prompt");
+      }).catch(()=>{if(!cancelled)setMode("prompt");});
+      return()=>{cancelled=true;};
+    }
     prewarmSchnellPush();
 
     if (Notification.permission === "granted") {

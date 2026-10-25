@@ -1,0 +1,36 @@
+{
+  "verifiedAt": "2026-10-25",
+  "versionName": "1.1.0",
+  "applications": {
+    "customer": {
+      "packageId": "berlin.burgerbrothers.app",
+      "playAppId": "4973188686699707147",
+      "observedMaxVersionCode": 6,
+      "candidateVersionCode": 7,
+      "keyFile": "burger-brothers-play-upload.keystore",
+      "keyAlias": "burgerbrothers-upload",
+      "uploadSha256": "6E:77:3C:95:A7:5A:7E:28:EB:F1:D2:95:B1:60:1F:37:37:BE:E2:B1:01:F1:B5:40:9D:CB:54:BB:C0:95:9F:A5",
+      "uploadSha256Source": "existing local signed AAB; compare with current Play upload certificate before submission"
+    },
+    "driver": {
+      "packageId": "berlin.burgerbrothers.driver",
+      "playAppId": "4972913257916172714",
+      "observedMaxVersionCode": 1,
+      "candidateVersionCode": 2,
+      "keyFile": "burger-brothers-driver-play-upload.keystore",
+      "keyAlias": "burgerbrothers-driver-upload",
+      "uploadSha256": "88:19:7C:45:39:11:18:BB:A3:94:D1:FB:A9:B5:10:2D:96:05:83:08:27:8A:0B:DA:D1:C9:9E:F4:EF:31:23:AD",
+      "uploadSha256Source": "existing local signed AAB; compare with current Play upload certificate before submission"
+    },
+    "schnell": {
+      "packageId": "berlin.burgerbrothers.schnell",
+      "playAppId": "4973460098249907816",
+      "observedMaxVersionCode": 3,
+      "candidateVersionCode": 4,
+      "keyFile": "burger-brothers-schnell-play-upload.keystore",
+      "keyAlias": "burgerbrothers-schnell-upload",
+      "uploadSha256": "82:ED:D6:67:AB:D4:3A:66:DE:0C:92:DB:6C:64:13:6E:CD:5E:F0:20:0E:47:A4:E5:F9:EB:5D:DB:DC:89:22:4B",
+      "uploadSha256Source": "existing local signed AAB; compare with current Play upload certificate before submission"
+    }
+  }
+}

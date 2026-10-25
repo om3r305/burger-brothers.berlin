@@ -55,6 +55,14 @@ try {
   } = require(path.join(root, "middleware.ts"));
 
   const matrix = [
+    ["/api/native/driver/push", "POST", "driver"],
+    ["/api/native/driver/push", "DELETE", "driver"],
+    ["/api/native/driver/push", "GET", "admin"],
+    ["/api/native/driver/route", "GET", "driver"],
+    ["/api/native/driver/route", "POST", "driver"],
+    ["/api/native/driver/route", "PUT", "admin"],
+    ["/api/native/driver/unknown", "POST", "admin"],
+
     ["/api/public/eta", "GET", "public"],
     ["/api/public/eta", "POST", "admin"],
     ["/api/catalog/popularity", "GET", "public"],

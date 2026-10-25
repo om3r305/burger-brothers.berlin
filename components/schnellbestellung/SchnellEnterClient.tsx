@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { isNativeAndroidWebView } from "@/lib/client/native-android";
 import SchnellQrScanner from "@/components/schnellbestellung/SchnellQrScanner";
 import { prefetchSchnellCatalog } from "@/lib/client/schnell-catalog";
 import {
@@ -244,7 +245,8 @@ function isStandaloneDisplayMode() {
     appleNavigator.standalone === true ||
     // The native iOS apps (App Store) are already installed: never show the
     // "add to Home Screen" chooser inside them.
-    /\bBurgerBrothers-iOS\//.test(navigator.userAgent || "")
+    /\bBurgerBrothers-iOS\//.test(navigator.userAgent || "") ||
+    isNativeAndroidWebView()
   );
 }
 

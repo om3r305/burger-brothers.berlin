@@ -1,3 +1,5 @@
+import { queueNativeSchnellReady } from "@/lib/server/native-schnell-push";
+import { fcmEndpointForToken, isFcmConfigured, normalizeFcmToken } from "@/lib/server/fcm";
 import { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { prisma, getTenantId } from "@/lib/db";
@@ -58,6 +60,7 @@ export async function GET(req: Request) {
         ok: true,
         enabled: settings.backgroundReadyPushEnabled,
         configured: config.configured,
+        nativeConfigured: isFcmConfigured(),
         publicKey:
           settings.backgroundReadyPushEnabled && config.configured
             ? config.publicKey
@@ -92,7 +95,7 @@ export async function GET(req: Request) {
     },
     orderBy: { ts: "desc" },
     take: 50,
-    select: { id: true, meta: true },
+    select: { id: true, meta: true, status:true, tenantId:true },
   });
 
   const deviceId = String(session.deviceId || "");
@@ -161,7 +164,7 @@ export async function POST(req: Request) {
   }
 
   const config = getSchnellPushConfig();
-  if (!settings.backgroundReadyPushEnabled || !config.configured) {
+  if (!settings.backgroundReadyPushEnabled || (!config.configured && !isFcmConfigured())) {
     return NextResponse.json(
       { ok: false, error: "push_not_available" },
       { status: 409, headers: NO_STORE_HEADERS },
@@ -170,7 +173,10 @@ export async function POST(req: Request) {
 
   const body = await req.json().catch(() => ({}));
   const orderId = cleanOrderId(body.orderId);
-  const subscription = normalizeSchnellPushSubscription(body.subscription);
+  const native=body.native;
+  const subscription = native?.platform === "android" && native.appKind === "schnell" && normalizeFcmToken(native.token) && isFcmConfigured()
+    ? {endpoint:fcmEndpointForToken(native.token,"schnell"),expirationTime:null}
+    : normalizeSchnellPushSubscription(body.subscription);
 
   if (!orderId || !subscription) {
     return NextResponse.json(
@@ -186,7 +192,7 @@ export async function POST(req: Request) {
       tenantId,
       channel: "schnellbestellung",
     },
-    select: { id: true, meta: true },
+    select: { id: true, meta: true, status:true, tenantId:true },
   });
 
   if (!order) {
@@ -221,6 +227,9 @@ export async function POST(req: Request) {
     },
   });
 
+  if(native?.platform === "android" && meta.readyEventId && ["ready","done"].includes(String(order.status))) {
+    await queueNativeSchnellReady({...order,meta:nextMeta},subscription).catch(()=>undefined);
+  }
   return NextResponse.json(
     { ok: true },
     { headers: NO_STORE_HEADERS },

@@ -165,21 +165,26 @@ function PaymentCenterContent() {
   }, [sessionUrl, paymentSessionId, recoveryToken, refresh, clear]);
 
   useEffect(() => {
-    if (profileAttempted.current || !checkoutSessionId || !paymentSessionId)
+    if (
+      profileAttempted.current ||
+      (!checkoutSessionId && !state.finalized) ||
+      !paymentSessionId ||
+      !recoveryToken
+    )
       return;
     profileAttempted.current = true;
     void fetch("/api/payments/profile", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        checkoutSessionId,
+        checkoutSessionId: checkoutSessionId || undefined,
         paymentSessionId,
         recoveryToken,
       }),
       cache: "no-store",
       credentials: "same-origin",
     }).catch(() => null);
-  }, [checkoutSessionId, paymentSessionId, recoveryToken]);
+  }, [checkoutSessionId, paymentSessionId, recoveryToken, state.finalized]);
 
   async function mutate(action: string) {
     if (busy) return;
@@ -216,7 +221,9 @@ function PaymentCenterContent() {
 
   const finalized = state.finalized === true;
   const terminal =
-    ["expired", "refunded", "refund_pending", "cancelled"].includes(String(state.status || "")) ||
+    ["expired", "refunded", "refund_pending", "cancelled"].includes(
+      String(state.status || ""),
+    ) ||
     [
       "AUTO_REFUND_FAILED",
       "AUTO_REFUND_PENDING",

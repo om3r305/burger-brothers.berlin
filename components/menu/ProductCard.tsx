@@ -705,7 +705,7 @@ export default function ProductCard({
             <div className="shrink-0 border-b border-stone-700/60 px-4 pb-3 pt-4">
               <div className="mb-3 flex items-start justify-between gap-3">
                 <div className="min-w-0 flex-1 text-lg font-semibold leading-tight">{name}</div>
-                <button type="button" className="btn-ghost shrink-0" onClick={closeReset}>
+                <button type="button" className="btn-ghost shrink-0" onClick={closeReset} data-bb-dialog-close>
                   Schließen
                 </button>
               </div>
@@ -843,7 +843,7 @@ export default function ProductCard({
           >
             <div className="mb-3 flex items-center justify-between">
               <div className="text-lg font-semibold">Allergen-Information</div>
-              <button type="button" className="btn-ghost" onClick={() => setShowLegend(false)}>
+              <button type="button" className="btn-ghost" onClick={() => setShowLegend(false)} data-bb-dialog-close>
                 Schließen
               </button>
             </div>

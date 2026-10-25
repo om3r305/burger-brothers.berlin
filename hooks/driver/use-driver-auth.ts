@@ -1,4 +1,5 @@
 "use client";
+import { androidBridge } from "@/lib/client/android-native-bridge";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -115,6 +116,9 @@ export function useDriverAuth({ notify }: { notify: Notify }) {
         }
 
         try {
+          const bridge=androidBridge();
+          bridge?.updateDriverRoute({active:false});
+          if(bridge?.pushToken)await fetch("/api/native/driver/push",{method:"DELETE",headers:{"content-type":"application/json"},body:JSON.stringify({token:bridge.pushToken})}).catch(()=>undefined);
           await fetch("/api/drivers", { method: "DELETE" });
         } catch {
           // Cookie cleanup failure is surfaced by the next protected request.

@@ -1,6 +1,11 @@
 "use client";
+import {
+  isNativeAndroidCustomer,
+  androidNotificationPermission,
+} from "@/lib/client/android-native-bridge";
 
 import { useEffect, useState } from "react";
+import { installNativePaymentRecovery } from "@/lib/client/native-payment-recovery";
 import { usePathname } from "next/navigation";
 import {
   activateGeneralPushFromGesture,
@@ -66,9 +71,26 @@ async function repairCustomerPushInBackground() {
 
 export default function CustomerAppBootstrap() {
   const pathname = usePathname();
+  useEffect(installNativePaymentRecovery, []);
   const [showPrompt, setShowPrompt] = useState(false);
   const [busy, setBusy] = useState(false);
   const [stageText, setStageText] = useState("");
+  useEffect(() => {
+    if (!isNativeAndroidCustomer()) return;
+    const repair = () => {
+      if (
+        readDecision() === "accepted" &&
+        androidNotificationPermission() === "granted"
+      )
+        void repairCustomerPushInBackground();
+    };
+    window.addEventListener("bb:nativeReady", repair);
+    window.addEventListener("bb:nativePushToken", repair);
+    return () => {
+      window.removeEventListener("bb:nativeReady", repair);
+      window.removeEventListener("bb:nativePushToken", repair);
+    };
+  }, []);
 
   useEffect(() => {
     const samsungShortcutFlow =
@@ -186,6 +208,7 @@ export default function CustomerAppBootstrap() {
           </button>
           <button
             type="button"
+            data-bb-dialog-close
             onClick={decline}
             disabled={busy}
             className="rounded-2xl border border-white/15 bg-white/[0.08] px-5 py-4 text-lg font-black text-white disabled:opacity-60"

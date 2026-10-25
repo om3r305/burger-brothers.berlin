@@ -260,7 +260,7 @@ export default function VariantGroupCard({
                       type="button"
                       className="btn-ghost shrink-0"
                       onClick={() => setOpen(false)}
-                    >
+                     data-bb-dialog-close>
                       Schließen
                     </button>
                   </div>

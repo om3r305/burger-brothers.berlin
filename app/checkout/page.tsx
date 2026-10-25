@@ -3558,7 +3558,7 @@ function CheckoutContent() {
               type="button"
               onClick={() => setModeChooserOpen(false)}
               className="mt-3 w-full py-2 text-sm text-stone-400"
-            >
+             data-bb-dialog-close>
               Abbrechen
             </button>
           </div>
@@ -5023,7 +5023,7 @@ function CheckoutContent() {
                 type="button"
                 className="btn-ghost ml-auto"
                 onClick={() => setShowConfirm(false)}
-              >
+               data-bb-dialog-close>
                 Schließen
               </button>
             </div>
@@ -5041,7 +5041,7 @@ function CheckoutContent() {
                 {drawer === "sauce" && "Soßen"}
               </div>
 
-              <button className="btn-ghost" onClick={() => setDrawer(null)}>
+              <button className="btn-ghost" onClick={() => setDrawer(null)} data-bb-dialog-close>
                 Schließen
               </button>
             </div>
@@ -5159,7 +5159,7 @@ function CheckoutContent() {
             )}
 
             <div className="mt-4 flex items-center justify-end gap-2 border-t border-stone-800/60 pt-2">
-              <button className="btn-ghost" onClick={() => setDrawer(null)}>
+              <button className="btn-ghost" onClick={() => setDrawer(null)} data-bb-dialog-close>
                 Abbrechen
               </button>
 

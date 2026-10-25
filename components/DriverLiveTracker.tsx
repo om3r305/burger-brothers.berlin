@@ -1,4 +1,6 @@
 "use client";
+import { isNativeAndroidWebView } from "@/lib/client/native-android";
+import { waitForAndroidBridge } from "@/lib/client/android-native-bridge";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DriverIdentity, DriverPosition, DriverTrackingState } from "@/types/driver";
@@ -335,6 +337,7 @@ export default function DriverLiveTracker({
   );
 
   const pushOnce = useCallback(() => {
+    if(isNativeAndroidWebView())return;
     if (
       !activeRef.current ||
       !driverRef.current ||
@@ -444,6 +447,18 @@ export default function DriverLiveTracker({
   ]);
 
   useEffect(() => {
+    if(isNativeAndroidWebView()) {
+      let cancelled=false;
+      const listener=(event:Event)=>{
+        const detail=(event as CustomEvent).detail;
+        if(detail?.position)onPositionRef.current?.(detail.position);
+        if(detail?.status)onStateChangeRef.current?.({status:detail.status,active:detail.active===true,lastPublishedAt:detail.position?.ts||null,message:detail.message||null});
+        setErrorMessage(detail?.status==="error"?detail.message:null);
+      };
+      window.addEventListener("bb:nativeTracking",listener);
+      void waitForAndroidBridge().then(bridge=>{if(!cancelled)bridge.updateDriverRoute({active:active && !!driver && orderIds.length>0});}).catch(()=>{if(!cancelled)setErrorMessage("Android-Standortdienst nicht verfügbar. Bitte App aktualisieren.");});
+      return ()=>{cancelled=true;window.removeEventListener("bb:nativeTracking",listener);};
+    }
     if (!active || !driver || !orderIds.length) {
       if (watchIdRef.current != null) {
         navigator.geolocation?.clearWatch(watchIdRef.current);

@@ -54,6 +54,7 @@ export async function GET(req: Request) {
     configured: config.configured,
     publicKey: config.publicKey,
     nativeConfigured: config.nativeConfigured,
+    androidConfigured: config.androidConfigured,
     subscribed: Boolean(subscription),
     platform: subscription?.platform || null,
     preferences: subscription

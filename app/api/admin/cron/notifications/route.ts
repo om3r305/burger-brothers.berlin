@@ -1,3 +1,5 @@
+import { flushNativeSchnellNotifications } from "@/lib/server/native-schnell-push";
+import { flushNativeDriverNotifications } from "@/lib/server/native-driver-push";
 import { NextRequest, NextResponse } from "next/server";
 import { processDueAutomaticNotifications } from "@/lib/server/automatic-notifications";
 import { secretMatches } from "@/lib/server/request-security";
@@ -26,15 +28,17 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const [result, rewardCleanup] = await Promise.all([
+    const [result, rewardCleanup, driverNotifications, schnellNotifications] = await Promise.all([
       processDueAutomaticNotifications(),
       cleanupExpiredRewardPhotos().catch((cleanupError) => {
         console.error("[cron/notifications] reward cleanup failed", cleanupError);
         return { scanned: 0, deleted: 0 };
       }),
+      flushNativeDriverNotifications(),
+      flushNativeSchnellNotifications(),
     ]);
     return NextResponse.json(
-      { ok: true, ...result, rewardCleanup },
+      { ok: true, ...result, rewardCleanup, driverNotifications, schnellNotifications },
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {

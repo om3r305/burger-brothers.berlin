@@ -234,6 +234,9 @@ export function apiAccess(path: string, methodRaw: string): Access {
     return "admin";
   }
 
+  if (path === "/api/native/driver/push" && ["POST", "DELETE"].includes(method)) return "driver";
+  if (path === "/api/native/driver/route" && ["GET", "POST"].includes(method)) return "driver";
+
   if (path === "/api/orders/claim") return "driver";
   if (child(path, "/api/qr-image")) return "operational";
   if (child(path, "/api/telegram")) return "admin";
