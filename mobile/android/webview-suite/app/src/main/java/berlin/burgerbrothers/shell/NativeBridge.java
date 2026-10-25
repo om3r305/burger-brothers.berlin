@@ -60,6 +60,9 @@ final class NativeBridge {
             });
         }
     }
+    void resumed() {
+        try {event("bb:nativeResume",new JSONObject());}catch(Exception ignored){}
+    }
     void requestNotifications() {
         if (!activity.resumed || !trusted())return;
         if (FirebaseApp.getApps(activity).isEmpty()) {

@@ -1794,7 +1794,7 @@ export function CartSummaryMobile() {
                 setModeChoiceOpen(false);
               }}
               className="mt-3 w-full py-2 text-sm text-stone-400"
-            >
+             data-bb-dialog-close>
               {orderModeExplicitlyChosen ? "Abbrechen" : "Erst Menü ansehen"}
             </button>
           </div>
@@ -1873,7 +1873,7 @@ export function CartSummaryMobile() {
                     Alles löschen
                   </button>
                 )}
-                <button className="rounded-md bg-stone-800 px-3 py-1" onClick={() => setOpen(false)}>
+                <button className="rounded-md bg-stone-800 px-3 py-1" onClick={() => setOpen(false)} data-bb-dialog-close>
                   Schließen
                 </button>
               </div>

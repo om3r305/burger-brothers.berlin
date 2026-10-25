@@ -86,6 +86,37 @@ At the user's explicit request, Codex contacted the already open Burger Brothers
 - Payment/3DS external-browser return remains a valid release gate. No payment-provider domains were added to the privileged native bridge trust list.
 - Suggested customer App Links collision was checked against the customer manifest overlay: `app/src/customer/AndroidManifest.xml` replaces the shared alias with exact root plus explicit customer prefixes. Compiled-manifest smoke already passed; the proposed root-prefix collision does not apply to that merged release manifest.
 - Driver empty-subject access already fails closed in the authenticated session validator. Added an explicit 401 guard in both native route handlers as defense in depth and reused the shared `orderAssignedToDriver` domain helper. New empty-subject GET/POST regressions, `npm run native-android:test` and `npm run typecheck` passed after this change.
-- Native modal back behavior currently uses German close-button text and an Escape fallback. The reviewer correctly identified text coupling as a maintainability limitation; no claim of universal modal-back coverage is made.
+- At that review, native modal Back used German close-button text and an Escape fallback. This text-coupling limitation is resolved in the continuation below; no claim of universal third-party modal coverage is made.
 
 Findings and corrections were sent back to Claude through the same session. No production or Play publication was authorized by the review exchange.
+
+## Final code/test continuation and Claude handoff
+
+User explicitly delegated Firebase and signing to the already open Claude session. Codex sent the task, exact per-app key plan, secret-handling requirements and build coordination boundaries through that session. Claude independently confirmed the three existing local signed AAB upload fingerprints match `play-release-plan.json`; direct current-Console upload-certificate comparison was still unavailable. Claude has no private Firebase JSON or upload-keystore passwords. No key was deleted and no production/Play state was changed.
+
+Additional code completed:
+
+- Added `lib/client/native-payment-recovery.ts` and mounted it in CustomerAppBootstrap. MainActivity/NativeBridge emits `bb:nativeResume`. A native customer app on resume, visibility restoration or cold start checks its existing recovery candidate against the authenticated recovery API before navigating to a fixed same-origin payment center. Stored manageUrl/paid claims never control navigation. Invalid/unknown responses, 403/404, throttling and service failures do not displace the current screen or destroy recovery. Live payment/action/split pages and operational apps retain their own flows. In-flight checks are bounded, deduplicated, aborted on cleanup and ignored if the candidate/page changed.
+- Payment center can reclaim the existing server-authorized payment profile using the recovery token after confirmed finalization, including manual return from the external browser without a Checkout Session ID in the URL.
+- Added `DialogBackScript.java` and stable data-bb-dialog-close controls to the product, variants, cart, checkout and notification prompt. Back closes the top visible modal independently of German wording. Hidden/disabled controls are ignored; old deployed web retains the text fallback. A modal consumes Back while its Escape handler settles, preventing navigation underneath it.
+- The external payment provider remains in the system browser; app re-entry/cold-start recovery is covered, but automatic App Link return, real Stripe/3DS and physical-device flows still require controlled release validation. No payment provider domain was added to native bridge trust.
+
+Final verification after these changes:
+
+| Check | Result |
+|---|---|
+| Native Android regression command (now includes payment recovery and actual shipped Back script) | PASS |
+| Payment recovery mocked lifecycle/transport | PASS: server verification, invalid/transient responses, fixed origin, single flight, candidate replacement, abort/cleanup, browser isolation |
+| Back JavaScript executed from Java source | PASS: changed captions, topmost modal, hidden/disabled controls, legacy web, Escape containment |
+| Typecheck / production web build | PASS |
+| checkout:safety:test / payment center architecture | PASS |
+| mobile-dialog:test / schnell:test | PASS |
+| Three APKs and unsigned release AABs / lint / manifest isolation | PASS; lint remains 0 errors, 12 warnings per variant |
+| Android 9 connected instrumentation, final full run | PASS: customer 3, Driver 8, Schnell 3; 14 total, zero failures/errors |
+| Final APK ZIP and 64-bit ELF 16KB alignment | PASS |
+
+Six new connected cases run on actual Android Activity/WebView instances using an in-memory first-party HTML fixture: marked modal Back and native resume event for each flavor. Initial fixture historyUrl=null caused the origin guard to reject its blank URL; the fixture now supplies an explicit trusted history URL and asserts it before testing. The final full run passed. This fixture does not perform a real payment, login, order or server mutation.
+
+`Prepare-PlayRelease.ps1 -Unsigned` rebuilt/refreshed the final ignored artifact directory and versioned candidates: bb-customer-v7-UNSIGNED.aab, bb-driver-v2-UNSIGNED.aab, bb-schnell-v4-UNSIGNED.aab. These are not signed/upload-ready. Connected XML and `build/final-connected-tests.log`, `build/final-web-build.log`, `build/final-candidates.log` contain local evidence.
+
+Claude is responsible for the remaining Firebase download/metadata validation and secure local signing handoff. Missing private JSON, secure password entry and real-device/internal-track validation remain release gates; delegation does not establish that these steps succeeded. Existing business settings and live payment configuration were preserved.

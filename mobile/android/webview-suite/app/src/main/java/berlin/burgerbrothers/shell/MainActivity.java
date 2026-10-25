@@ -32,7 +32,7 @@ import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
-/** Native host for first-party HTTPS content. No Custom Tabs, TWA, or JS bridge. */
+/** Native first-party HTTPS host with an origin-scoped WebMessage bridge. */
 public final class MainActivity extends Activity {
     private static final int CAMERA = 20, LOCATION = 21, FILE_PICKER = 22;
     private WebView web;
@@ -272,7 +272,7 @@ public final class MainActivity extends Activity {
         if (backPending) return;
         if (!NavigationPolicy.trusted(web.getUrl())) { finish(); return; }
         backPending = true;
-        web.evaluateJavascript("(() => { const dialogs = [...document.querySelectorAll('[role=dialog]')].filter(e => e.getClientRects().length); const dialog = dialogs[dialogs.length - 1]; if (!dialog) return false; const button = [...dialog.querySelectorAll('button')].find(b => /^(Schließen|Abbrechen|Erst Menü ansehen)$/.test(b.textContent.trim())); if (button) { button.click(); return true; } window.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape', bubbles:true})); return false; })()", value -> {
+        web.evaluateJavascript(DialogBackScript.SCRIPT, value -> {
             backPending = false;
             if ("true".equals(value)) return;
             if (web.canGoBack()) web.goBack(); else finish();
@@ -281,7 +281,7 @@ public final class MainActivity extends Activity {
     @Override public void onBackPressed() { handleBack(); }
     @Override protected void onSaveInstanceState(Bundle out) { web.saveState(out); super.onSaveInstanceState(out); }
     @Override protected void onPause() { resumed=false; web.onPause(); CookieManager.getInstance().flush(); super.onPause(); }
-    @Override protected void onResume() { super.onResume(); resumed=true; if (web != null) {web.onResume(); if(nativeBridge!=null)nativeBridge.publishState();} }
+    @Override protected void onResume() { super.onResume(); resumed=true; if (web != null) {web.onResume(); if(nativeBridge!=null){nativeBridge.publishState();nativeBridge.resumed();}} }
     @Override protected void onDestroy() {
         if (cameraRequest != null) cameraRequest.deny();
         if (locationCallback != null) locationCallback.invoke(locationOrigin, false, false);
