@@ -317,6 +317,23 @@ struct BurgerWebView: UIViewRepresentable {
             return nil
         }
 
+        // MARK: - Camera
+
+        /// The QR scanner asks for the camera. Answer WebKit's own per-site
+        /// prompt ("Erlauben" / "Nicht erlauben") for our domain so the only
+        /// dialog is the system camera request (App Review 5.1.1(iv)).
+        func webView(
+            _ webView: WKWebView,
+            requestMediaCapturePermissionFor origin: WKSecurityOrigin,
+            initiatedByFrame frame: WKFrameInfo,
+            type: WKMediaCaptureType,
+            decisionHandler: @escaping (WKPermissionDecision) -> Void
+        ) {
+            let trusted = origin.protocol == "https"
+                && WebPolicy.siteHosts.contains(origin.host.lowercased())
+            decisionHandler(trusted && type == .camera ? .grant : .deny)
+        }
+
         // MARK: - JavaScript dialogs (alert / confirm / prompt)
 
         func webView(
