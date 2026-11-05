@@ -1,3 +1,5 @@
+import { isDriverReviewSubject } from "@/lib/driver/review-identity";
+import { driverReviewNativeRoute, driverReviewNoop } from "@/lib/server/driver-review";
 import { prisma, getTenantId } from "@/lib/db";
 import { orderAssignedToDriver } from "@/lib/server/driver-order";
 import {
@@ -21,6 +23,7 @@ export async function GET(req: Request) {
   if (limited) return limited;
   const driverId = await getSessionSubject(req, "driver");
   if (!driverId) return securityJson({ ok: false }, 401);
+  if (isDriverReviewSubject(driverId)) return req.method === "GET" ? driverReviewNativeRoute() : driverReviewNoop();
   const tenantId = await getTenantId();
   const orders = await prisma.order.findMany({
     where: { tenantId, mode: "delivery", status: "out_for_delivery" },
@@ -44,6 +47,7 @@ export async function POST(req: Request) {
   const tenantId = await getTenantId();
   const driverId = await getSessionSubject(req, "driver");
   if (!driverId) return securityJson({ ok: false }, 401);
+  if (isDriverReviewSubject(driverId)) return req.method === "GET" ? driverReviewNativeRoute() : driverReviewNoop();
   await prisma.trackingSession.updateMany({
     where: { tenantId, driverId, active: true },
     data: { active: false },

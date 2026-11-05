@@ -1,3 +1,5 @@
+import { isDriverReviewSubject } from "@/lib/driver/review-identity";
+import { driverReviewTracking } from "@/lib/server/driver-review";
 import { NextResponse } from "next/server";
 import { prisma, getTenantId } from "@/lib/db";
 import {
@@ -187,6 +189,7 @@ export async function POST(
     const driverSubject = isAdmin
       ? ""
       : await getSessionSubject(req, "driver");
+    if (isDriverReviewSubject(driverSubject)) return driverReviewTracking(body);
     const requestedDriverId = String(body?.driverId || "").trim();
     const driverId = driverSubject || requestedDriverId;
 

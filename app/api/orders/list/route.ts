@@ -1,3 +1,5 @@
+import { isDriverReviewSubject } from "@/lib/driver/review-identity";
+import { driverReviewList } from "@/lib/server/driver-review";
 import { isPaymentDraft, PAYMENT_DRAFT_STATUSES } from "@/lib/server/payment-draft";
 // app/api/orders/list/route.ts
 import { NextResponse } from "next/server";
@@ -806,6 +808,7 @@ export async function GET(req: Request) {
     ? await getSessionSubject(req, "driver")
     : "";
   const isDriver = Boolean(driverSubject);
+  if (isDriverReviewSubject(driverSubject)) return driverReviewList();
 
   if (!isAdmin && !isTv && !isDriver) {
     return securityJson({ ok: false, error: "driver_session_subject_missing" }, 401);

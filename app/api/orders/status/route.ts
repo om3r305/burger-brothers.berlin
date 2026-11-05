@@ -1,3 +1,5 @@
+import { isDriverReviewSubject } from "@/lib/driver/review-identity";
+import { driverReviewMutation, driverReviewGet } from "@/lib/server/driver-review";
 import { queueNativeSchnellReady } from "@/lib/server/native-schnell-push";
 import { parseFcmEndpoint } from "@/lib/server/fcm";
 import { isPaymentDraft } from "@/lib/server/payment-draft";
@@ -1141,6 +1143,7 @@ async function handleStatusUpdate(req: Request) {
       return securityJson({ ok: false, error: "driver_session_subject_missing" }, 401);
     }
 
+    if (isDriverReviewSubject(driverSubject)) return driverReviewMutation("status", body);
     const id = String(body?.id ?? body?.orderId ?? body?.code ?? "").trim();
 
     const statusProvided =
@@ -1535,6 +1538,7 @@ export async function GET(req: Request) {
       url.searchParams.get("code") ||
       "";
 
+    if (isDriverReviewSubject(driverSubject)) return driverReviewGet(id);
     if (!id) {
       return jsonResponse(
         {

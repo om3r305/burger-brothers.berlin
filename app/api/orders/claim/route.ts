@@ -1,3 +1,5 @@
+import { isDriverReviewSubject } from "@/lib/driver/review-identity";
+import { driverReviewMutation } from "@/lib/server/driver-review";
 import { isPaymentDraft } from "@/lib/server/payment-draft";
 // app/api/orders/claim/route.ts
 import { NextResponse } from "next/server";
@@ -781,6 +783,7 @@ export async function POST(req: Request) {
     if (!isAdmin && !driverSubject) {
       return securityJson({ ok: false, error: "driver_session_subject_missing" }, 401);
     }
+    if (isDriverReviewSubject(driverSubject)) return driverReviewMutation("claim", body);
     const driver = await configuredDriver(
       tenantId,
       requestedDriver,
