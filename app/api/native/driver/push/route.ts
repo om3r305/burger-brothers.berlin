@@ -1,3 +1,5 @@
+import { isDriverReviewSubject } from "@/lib/driver/review-identity";
+import { driverReviewNoop } from "@/lib/server/driver-review";
 import { prisma, getTenantId } from "@/lib/db";
 import {
   fcmEndpointForToken,
@@ -26,6 +28,7 @@ async function authorize(req: Request) {
 export async function POST(req: Request) {
   const denied = await authorize(req);
   if (denied) return denied;
+  if (isDriverReviewSubject(await getSessionSubject(req, "driver"))) return driverReviewNoop();
   if (!isFcmConfigured())
     return securityJson({ ok: false, error: "push_not_configured" }, 409);
   const body = await req.json().catch(() => ({}));
@@ -67,6 +70,7 @@ export async function POST(req: Request) {
 export async function DELETE(req: Request) {
   const denied = await authorize(req);
   if (denied) return denied;
+  if (isDriverReviewSubject(await getSessionSubject(req, "driver"))) return driverReviewNoop();
   const body = await req.json().catch(() => ({}));
   const token = normalizeFcmToken(body.token);
   if (!token)

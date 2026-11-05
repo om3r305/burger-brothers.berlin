@@ -1,3 +1,5 @@
+import { isDriverReviewSubject } from "@/lib/driver/review-identity";
+import { driverReviewNotification } from "@/lib/server/driver-review";
 import { NextResponse } from "next/server";
 import { prisma, getTenantId } from "@/lib/db";
 import {
@@ -130,6 +132,7 @@ export async function POST(req: Request) {
   if (rateError) return rateError;
 
   const body = await req.json().catch(() => ({}));
+  if (isDriverReviewSubject(driverSubject)) return driverReviewNotification(body);
   const orderId = cleanId(body?.orderId || body?.id);
   const selectedTemplate = templateId(body?.templateId);
 

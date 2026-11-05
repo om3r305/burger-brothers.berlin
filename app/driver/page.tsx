@@ -2,6 +2,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { isDriverReviewSubject } from "@/lib/driver/review-identity";
 import NativeDriverNotifications from "@/components/driver/NativeDriverNotifications";
 import DriverLiveTracker from "@/components/DriverLiveTracker";
 import { DriverCompletionToast } from "@/components/driver/DriverCompletionToast";
@@ -366,6 +367,7 @@ export default function DriverPage() {
       onTouchEnd={pull.onPullEnd}
       onTouchCancel={pull.onPullEnd}
     >
+      {isDriverReviewSubject(auth.current.id) && <div role="status" className="bg-amber-200 px-4 py-3 text-center text-sm text-stone-950">Demo · Ausschließlich Testdaten. Keine echten Lieferungen, Zahlungen oder Kundennachrichten. Abmelden und erneut anmelden setzt die Demo zurück.</div>}
       {auth.current && <NativeDriverNotifications driverId={String(auth.current.id)} />}
       <DriverLiveTracker
         active={liveTrackingActive}

@@ -7,6 +7,8 @@ import {
   type SessionPayload,
 } from "@/lib/server/session";
 
+import { isDriverReviewSubject, driverReviewRequestAllowed } from "@/lib/driver/review-identity";
+
 const ADMIN_COOKIE = process.env.ADMIN_COOKIE_NAME || "bb_admin_sess";
 const TV_COOKIE = "bb_tv_auth";
 const DRIVER_COOKIE = "bb_driver_sess";
@@ -171,6 +173,7 @@ function authorizedDriverSession(req: Request) {
     pending = (async () => {
       const payload = await readSessionToken(readRequestCookie(req, DRIVER_COOKIE), "driver");
       if (!payload) return null;
+      if (isDriverReviewSubject(payload.sub) && !driverReviewRequestAllowed(req)) return null;
       const { driverSessionIsCurrent } = await import("@/lib/server/driver-session");
       return await driverSessionIsCurrent(payload) ? payload : null;
     })();

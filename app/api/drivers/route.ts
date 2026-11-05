@@ -1,3 +1,5 @@
+import { isDriverReviewSubject } from "@/lib/driver/review-identity";
+import { resetDriverReview } from "@/lib/server/driver-review";
 import { randomBytes, scryptSync, timingSafeEqual } from "crypto";
 import { NextResponse } from "next/server";
 import { prisma, getTenantId } from "@/lib/db";
@@ -235,6 +237,7 @@ export async function POST(req: Request) {
       return json({ ok: false, error: "invalid_credentials" }, 401);
     }
 
+    if (isDriverReviewSubject(driver.id)) await resetDriverReview();
     const remember = body?.remember === true;
     const maxAge = remember ? 60 * 60 * 24 * 30 : 60 * 60 * 12;
     const response = json({
